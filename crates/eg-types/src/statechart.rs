@@ -16,12 +16,14 @@ use serde::{Deserialize, Serialize};
 
 /// The statechart engine control-plane operation (CONCEPT:INT-P2-2).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum StatechartOp {
     /// Register a statechart DEFINITION. `def_msgpack` is a MessagePack-encoded
     /// `eg_statechart::StatechartDef` (opaque here — decoded + validated at the
     /// verified boundary). Content-addressed and idempotent server-side: the response
     /// carries the deterministic `def_id`.
     Define {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         def_msgpack: Vec<u8>,
     },

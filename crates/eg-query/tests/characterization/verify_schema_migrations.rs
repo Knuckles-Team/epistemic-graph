@@ -51,7 +51,14 @@ fn store_with_table_and_no_migrations_verifies_ok() {
 fn store_with_applied_migration_verifies_ok_in_memory_and_after_reopen() {
     let (store, path) = TableStore::open_temp().expect("temporary table store");
     drop(store);
-    let store = TableStore::open_scoped(&path, "tenant-verify-schema").expect("scoped store");
+    let store = TableStore::open_scoped(
+        &path,
+        "tenant-verify-schema",
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .expect("scoped store");
     store.create_table(&schema(), false).expect("create table");
     let current = store
         .get_schema("events")
@@ -81,8 +88,14 @@ fn store_with_applied_migration_verifies_ok_in_memory_and_after_reopen() {
     // returning Ok(..) IS the pin that verification passed on real
     // deserialized data, not freshly-constructed in-memory state.
     drop(store);
-    let reopened =
-        TableStore::open_scoped(&path, "tenant-verify-schema").expect("reopen after migration");
+    let reopened = TableStore::open_scoped(
+        &path,
+        "tenant-verify-schema",
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .expect("reopen after migration");
     assert!(reopened.verify_schema_migrations().is_ok());
     assert_eq!(reopened.schema_version("events").unwrap(), 1);
 }

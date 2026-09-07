@@ -232,7 +232,13 @@ fn plpgsql_function_persists_across_reopen_eg340() {
         "CREATE FUNCTION dbl(n int) RETURNS int AS $$ BEGIN RETURN n * 2; END $$ LANGUAGE plpgsql",
     );
     drop(store);
-    let store2 = TableStore::open(&path).unwrap();
+    let store2 = TableStore::open(
+        &path,
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .unwrap();
     // The reopened catalog still records it as a plpgsql function.
     assert!(store2.list_functions().unwrap()[0].is_plpgsql());
     let res = exec_sql_typed_with_tables(&view, &store2, "SELECT dbl(21) AS v").unwrap();

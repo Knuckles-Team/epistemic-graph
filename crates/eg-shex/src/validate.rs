@@ -297,6 +297,50 @@ impl Validator<'_> {
             .collect()
     }
 
+    /// `OneOf` alternation: commit the first branch that matches on a TRIAL copy of the
+    /// consumed set, so a branch that fails part-way leaves no arcs marked behind it.
+    fn match_first_branch(
+        &self,
+        branches: &[TripleExpr],
+        arcs: &[Arc],
+        consumed: &mut [bool],
+        depth: usize,
+    ) -> Result<(), String> {
+        for branch in branches {
+            let mut trial = consumed.to_vec();
+            if self
+                .match_triple_expr(branch, arcs, &mut trial, depth)
+                .is_ok()
+            {
+                consumed.copy_from_slice(&trial);
+                return Ok(());
+            }
+        }
+        Err("no branch of a OneOf triple expression matched".into())
+    }
+
+    /// The indices of the not-yet-consumed arcs on `predicate` whose object satisfies
+    /// `value_expr` (every such arc when there is no value expression) — the greedy
+    /// candidate set a `TripleConstraint` then checks its cardinality bounds against.
+    fn conforming_arcs(
+        &self,
+        predicate: &str,
+        value_expr: Option<&ShapeExpr>,
+        arcs: &[Arc],
+        consumed: &[bool],
+        depth: usize,
+    ) -> Vec<usize> {
+        arcs.iter()
+            .enumerate()
+            .filter(|(i, arc)| !consumed[*i] && arc.predicate == predicate)
+            .filter(|(_, arc)| match value_expr {
+                None => true,
+                Some(ve) => self.satisfies(&arc.object, ve, depth + 1).is_ok(),
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
     /// Match a triple expression against the node's arcs, marking consumed arcs.
     fn match_triple_expr(
         &self,
@@ -313,36 +357,9 @@ impl Validator<'_> {
                 max,
                 inverse: _,
             } => {
-                // Greedy: every not-yet-consumed arc on this predicate whose object
-                // satisfies the value expression is matched.
-                let mut matched = Vec::new();
-                for (i, arc) in arcs.iter().enumerate() {
-                    if consumed[i] || &arc.predicate != predicate {
-                        continue;
-                    }
-                    let ok = match value_expr {
-                        None => true,
-                        Some(ve) => self.satisfies(&arc.object, ve, depth + 1).is_ok(),
-                    };
-                    if ok {
-                        matched.push(i);
-                    }
-                }
-                let count = matched.len() as i64;
-                if count < *min {
-                    return Err(format!(
-                        "predicate <{predicate}> has {count} conforming value(s), need at least {min}"
-                    ));
-                }
-                if *max != -1 && count > *max {
-                    return Err(format!(
-                        "predicate <{predicate}> has {count} conforming value(s), at most {max} allowed"
-                    ));
-                }
-                for i in matched {
-                    consumed[i] = true;
-                }
-                Ok(())
+                let matched =
+                    self.conforming_arcs(predicate, value_expr.as_deref(), arcs, consumed, depth);
+                take_within_bounds(predicate, matched, *min, *max, consumed)
             }
             TripleExpr::EachOf(list) => {
                 for e in list {
@@ -350,22 +367,35 @@ impl Validator<'_> {
                 }
                 Ok(())
             }
-            TripleExpr::OneOf(list) => {
-                // Alternation: commit the first branch that matches on a trial partition.
-                for branch in list {
-                    let mut trial = consumed.to_vec();
-                    if self
-                        .match_triple_expr(branch, arcs, &mut trial, depth)
-                        .is_ok()
-                    {
-                        consumed.copy_from_slice(&trial);
-                        return Ok(());
-                    }
-                }
-                Err("no branch of a OneOf triple expression matched".into())
-            }
+            TripleExpr::OneOf(list) => self.match_first_branch(list, arcs, consumed, depth),
         }
     }
+}
+
+/// Check a `TripleConstraint`'s cardinality bounds against its greedy candidate set and,
+/// when they hold, mark those arcs consumed. `max == -1` is ShExC's unbounded `*`.
+fn take_within_bounds(
+    predicate: &str,
+    matched: Vec<usize>,
+    min: i64,
+    max: i64,
+    consumed: &mut [bool],
+) -> Result<(), String> {
+    let count = matched.len() as i64;
+    if count < min {
+        return Err(format!(
+            "predicate <{predicate}> has {count} conforming value(s), need at least {min}"
+        ));
+    }
+    if max != -1 && count > max {
+        return Err(format!(
+            "predicate <{predicate}> has {count} conforming value(s), at most {max} allowed"
+        ));
+    }
+    for i in matched {
+        consumed[i] = true;
+    }
+    Ok(())
 }
 
 // ── Term-level helpers ─────────────────────────────────────────────────────

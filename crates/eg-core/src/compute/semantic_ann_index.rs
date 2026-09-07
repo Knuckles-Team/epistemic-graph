@@ -14,7 +14,7 @@ impl SemanticStore {
         self.ensure_index(label);
     }
 
-    /// `pub(super)` — also called directly by `semantic_ann_persistence::save_index`
+    /// `pub(super)` — also called directly by `semantic_ann_persistence::export_generation`
     /// (a sibling submodule of the shared `backend` parent) to guarantee a fresh
     /// index is resident before it is persisted.
     pub(super) fn ensure_index(&self, label: &str) {

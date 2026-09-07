@@ -9,9 +9,11 @@
 //!     store crosses `ANN_BUILD_THRESHOLD`, then encodes them; below that the store
 //!     uses brute force (no index).
 //!
-//! The index is built from the in-RAM embeddings on first use, BUT once persisted
-//! (`save`) it reopens via `eg_ann::open` WITHOUT rebuilding from raw vectors — the
-//! no-rebuild behavior that distinguishes it from transient indexes.
+//! The index is built from the in-RAM embeddings on first use, BUT once exported
+//! (`to_image`) it is restored by `from_image` WITHOUT rebuilding from raw
+//! vectors — the no-rebuild behavior that distinguishes it from transient
+//! indexes. The image's durable leg is an admitted `Native(SemanticIndex)`
+//! mutation (`compute::semantic_ann_codes`), never a directory this crate writes.
 
 use eg_ann::{IvfPq, IvfPqParams, SearchParams};
 use std::collections::HashMap;
@@ -77,13 +79,13 @@ impl AnnIndex {
         let sample = training_sample(data, dim, n);
         let params = training_params(dim, n);
         let mut index = IvfPq::train(&params, &sample);
-        let (row_to_id, id_to_row, items) = indexed_rows(data, ids, dim);
-        index.add(&items);
+        let rows = indexed_rows(data, ids, dim);
+        index.add(&rows.items);
 
         Some(Self {
             index,
-            row_to_id,
-            id_to_row,
+            row_to_id: rows.row_to_id,
+            id_to_row: rows.id_to_row,
             dim,
         })
     }
@@ -257,11 +259,16 @@ fn training_params(dim: usize, n: usize) -> IvfPqParams {
     }
 }
 
-fn indexed_rows(
-    data: &[f32],
-    ids: &[String],
-    dim: usize,
-) -> (Vec<String>, HashMap<String, u64>, Vec<(u64, Vec<f32>)>) {
+/// The row numbering of one build: the two directions of the row/id mapping plus
+/// the normalized vectors keyed by the row they were assigned. All three are
+/// derived from the same single pass and are only ever produced together.
+struct IndexedRows {
+    row_to_id: Vec<String>,
+    id_to_row: HashMap<String, u64>,
+    items: Vec<(u64, Vec<f32>)>,
+}
+
+fn indexed_rows(data: &[f32], ids: &[String], dim: usize) -> IndexedRows {
     let mut row_to_id = Vec::with_capacity(ids.len());
     let mut id_to_row = HashMap::with_capacity(ids.len());
     let items = data
@@ -274,7 +281,11 @@ fn indexed_rows(
             (row as u64, normalize(vector))
         })
         .collect();
-    (row_to_id, id_to_row, items)
+    IndexedRows {
+        row_to_id,
+        id_to_row,
+        items,
+    }
 }
 
 fn allows_row(row_to_id: &[String], allow: &impl Fn(&str) -> bool, ext_id: u64) -> bool {
@@ -286,3 +297,5 @@ fn allows_row(row_to_id: &[String], allow: &impl Fn(&str) -> bool, ext_id: u64) 
 
 #[path = "semantic_ann_backend_persistence.rs"]
 mod semantic_ann_backend_persistence;
+
+pub use semantic_ann_backend_persistence::AnnIndexImage;

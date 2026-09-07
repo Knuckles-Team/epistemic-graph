@@ -66,8 +66,16 @@ pub mod slow_query;
 pub(crate) mod graph_delta;
 #[cfg(feature = "redb")]
 pub(crate) mod redb_layout;
+// The composition root's ONE scope-grant authority. `eg-storage` opens every
+// durable file; only this binary decides which principal may serve which scope
+// on which of them (RF-RULING-004).
+#[cfg(feature = "redb")]
+pub mod store_authority;
+// The one shape every small kernel-owned sidecar file in this binary takes.
 #[cfg(feature = "redb")]
 pub mod redb_store;
+#[cfg(feature = "redb")]
+pub mod sidecar_store;
 
 // CONCEPT:INT-P2-2 -- the Loop statechart definition (W2.5 control-plane migration):
 // `LoopStatus`'s 16 values as a reusable `eg_statechart::StatechartDef`, instantiated

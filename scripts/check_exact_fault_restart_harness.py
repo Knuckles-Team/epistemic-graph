@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import ast
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from rust_module_tree import read_module_tree  # noqa: E402
 
 PHASES = {
     "before_rows",
@@ -34,6 +38,23 @@ DOMAINS = {
 
 def _read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def _read_rust_module(relative: str) -> str:
+    """The compiler-declared source of a Rust module, not one facade file.
+
+    The fault seam this gate pins is a property of the `mutation_batch` module,
+    not of `crates/eg-types/src/mutation_batch.rs` specifically. When that
+    module was decomposed into `mutation_batch.rs` + `mutation_batch/**` every
+    one of the twelve seam tokens moved into `mutation_batch/fault.rs` and
+    `mutation_batch/model/request.rs`, and this gate reported the entire
+    certification fault seam as deleted. Reading the module the way the compiler
+    assembles it (test-inclusive, the exact superset of the single file that was
+    read before) makes a decomposition invisible to the gate and a real deletion
+    still fatal.
+    """
+
+    return read_module_tree(relative, root_dir=ROOT, include_tests=True)
 
 
 def _without_module_docstring(source: str) -> str:
@@ -196,7 +217,7 @@ def _check_harness_contract(harness: str) -> list[str]:
 
 def _check_fault_seam_contract() -> list[str]:
     errors: list[str] = []
-    types = _read("crates/eg-types/src/mutation_batch.rs")
+    types = _read_rust_module("crates/eg-types/src/mutation_batch.rs")
     _require(
         types,
         {
@@ -219,11 +240,40 @@ def _check_fault_seam_contract() -> list[str]:
     return errors
 
 
+# crates/eg-mutation-store is deleted (split into eg-storage's
+# StorageKernel and eg-transaction's MutationKernel). The
+# MutationCommitPhase call sites and the commit() helper definition this
+# check pins now live in eg-transaction/src/commit.rs; the saga call site
+# that invokes it (`commit(write, batch)?;`) lives in the peer
+# eg-transaction/src/saga.rs. Found by tracing where `MutationCommitPhase::`
+# is actually referenced today, since the old
+# `crates/eg-mutation-store/src/lib.rs` this gate read never held that
+# content even before the deletion (it moved there only when the crate first
+# split into `store/*.rs` submodules -- this specific check appears to have
+# gone stale then and stayed stale until now; repointing it here restores
+# real enforcement, not just a path fix).
+_NATIVE_STORE_COMMIT_SOURCES = (
+    "crates/eg-transaction/src/commit.rs",
+    "crates/eg-transaction/src/saga.rs",
+)
+
+# `eg_mutation_store::finish`/`::commit` were free functions. Their
+# successors, `MutationKernel::{finish, commit}`, are ONLY reachable as
+# methods (eg-transaction/src/lib.rs re-exports no free finish/commit), so
+# every migrated consumer now calls them as `<kernel-field>.finish(&write, ` /
+# `<kernel-field>.commit(write` (observed across kv.rs, eg-tsdb, eg-jobs, and
+# eg-core's rbac_persist/durable_write.rs -- some inline, some split onto
+# their own line before `.finish`/`.commit`, so the check tolerates
+# whitespace between the receiver and the call).
+_MUTATION_KERNEL_FINISH_CALL = re.compile(r"\.mutations\s*\.finish\(&write")
+_MUTATION_KERNEL_COMMIT_CALL = re.compile(r"\.mutations\s*\.commit\(write")
+
+
 def _check_store_contract() -> list[str]:
     errors: list[str] = []
     graph_store = _read("src/redb_store.rs")
     sql_store = _read("crates/eg-query/src/tables/store.rs")
-    native_store = _read("crates/eg-mutation-store/src/lib.rs")
+    native_store = "\n".join(_read(path) for path in _NATIVE_STORE_COMMIT_SOURCES)
     phase_variants = {
         "MutationCommitPhase::BeforeRows",
         "MutationCommitPhase::AfterRowsBeforeMetadata",
@@ -236,8 +286,19 @@ def _check_store_contract() -> list[str]:
     _require(
         native_store,
         {
-            "pub fn commit(wtx: WriteTransaction, batch: &MutationBatch)",
-            "commit(wtx, batch)?;",
+            # `pub fn commit(wtx: WriteTransaction, batch: &MutationBatch)` ->
+            # `pub(crate) fn commit<D: OwnerDomain>(write: AdmittedMutation<'_,
+            # D>, batch: &MutationBatch)`: genuinely re-shaped (typed capability
+            # + generic domain, no longer a bare redb WriteTransaction, and
+            # crate-private rather than pub), not merely renamed -- pinned to
+            # the real current signature.
+            "pub(crate) fn commit<D: OwnerDomain>(\n"
+            "    write: AdmittedMutation<'_, D>,\n"
+            "    batch: &MutationBatch,\n"
+            ") -> Result<(), String> {",
+            # saga.rs's call site kept the same shape, only the parameter's
+            # name changed (wtx -> write).
+            "commit(write, batch)?;",
         },
         "native commit helper and saga",
         errors,
@@ -251,9 +312,15 @@ def _check_store_contract() -> list[str]:
         "crates/eg-core/src/rbac_persist.rs",
     ):
         source = _read(relative)
-        if "eg_mutation_store::finish" not in source:
+        if relative == "crates/eg-core/src/rbac_persist.rs":
+            # The actual write path lives in this declared submodule, not the
+            # rbac_persist.rs facade itself.
+            source += "\n" + _read("crates/eg-core/src/rbac_persist/durable_write.rs")
+        if "MutationKernel" not in source:
+            errors.append(f"{relative}: does not hold a native MutationKernel")
+        if not _MUTATION_KERNEL_FINISH_CALL.search(source):
             errors.append(f"{relative}: no native MutationBatch finish call")
-        if "eg_mutation_store::commit" not in source:
+        if not _MUTATION_KERNEL_COMMIT_CALL.search(source):
             errors.append(f"{relative}: native finish has no phase-aware commit helper")
     return errors
 

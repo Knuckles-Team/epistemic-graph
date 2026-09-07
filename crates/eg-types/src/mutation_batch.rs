@@ -23,7 +23,7 @@ mod tests {
 
     fn graph_identity() -> MutationScopeIdentity {
         MutationScopeIdentity::graph(
-            TenantId::new("tenant-a").unwrap(),
+            ScopeTenantId::new("tenant-a").unwrap(),
             LogicalName::new("graph-a").unwrap(),
             IncarnationId::new("incarnation:test:mutation-batch").unwrap(),
         )
@@ -50,7 +50,7 @@ mod tests {
             operations: vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::RemoveNode {
                     node_id: "n".into(),
                 },
@@ -76,7 +76,7 @@ mod tests {
         assert_eq!(decoded.schema_version, 1);
         assert_eq!(decoded.identity, original.identity);
         assert_eq!(decoded.version_expectation, VersionExpectation::Graph(9));
-        assert_eq!(decoded.operations[0].domain, MutationDomain::GraphRows);
+        assert_eq!(decoded.operations[0].domain, DurabilityDomain::GraphRows);
     }
 
     #[test]
@@ -95,12 +95,12 @@ mod tests {
     #[test]
     fn semantic_domain_serde_rejects_component_aliases() {
         assert_eq!(
-            serde_json::to_value(MutationDomain::SemanticIndex).unwrap(),
+            serde_json::to_value(DurabilityDomain::SemanticIndex).unwrap(),
             serde_json::json!("semantic_index")
         );
         for alias in ["semantic", "vector_index", "ann_index", "text_index"] {
             assert!(
-                serde_json::from_value::<MutationDomain>(serde_json::json!(alias)).is_err(),
+                serde_json::from_value::<DurabilityDomain>(serde_json::json!(alias)).is_err(),
                 "accepted non-canonical semantic domain {alias:?}"
             );
         }
@@ -154,18 +154,18 @@ mod tests {
     #[test]
     fn graph_scope_carries_graph_authoritative_domains_and_rejects_store_owned_ones() {
         for domain in [
-            MutationDomain::GraphRows,
-            MutationDomain::GraphSnapshot,
-            MutationDomain::RdfDataset,
-            MutationDomain::Lifecycle,
-            MutationDomain::ControlPlane,
-            MutationDomain::CrossModal,
-            MutationDomain::MultiGraph,
+            DurabilityDomain::GraphRows,
+            DurabilityDomain::GraphSnapshot,
+            DurabilityDomain::RdfDataset,
+            DurabilityDomain::Lifecycle,
+            DurabilityDomain::ControlPlane,
+            DurabilityDomain::CrossModal,
+            DurabilityDomain::MultiGraph,
             // Store-authoritative by DEFAULT, but legitimately graph-routed too:
             // `compile_methods` commits whatever it is handed through the graph
             // kernel, and broker state owns no store of its own.
-            MutationDomain::SqlCatalog,
-            MutationDomain::Broker,
+            DurabilityDomain::SqlCatalog,
+            DurabilityDomain::Broker,
         ] {
             let mut accepted = batch();
             accepted.operations[0].domain = domain;
@@ -176,10 +176,10 @@ mod tests {
         }
 
         for domain in [
-            MutationDomain::BlobStore,
-            MutationDomain::KvStore,
-            MutationDomain::TimeSeries,
-            MutationDomain::AnalyticsJob,
+            DurabilityDomain::BlobStore,
+            DurabilityDomain::KvStore,
+            DurabilityDomain::TimeSeries,
+            DurabilityDomain::AnalyticsJob,
         ] {
             let mut rejected = batch();
             rejected.operations[0].domain = domain;
@@ -193,32 +193,77 @@ mod tests {
         }
     }
 
-#[test]
-    fn semantic_index_remains_unserved_until_consumer_migration() {
+/// RF-RULING-007. The blanket refusal of every `Native(SemanticIndex)` batch
+    /// is DELETED, not relaxed. It was vacuous and load-bearing at once: no
+    /// producer ever built a batch on that domain (`canonical.rs` classified
+    /// `AddEmbedding` into the graph domains), so it rejected nothing, while
+    /// making the semantic owner tables unreachable through the mutation kernel
+    /// at all -- the concrete blocker under the `eg-ann` cutover.
+    ///
+    /// A semantic write is now served on its own native scope, exactly like
+    /// every other store-authoritative domain.
+    #[test]
+    fn a_semantic_index_batch_is_served_on_its_own_native_scope() {
         let mut semantic = batch();
         semantic.identity = MutationScopeIdentity::native(
-            TenantId::new("tenant-a").unwrap(),
-            MutationDomain::SemanticIndex,
+            ScopeTenantId::new("tenant-a").unwrap(),
+            DurabilityDomain::SemanticIndex,
             LogicalName::new("binding-a").unwrap(),
             IncarnationId::new("incarnation:semantic:1").unwrap(),
         )
         .unwrap();
         semantic.version_expectation = VersionExpectation::Native(9);
-        semantic.operations[0].domain = MutationDomain::SemanticIndex;
-        assert!(semantic.validate().unwrap_err().contains("remain unserved"));
+        semantic.operations[0].domain = DurabilityDomain::SemanticIndex;
+        semantic.validate().unwrap();
+    }
+
+    /// What replaces the deleted guard at this layer: a semantic operation is
+    /// refused unless the batch's scope IS the semantic authority it names.
+    ///
+    /// Both directions are asserted, because accepting either one alone would
+    /// let a semantic write ride some other authority's version counter:
+    /// a graph scope may not carry the store-authoritative semantic family, and
+    /// a native scope on a different domain may not carry it either. The
+    /// remaining half of the cross-binding proof -- that a handle bound to one
+    /// `(tenant, binding, generation)` cannot write another's rows -- is not
+    /// expressible here (an operation carries no binding) and is asserted at
+    /// admission, where the bound serving scope exists.
+    #[test]
+    fn a_semantic_operation_is_refused_outside_a_semantic_scope() {
+        let mut graph_scoped = batch();
+        graph_scoped.operations[0].domain = DurabilityDomain::SemanticIndex;
+        assert!(graph_scoped
+            .validate()
+            .unwrap_err()
+            .contains("store-authoritative"));
+
+        let mut foreign_native = batch();
+        foreign_native.identity = MutationScopeIdentity::native(
+            ScopeTenantId::new("tenant-a").unwrap(),
+            DurabilityDomain::KvStore,
+            LogicalName::new("binding-a").unwrap(),
+            IncarnationId::new("incarnation:kv:1").unwrap(),
+        )
+        .unwrap();
+        foreign_native.version_expectation = VersionExpectation::Native(9);
+        foreign_native.operations[0].domain = DurabilityDomain::SemanticIndex;
+        assert!(foreign_native
+            .validate()
+            .unwrap_err()
+            .contains("does not match its operation"));
     }
 
     #[test]
     fn unauthorized_unversioned_is_rejected() {
         let mut unversioned = batch();
         unversioned.identity = MutationScopeIdentity::native(
-            TenantId::system(),
-            MutationDomain::ControlPlane,
+            ScopeTenantId::system(),
+            DurabilityDomain::ControlPlane,
             LogicalName::new("cluster-bootstrap").unwrap(),
             IncarnationId::new("incarnation:bootstrap:1").unwrap(),
         )
         .unwrap();
-        unversioned.operations[0].domain = MutationDomain::ControlPlane;
+        unversioned.operations[0].domain = DurabilityDomain::ControlPlane;
         unversioned.version_expectation = VersionExpectation::Unversioned;
         assert!(unversioned
             .validate()
@@ -232,8 +277,8 @@ mod tests {
         unversioned.validate().unwrap();
 
         unversioned.identity = MutationScopeIdentity::native(
-            TenantId::new("tenant-a").unwrap(),
-            MutationDomain::ControlPlane,
+            ScopeTenantId::new("tenant-a").unwrap(),
+            DurabilityDomain::ControlPlane,
             LogicalName::new("cluster-bootstrap").unwrap(),
             IncarnationId::new("incarnation:bootstrap:1").unwrap(),
         )

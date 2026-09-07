@@ -1,0 +1,4 @@
+async fn served() {
+    let _raw = r#################"}"#################;
+    let _ = std::fs::read("still-async.redb");
+}

@@ -24,9 +24,9 @@
 
 use eg_query::{Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
 use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
+    DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationOperation,
     MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface,
-    TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
+    ScopeTenantId, VersionExpectation, COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
 };
 
 const TENANT: &str = "tenant-commit-txn-batch";
@@ -66,7 +66,7 @@ fn batch(store: &TableStore, batch_id: &str, idempotency_key: &str) -> MutationB
             trace_id: None,
             verified_capabilities: Default::default(),
         },
-        // `MutationDomain::SqlCatalog` is one of the migration contract's
+        // `DurabilityDomain::SqlCatalog` is one of the migration contract's
         // non-graph domains -> native scope. `sql_scope_key` (`eg-query`'s
         // `tables/store.rs`) reads this batch's `(tenant, resource)` back out via
         // `identity.scope()`'s `Native { resource, .. }` arm and rejects a
@@ -74,11 +74,10 @@ fn batch(store: &TableStore, batch_id: &str, idempotency_key: &str) -> MutationB
         // tenant/resource here exactly as they did onto the old flat
         // tenant/graph fields.
         identity: MutationScopeIdentity::native(
-            TenantId::new(TENANT).expect("valid tenant id"),
-            MutationDomain::SqlCatalog,
+            ScopeTenantId::new(TENANT).expect("valid tenant id"),
+            DurabilityDomain::SqlCatalog,
             LogicalName::new(GRAPH).expect("valid resource name"),
-            IncarnationId::new("incarnation:test:commit-txn-batch-inner")
-                .expect("valid incarnation id"),
+            IncarnationId::new(COMPILED_BATCH_INCARNATION).expect("valid incarnation id"),
         )
         .expect("sql-catalog native scope identity is valid"),
         placement_epoch: 0,
@@ -89,7 +88,7 @@ fn batch(store: &TableStore, batch_id: &str, idempotency_key: &str) -> MutationB
         operations: vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Query,
-            domain: MutationDomain::SqlCatalog,
+            domain: DurabilityDomain::SqlCatalog,
             method: eg_types::protocol::Method::ApplyMutation {
                 event_type: "sql_catalog_operation".to_string(),
                 query: "sha256:0000000000000000000000000000000000000000000000000000000000000000"

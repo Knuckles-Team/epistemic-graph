@@ -3,13 +3,33 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from rust_module_tree import read_module_tree  # noqa: E402
 
 
 def read(relative: str) -> str:
-    return (ROOT / relative).read_text(encoding="utf-8")
+    """The compiler-declared production source of a Rust module, not one file.
+
+    Every assertion below names a behaviour a *module* must carry. Reading only
+    the facade file made each one silently stale the moment that module was
+    decomposed into `<name>.rs` + `<name>/**` -- which is exactly what happened
+    to `src/server/dispatch.rs`: `PARTIAL_MATERIALIZATION`, `graph_lifecycle`
+    and `index_manifests` all still exist, they just moved into
+    `dispatch/graph_pipeline.rs` and `dispatch/router/*.rs`. The module walker
+    follows the `mod`/`include!` declarations the compiler follows, so a
+    decomposition no longer reads as a missing invariant, and the negative
+    assertions below now cover the whole module instead of its facade. The
+    test-inclusive view is deliberate: it is the exact superset of the single
+    file this gate used to read, so repointing adds the module's declared
+    children without silently narrowing any existing assertion.
+    """
+
+    return read_module_tree(relative, root_dir=ROOT, include_tests=True)
 
 
 def require(condition: bool, message: str) -> None:

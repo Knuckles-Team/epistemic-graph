@@ -7,7 +7,7 @@
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use eg_epistemic::{
@@ -98,9 +98,33 @@ impl<W: Write + ?Sized> Write for BoundedSnapshotWriter<'_, W> {
 /// Serializes local projection image replacement. Consensus/outbox ordering is the
 /// authority; this lock only prevents two same-process readers from racing the
 /// atomic file replacement and is never itself consulted as reasoning state.
-fn projection_write_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+fn projection_write_lock() -> &'static Arc<tokio::sync::Mutex<()>> {
+    static LOCK: OnceLock<Arc<tokio::sync::Mutex<()>>> = OnceLock::new();
+    LOCK.get_or_init(|| Arc::new(tokio::sync::Mutex::new(())))
+}
+
+/// Run one complete projection filesystem transaction off the Tokio executor.
+///
+/// The closure owns every path, snapshot, and graph handle. After task admission,
+/// cancellation of the awaiting request cannot drop
+/// the process-local serialization guard or a temporary snapshot halfway through
+/// publication: the blocking job runs its cleanup to completion before releasing
+/// the guard.
+async fn run_projection_job<T, F>(job: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    // Async admission keeps contenders off the bounded blocking pool. The
+    // owned guard is then transferred into the accepted job, so cancellation
+    // of this waiter cannot release it before the filesystem transaction ends.
+    let guard = projection_write_lock().clone().lock_owned().await;
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard;
+        job()
+    })
+    .await
+    .map_err(|_| "reasoning projection persistence task failed".to_string())?
 }
 
 /// Start the singleton projection loop after graph recovery.  A backend without
@@ -138,9 +162,7 @@ async fn projection_context(state: &Arc<RwLock<ServerState>>) -> Option<Projecti
         .into_iter()
         .map(|entry| (entry.name.clone(), entry.core.clone()))
         .collect();
-    let Some(persistence) = persistence else {
-        return None;
-    };
+    let persistence = persistence?;
     Some(ProjectionContext {
         persistence,
         persist_dir,
@@ -161,15 +183,21 @@ async fn process_graphs(context: &ProjectionContext) -> bool {
 async fn process_graph(
     context: &ProjectionContext,
     graph: &str,
-    core: &eg_core::graph::GraphCore,
+    core: &Arc<eg_core::graph::GraphCore>,
 ) -> bool {
     let graph_fname = crate::persist::sanitize(graph);
-    if !initialize_index(context.persist_dir.as_deref(), &graph_fname, core) {
+    if !initialize_index(
+        context.persist_dir.clone(),
+        graph_fname.clone(),
+        core.clone(),
+    )
+    .await
+    {
         return false;
     }
     let leases = match context
         .persistence
-        .claim_mutation_outbox(&graph_fname, CONSUMER, now_ms(), 30_000, 64)
+        .claim_mutation_outbox(&graph_fname, CONSUMER, current_time_ms(), 30_000, 64)
         .await
     {
         Ok(leases) => leases,
@@ -177,46 +205,61 @@ async fn process_graph(
     };
     process_leases(
         &context.persistence,
-        context.persist_dir.as_deref(),
+        context.persist_dir.clone(),
         &graph_fname,
-        core,
+        core.clone(),
         leases,
     )
     .await
 }
 
-fn initialize_index(
-    persist_dir: Option<&str>,
-    graph_fname: &str,
-    core: &eg_core::graph::GraphCore,
+async fn initialize_index(
+    persist_dir: Option<String>,
+    graph_fname: String,
+    core: Arc<eg_core::graph::GraphCore>,
 ) -> bool {
-    let _guard = match projection_write_lock().lock() {
-        Ok(guard) => guard,
-        Err(_) => return false,
-    };
-    match load_index(persist_dir, graph_fname) {
-        Ok(Some(_)) => true,
-        Ok(None) => {
-            let index = IncrementalReasoningIndex::from_graph_view(&core.analysis_snapshot());
-            persist_index(persist_dir, graph_fname, &index).is_ok()
+    match run_projection_job(move || {
+        match load_index(persist_dir.as_deref(), &graph_fname) {
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => {
+                let index = IncrementalReasoningIndex::from_graph_view(&core.analysis_snapshot());
+                persist_index(persist_dir.as_deref(), &graph_fname, &index)?;
+                Ok(true)
+            }
+            // A present-but-invalid authority is never replaced from RAM.
+            // Operator repair is required; silently bootstrapping would turn
+            // corruption into an apparently valid empty answer.
+            Err(error) => Err(error),
         }
-        // A present-but-invalid authority is never replaced from RAM.
-        // Operator repair is required; silently bootstrapping would turn
-        // corruption into an apparently valid empty answer.
-        Err(_) => false,
+    })
+    .await
+    {
+        Ok(initialized) => initialized,
+        Err(_) => {
+            tracing::warn!("reasoning projection initialization failed");
+            false
+        }
     }
 }
 
 async fn process_leases(
     persistence: &Arc<dyn crate::server::persistence::PersistenceBackend>,
-    persist_dir: Option<&str>,
+    persist_dir: Option<String>,
     graph_fname: &str,
-    core: &eg_core::graph::GraphCore,
+    core: Arc<eg_core::graph::GraphCore>,
     leases: Vec<MutationOutboxLease>,
 ) -> bool {
     let mut progressed = false;
     for lease in leases {
-        if !process_lease(persistence, persist_dir, graph_fname, core, &lease).await {
+        if !process_lease(
+            persistence,
+            persist_dir.clone(),
+            graph_fname,
+            core.clone(),
+            &lease,
+        )
+        .await
+        {
             break;
         }
         progressed = true;
@@ -226,9 +269,9 @@ async fn process_leases(
 
 async fn process_lease(
     persistence: &Arc<dyn crate::server::persistence::PersistenceBackend>,
-    persist_dir: Option<&str>,
+    persist_dir: Option<String>,
     graph_fname: &str,
-    core: &eg_core::graph::GraphCore,
+    core: Arc<eg_core::graph::GraphCore>,
     lease: &MutationOutboxLease,
 ) -> bool {
     // Reading the cursor is an explicit restart/reconciliation boundary. A
@@ -252,15 +295,21 @@ async fn process_lease(
         Ok(wakeup) => wakeup,
         Err(()) => return false,
     };
-    let Some((newly_stale, stale_count)) =
-        apply_lease_and_persist(persist_dir, graph_fname, core, lease, wakeup.as_ref())
+    let Some((newly_stale, stale_count)) = apply_lease_and_publish(
+        persist_dir,
+        graph_fname.to_string(),
+        core,
+        lease.clone(),
+        wakeup,
+    )
+    .await
     else {
         return false;
     };
     crate::metrics::epistemic_materializations_staled(newly_stale as u64);
     crate::metrics::set_epistemic_materializations_stale(stale_count as i64);
     if persistence
-        .ack_mutation_outbox(graph_fname, lease, PROJECTION, now_ms())
+        .ack_mutation_outbox(graph_fname, lease, PROJECTION, current_time_ms())
         .await
         .is_err()
     {
@@ -309,21 +358,31 @@ fn validate_projection_wakeup(
     Ok(())
 }
 
-fn apply_lease_and_persist(
-    persist_dir: Option<&str>,
-    graph_fname: &str,
-    core: &eg_core::graph::GraphCore,
-    lease: &MutationOutboxLease,
-    wakeup: Option<&ReasoningProjectionWakeup>,
+async fn apply_lease_and_publish(
+    persist_dir: Option<String>,
+    graph_fname: String,
+    core: Arc<eg_core::graph::GraphCore>,
+    lease: MutationOutboxLease,
+    wakeup: Option<ReasoningProjectionWakeup>,
 ) -> Option<(usize, usize)> {
-    let _guard = projection_write_lock().lock().ok()?;
-    let mut index = load_index(persist_dir, graph_fname).ok()??;
-    let delta = apply_lease(&mut index, core, lease, wakeup).ok()?;
-    persist_index(persist_dir, graph_fname, &index).ok()?;
-    Some((
-        delta.newly_stale.len(),
-        index.stale_materializations().len(),
-    ))
+    match run_projection_job(move || {
+        let mut index = load_index(persist_dir.as_deref(), &graph_fname)?
+            .ok_or_else(|| "reasoning projection is not initialized".to_string())?;
+        let delta = apply_lease(&mut index, &core, &lease, wakeup.as_ref())?;
+        persist_index(persist_dir.as_deref(), &graph_fname, &index)?;
+        Ok((
+            delta.newly_stale.len(),
+            index.stale_materializations().len(),
+        ))
+    })
+    .await
+    {
+        Ok(result) => Some(result),
+        Err(_) => {
+            tracing::warn!("reasoning projection lease persistence failed");
+            None
+        }
+    }
 }
 
 fn apply_lease(
@@ -383,11 +442,55 @@ fn load_index_with_limits(
     let Some(path) = snapshot_path(persist_dir, graph_fname) else {
         return Ok(None);
     };
-    let mut file = match std::fs::File::open(path) {
-        Ok(file) => file,
+    let Some(mut file) = open_snapshot_file(persist_dir, &path)? else {
+        return Ok(None);
+    };
+    decode_snapshot_file(&mut file, limits).map(Some)
+}
+
+fn open_snapshot_file(
+    persist_dir: Option<&str>,
+    path: &Path,
+) -> Result<Option<std::fs::File>, String> {
+    let Some(root) = persist_dir.map(Path::new) else {
+        return Ok(None);
+    };
+    let Some(parent) = path.parent() else {
+        return Err("reasoning projection snapshot is unavailable".to_string());
+    };
+    for directory in [root, parent] {
+        match std::fs::symlink_metadata(directory) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err("reasoning projection snapshot is unavailable".to_string());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err("reasoning projection snapshot is unavailable".to_string()),
+        }
+    }
+    open_regular_snapshot(path)
+}
+
+fn open_regular_snapshot(path: &Path) -> Result<Option<std::fs::File>, String> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err("reasoning projection snapshot is unavailable".to_string()),
     };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err("reasoning projection snapshot is unavailable".to_string());
+    }
+    match std::fs::File::open(path) {
+        Ok(file) => Ok(Some(file)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err("reasoning projection snapshot is unavailable".to_string()),
+    }
+}
+
+fn decode_snapshot_file(
+    file: &mut std::fs::File,
+    limits: eg_types::msgpack::MsgpackLimits,
+) -> Result<IncrementalReasoningIndex, String> {
     if file
         .metadata()
         .map_err(|_| "reasoning projection snapshot is unavailable".to_string())?
@@ -397,7 +500,7 @@ fn load_index_with_limits(
         return Err("reasoning projection snapshot exceeds its size limit".to_string());
     }
     let mut bytes = Vec::new();
-    std::io::Read::by_ref(&mut file)
+    std::io::Read::by_ref(&mut *file)
         .take((limits.max_bytes as u64).saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|_| "reasoning projection snapshot is unavailable".to_string())?;
@@ -407,26 +510,30 @@ fn load_index_with_limits(
     let index: IncrementalReasoningIndex = eg_types::msgpack::decode_bounded(&bytes, limits)
         .map_err(|_| "reasoning projection snapshot is invalid".to_string())?;
     index.validate()?;
-    Ok(Some(index))
+    Ok(index)
 }
 
 /// Read the durable reasoning authority for one graph. Missing and corrupt images
 /// are distinct hard errors; served queries never manufacture an empty projection.
-pub fn read_index(
+pub async fn read_index(
     persist_dir: Option<&str>,
     graph_name: &str,
 ) -> Result<IncrementalReasoningIndex, String> {
     let graph_fname = crate::persist::sanitize(graph_name);
-    load_index(persist_dir, &graph_fname)?
-        .ok_or_else(|| "reasoning projection is not initialized".to_string())
+    let persist_dir = persist_dir.map(str::to_owned);
+    run_projection_job(move || {
+        load_index(persist_dir.as_deref(), &graph_fname)?
+            .ok_or_else(|| "reasoning projection is not initialized".to_string())
+    })
+    .await
 }
 
-pub fn materialization_status(
+pub async fn materialization_status(
     persist_dir: Option<&str>,
     graph_name: &str,
     node_id: &str,
 ) -> Result<(Option<eg_epistemic::ProjectedMaterializationStatus>, u64), String> {
-    let index = read_index(persist_dir, graph_name)?;
+    let index = read_index(persist_dir, graph_name).await?;
     let source_graph_version = index
         .position
         .as_ref()
@@ -434,11 +541,11 @@ pub fn materialization_status(
     Ok((index.status_of(node_id), source_graph_version))
 }
 
-pub fn stale_materializations(
+pub async fn stale_materializations(
     persist_dir: Option<&str>,
     graph_name: &str,
 ) -> Result<(Vec<String>, u64), String> {
-    let index = read_index(persist_dir, graph_name)?;
+    let index = read_index(persist_dir, graph_name).await?;
     let source_graph_version = index
         .position
         .as_ref()
@@ -452,10 +559,10 @@ pub fn stale_materializations(
 /// Fenced recompute/writeback against the exact durable projection watermark.
 /// Provenance comes only from the authoritative graph post-image, never request
 /// fields. The updated projection is fsync'd before its result is returned.
-pub fn recompute_materialization(
+pub async fn recompute_materialization(
     persist_dir: Option<&str>,
     graph_name: &str,
-    view: &eg_core::graph::GraphView,
+    view: eg_core::graph::GraphView,
     authoritative_graph_version: u64,
     node_id: &str,
     expected_source_graph_version: u64,
@@ -463,55 +570,56 @@ pub fn recompute_materialization(
     if authoritative_graph_version != expected_source_graph_version {
         return Err("STALE_RECOMPUTE_FENCE: authoritative graph version changed".to_string());
     }
-    let _guard = projection_write_lock()
-        .lock()
-        .map_err(|_| "reasoning projection write lock is unavailable".to_string())?;
     let graph_fname = crate::persist::sanitize(graph_name);
-    let mut index = load_index(persist_dir, &graph_fname)?
-        .ok_or_else(|| "reasoning projection is not initialized".to_string())?;
-    let fence_epoch = index.claim_recompute(node_id, expected_source_graph_version)?;
-    let provenance = view.node_properties.get(node_id).map(|properties| {
-        // Yield EVERY parallel entry per outgoing pair (mirrors
-        // `eg_epistemic::incremental::register_from_graph_view`): `resolve_provenance`
-        // itself filters by each entry's `relationship`, so narrowing to
-        // `versions.last()` here would silently drop a `DERIVED_FROM`/`GENERATED_BY`
-        // edge shadowed by a later, different-relationship edge to the same target
-        // (see the read/write model note on `GraphCore::edge_properties`).
-        let outgoing = view
-            .edge_properties
-            .iter()
-            .filter(|((source, _), _)| source == node_id)
-            .flat_map(|((_, target), versions)| {
-                versions
-                    .iter()
-                    .map(move |properties| (target.clone(), properties.as_slice()))
-            });
-        eg_epistemic::resolve_provenance(Some(properties.as_slice()), outgoing)
-    });
-    let materialization = index.complete_recompute(
-        node_id,
-        expected_source_graph_version,
-        fence_epoch,
-        provenance,
-    )?;
-    persist_index(persist_dir, &graph_fname, &index)?;
-    crate::metrics::set_epistemic_materializations_stale(
-        index.stale_materializations().len() as i64
-    );
+    let persist_dir = persist_dir.map(str::to_owned);
+    let node_id = node_id.to_string();
+    let (materialization, fence_epoch, stale_count) = run_projection_job(move || {
+        let mut index = load_index(persist_dir.as_deref(), &graph_fname)?
+            .ok_or_else(|| "reasoning projection is not initialized".to_string())?;
+        let fence_epoch = index.claim_recompute(&node_id, expected_source_graph_version)?;
+        let provenance = resolve_materialization_provenance(&view, &node_id);
+        let materialization = index.complete_recompute(
+            &node_id,
+            expected_source_graph_version,
+            fence_epoch,
+            provenance,
+        )?;
+        persist_index(persist_dir.as_deref(), &graph_fname, &index)?;
+        Ok((
+            materialization,
+            fence_epoch,
+            index.stale_materializations().len(),
+        ))
+    })
+    .await?;
+    crate::metrics::set_epistemic_materializations_stale(stale_count as i64);
     Ok((materialization, fence_epoch))
 }
 
-fn persist_index(
-    persist_dir: Option<&str>,
-    graph_fname: &str,
-    index: &IncrementalReasoningIndex,
-) -> Result<(), String> {
-    persist_index_with_limit(
-        persist_dir,
-        graph_fname,
-        index,
-        MAX_PROJECTION_SNAPSHOT_BYTES,
-    )
+fn resolve_materialization_provenance(
+    view: &eg_core::graph::GraphView,
+    node_id: &str,
+) -> Option<(std::collections::BTreeSet<String>, Option<String>)> {
+    let properties = view.node_properties.get(node_id)?;
+    // Yield EVERY parallel entry per outgoing pair (mirrors
+    // `eg_epistemic::incremental::register_from_graph_view`): `resolve_provenance`
+    // itself filters by each entry's `relationship`, so narrowing to
+    // `versions.last()` here would silently drop a `DERIVED_FROM`/`GENERATED_BY`
+    // edge shadowed by a later, different-relationship edge to the same target
+    // (see the read/write model note on `GraphCore::edge_properties`).
+    let mut outgoing = Vec::new();
+    for ((source, target), versions) in &view.edge_properties {
+        if source != node_id {
+            continue;
+        }
+        for edge_properties in versions {
+            outgoing.push((target.clone(), edge_properties.as_slice()));
+        }
+    }
+    Some(eg_epistemic::resolve_provenance(
+        Some(properties.as_slice()),
+        outgoing,
+    ))
 }
 
 fn encode_index_bounded<W: Write + ?Sized>(
@@ -524,12 +632,27 @@ fn encode_index_bounded<W: Write + ?Sized>(
     if writer.limit_exceeded {
         return Err(PROJECTION_SNAPSHOT_SIZE_LIMIT_ERROR.to_string());
     }
-    encoded.map_err(|error| error.to_string())?;
-    writer.flush().map_err(|error| error.to_string())?;
+    encoded.map_err(|_| "reasoning projection snapshot could not be encoded".to_string())?;
+    writer
+        .flush()
+        .map_err(|_| "reasoning projection snapshot could not be persisted".to_string())?;
     Ok(writer.written)
 }
 
-fn persist_index_with_limit(
+fn persist_index(
+    persist_dir: Option<&str>,
+    graph_fname: &str,
+    index: &IncrementalReasoningIndex,
+) -> Result<(), String> {
+    persist_snapshot(
+        persist_dir,
+        graph_fname,
+        index,
+        MAX_PROJECTION_SNAPSHOT_BYTES,
+    )
+}
+
+fn persist_snapshot(
     persist_dir: Option<&str>,
     graph_fname: &str,
     index: &IncrementalReasoningIndex,
@@ -541,40 +664,122 @@ fn persist_index_with_limit(
             "reasoning projection requires a configured durable persistence directory".to_string(),
         );
     };
+    let root = Path::new(persist_dir.ok_or_else(|| {
+        "reasoning projection requires a configured durable persistence directory".to_string()
+    })?);
     let parent = path
         .parent()
-        .ok_or_else(|| "reasoning projection path has no parent".to_string())?
-        .to_path_buf();
-    std::fs::create_dir_all(&parent).map_err(|error| error.to_string())?;
+        .ok_or_else(|| "reasoning projection snapshot path is invalid".to_string())?;
+    prepare_snapshot_directory(root, parent)?;
+    match std::fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Err("reasoning projection snapshot is unavailable".to_string());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err("reasoning projection snapshot is unavailable".to_string()),
+    }
     let temporary = path.with_extension("msgpack.tmp");
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(&temporary)
-        .map_err(|error| error.to_string())?;
-    if let Err(error) = encode_index_bounded(&mut file, index, max_bytes) {
-        drop(file);
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error);
+    let file = create_temporary_snapshot(&temporary)?;
+    write_and_publish_snapshot(file, &temporary, &path, parent, index, max_bytes)
+}
+
+fn prepare_snapshot_directory(root: &Path, parent: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(root) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+            return Err("reasoning projection snapshot directory is unavailable".to_string());
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::create_dir_all(root).map_err(|_| {
+                "reasoning projection snapshot directory is unavailable".to_string()
+            })?;
+        }
+        Err(_) => {
+            return Err("reasoning projection snapshot directory is unavailable".to_string());
+        }
     }
-    if let Err(error) = file.sync_all() {
-        drop(file);
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error.to_string());
-    }
-    drop(file);
-    if let Err(error) = replace_snapshot(&temporary, &path) {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error.to_string());
-    }
-    // Persist the directory entry before acknowledging the outbox cursor. Some
-    // platforms do not permit opening a directory as a file; data-file fsync is
-    // still mandatory there and the directory sync is best effort.
-    if let Ok(directory) = std::fs::File::open(&parent) {
-        let _ = directory.sync_all();
+    std::fs::create_dir_all(parent)
+        .map_err(|_| "reasoning projection snapshot directory is unavailable".to_string())?;
+    for directory in [root, parent] {
+        let metadata = std::fs::symlink_metadata(directory)
+            .map_err(|_| "reasoning projection snapshot directory is unavailable".to_string())?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err("reasoning projection snapshot directory is unavailable".to_string());
+        }
     }
     Ok(())
+}
+
+fn create_temporary_snapshot(temporary: &Path) -> Result<std::fs::File, String> {
+    match std::fs::symlink_metadata(temporary) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            return Err("reasoning projection temporary snapshot is unavailable".to_string());
+        }
+        Ok(_) => std::fs::remove_file(temporary)
+            .map_err(|_| "reasoning projection temporary snapshot is unavailable".to_string())?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => {
+            return Err("reasoning projection temporary snapshot is unavailable".to_string());
+        }
+    }
+    std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(temporary)
+        .map_err(|_| "reasoning projection temporary snapshot is unavailable".to_string())
+}
+
+fn write_and_publish_snapshot(
+    mut file: std::fs::File,
+    temporary: &Path,
+    path: &Path,
+    _parent: &Path,
+    index: &IncrementalReasoningIndex,
+    max_bytes: u64,
+) -> Result<(), String> {
+    if let Err(error) = encode_index_bounded(&mut file, index, max_bytes) {
+        drop(file);
+        cleanup_temporary_snapshot(temporary)?;
+        return Err(error);
+    }
+    if file.sync_all().is_err() {
+        drop(file);
+        cleanup_temporary_snapshot(temporary)?;
+        return Err("reasoning projection snapshot could not be persisted".to_string());
+    }
+    // Close the writable handle before replacement, which Windows requires.
+    drop(file);
+    if replace_snapshot(temporary, path).is_err() {
+        cleanup_temporary_snapshot(temporary)?;
+        return Err("reasoning projection snapshot could not be published".to_string());
+    }
+    #[cfg(not(windows))]
+    {
+        let directory = std::fs::File::open(_parent)
+            .map_err(|_| "reasoning projection snapshot directory is unavailable".to_string())?;
+        directory.sync_all().map_err(|_| {
+            "reasoning projection snapshot directory could not be persisted".to_string()
+        })?;
+    }
+    // ReplaceFileW/MoveFileExW use their write-through flags below. Windows
+    // does not support opening a directory through std::fs::File for a second fsync.
+    Ok(())
+}
+
+/// Rollback cleanup used only after a failed temporary-image transaction.
+/// Never follows or removes a symlink an external actor may have swapped in.
+fn cleanup_temporary_snapshot(temporary: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(temporary) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+            std::fs::remove_file(temporary).map_err(|_| {
+                "reasoning projection temporary snapshot could not be cleaned".to_string()
+            })
+        }
+        Ok(_) => Err("reasoning projection temporary snapshot could not be cleaned".to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err("reasoning projection temporary snapshot could not be cleaned".to_string()),
+    }
 }
 
 #[cfg(not(windows))]
@@ -676,16 +881,17 @@ fn replace_snapshot(temporary: &Path, path: &Path) -> std::io::Result<()> {
     }
 }
 
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
+fn current_time_ms() -> u64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_millis() as u64,
+        Err(_) => 0,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Condvar, Mutex as StdMutex};
 
     use eg_epistemic::ProjectedMaterializationStatus;
     use eg_types::protocol::Method;
@@ -741,11 +947,52 @@ mod tests {
         index
     }
 
-    #[test]
-    fn durable_reader_fails_closed_for_missing_and_corrupt_projection() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelled_waiter_cannot_release_an_inflight_persistence_job() {
+        let release = Arc::new((StdMutex::new(false), Condvar::new()));
+        let release_job = release.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let first = tokio::spawn(run_projection_job(move || {
+            started_tx
+                .send(())
+                .map_err(|_| "test start receiver is unavailable".to_string())?;
+            let (lock, ready) = &*release_job;
+            let mut released = lock
+                .lock()
+                .map_err(|_| "test release lock is unavailable".to_string())?;
+            while !*released {
+                released = ready
+                    .wait(released)
+                    .map_err(|_| "test release lock is unavailable".to_string())?;
+            }
+            Ok(())
+        }));
+        started_rx.await.unwrap();
+
+        first.abort();
+        assert!(projection_write_lock().try_lock().is_err());
+
+        let (acquired_tx, acquired_rx) = tokio::sync::oneshot::channel();
+        let second = tokio::spawn(run_projection_job(move || {
+            acquired_tx
+                .send(())
+                .map_err(|_| "test acquisition receiver is unavailable".to_string())?;
+            Ok(())
+        }));
+
+        let (lock, ready) = &*release;
+        *lock.lock().unwrap() = true;
+        ready.notify_one();
+        acquired_rx.await.unwrap();
+        second.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn durable_reader_fails_closed_for_missing_and_corrupt_projection() {
         let root = test_root();
         let root_str = root.to_string_lossy();
         assert!(read_index(Some(&root_str), "graph")
+            .await
             .unwrap_err()
             .contains("not initialized"));
 
@@ -753,13 +1000,14 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, b"not-a-projection").unwrap();
         assert!(read_index(Some(&root_str), "graph")
+            .await
             .unwrap_err()
             .contains("invalid"));
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[test]
-    fn durable_snapshot_replaces_an_existing_image() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn durable_snapshot_replaces_an_existing_image() {
         let root = test_root();
         let root_str = root.to_string_lossy();
         let initial = stale_index();
@@ -778,7 +1026,7 @@ mod tests {
             .unwrap();
         persist_index(Some(&root_str), "graph", &replacement).unwrap();
 
-        let restored = read_index(Some(&root_str), "graph").unwrap();
+        let restored = read_index(Some(&root_str), "graph").await.unwrap();
         assert_eq!(restored, replacement);
         assert_eq!(
             restored
@@ -790,8 +1038,111 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[test]
-    fn bounded_snapshot_encoding_never_crosses_cap_or_replaces_prior_image() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn interrupted_temporary_image_is_recovered_on_restart() {
+        let root = test_root();
+        let root_str = root.to_string_lossy().to_string();
+        let initial = stale_index();
+        persist_index(Some(&root_str), "graph", &initial).unwrap();
+        let temporary = snapshot_path(Some(&root_str), "graph")
+            .unwrap()
+            .with_extension("msgpack.tmp");
+        std::fs::write(&temporary, b"interrupted-publication").unwrap();
+
+        let mut replacement = stale_index();
+        replacement
+            .apply_batch(
+                ProjectionPosition {
+                    batch_id: "restart".to_string(),
+                    ordinal: 0,
+                    source_graph_version: 3,
+                },
+                &[],
+            )
+            .unwrap();
+        let persist_root = root_str.clone();
+        let expected = replacement.clone();
+        run_projection_job(move || persist_index(Some(&persist_root), "graph", &replacement))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            read_index(Some(&root_str), "graph").await.unwrap(),
+            expected
+        );
+        assert!(!temporary.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn snapshot_and_temporary_symlinks_fail_closed_without_touching_targets() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_root();
+        let root_str = root.to_string_lossy().to_string();
+        let outside = root.with_extension("outside");
+        std::fs::write(&outside, b"outside-sentinel").unwrap();
+        let path = snapshot_path(Some(&root_str), "graph").unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        symlink(&outside, &path).unwrap();
+
+        let error = read_index(Some(&root_str), "graph").await.unwrap_err();
+        assert_eq!(error, "reasoning projection snapshot is unavailable");
+        assert!(!error.contains(&root_str));
+        assert_eq!(std::fs::read(&outside).unwrap(), b"outside-sentinel");
+
+        std::fs::remove_file(&path).unwrap();
+        persist_index(Some(&root_str), "graph", &stale_index()).unwrap();
+        let temporary = path.with_extension("msgpack.tmp");
+        symlink(&outside, &temporary).unwrap();
+        let core = eg_core::graph::GraphCore::new();
+        core.add_node("derived".to_string(), derived_properties());
+        let error = recompute_materialization(
+            Some(&root_str),
+            "graph",
+            core.analysis_snapshot(),
+            2,
+            "derived",
+            2,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error,
+            "reasoning projection temporary snapshot is unavailable"
+        );
+        assert!(!error.contains(&root_str));
+        assert_eq!(std::fs::read(&outside).unwrap(), b"outside-sentinel");
+        assert_eq!(
+            read_index(Some(&root_str), "graph").await.unwrap(),
+            stale_index()
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_file(outside);
+
+        let linked_root = test_root();
+        let linked_root_str = linked_root.to_string_lossy().to_string();
+        let linked_outside = linked_root.with_extension("outside-directory");
+        std::fs::create_dir_all(&linked_outside).unwrap();
+        symlink(&linked_outside, &linked_root).unwrap();
+        let error = run_projection_job(move || {
+            persist_index(Some(&linked_root_str), "graph", &stale_index())
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error,
+            "reasoning projection snapshot directory is unavailable"
+        );
+        assert!(!linked_outside.join("reasoning-projections").exists());
+        std::fs::remove_file(linked_root).unwrap();
+        let _ = std::fs::remove_dir_all(linked_outside);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn bounded_snapshot_encoding_never_crosses_cap_or_replaces_prior_image() {
         #[derive(Default)]
         struct CountingWriter {
             written: u64,
@@ -830,10 +1181,14 @@ mod tests {
                 &[],
             )
             .unwrap();
-        let error =
-            persist_index_with_limit(Some(&root_str), "graph", &replacement, TEST_CAP).unwrap_err();
+        let persist_root = root_str.to_string();
+        let error = run_projection_job(move || {
+            persist_snapshot(Some(&persist_root), "graph", &replacement, TEST_CAP)
+        })
+        .await
+        .unwrap_err();
         assert!(error.contains("size limit"));
-        assert_eq!(read_index(Some(&root_str), "graph").unwrap(), initial);
+        assert_eq!(read_index(Some(&root_str), "graph").await.unwrap(), initial);
         assert!(!snapshot_path(Some(&root_str), "graph")
             .unwrap()
             .with_extension("msgpack.tmp")
@@ -859,8 +1214,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[test]
-    fn durable_reader_rejects_a_declared_allocation_bomb() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn durable_reader_rejects_a_declared_allocation_bomb() {
         let root = test_root();
         let root_str = root.to_string_lossy();
         let path = snapshot_path(Some(&root_str), "graph").unwrap();
@@ -870,13 +1225,14 @@ mod tests {
         std::fs::write(path, [0xdd, 0xff, 0xff, 0xff, 0xff]).unwrap();
 
         assert!(read_index(Some(&root_str), "graph")
+            .await
             .unwrap_err()
             .contains("invalid"));
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[test]
-    fn recompute_is_version_fenced_and_durable() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn recompute_is_version_fenced_and_durable() {
         let root = test_root();
         let root_str = root.to_string_lossy();
         persist_index(Some(&root_str), "graph", &stale_index()).unwrap();
@@ -885,12 +1241,16 @@ mod tests {
         core.add_node("derived".to_string(), derived_properties());
         let view = core.analysis_snapshot();
 
-        let mismatch = recompute_materialization(Some(&root_str), "graph", &view, 3, "derived", 2)
-            .unwrap_err();
+        let mismatch =
+            recompute_materialization(Some(&root_str), "graph", view.clone(), 3, "derived", 2)
+                .await
+                .unwrap_err();
         assert!(mismatch.contains("authoritative graph version changed"));
 
         let (materialization, fence_epoch) =
-            recompute_materialization(Some(&root_str), "graph", &view, 2, "derived", 2).unwrap();
+            recompute_materialization(Some(&root_str), "graph", view, 2, "derived", 2)
+                .await
+                .unwrap();
         assert_eq!(
             materialization.status,
             ProjectedMaterializationStatus::Fresh
@@ -898,6 +1258,7 @@ mod tests {
         assert_eq!(fence_epoch, 1);
         assert_eq!(
             read_index(Some(&root_str), "graph")
+                .await
                 .unwrap()
                 .status_of("derived"),
             Some(ProjectedMaterializationStatus::Fresh)

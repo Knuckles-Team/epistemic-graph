@@ -18,7 +18,7 @@ use eg_modality::{
 
 use crate::{CitationSpan, TableSpan, TextHit};
 
-const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &str)] = &[
     (
         TckPoint::CdcDeleteRetentionGc,
         "a BM25 hit is a query-time result, not a stored value — change-capture/delete/GC is maintained by the Tantivy index backend",

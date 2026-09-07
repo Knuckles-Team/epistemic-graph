@@ -59,7 +59,7 @@ pub mod tenant_catalog;
 // `GRAPH_RAFT_GROUP_ENDPOINTS` client map. Mirrors `tenant_catalog`'s own-file,
 // in-memory-cache shape. Redb-only, like its M3 siblings above.
 #[cfg(feature = "redb")]
-pub mod node_info_store;
+pub(crate) mod node_info_store;
 
 // VIZ-1: durable cache for the computed hierarchical-Leiden cluster tree
 // (CONCEPT:EG-KG.compute.leiden-hierarchy) one graph's `Method::ClusterHierarchyRefresh`

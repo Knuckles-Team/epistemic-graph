@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "boolean"
+    },
+    {
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    {
+      "format": "double",
+      "type": "number"
+    },
+    {
+      "type": "string"
+    },
+    {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    {
+      "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          true
+        ],
+        "type": "array"
+      },
+      "type": "array"
+    },
+    {
+      "items": {
+        "maxItems": 3,
+        "minItems": 3,
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        ],
+        "type": "array"
+      },
+      "type": "array"
+    },
+    {
+      "description": "A typed result serialized STRAIGHT to MessagePack (Phase C-D — compact\nresult encoding). Skips building a `serde_json::Value` tree on the server —\nthe dominant allocator for large algorithm results (PageRank/centrality/\ncommunities over the whole graph). On the wire it is a MessagePack `bin`.\nThe Python client decodes any\ntop-level `bytes` result with a second `unpackb`, recovering the exact same\nstructure the `Json` path produced. Opaque-byte methods are explicitly\nidentified by method at the client boundary and never decoded a second time.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "type": "array"
+    },
+    true
+  ],
+  "description": "Untagged result payload for efficient serialization without JSON overhead.",
+  "title": "ResultPayload"
+}

@@ -89,7 +89,7 @@ jobs:
       # red).
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version-file: '.python-version'
       - name: Secret-history scan
         run: |
           set -euo pipefail
@@ -118,6 +118,12 @@ jobs:
 
       - name: Test (lower crates, all features)
         run: cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
+      # The checked ledger is the canonical all-Method projection. The ordinary
+      # feature-selected registry is intentionally smaller, so this named profile
+      # is the only meaningful exact generated-artifact comparison. This step is
+      # also executed verbatim by the blocking local pre-push CI-gate replica.
+      - name: Test (canonical capability policy and generated ledger)
+        run: cargo test --locked -p eg-capabilities --features contract --no-fail-fast
       - name: Test (facade full)
         run: cargo test -p epistemic-graph --features full --no-fail-fast
       # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
@@ -144,8 +150,10 @@ jobs:
         run: pip install pytest
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
         run: python3 scripts/check_epistemic_operations_protocol.py
-      - name: Protocol parity (Python client ⇄ Rust Method enum)
-        run: python -m pytest tests/test_protocol_parity.py --noconftest -q
+      - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
+        run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
+      - name: Generated Python client contract
+        run: python3 tests/test_generated_client_contract.py
 
       # numeric-parity + NE-249: the developer-only reference gate proves EVERY
       # kernel op matches its NumPy reference, AND that the kernel still imports
@@ -385,6 +393,9 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
+      - name: Constrained parallelism + Kafka non-blocking contract (GOC-70)
+        run: bash scripts/constrained_parallelism_gate.sh
+
       # Lint each gated build so warnings can't accumulate. `-D warnings` makes
       # clippy fail the step (and now the job/workflow) on any lint. Numeric
       # matrix modules carry scoped `#![allow(clippy::needless_range_loop)]`
@@ -412,7 +423,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version-file: '.python-version'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
@@ -455,11 +466,12 @@ jobs:
           git cat-file -e "${resolved}^{commit}"
           printf 'CX_DUP_BASE_REF=%s\n' "$resolved" >> "$GITHUB_ENV"
 
-      # Each Rust CLI is installed under its own runner-local --root.  The
-      # Python and Node tools are pinned directly as well; hooks never execute
-      # these provisioning commands.  `--no-package-lock` is safe here because
-      # this is an ephemeral scanner prefix, not the clients/js dependency
-      # graph shipped to users.
+      # Each Rust CLI is installed under its own runner-local --root. The
+      # Python and Node tools have exact top-level pins, but their transitive
+      # graphs are resolved online without a dedicated lock/hash set: this
+      # provisioning is intentionally disclosed as non-hermetic. Hooks never
+      # execute these commands. `--no-package-lock` is scoped to this ephemeral
+      # scanner prefix, not the clients/js dependency graph shipped to users.
       - name: Provision pinned scanner toolchain
         shell: bash
         run: |
@@ -470,10 +482,15 @@ jobs:
           cargo install --locked --version 0.4.10 --root "$scanner_root/kiss" kiss-ai
           cargo install --locked --version 0.1.2 --root "$scanner_root/dupehound" dupehound
           cargo install --locked --version 0.5.0 --root "$scanner_root/arch-lint" arch-lint-cli
+          cargo_deny_version="$(
+            PYTHONPATH=scripts python -c \
+              'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)'
+          )"
+          cargo install --locked --version "$cargo_deny_version" --root "$scanner_root/cargo-deny" cargo-deny
           python -m pip install --disable-pip-version-check --no-input --upgrade "import-linter==2.13"
           npm install --prefix "$scanner_root/npm" --no-package-lock --ignore-scripts --no-save --no-audit --no-fund \
             "jscpd@5.0.16" "dependency-cruiser@18.2.0"
-          for bin_dir in "$scanner_root/cccc/bin" "$scanner_root/kiss/bin" "$scanner_root/dupehound/bin" "$scanner_root/arch-lint/bin" "$scanner_root/npm/node_modules/.bin"; do
+          for bin_dir in "$scanner_root/cccc/bin" "$scanner_root/kiss/bin" "$scanner_root/dupehound/bin" "$scanner_root/arch-lint/bin" "$scanner_root/cargo-deny/bin" "$scanner_root/npm/node_modules/.bin"; do
             echo "$bin_dir" >> "$GITHUB_PATH"
           done
 
@@ -491,6 +508,14 @@ jobs:
             0.5.0|"arch-lint 0.5.0") ;;
             *) echo "unexpected arch-lint version output" >&2; exit 2 ;;
           esac
+          cargo_deny_version="$(
+            PYTHONPATH=scripts python -c \
+              'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)'
+          )"
+          test "$(cargo-deny --version)" = "cargo-deny $cargo_deny_version"
+
+      - name: Rust dependency advisory gate
+        run: bash scripts/check_cargo_advisories.sh
 
       - name: jscpd differential gate (new pairs)
         run: python3 scripts/check_duplication.py enforce --base-ref "$CX_DUP_BASE_REF"
@@ -544,7 +569,7 @@ jobs:
         working-directory: clients/js
         run: depcruise --validate --config .dependency-cruiser.cjs index.mjs
       - name: Rust architecture (arch-lint)
-        run: arch-lint check --format json
+        run: python3 scripts/check_rust_arch_lint.py
 
   # ── STAGE 2: the ONE main wheel (CONCEPT:EG-371), built for every
   # supported native target — release-critical item: wheel build +
@@ -611,7 +636,7 @@ jobs:
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version-file: '.python-version'
 
       - name: Read tracked Rust toolchain pin
         id: rust-toolchain
@@ -1015,7 +1040,7 @@ jobs:
           echo "required wheels present:"; ls -1 dist/*.whl
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version-file: '.python-version'
       # ── THE PUBLISH BOUNDARY GATE. Every wheel about to be uploaded must carry the
       #    folded numeric AND engine kernels (BUG-PE-002 — the `build` job above now
       #    always folds both), an EXECUTABLE server binary, the full python surface,
@@ -1194,7 +1219,7 @@ jobs:
           key: benchmarks
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.12'
+          python-version-file: '.python-version'
       # Run the benches (bounded iters — a short spot-check, not a wall-clock chase). The
       # bench writes the measured recall to $EG_BENCH_RECALL_OUT and ASSERTS the floor, so
       # a recall regression fails here directly.

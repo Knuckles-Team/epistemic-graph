@@ -20,12 +20,37 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, squash
+from rust_module_tree import read_module_tree
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def rust_function(source: str, signature: str) -> str:
+    """Return one Rust function, including its signature and balanced body."""
+
+    start = source.find(signature)
+    require(start >= 0, f"Rust function is absent: {signature}")
+    body_start = source.find("{", start)
+    require(body_start >= 0, f"Rust function body is absent: {signature}")
+    depth = 1
+    end = body_start + 1
+    while end < len(source) and depth:
+        if source[end] == "{":
+            depth += 1
+        elif source[end] == "}":
+            depth -= 1
+        end += 1
+    require(depth == 0, f"Rust function is unterminated: {signature}")
+    return source[start:end]
+
+
+def isolation_source() -> tuple[str, str]:
+    source = read("crates/eg-core/src/isolation/access_policy.rs")
+    return source, rust_function(source, "pub fn can_see_row(")
 
 
 def knowledge_stream_handler_source() -> str:
@@ -116,9 +141,11 @@ def main() -> None:
     require(len(reads) >= 150, "generated served-read inventory is unexpectedly small")
 
     access = read("src/server/access.rs")
-    isolation = read("crates/eg-core/src/isolation.rs")
-    dispatch = read("src/server/dispatch.rs")
-    graph_ops = read("src/server/handlers/graph_ops.rs")
+    isolation, can_see_row = isolation_source()
+    dispatch = read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
+    graph_ops = read_module_tree(
+        "src/server/handlers/graph_ops.rs", root_dir=ROOT
+    )
     knowledge = knowledge_stream_handler_source()
     query = read("src/server/handlers/query.rs")
     rdf = read("src/server/handlers/rdf.rs")
@@ -175,7 +202,12 @@ def main() -> None:
         all(
             (
                 ".node_map\n            .keys()" in isolation,
-                "None => return vis.tagged && vis.public" in isolation,
+                """let Some(owner) = visibility.owner.as_deref() else {
+            return self.is_system(agent_id)
+                || visibility.schema
+                || (visibility.tagged && visibility.public);
+        };"""
+                in can_see_row,
                 "if !self.has_rules()" not in isolation,
             )
         ),

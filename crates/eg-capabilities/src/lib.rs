@@ -23,7 +23,8 @@
 //! a missing or duplicate `Method` declaration.
 //!
 //! This crate defines the domain policy registry, the generated
-//! Markdown ledger (see [`gen_ledger`]), and consistency tests against the remaining
+//! Markdown ledger (rendered by [`gen_ledger`], written by the `gen_contract`
+//! generator), and consistency tests against the remaining
 //! classifiers. Served mutation planning consumes this policy directly; the snapshot
 //! cross-checks remain as drift alarms for classifiers that have not yet been deleted.
 //!
@@ -33,7 +34,16 @@
 //! turned on -- see `Cargo.toml` for why). It is not a dependency of the main
 //! `epistemic-graph` package's default build; see the root `Cargo.toml`'s `members` comment.
 
+#[cfg(feature = "contract-schema")]
+pub mod contract;
+mod descriptor;
 mod domains;
+
+pub use descriptor::{
+    error_set_for, format_identities_for, replay_class_for, ConsumerProfile, MethodDescriptor,
+    MethodId, MethodSpec, OpaqueKind, PayloadShape, ReplayClass, SchemaProvenance, SchemaRef,
+    Stability,
+};
 
 use eg_types::protocol::{CypherMode, Method};
 
@@ -174,7 +184,17 @@ pub struct ProtocolPolicyInventoryEntry {
 /// This is the only public policy inventory. It is derived directly from the eleven
 /// domain-owned `ROWS` declarations and has no separately ordered projection.
 pub fn method_policy_entries() -> impl Iterator<Item = (&'static str, MethodPolicy, &'static str)> {
-    domains::rows().copied()
+    domains::rows().map(|(name, spec, note)| (*name, spec.policy, *note))
+}
+
+/// Iterate the full engine contract, one [`MethodDescriptor`] per `Method` variant, in
+/// the same deterministic domain declaration order.
+///
+/// This is the canonical registry RF-RULING-003 makes EG the sole owner of: every
+/// generated artifact under `contract/`, `docs/capabilities.generated.md`, and the
+/// generated Python client are projections of this one iterator.
+pub fn method_descriptors() -> impl Iterator<Item = MethodDescriptor> {
+    domains::descriptors()
 }
 
 /// Generate the protocol-method -> primitive-policy inventory from the domain registry.
@@ -309,11 +329,11 @@ pub fn gen_ledger() -> String {
     out.push_str("# Epistemic Graph -- Generated Capability Ledger\n\n");
     out.push_str(
         "> **This file is GENERATED and is the AUTHORITATIVE machine-checked capability \n\
-         > truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities --bin \n\
-         > gen_ledger`. It is derived directly from the eleven current domain `ROWS` \n\
+         > truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities \n\
+         > --features contract --bin gen_contract`. It is derived directly from the eleven current domain `ROWS` \n\
          > declarations under `crates/eg-capabilities/src/domains/`. Inventory gates keep \n\
          > them exact for every `Method` variant. `docs/capabilities.md` describes surface-level feature \n\
-         > parity; this generated table is authoritative for per-method policy.\n\n\
+         > parity; this generated table is authoritative for per-method policy.\n>\n\
          > `mutates` marked `~true` means the value is a conservative UPPER BOUND: the real \n\
          > runtime answer is conditional (an operation, a `writeback` flag, or a parsed \n\
          > query) -- see the `note` column. `VolatileControl` is explicit non-durable \n\

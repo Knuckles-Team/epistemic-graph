@@ -46,10 +46,12 @@ pub mod otel_export;
 #[cfg(feature = "otel-export")]
 pub mod remote_write;
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, HashMap};
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
@@ -83,6 +85,94 @@ const MAX_HTTP_TARGET_BYTES: usize = 8 * 1024;
 const MAX_HTTP_BODY_BYTES: usize = 16 * 1024 * 1024;
 const MAX_HTTP_CONNECTIONS: usize = 256;
 const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_SNAPSHOT_BYTES: usize = eg_types::msgpack::MAX_PROPERTY_BYTES;
+const SNAPSHOT_WRITE_ERROR: &str = "observability snapshot write failed";
+const SNAPSHOT_READ_ERROR: &str = "observability snapshot read failed";
+const OBS_PERSISTENCE_DIRECTORY_ERROR: &str = "observability persistence directory is unavailable";
+const MANIFEST_DIRECTORY_ERROR: &str = "segment manifest directory is unavailable";
+const MANIFEST_READ_ERROR: &str = "segment manifest is unavailable";
+const MANIFEST_BOUNDS_ERROR: &str = "segment manifests exceed recovery bounds";
+const MAX_MANIFEST_FILES: usize = 16_384;
+const MAX_MANIFEST_TOTAL_BYTES: usize = MAX_SNAPSHOT_BYTES;
+const MAX_MANIFEST_TOTAL_ITEMS: usize = eg_types::msgpack::MAX_PROPERTY_ITEMS;
+
+#[cfg(all(
+    target_os = "linux",
+    any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    )
+))]
+const LINUX_O_DIRECTORY: i32 = 16_384;
+#[cfg(all(
+    target_os = "linux",
+    any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    )
+))]
+const LINUX_O_NOFOLLOW: i32 = 32_768;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "sparc", target_arch = "sparc64")
+))]
+const LINUX_O_NONBLOCK: i32 = 16_384;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "sparc", target_arch = "sparc64")
+))]
+const LINUX_O_CLOEXEC: i32 = 4_194_304;
+#[cfg(all(
+    target_os = "linux",
+    any(
+        target_arch = "mips",
+        target_arch = "mips32r6",
+        target_arch = "mips64",
+        target_arch = "mips64r6"
+    )
+))]
+const LINUX_O_NONBLOCK: i32 = 128;
+#[cfg(all(
+    target_os = "linux",
+    not(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    ))
+))]
+const LINUX_O_DIRECTORY: i32 = 65_536;
+#[cfg(all(
+    target_os = "linux",
+    not(any(
+        target_arch = "arm",
+        target_arch = "aarch64",
+        target_arch = "powerpc",
+        target_arch = "powerpc64"
+    ))
+))]
+const LINUX_O_NOFOLLOW: i32 = 131_072;
+#[cfg(all(
+    target_os = "linux",
+    not(any(
+        target_arch = "mips",
+        target_arch = "mips32r6",
+        target_arch = "mips64",
+        target_arch = "mips64r6",
+        target_arch = "sparc",
+        target_arch = "sparc64"
+    ))
+))]
+const LINUX_O_NONBLOCK: i32 = 2_048;
+#[cfg(all(
+    target_os = "linux",
+    not(any(target_arch = "sparc", target_arch = "sparc64"))
+))]
+const LINUX_O_CLOEXEC: i32 = 524_288;
 
 /// One normalized log record — the common shape every wire format is parsed into.
 /// `attrs` is a dynamic string map (schema-on-read); the fixed fields are the ones
@@ -130,13 +220,16 @@ fn severity_number(sev: &str) -> f64 {
     }
 }
 
-/// Sanitize a stream name into a filesystem-safe directory component (per-stream
-/// text index dir). Non-alphanumerics collapse to `_`.
-fn sanitize(stream: &str) -> String {
-    stream
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect()
+/// Collision-resistant, opaque filesystem component for one exact stream name.
+/// Domain separation prevents an index directory and manifest file from sharing
+/// an identity scheme with unrelated persistent data.
+fn stream_storage_key(stream: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+
+    let mut digest = Sha256::new();
+    digest.update(b"epistemic-graph/observability-stream\0");
+    digest.update(stream.as_bytes());
+    hex::encode(digest.finalize())
 }
 
 /// BUG-016 durable path: `{persist_dir}/obs/traces.msgpack`.
@@ -150,43 +243,400 @@ fn traces_snapshot_path(obs_base: &Path) -> PathBuf {
 fn segment_manifest_path(obs_base: &Path, stream: &str) -> PathBuf {
     obs_base
         .join("segments")
-        .join(format!("{}.msgpack", sanitize(stream)))
+        .join(format!("{}.msgpack", stream_storage_key(stream)))
 }
 
-/// Write `bytes` to `path` via a `.msgpack.tmp` sibling + `fsync` + atomic rename +
-/// best-effort parent-directory fsync -- the one tmp-file-durability convention
-/// this module's persistence helpers (`persist_traces`, `persist_stream_segments`)
-/// share, mirroring `src/server/persistence/backup.rs`'s manifest-write shape and
-/// `src/server/reasoning_projection.rs`'s snapshot-write shape.
-fn write_snapshot_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| "snapshot path has no parent".to_string())?;
-    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    let temporary = path.with_extension("msgpack.tmp");
-    // Clear a stale temp file left by a prior crashed attempt so `create_new`
-    // below does not spuriously fail.
-    let _ = std::fs::remove_file(&temporary);
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)
-        .map_err(|error| error.to_string())?;
-    if let Err(error) = std::io::Write::write_all(&mut file, bytes).and_then(|()| file.sync_all()) {
-        drop(file);
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error.to_string());
+/// Serialize snapshot publication inside this process. The authoritative bytes
+/// still live in the destination file; this lock only prevents concurrent sweep
+/// and ingest workers from racing replacement of one stream's side file.
+fn snapshot_write_lock() -> &'static StdMutex<()> {
+    static LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| StdMutex::new(()))
+}
+
+/// An opened, validated directory authority. On Unix it must not be writable by
+/// group/other, making same-identity processes the explicit filesystem trust
+/// boundary; the process lock serializes writers within this engine. On Linux, all subsequent
+/// child operations resolve through `/proc/self/fd/<fd>` so renaming or replacing
+/// an ancestor cannot redirect a transaction after validation.
+struct SnapshotDirectory {
+    handle: std::fs::File,
+    io_path: PathBuf,
+    original_path: PathBuf,
+}
+
+impl SnapshotDirectory {
+    fn open(path: &Path, create: bool, error: &str) -> Result<Self, String> {
+        if create {
+            require_unsymlinked_existing_ancestry(path, error)?;
+            create_private_directory_tree(path, error)?;
+        }
+        require_unsymlinked_directory_tree(path, error)?;
+        let handle = open_directory_nofollow(path).map_err(|_| error.to_string())?;
+        require_trusted_directory(&handle, error)?;
+        require_matching_opened_path(&handle, path, error)?;
+        Ok(Self::from_opened(handle, path.to_path_buf()))
     }
-    drop(file);
-    if let Err(error) = std::fs::rename(&temporary, path) {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error.to_string());
+
+    fn from_opened(handle: std::fs::File, original_path: PathBuf) -> Self {
+        #[cfg(target_os = "linux")]
+        let io_path = {
+            use std::os::fd::AsRawFd as _;
+            PathBuf::from(format!("/proc/self/fd/{}", handle.as_raw_fd()))
+        };
+        #[cfg(not(target_os = "linux"))]
+        let io_path = original_path.clone();
+        Self {
+            handle,
+            io_path,
+            original_path,
+        }
     }
-    #[cfg(unix)]
-    {
-        let _ = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
+
+    fn child(&self, name: &std::ffi::OsStr) -> PathBuf {
+        self.io_path.join(name)
+    }
+
+    fn sync(&self, error: &str) -> Result<(), String> {
+        self.handle.sync_all().map_err(|_| error.to_string())
+    }
+
+    fn require_still_named(&self, error: &str) -> Result<(), String> {
+        require_unsymlinked_directory_tree(&self.original_path, error)?;
+        require_matching_opened_path(&self.handle, &self.original_path, error).map(|_| ())
+    }
+
+    fn open_child_directory(
+        &self,
+        name: &std::ffi::OsStr,
+        error: &str,
+    ) -> Result<Option<Self>, String> {
+        let child_path = self.child(name);
+        let handle = match open_directory_nofollow(&child_path) {
+            Ok(handle) => handle,
+            Err(io_error) if io_error.kind() == std::io::ErrorKind::NotFound => {
+                self.require_still_named(error)?;
+                return Ok(None);
+            }
+            Err(_) => return Err(error.to_string()),
+        };
+        require_trusted_directory(&handle, error)?;
+        require_matching_opened_path(&handle, &child_path, error)?;
+        self.require_still_named(error)?;
+        let original_path = self.original_path.join(name);
+        require_unsymlinked_directory_tree(&original_path, error)?;
+        require_matching_opened_path(&handle, &original_path, error)?;
+        Ok(Some(Self::from_opened(handle, original_path)))
+    }
+}
+
+#[cfg(unix)]
+fn create_private_directory_tree(path: &Path, error: &str) -> Result<(), String> {
+    use std::os::unix::fs::DirBuilderExt as _;
+
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true).mode(0o700);
+    builder.create(path).map_err(|_| error.to_string())
+}
+
+#[cfg(not(unix))]
+fn create_private_directory_tree(path: &Path, error: &str) -> Result<(), String> {
+    std::fs::create_dir_all(path).map_err(|_| error.to_string())
+}
+
+#[cfg(unix)]
+fn require_trusted_directory(handle: &std::fs::File, error: &str) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let mode = handle
+        .metadata()
+        .map_err(|_| error.to_string())?
+        .permissions()
+        .mode();
+    if mode & 0o022 != 0 {
+        return Err(error.to_string());
     }
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn require_trusted_directory(_handle: &std::fs::File, _error: &str) -> Result<(), String> {
+    Ok(())
+}
+
+fn require_unsymlinked_existing_ancestry(path: &Path, error: &str) -> Result<(), String> {
+    let absolute = std::path::absolute(path).map_err(|_| error.to_string())?;
+    for component in absolute.ancestors() {
+        match std::fs::symlink_metadata(component) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_dir() => {
+                return Err(error.to_string());
+            }
+            Ok(_) => {}
+            Err(io_error) if io_error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(error.to_string()),
+        }
+    }
+    Ok(())
+}
+
+fn require_unsymlinked_directory_tree(path: &Path, error: &str) -> Result<(), String> {
+    let absolute = std::path::absolute(path).map_err(|_| error.to_string())?;
+    for component in absolute.ancestors() {
+        let metadata = std::fs::symlink_metadata(component).map_err(|_| error.to_string())?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(error.to_string());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn open_directory_nofollow(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(LINUX_O_DIRECTORY | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC)
+        .open(path)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn open_directory_nofollow(path: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::open(path)
+}
+
+#[cfg(target_os = "linux")]
+fn open_file_nofollow(path: &Path, write_new: bool) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.custom_flags(LINUX_O_NONBLOCK | LINUX_O_NOFOLLOW | LINUX_O_CLOEXEC);
+    if write_new {
+        options.write(true).create_new(true).mode(0o600);
+    } else {
+        options.read(true);
+    }
+    options.open(path)
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn open_file_nofollow(path: &Path, write_new: bool) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+
+    let mut options = std::fs::OpenOptions::new();
+    if write_new {
+        options.write(true).create_new(true).mode(0o600);
+    } else {
+        options.read(true);
+    }
+    options.open(path)
+}
+
+#[cfg(not(unix))]
+fn open_file_nofollow(path: &Path, write_new: bool) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    if write_new {
+        options.write(true).create_new(true);
+    } else {
+        options.read(true);
+    }
+    options.open(path)
+}
+
+fn require_matching_opened_path(
+    handle: &std::fs::File,
+    path: &Path,
+    error: &str,
+) -> Result<std::fs::Metadata, String> {
+    let opened = handle.metadata().map_err(|_| error.to_string())?;
+    let named = std::fs::symlink_metadata(path).map_err(|_| error.to_string())?;
+    if named.file_type().is_symlink() || !same_file_identity(&opened, &named) {
+        return Err(error.to_string());
+    }
+    require_trusted_file(&opened, error)?;
+    Ok(opened)
+}
+
+#[cfg(unix)]
+fn require_trusted_file(metadata: &std::fs::Metadata, error: &str) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    if metadata.is_file() && metadata.permissions().mode() & 0o022 != 0 {
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn require_trusted_file(_metadata: &std::fs::Metadata, _error: &str) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn same_file_identity(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+
+    left.dev() == right.dev() && left.ino() == right.ino()
+}
+
+#[cfg(not(unix))]
+fn same_file_identity(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+    left.file_type() == right.file_type() && left.len() == right.len()
+}
+
+/// Write an owned snapshot through one durable publication transaction:
+/// create a same-directory temporary, write + fsync it, atomically rename it,
+/// then fsync the parent directory. Every pre-publication error removes only this
+/// attempt's file. The process-wide lock makes the temporary single-owner, while
+/// a regular stale temporary from a crashed process is removed before reuse.
+/// Symlinked/non-regular authorities fail closed.
+fn write_snapshot_atomically_blocking<F>(path: PathBuf, snapshot: F) -> Result<(), String>
+where
+    F: FnOnce() -> Result<Vec<u8>, String>,
+{
+    write_snapshot_atomically_blocking_with(path, snapshot, || Ok(()), || {})
+}
+
+/// The injected pre-publish check exists solely so a focused test can prove that
+/// a failed transaction preserves the prior authority and cleans its temporary.
+fn write_snapshot_atomically_blocking_with<F, P, A>(
+    path: PathBuf,
+    snapshot: F,
+    before_publish: P,
+    after_publish: A,
+) -> Result<(), String>
+where
+    F: FnOnce() -> Result<Vec<u8>, String>,
+    P: FnOnce() -> Result<(), String>,
+    A: FnOnce(),
+{
+    let _guard = snapshot_write_lock()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let bytes = snapshot().map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
+    if bytes.len() > MAX_SNAPSHOT_BYTES {
+        return Err(SNAPSHOT_WRITE_ERROR.to_string());
+    }
+    let (parent, destination, temporary) = prepare_snapshot_publication(&path)?;
+    let result = (|| {
+        let mut file =
+            open_file_nofollow(&temporary, true).map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
+        file.write_all(&bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
+        let metadata = require_matching_opened_path(&file, &temporary, SNAPSHOT_WRITE_ERROR)?;
+        if !metadata.is_file() {
+            return Err(SNAPSHOT_WRITE_ERROR.to_string());
+        }
+        before_publish().map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
+        std::fs::rename(&temporary, &destination).map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
+        require_matching_opened_path(&file, &destination, SNAPSHOT_WRITE_ERROR)?;
+        parent.sync(SNAPSHOT_WRITE_ERROR)?;
+        parent.require_still_named(SNAPSHOT_WRITE_ERROR)?;
+        after_publish();
+        Ok(())
+    })();
+    if result.is_err() && cleanup_snapshot_temporary(&temporary).is_err() {
+        return Err(SNAPSHOT_WRITE_ERROR.to_string());
+    }
+    result
+}
+
+fn prepare_snapshot_publication(
+    path: &Path,
+) -> Result<(SnapshotDirectory, PathBuf, PathBuf), String> {
+    let parent_path = path
+        .parent()
+        .ok_or_else(|| SNAPSHOT_WRITE_ERROR.to_string())?;
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| SNAPSHOT_WRITE_ERROR.to_string())?;
+    let parent = SnapshotDirectory::open(parent_path, true, SNAPSHOT_WRITE_ERROR)?;
+    let destination = parent.child(file_name);
+    require_regular_snapshot_or_missing(&destination)?;
+    let temporary_name = format!("{}.tmp", file_name.to_string_lossy());
+    let temporary = parent.child(std::ffi::OsStr::new(&temporary_name));
+    prepare_snapshot_temporary(&temporary)?;
+    Ok((parent, destination, temporary))
+}
+
+fn require_regular_snapshot_or_missing(path: &Path) -> Result<(), String> {
+    match open_file_nofollow(path, false) {
+        Ok(file) => {
+            require_matching_opened_path(&file, path, SNAPSHOT_WRITE_ERROR).and_then(|metadata| {
+                if metadata.is_file() {
+                    Ok(())
+                } else {
+                    Err(SNAPSHOT_WRITE_ERROR.to_string())
+                }
+            })
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(SNAPSHOT_WRITE_ERROR.to_string()),
+    }
+}
+
+fn prepare_snapshot_temporary(temporary: &Path) -> Result<(), String> {
+    match open_file_nofollow(temporary, false) {
+        Ok(file) => {
+            let metadata = require_matching_opened_path(&file, temporary, SNAPSHOT_WRITE_ERROR)?;
+            if !metadata.is_file() {
+                return Err(SNAPSHOT_WRITE_ERROR.to_string());
+            }
+            std::fs::remove_file(temporary).map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => return Err(SNAPSHOT_WRITE_ERROR.to_string()),
+    }
+    Ok(())
+}
+
+fn cleanup_snapshot_temporary(temporary: &Path) -> Result<(), String> {
+    match std::fs::remove_file(temporary) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(SNAPSHOT_WRITE_ERROR.to_string()),
+    }
+}
+
+/// Read one optional bounded regular snapshot. Missing is distinct from an
+/// unavailable, symlinked, oversized, or changing authority, all of which fail
+/// closed without exposing its filesystem path or host error detail.
+fn read_snapshot_blocking(path: &Path) -> Result<Option<Vec<u8>>, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| SNAPSHOT_READ_ERROR.to_string())?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| SNAPSHOT_READ_ERROR.to_string())?;
+    let directory = SnapshotDirectory::open(parent, false, SNAPSHOT_READ_ERROR)?;
+    let bytes = read_snapshot_from_directory(&directory, name)?;
+    directory.require_still_named(SNAPSHOT_READ_ERROR)?;
+    Ok(bytes)
+}
+
+fn read_snapshot_from_directory(
+    directory: &SnapshotDirectory,
+    name: &std::ffi::OsStr,
+) -> Result<Option<Vec<u8>>, String> {
+    let path = directory.child(name);
+    let file = match open_file_nofollow(&path, false) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(SNAPSHOT_READ_ERROR.to_string()),
+    };
+    let metadata = require_matching_opened_path(&file, &path, SNAPSHOT_READ_ERROR)?;
+    if !metadata.is_file() || metadata.len() > MAX_SNAPSHOT_BYTES as u64 {
+        return Err(SNAPSHOT_READ_ERROR.to_string());
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(MAX_SNAPSHOT_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| SNAPSHOT_READ_ERROR.to_string())?;
+    if bytes.len() > MAX_SNAPSHOT_BYTES {
+        return Err(SNAPSHOT_READ_ERROR.to_string());
+    }
+    Ok(Some(bytes))
 }
 
 /// BUG-016 durable-tier recovery: load the last snapshot written by
@@ -202,10 +652,9 @@ fn write_snapshot_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
 #[cfg(feature = "traces")]
 fn load_traces_snapshot(obs_base: &Path) -> Result<Option<eg_tsdb::traces::SpanStore>, String> {
     let path = traces_snapshot_path(obs_base);
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(format!("trace snapshot is unavailable: {error}")),
+    let bytes = match read_snapshot_blocking(&path)? {
+        Some(bytes) => bytes,
+        None => return Ok(None),
     };
     eg_types::msgpack::validate_single_value(
         &bytes,
@@ -218,51 +667,202 @@ fn load_traces_snapshot(obs_base: &Path) -> Result<Option<eg_tsdb::traces::SpanS
     .map_err(|_| "trace snapshot is invalid or exceeds its bounds".to_string())?;
     eg_tsdb::traces::SpanStore::recover(&bytes)
         .map(Some)
-        .map_err(|error| format!("trace snapshot is corrupt: {error}"))
+        .map_err(|_| "trace snapshot is corrupt".to_string())
 }
 
 /// BUG-210 durable-tier recovery: rebuild the segment-manifest prune index
 /// (`ObsState::segments`) from every `{persist_dir}/obs/segments/*.msgpack` side
-/// file written by `persist_stream_segments`. `Ok(Vec::new())` when the directory
-/// does not exist yet (a fresh persist dir, or a persist dir from before this fix
-/// landed -- an old deployment simply starts with an empty prune index for
-/// pre-existing segments exactly as before, and gains durability for every
-/// segment flushed from here on). Each file's bytes go through the same bounded
+/// file written by `persist_stream_segments`. Returns empty maps when the directory
+/// does not exist yet in a fresh persist dir. Each file's bytes go through the same bounded
 /// structural preflight `load_traces_snapshot` uses.
-fn load_segment_manifests(obs_base: &Path) -> Result<Vec<SegmentManifest>, String> {
-    let dir = obs_base.join("segments");
-    let entries = match std::fs::read_dir(&dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => {
-            return Err(format!(
-                "segment manifest directory is unavailable: {error}"
-            ))
-        }
+/// Per-stream `(bytes, items)` and the aggregate totals for the manifest files
+/// that have completed durable publication. Named fields, because the bounds
+/// check and the publication commit below both read all three together and a
+/// transposed tuple index would silently compare bytes against items.
+#[derive(Debug, Default)]
+struct SegmentManifestUsage {
+    per_stream: HashMap<String, (usize, usize)>,
+    bytes: usize,
+    items: usize,
+}
+
+/// Everything `load_segment_manifests` rebuilds from the durable side files: the
+/// manifests themselves, the per-stream prune index into them, and their bounds.
+#[derive(Debug)]
+struct LoadedSegmentManifests {
+    manifests: Vec<SegmentManifest>,
+    positions: HashMap<String, Vec<usize>>,
+    usage: SegmentManifestUsage,
+}
+
+fn load_segment_manifests(obs_base: &Path) -> Result<LoadedSegmentManifests, String> {
+    let Some(directory) = open_segment_manifest_directory(obs_base)? else {
+        return Ok(LoadedSegmentManifests {
+            manifests: Vec::new(),
+            positions: HashMap::new(),
+            usage: SegmentManifestUsage::default(),
+        });
     };
+    let names = segment_manifest_names(&directory)?;
     let limits = eg_types::msgpack::MsgpackLimits::new(
         eg_types::msgpack::MAX_PROPERTY_BYTES,
         eg_types::msgpack::MAX_PROPERTY_ITEMS,
         eg_types::msgpack::DEFAULT_MAX_DEPTH,
     );
     let mut manifests = Vec::new();
-    for entry in entries {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("msgpack") {
-            continue;
-        }
-        let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
+    let mut positions: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut usage = HashMap::new();
+    let mut total_bytes = 0usize;
+    let mut total_items = 0usize;
+    for name in names {
+        let bytes = read_snapshot_from_directory(&directory, &name)?
+            .ok_or_else(|| MANIFEST_READ_ERROR.to_string())?;
+        include_manifest_budget(&mut total_bytes, bytes.len(), MAX_MANIFEST_TOTAL_BYTES)?;
         let stream_manifests: Vec<SegmentManifest> =
-            eg_types::msgpack::decode_bounded(&bytes, limits).map_err(|_| {
-                format!(
-                    "segment manifest {} is invalid or exceeds its bounds",
-                    path.display()
-                )
-            })?;
+            eg_types::msgpack::decode_bounded(&bytes, limits)
+                .map_err(|_| "segment manifest is invalid or exceeds its bounds".to_string())?;
+        include_manifest_budget(
+            &mut total_items,
+            stream_manifests.len(),
+            MAX_MANIFEST_TOTAL_ITEMS,
+        )?;
+        let stream = stream_manifests
+            .first()
+            .map(|manifest| manifest.stream.clone())
+            .ok_or_else(|| "segment manifest is invalid or exceeds its bounds".to_string())?;
+        let expected_name = format!("{}.msgpack", stream_storage_key(&stream));
+        if name != std::ffi::OsStr::new(&expected_name)
+            || stream_manifests
+                .iter()
+                .any(|manifest| manifest.stream != stream)
+            || positions.contains_key(&stream)
+        {
+            return Err("segment manifest is invalid or exceeds its bounds".to_string());
+        }
+        let first_position = manifests.len();
+        positions.insert(
+            stream.clone(),
+            (first_position..first_position + stream_manifests.len()).collect(),
+        );
+        usage.insert(stream.clone(), (bytes.len(), stream_manifests.len()));
         manifests.extend(stream_manifests);
     }
-    Ok(manifests)
+    directory.require_still_named(MANIFEST_DIRECTORY_ERROR)?;
+    Ok(LoadedSegmentManifests {
+        manifests,
+        positions,
+        usage: SegmentManifestUsage {
+            per_stream: usage,
+            bytes: total_bytes,
+            items: total_items,
+        },
+    })
+}
+
+fn include_manifest_budget(total: &mut usize, increment: usize, max: usize) -> Result<(), String> {
+    *total = (*total)
+        .checked_add(increment)
+        .filter(|candidate| *candidate <= max)
+        .ok_or_else(|| MANIFEST_BOUNDS_ERROR.to_string())?;
+    Ok(())
+}
+
+fn open_segment_manifest_directory(obs_base: &Path) -> Result<Option<SnapshotDirectory>, String> {
+    let base = SnapshotDirectory::open(obs_base, false, MANIFEST_DIRECTORY_ERROR)?;
+    base.open_child_directory(std::ffi::OsStr::new("segments"), MANIFEST_DIRECTORY_ERROR)
+}
+
+fn segment_manifest_names(
+    directory: &SnapshotDirectory,
+) -> Result<Vec<std::ffi::OsString>, String> {
+    let entries =
+        std::fs::read_dir(&directory.io_path).map_err(|_| MANIFEST_DIRECTORY_ERROR.to_string())?;
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|_| MANIFEST_DIRECTORY_ERROR.to_string())?;
+        let name = entry.file_name();
+        if Path::new(&name).extension().and_then(|ext| ext.to_str()) != Some("msgpack") {
+            continue;
+        }
+        let file_type = entry
+            .file_type()
+            .map_err(|_| MANIFEST_READ_ERROR.to_string())?;
+        if file_type.is_symlink() || !file_type.is_file() {
+            return Err(MANIFEST_READ_ERROR.to_string());
+        }
+        if names.len() >= MAX_MANIFEST_FILES {
+            return Err(MANIFEST_BOUNDS_ERROR.to_string());
+        }
+        names.push(name);
+    }
+    names.sort();
+    Ok(names)
+}
+
+fn encode_bounded_stream_manifests(
+    state: &ObsState,
+    target_stream: &str,
+    pending_usage: &Cell<Option<(usize, usize, usize, usize)>>,
+) -> Result<Vec<u8>, String> {
+    let segments = state.segments.lock();
+    let positions = state.manifest_positions.lock();
+    let target_positions = positions
+        .get(target_stream)
+        .ok_or_else(|| SNAPSHOT_WRITE_ERROR.to_string())?;
+    let target: Vec<&SegmentManifest> = target_positions
+        .iter()
+        .map(|position| {
+            segments
+                .get(*position)
+                .ok_or_else(|| SNAPSHOT_WRITE_ERROR.to_string())
+        })
+        .collect::<Result<_, _>>()?;
+    let bytes = rmp_serde::to_vec_named(&target).map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
+    let usage = state.manifest_usage.lock();
+    let previous = usage
+        .per_stream
+        .get(target_stream)
+        .copied()
+        .unwrap_or((0, 0));
+    let file_count = usage.per_stream.len()
+        + if usage.per_stream.contains_key(target_stream) {
+            0
+        } else {
+            1
+        };
+    let total_bytes = usage
+        .bytes
+        .checked_sub(previous.0)
+        .and_then(|total| total.checked_add(bytes.len()))
+        .filter(|total| *total <= MAX_MANIFEST_TOTAL_BYTES);
+    let total_items = usage
+        .items
+        .checked_sub(previous.1)
+        .and_then(|total| total.checked_add(target_positions.len()))
+        .filter(|total| *total <= MAX_MANIFEST_TOTAL_ITEMS);
+    if file_count > MAX_MANIFEST_FILES || total_bytes.is_none() || total_items.is_none() {
+        return Err(MANIFEST_BOUNDS_ERROR.to_string());
+    }
+    pending_usage.set(Some((
+        bytes.len(),
+        target_positions.len(),
+        total_bytes.expect("checked above"),
+        total_items.expect("checked above"),
+    )));
+    Ok(bytes)
+}
+
+fn record_segment_manifest(
+    segments: &Mutex<Vec<SegmentManifest>>,
+    positions: &Mutex<HashMap<String, Vec<usize>>>,
+    manifest: SegmentManifest,
+) {
+    let stream = manifest.stream.clone();
+    let mut segments = segments.lock();
+    let mut positions = positions.lock();
+    let position = segments.len();
+    segments.push(manifest);
+    positions.entry(stream).or_default().push(position);
 }
 
 /// The self-contained ingest state: a tsdb series store + per-stream text indices +
@@ -280,6 +880,12 @@ pub struct ObsState {
     buffers: Mutex<HashMap<String, Vec<LogRecord>>>,
     /// Recorded segment manifests (the prune index), newest last.
     segments: Mutex<Vec<SegmentManifest>>,
+    /// Positions into `segments`, grouped by stream, so one persistence flush
+    /// visits only its tenant's manifests while search keeps its vector contract.
+    manifest_positions: Mutex<HashMap<String, Vec<usize>>>,
+    /// Per-stream and aggregate bounds for the manifest files that have completed
+    /// durable publication. Updated before the global publication lock is released.
+    manifest_usage: Mutex<SegmentManifestUsage>,
     /// Base dir for persistent text indices; `None` ⇒ in-memory indices (tests).
     text_dir: Option<std::path::PathBuf>,
     /// `{persist_dir}/obs` -- the base this module's own durable side-files
@@ -298,61 +904,97 @@ pub struct ObsState {
     traces: Arc<eg_tsdb::traces::SpanStore>,
 }
 
+fn open_persistent_obs_stores(base: &Path) -> Result<(SeriesStore, RedbChunkStore), String> {
+    let authority = SnapshotDirectory::open(base, true, OBS_PERSISTENCE_DIRECTORY_ERROR)?;
+    let series = SeriesStore::open_in_dir(
+        &authority.io_path,
+        crate::store_authority::process_verifier(),
+        crate::store_authority::process_authority().principal(),
+        &crate::store_authority::process_authority().proof(),
+    )
+    .map_err(|_| "observability series store is unavailable".to_string())?;
+    let blob = RedbChunkStore::open(
+        &authority
+            .child(std::ffi::OsStr::new("blob"))
+            .to_string_lossy(),
+    )
+    .map_err(|_| "observability blob store is unavailable".to_string())?;
+    authority.require_still_named(OBS_PERSISTENCE_DIRECTORY_ERROR)?;
+    Ok((series, blob))
+}
+
+/// The complete synchronous construction/recovery boundary used by both the
+/// public async constructor and test-only ephemeral construction.
+fn open_obs_state_blocking(
+    persist_dir: Option<&str>,
+    flush_threshold: usize,
+) -> Result<ObsState, String> {
+    let (series, blob, text_dir, obs_base) = match persist_dir {
+        Some(dir) => {
+            let base = Path::new(dir).join("obs");
+            let (series, blob) = open_persistent_obs_stores(&base)?;
+            (series, blob, Some(base.join("text")), Some(base))
+        }
+        None => {
+            let base =
+                std::env::temp_dir().join(format!("eg-obs-{}-{}", std::process::id(), now_ns()));
+            let series = SeriesStore::open_in_dir(
+                &base,
+                crate::store_authority::process_verifier(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .map_err(|_| "observability series store is unavailable".to_string())?;
+            let blob = RedbChunkStore::open(&base.join("blob").to_string_lossy())
+                .map_err(|_| "observability blob store is unavailable".to_string())?;
+            (series, blob, None, None)
+        }
+    };
+    let loaded = match obs_base.as_deref() {
+        Some(base) => load_segment_manifests(base)?,
+        None => LoadedSegmentManifests {
+            manifests: Vec::new(),
+            positions: HashMap::new(),
+            usage: SegmentManifestUsage::default(),
+        },
+    };
+    #[cfg(feature = "traces")]
+    let traces = match obs_base.as_deref() {
+        Some(base) => match load_traces_snapshot(base)? {
+            Some(traces) => traces,
+            None => eg_tsdb::traces::SpanStore::new(),
+        },
+        None => eg_tsdb::traces::SpanStore::new(),
+    };
+    Ok(ObsState {
+        series: Arc::new(series),
+        blob: Arc::new(blob),
+        indices: Mutex::new(HashMap::new()),
+        buffers: Mutex::new(HashMap::new()),
+        segments: Mutex::new(loaded.manifests),
+        manifest_positions: Mutex::new(loaded.positions),
+        manifest_usage: Mutex::new(loaded.usage),
+        text_dir,
+        obs_base,
+        flush_threshold: flush_threshold.max(1),
+        next_doc: AtomicU64::new(1),
+        #[cfg(feature = "traces")]
+        traces: Arc::new(traces),
+    })
+}
+
 impl ObsState {
     /// Open the ingest substrate under a persist dir (durable series + blob CAS +
     /// on-disk text indices under `{persist_dir}/obs/…`). With `persist_dir = None`
-    /// everything is in a temp dir / in-memory (tests / ephemeral).
-    pub fn open(persist_dir: Option<&str>, flush_threshold: usize) -> Result<Self, String> {
-        let (series, blob, text_dir, obs_base) = match persist_dir {
-            Some(dir) => {
-                let base = std::path::Path::new(dir).join("obs");
-                let series = SeriesStore::open_in_dir(&base).map_err(|e| e.to_string())?;
-                let blob = RedbChunkStore::open(&base.join("blob").to_string_lossy())?;
-                (series, blob, Some(base.join("text")), Some(base))
-            }
-            None => {
-                let base = std::env::temp_dir().join(format!(
-                    "eg-obs-{}-{}",
-                    std::process::id(),
-                    now_ns()
-                ));
-                let series = SeriesStore::open_in_dir(&base).map_err(|e| e.to_string())?;
-                let blob = RedbChunkStore::open(&base.join("blob").to_string_lossy())?;
-                (series, blob, None, None)
-            }
-        };
-        // BUG-210: rebuild the segment-manifest prune index from durable side-files
-        // before serving -- without this, `segments` silently starts empty on every
-        // restart even though the Parquet bytes themselves are still in the blob
-        // CAS (see `load_segment_manifests`'s doc comment).
-        let segments = match obs_base.as_deref() {
-            Some(base) => load_segment_manifests(base)?,
-            None => Vec::new(),
-        };
-        // BUG-016: recover the native span store from its last durable snapshot
-        // before serving, so a restart does not silently drop every span held by
-        // the in-memory hot tier (see `load_traces_snapshot`'s doc comment). Spans
-        // ingested since the last periodic sweep tick are RAM-only and are lost,
-        // exactly like any WAL-checkpoint interval -- that is the documented,
-        // bounded staleness window, not a bug.
-        #[cfg(feature = "traces")]
-        let traces = match obs_base.as_deref() {
-            Some(base) => load_traces_snapshot(base)?.unwrap_or_default(),
-            None => eg_tsdb::traces::SpanStore::new(),
-        };
-        Ok(Self {
-            series: Arc::new(series),
-            blob: Arc::new(blob),
-            indices: Mutex::new(HashMap::new()),
-            buffers: Mutex::new(HashMap::new()),
-            segments: Mutex::new(segments),
-            text_dir,
-            obs_base,
-            flush_threshold: flush_threshold.max(1),
-            next_doc: AtomicU64::new(1),
-            #[cfg(feature = "traces")]
-            traces: Arc::new(traces),
+    /// everything is in a temp dir / in-memory (tests / ephemeral). The complete
+    /// initialization and recovery boundary runs on Tokio's blocking pool.
+    pub async fn open(persist_dir: Option<&str>, flush_threshold: usize) -> Result<Self, String> {
+        let persist_dir = persist_dir.map(str::to_owned);
+        ::tokio::task::spawn_blocking(move || {
+            open_obs_state_blocking(persist_dir.as_deref(), flush_threshold)
         })
+        .await
+        .map_err(|_| "observability persistence worker failed".to_string())?
     }
 
     /// CONCEPT:EG-OS.observability.trace-assembly — the distributed-trace span store handle, used by the trace
@@ -372,17 +1014,23 @@ impl ObsState {
     /// (ephemeral/test instances), mirroring `provenance_anchor::sweep`'s
     /// no-op-when-unconfigured contract.
     #[cfg(feature = "traces")]
-    pub fn persist_traces(&self) -> Result<(), String> {
-        let Some(base) = self.obs_base.as_deref() else {
+    pub async fn persist_traces(&self) -> Result<(), String> {
+        let Some(base) = self.obs_base.clone() else {
             return Ok(());
         };
-        let bytes = self.traces.snapshot();
-        write_snapshot_atomically(&traces_snapshot_path(base), &bytes)
+        let traces = self.traces.clone();
+        ::tokio::task::spawn_blocking(move || {
+            write_snapshot_atomically_blocking(traces_snapshot_path(&base), move || {
+                Ok(traces.snapshot())
+            })
+        })
+        .await
+        .map_err(|_| "observability persistence worker failed".to_string())?
     }
 
     /// In-memory ingest state (temp series/blob, RAM text indices) — for tests.
     pub fn in_memory(flush_threshold: usize) -> Result<Self, String> {
-        Self::open(None, flush_threshold)
+        open_obs_state_blocking(None, flush_threshold)
     }
 
     /// Ingest a batch of normalized records: append each stream's points to its tsdb
@@ -447,7 +1095,7 @@ impl ObsState {
                 if let Some(manifest) =
                     segment::flush_records_to_segment(self.blob.as_ref(), &stream, &batch)?
                 {
-                    self.segments.lock().push(manifest);
+                    record_segment_manifest(&self.segments, &self.manifest_positions, manifest);
                     // BUG-210: durably index this stream's manifest list at the SAME
                     // cadence as the flush itself (bounded: one small rewrite per
                     // `flush_threshold`-many records, not per request).
@@ -475,7 +1123,7 @@ impl ObsState {
         };
         let manifest = segment::flush_records_to_segment(self.blob.as_ref(), stream, &batch)?;
         if let Some(m) = &manifest {
-            self.segments.lock().push(m.clone());
+            record_segment_manifest(&self.segments, &self.manifest_positions, m.clone());
             // BUG-210: see the matching comment in `ingest`.
             self.persist_stream_segments(stream)?;
         }
@@ -492,9 +1140,21 @@ impl ObsState {
         let Some(base) = self.obs_base.as_deref() else {
             return Ok(());
         };
-        let list = self.segments_for(stream);
-        let bytes = rmp_serde::to_vec_named(&list).map_err(|error| error.to_string())?;
-        write_snapshot_atomically(&segment_manifest_path(base, stream), &bytes)
+        let pending_usage = Cell::new(None);
+        write_snapshot_atomically_blocking_with(
+            segment_manifest_path(base, stream),
+            || encode_bounded_stream_manifests(self, stream, &pending_usage),
+            || Ok(()),
+            || {
+                let (bytes, items, total_bytes, total_items) = pending_usage
+                    .take()
+                    .expect("manifest usage is prepared before publication");
+                let mut usage = self.manifest_usage.lock();
+                usage.per_stream.insert(stream.to_string(), (bytes, items));
+                usage.bytes = total_bytes;
+                usage.items = total_items;
+            },
+        )
     }
 
     /// BM25 search a stream's text index — returns `(doc_id, score)` hits. The
@@ -527,7 +1187,7 @@ impl ObsState {
         self.segments
             .lock()
             .iter()
-            .filter(|m| m.stream == stream)
+            .filter(|manifest| manifest.stream == stream)
             .cloned()
             .collect()
     }
@@ -549,11 +1209,15 @@ impl ObsState {
         if !indices.contains_key(stream) {
             let ix = match &self.text_dir {
                 Some(base) => {
-                    let dir = base.join(sanitize(stream));
-                    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-                    TextIndex::open(&dir).map_err(|e| e.to_string())?
+                    let dir = base.join(stream_storage_key(stream));
+                    std::fs::create_dir_all(&dir).map_err(|_| {
+                        "observability text index directory is unavailable".to_string()
+                    })?;
+                    TextIndex::open(&dir)
+                        .map_err(|_| "observability text index is unavailable".to_string())?
                 }
-                None => TextIndex::in_memory().map_err(|e| e.to_string())?,
+                None => TextIndex::in_memory()
+                    .map_err(|_| "observability text index is unavailable".to_string())?,
             };
             indices.insert(stream.to_string(), ix);
         }
@@ -1310,18 +1974,21 @@ async fn handle_ingest(
 
     // Ingest OFF the reactor (redb + Tantivy commit are blocking).
     let st = state.clone();
-    let outcome = tokio::task::spawn_blocking(move || st.ingest(records)).await;
+    let outcome = ::tokio::task::spawn_blocking(move || st.ingest(records)).await;
     match outcome {
         Ok(Ok(o)) => format_ingest_success(shape, &o),
-        Ok(Err(e)) => (
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "observability ingest failed");
+            (
+                "500 Internal Server Error",
+                "text/plain",
+                "observability ingest failed".to_string(),
+            )
+        }
+        Err(_) => (
             "500 Internal Server Error",
             "text/plain",
-            format!("ingest failed: {e}"),
-        ),
-        Err(e) => (
-            "500 Internal Server Error",
-            "text/plain",
-            format!("ingest task failed: {e}"),
+            "observability ingest worker failed".to_string(),
         ),
     }
 }
@@ -1541,17 +2208,20 @@ async fn handle_search(
 
     let q = parse_log_query(&val, stream);
     let st = state.clone();
-    match tokio::task::spawn_blocking(move || st.search_logs(&q)).await {
+    match ::tokio::task::spawn_blocking(move || st.search_logs(&q)).await {
         Ok(Ok(hits)) => ("200 OK", "application/json", es_search_response(&hits)),
-        Ok(Err(e)) => (
-            "400 Bad Request",
-            "text/plain",
-            format!("search failed: {e}"),
-        ),
-        Err(e) => (
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "observability search failed");
+            (
+                "400 Bad Request",
+                "text/plain",
+                "observability search failed".to_string(),
+            )
+        }
+        Err(_) => (
             "500 Internal Server Error",
             "text/plain",
-            format!("search task failed: {e}"),
+            "observability search worker failed".to_string(),
         ),
     }
 }
@@ -1561,17 +2231,20 @@ async fn handle_search(
 async fn run_sql_search(state: &Arc<ObsState>, sql: &str) -> (&'static str, &'static str, String) {
     let sql = sql.to_string();
     let st = state.clone();
-    match tokio::task::spawn_blocking(move || st.search_sql(&sql)).await {
+    match ::tokio::task::spawn_blocking(move || st.search_sql(&sql)).await {
         Ok(Ok(res)) => ("200 OK", "application/json", sql_search_response(&res)),
-        Ok(Err(e)) => (
-            "400 Bad Request",
-            "text/plain",
-            format!("sql search failed: {e}"),
-        ),
-        Err(e) => (
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "observability SQL search failed");
+            (
+                "400 Bad Request",
+                "text/plain",
+                "observability SQL search failed".to_string(),
+            )
+        }
+        Err(_) => (
             "500 Internal Server Error",
             "text/plain",
-            format!("sql search task failed: {e}"),
+            "observability SQL search worker failed".to_string(),
         ),
     }
 }
@@ -1783,6 +2456,475 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 mod tests {
     use super::*;
 
+    fn snapshot_temporaries(parent: &Path) -> Vec<PathBuf> {
+        std::fs::read_dir(parent)
+            .expect("read snapshot parent")
+            .map(|entry| entry.expect("read snapshot entry").path())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.ends_with(".msgpack.tmp"))
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "traces")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn public_trace_persistence_yields_the_current_thread_reactor() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let persist_dir = dir.path().to_str().expect("utf8 temp path");
+        let obs = ObsState::open(Some(persist_dir), 1024).await.expect("open");
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let counter = Arc::new(AtomicU64::new(0));
+        let observed = counter.clone();
+
+        let lock_holder = std::thread::spawn(move || {
+            let _guard = snapshot_write_lock()
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            entered_tx.send(()).expect("announce held lock");
+            release_rx.recv().expect("release held lock");
+        });
+        entered_rx
+            .await
+            .expect("lock holder reached deterministic barrier");
+        let progress = async move {
+            tokio::task::yield_now().await;
+            observed.fetch_add(1, Ordering::SeqCst);
+            release_tx.send(()).expect("release persistence lock");
+        };
+        let (persisted, ()) = tokio::join!(obs.persist_traces(), progress);
+        persisted.expect("public trace persistence");
+        lock_holder.join().expect("join lock holder");
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "the current-thread reactor must progress while persistence is blocked"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelling_waiter_does_not_cancel_started_atomic_publication() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("snapshot.msgpack");
+        let written_path = path.clone();
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+
+        let waiter = tokio::spawn(async move {
+            ::tokio::task::spawn_blocking(move || {
+                entered_tx
+                    .send(())
+                    .map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
+                release_rx
+                    .recv()
+                    .map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
+                let result = write_snapshot_atomically_blocking(written_path, || {
+                    Ok(b"committed-after-cancellation".to_vec())
+                });
+                if finished_tx.send(result.clone()).is_err() {
+                    return Err(SNAPSHOT_WRITE_ERROR.to_string());
+                }
+                result
+            })
+            .await
+            .map_err(|_| "observability persistence worker failed".to_string())?
+        });
+        entered_rx
+            .await
+            .expect("worker reached deterministic barrier");
+        waiter.abort();
+        release_tx.send(()).expect("release persistence worker");
+        finished_rx
+            .await
+            .expect("started worker must finish")
+            .expect("atomic publication");
+
+        assert_eq!(
+            std::fs::read(&path).expect("published snapshot"),
+            b"committed-after-cancellation"
+        );
+        assert!(snapshot_temporaries(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn failed_atomic_publication_preserves_authority_and_cleans_temporary() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("snapshot.msgpack");
+        write_snapshot_atomically_blocking(path.clone(), || Ok(b"prior-authority".to_vec()))
+            .expect("seed private authority");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755))
+                .expect("make the boundary shared read-only");
+        }
+
+        let error = write_snapshot_atomically_blocking_with(
+            path.clone(),
+            || Ok(b"unpublished".to_vec()),
+            || Err("injected failure detail".to_string()),
+            || {},
+        )
+        .expect_err("injected failure must abort publication");
+
+        assert_eq!(error, SNAPSHOT_WRITE_ERROR);
+        assert_eq!(
+            std::fs::read(&path).expect("read prior authority"),
+            b"prior-authority"
+        );
+        assert!(snapshot_temporaries(dir.path()).is_empty());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = std::fs::metadata(dir.path())
+                .expect("directory metadata")
+                .permissions()
+                .mode();
+            assert_eq!(
+                mode & 0o022,
+                0,
+                "publication must require its trust boundary"
+            );
+        }
+    }
+
+    #[test]
+    fn panicked_snapshot_attempt_does_not_poison_later_publication() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("snapshot.msgpack");
+        let failed_path = path.clone();
+
+        let panic = std::panic::catch_unwind(|| {
+            let _result = write_snapshot_atomically_blocking_with(
+                failed_path,
+                || Ok(b"abandoned".to_vec()),
+                || panic!("injected publication panic"),
+                || {},
+            );
+        });
+        assert!(panic.is_err(), "the injected panic must escape its attempt");
+
+        write_snapshot_atomically_blocking(path.clone(), || Ok(b"recovered".to_vec()))
+            .expect("later publication recovers the poisoned lock");
+        assert_eq!(std::fs::read(path).expect("read authority"), b"recovered");
+        assert!(snapshot_temporaries(dir.path()).is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parent_replacement_cannot_redirect_an_opened_publication() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let parent = dir.path().join("authority");
+        let moved_parent = dir.path().join("moved-authority");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&parent).expect("create authority");
+        std::fs::create_dir_all(&outside).expect("create outside");
+        let path = parent.join("snapshot.msgpack");
+
+        let error = write_snapshot_atomically_blocking_with(
+            path,
+            || Ok(b"opened-authority".to_vec()),
+            || {
+                std::fs::rename(&parent, &moved_parent)
+                    .map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
+                symlink(&outside, &parent).map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())
+            },
+            || {},
+        )
+        .expect_err("renamed authority must not be acknowledged");
+
+        assert_eq!(error, SNAPSHOT_WRITE_ERROR);
+        assert!(!outside.join("snapshot.msgpack").exists());
+        assert_eq!(
+            std::fs::read(moved_parent.join("snapshot.msgpack")).expect("fd-bound publication"),
+            b"opened-authority"
+        );
+    }
+
+    #[test]
+    fn oversized_and_nonregular_snapshots_fail_closed() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let oversized = dir.path().join("oversized.msgpack");
+        std::fs::File::create(&oversized)
+            .and_then(|file| file.set_len(MAX_SNAPSHOT_BYTES as u64 + 1))
+            .expect("create sparse oversized snapshot");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&oversized, std::fs::Permissions::from_mode(0o600))
+                .expect("make oversized authority private");
+        }
+        assert_eq!(
+            read_snapshot_blocking(&oversized).expect_err("oversized snapshot must fail"),
+            SNAPSHOT_READ_ERROR
+        );
+
+        let nonregular = dir.path().join("directory.msgpack");
+        std::fs::create_dir(&nonregular).expect("create nonregular snapshot authority");
+        assert_eq!(
+            read_snapshot_blocking(&nonregular).expect_err("directory read must fail"),
+            SNAPSHOT_READ_ERROR
+        );
+        assert_eq!(
+            write_snapshot_atomically_blocking(nonregular, || Ok(Vec::new()))
+                .expect_err("directory publication must fail"),
+            SNAPSHOT_WRITE_ERROR
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            let writable = dir.path().join("writable.msgpack");
+            std::fs::write(&writable, b"untrusted").expect("write broad authority");
+            std::fs::set_permissions(&writable, std::fs::Permissions::from_mode(0o666))
+                .expect("make authority broadly writable");
+            assert_eq!(
+                read_snapshot_blocking(&writable).expect_err("broad read authority must fail"),
+                SNAPSHOT_READ_ERROR
+            );
+            assert_eq!(
+                write_snapshot_atomically_blocking(writable, || Ok(b"replacement".to_vec()))
+                    .expect_err("broad destination authority must fail"),
+                SNAPSHOT_WRITE_ERROR
+            );
+
+            let private = dir.path().join("private.msgpack");
+            write_snapshot_atomically_blocking(private.clone(), || Ok(b"private".to_vec()))
+                .expect("publish private snapshot");
+            let mode = std::fs::metadata(private)
+                .expect("private snapshot metadata")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o077, 0, "new snapshots must be mode 0600");
+        }
+    }
+
+    #[test]
+    fn aggregate_manifest_recovery_budget_is_bounded() {
+        let mut total = MAX_MANIFEST_FILES;
+        assert_eq!(
+            include_manifest_budget(&mut total, 1, MAX_MANIFEST_FILES).expect_err("file overflow"),
+            MANIFEST_BOUNDS_ERROR
+        );
+
+        let mut total = 0usize;
+        include_manifest_budget(
+            &mut total,
+            MAX_MANIFEST_TOTAL_BYTES,
+            MAX_MANIFEST_TOTAL_BYTES,
+        )
+        .expect("exact byte bound");
+        assert_eq!(
+            include_manifest_budget(&mut total, 1, MAX_MANIFEST_TOTAL_BYTES)
+                .expect_err("byte overflow"),
+            MANIFEST_BOUNDS_ERROR
+        );
+
+        let mut total = 0usize;
+        include_manifest_budget(
+            &mut total,
+            MAX_MANIFEST_TOTAL_ITEMS,
+            MAX_MANIFEST_TOTAL_ITEMS,
+        )
+        .expect("exact item bound");
+        assert_eq!(
+            include_manifest_budget(&mut total, 1, MAX_MANIFEST_TOTAL_ITEMS)
+                .expect_err("item overflow"),
+            MANIFEST_BOUNDS_ERROR
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn public_open_rejects_a_nonregular_manifest_authority() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let manifests = dir.path().join("obs/segments");
+        std::fs::create_dir_all(&manifests).expect("create manifest directory");
+        std::fs::create_dir(manifests.join("nonregular.msgpack"))
+            .expect("create nonregular manifest");
+        let persist_dir = dir.path().to_str().expect("utf8 temp path");
+
+        let error = match ObsState::open(Some(persist_dir), 1).await {
+            Err(error) => error,
+            Ok(_) => panic!("nonregular manifest authority must fail"),
+        };
+        assert_eq!(error, MANIFEST_READ_ERROR);
+    }
+
+    #[cfg(feature = "traces")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn public_open_rejects_an_oversized_trace_snapshot() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let obs_base = dir.path().join("obs");
+        std::fs::create_dir_all(&obs_base).expect("create obs directory");
+        std::fs::File::create(traces_snapshot_path(&obs_base))
+            .and_then(|file| file.set_len(MAX_SNAPSHOT_BYTES as u64 + 1))
+            .expect("create sparse oversized trace snapshot");
+        let persist_dir = dir.path().to_str().expect("utf8 temp path");
+
+        let error = match ObsState::open(Some(persist_dir), 1).await {
+            Err(error) => error,
+            Ok(_) => panic!("oversized trace snapshot must fail"),
+        };
+        assert_eq!(error, SNAPSHOT_READ_ERROR);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn colliding_stream_names_publish_concurrently_without_aliasing() {
+        fn record(stream: &str, ts: i64) -> LogRecord {
+            LogRecord {
+                ts,
+                stream: stream.to_string(),
+                severity: "INFO".to_string(),
+                body: format!("body-{stream}"),
+                attrs: BTreeMap::new(),
+            }
+        }
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let persist_dir = dir.path().to_str().expect("utf8 temp path");
+        let obs = Arc::new(ObsState::open(Some(persist_dir), 1).await.expect("open"));
+        let first = obs.clone();
+        let second = obs.clone();
+        let third = obs.clone();
+        let fourth = obs.clone();
+        let (first_result, second_result, third_result, fourth_result) = tokio::join!(
+            ::tokio::task::spawn_blocking(move || first.ingest(vec![record("tenant/a", 1)])),
+            ::tokio::task::spawn_blocking(move || second.ingest(vec![record("tenant_a", 2)])),
+            ::tokio::task::spawn_blocking(move || third.ingest(vec![record("same", 3)])),
+            ::tokio::task::spawn_blocking(move || fourth.ingest(vec![record("same", 4)])),
+        );
+        first_result
+            .expect("join first ingest")
+            .expect("first ingest");
+        second_result
+            .expect("join second ingest")
+            .expect("second ingest");
+        third_result
+            .expect("join third ingest")
+            .expect("third ingest");
+        fourth_result
+            .expect("join fourth ingest")
+            .expect("fourth ingest");
+        assert_ne!(
+            segment_manifest_path(&dir.path().join("obs"), "tenant/a"),
+            segment_manifest_path(&dir.path().join("obs"), "tenant_a")
+        );
+        drop(obs);
+
+        let reopened = ObsState::open(Some(persist_dir), 1).await.expect("reopen");
+        assert_eq!(reopened.segments_for("tenant/a").len(), 1);
+        assert_eq!(reopened.segments_for("tenant_a").len(), 1);
+        assert_eq!(
+            reopened.segments_for("same").len(),
+            2,
+            "the last same-stream publication must include both concurrent segments"
+        );
+    }
+
+    #[test]
+    fn missing_manifest_directory_is_an_empty_fresh_authority() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        assert!(load_segment_manifests(dir.path())
+            .expect("missing manifest directory")
+            .manifests
+            .is_empty());
+    }
+
+    #[test]
+    fn corrupt_manifest_fails_closed_without_path_disclosure() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let manifests = dir.path().join("segments");
+        std::fs::create_dir_all(&manifests).expect("create manifests");
+        let path = manifests.join("private-stream.msgpack");
+        write_snapshot_atomically_blocking(path.clone(), || Ok(b"not-messagepack".to_vec()))
+            .expect("write private corrupt manifest");
+
+        let error = load_segment_manifests(dir.path()).expect_err("corruption must fail");
+        assert_eq!(error, "segment manifest is invalid or exceeds its bounds");
+        assert!(!error.contains("private-stream"));
+        assert!(!error.contains(&dir.path().display().to_string()));
+    }
+
+    #[cfg(feature = "traces")]
+    #[test]
+    fn corrupt_trace_snapshot_fails_closed_without_path_disclosure() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = traces_snapshot_path(dir.path());
+        write_snapshot_atomically_blocking(path.clone(), || Ok(b"not-messagepack".to_vec()))
+            .expect("write private corrupt trace snapshot");
+
+        let error = match load_traces_snapshot(dir.path()) {
+            Err(error) => error,
+            Ok(_) => panic!("corruption must fail"),
+        };
+        assert_eq!(error, "trace snapshot is invalid or exceeds its bounds");
+        assert!(!error.contains(&path.display().to_string()));
+        assert!(!error.contains(&dir.path().display().to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_snapshot_and_manifest_authorities_fail_closed() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir_all(&outside).expect("create outside");
+        let outside_file = outside.join("authority.msgpack");
+        std::fs::write(&outside_file, b"outside-authority").expect("seed outside");
+
+        let destination = dir.path().join("snapshot.msgpack");
+        symlink(&outside_file, &destination).expect("symlink destination");
+        let read_error =
+            read_snapshot_blocking(&destination).expect_err("symlinked read authority must fail");
+        assert_eq!(read_error, SNAPSHOT_READ_ERROR);
+        assert!(!read_error.contains(&destination.display().to_string()));
+        let write_error = write_snapshot_atomically_blocking(destination, || {
+            Ok(b"must-not-follow-symlink".to_vec())
+        })
+        .expect_err("symlinked write authority must fail");
+        assert_eq!(write_error, SNAPSHOT_WRITE_ERROR);
+        assert_eq!(
+            std::fs::read(&outside_file).expect("outside authority unchanged"),
+            b"outside-authority"
+        );
+
+        let obs_base = dir.path().join("obs");
+        std::fs::create_dir_all(&obs_base).expect("create obs base");
+        symlink(&outside, obs_base.join("segments")).expect("symlink manifest directory");
+        assert_eq!(
+            load_segment_manifests(&obs_base).expect_err("symlinked directory must fail"),
+            "segment manifest directory is unavailable"
+        );
+
+        let linked_base = dir.path().join("linked-obs");
+        symlink(&outside, &linked_base).expect("symlink manifest ancestor");
+        std::fs::create_dir_all(outside.join("segments")).expect("create outside manifests");
+        assert_eq!(
+            load_segment_manifests(&linked_base).expect_err("symlinked ancestor must fail"),
+            "segment manifest directory is unavailable"
+        );
+
+        let dangling_base = dir.path().join("dangling-obs");
+        symlink(dir.path().join("missing-target"), &dangling_base)
+            .expect("create dangling ancestor");
+        assert_eq!(
+            load_segment_manifests(&dangling_base).expect_err("dangling ancestor must fail"),
+            MANIFEST_DIRECTORY_ERROR
+        );
+        assert_eq!(
+            read_snapshot_blocking(&dangling_base.join("traces.msgpack"))
+                .expect_err("dangling read ancestor must fail"),
+            SNAPSHOT_READ_ERROR
+        );
+    }
+
     #[test]
     fn otlp_parses_and_derives_stream_from_service_name() {
         let body = r#"{
@@ -1941,8 +3083,8 @@ mod tests {
     /// per-request write-amplification defect class); (2) a restart AFTER
     /// `persist_traces()` recovers the exact trace, byte-identically re-derivable.
     #[cfg(feature = "traces")]
-    #[test]
-    fn bug_016_traces_survive_an_obsstate_restart_only_after_persist_traces() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn bug_016_traces_survive_an_obsstate_restart_only_after_persist_traces() {
         let dir = tempfile::tempdir().expect("temp dir");
         let persist_dir = dir.path().to_str().expect("utf8 temp path");
 
@@ -1962,12 +3104,14 @@ mod tests {
         // (1) Ingest a span but never call `persist_traces` -- a restart at this
         // point must see NOTHING durable yet (the bounded-staleness window).
         {
-            let obs = ObsState::open(Some(persist_dir), 1024).expect("open");
+            let obs = ObsState::open(Some(persist_dir), 1024).await.expect("open");
             obs.trace_store().add_span(span.clone());
             assert_eq!(obs.trace_store().trace_count(), 1, "ingested in RAM");
         }
         {
-            let reopened = ObsState::open(Some(persist_dir), 1024).expect("reopen");
+            let reopened = ObsState::open(Some(persist_dir), 1024)
+                .await
+                .expect("reopen");
             assert_eq!(
                 reopened.trace_store().trace_count(),
                 0,
@@ -1977,12 +3121,14 @@ mod tests {
 
         // (2) Ingest again and THIS time call `persist_traces` before "restarting".
         {
-            let obs = ObsState::open(Some(persist_dir), 1024).expect("open");
+            let obs = ObsState::open(Some(persist_dir), 1024).await.expect("open");
             obs.trace_store().add_span(span.clone());
-            obs.persist_traces().expect("persist_traces");
+            obs.persist_traces().await.expect("persist_traces");
         }
         {
-            let reopened = ObsState::open(Some(persist_dir), 1024).expect("reopen");
+            let reopened = ObsState::open(Some(persist_dir), 1024)
+                .await
+                .expect("reopen");
             assert_eq!(
                 reopened.trace_store().trace_count(),
                 1,
@@ -2001,13 +3147,13 @@ mod tests {
     /// via `read_segment` -- are STILL reachable. Pre-fix this assertion fails (0
     /// segments after reopen, per the ledger's root-cause finding); post-fix it
     /// must pass.
-    #[test]
-    fn bug_210_segment_manifests_survive_an_obsstate_restart() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn bug_210_segment_manifests_survive_an_obsstate_restart() {
         let dir = tempfile::tempdir().expect("temp dir");
         let persist_dir = dir.path().to_str().expect("utf8 temp path");
 
         {
-            let obs = ObsState::open(Some(persist_dir), 2).expect("open");
+            let obs = ObsState::open(Some(persist_dir), 2).await.expect("open");
             let recs = vec![
                 LogRecord {
                     ts: 10,
@@ -2033,7 +3179,7 @@ mod tests {
             );
         }
 
-        let reopened = ObsState::open(Some(persist_dir), 2).expect("reopen");
+        let reopened = ObsState::open(Some(persist_dir), 2).await.expect("reopen");
         let segs = reopened.segments_for("s");
         assert_eq!(
             segs.len(),

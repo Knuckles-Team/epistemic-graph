@@ -210,7 +210,7 @@ pub use result_stream::{
     cross_modal_result_stream, graph_result_stream, job_result_stream, rdf_result_stream,
     sql_result_stream, time_series_result_stream, validate_native_batch, vector_result_stream,
     KnowledgeBatchEnvelope, KnowledgeBatchStream, KnowledgeRowResult, KnowledgeStreamContext,
-    KnowledgeStreamCursor, KnowledgeStreamError, ServedResultFamily,
+    KnowledgeStreamError, ResultStreamCursor, ServedResultFamily,
 };
 
 /// The Lane-0 foundation seams the follow-on lanes hang off (append-only): the logical-plan

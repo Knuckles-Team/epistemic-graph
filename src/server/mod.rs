@@ -7,6 +7,7 @@ use hmac::Mac as _;
 
 pub(crate) mod access;
 pub(crate) mod auth;
+pub(crate) mod request_replay;
 
 /// Verified minimum stack for engine Tokio workers.
 ///
@@ -257,7 +258,7 @@ pub(crate) fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
 // `#[cfg(feature = "blob")]` attribute and its intended target, so the
 // attribute silently re-attached to the new function instead of gating this
 // `mod` declaration. That made `server::blob` (and therefore `blob/store.rs`'s
-// unconditional `redb`/`eg_mutation_store` imports) compile in EVERY build,
+// unconditional `redb`/`eg_storage`/`eg_transaction` imports) compile in EVERY build,
 // including `--no-default-features --features server`, breaking the slim
 // server. It went unnoticed because this repo has not pushed in a long time,
 // so CI never ran that feature-matrix row. Restoring the attribute here is
@@ -303,13 +304,13 @@ pub mod cache_coherence;
 // `cold-tier-s3`. The seam + in-memory impl live in eg-core; this needs redb.
 #[cfg(all(feature = "cold-tier", feature = "redb"))]
 pub mod cold_tier_impl;
-// Warm-on-demand for the semantic ANN index (W0.4, CONCEPT:EG-KG.storage.semantic-index-directory): the
-// boot-time warm task only covers graphs resident at startup, so this module
-// supplies the post-write trigger + periodic backstop for a graph created — or
-// crossing `ANN_BUILD_THRESHOLD` — after boot. Gated with the `ann` feature the
-// warm mechanism itself requires; a non-`ann` build compiles none of it.
+// Semantic ANN index activation (W0.4, CONCEPT:EG-KG.storage.semantic-index-directory): the ONE
+// reopen-else-build-else-activate body plus the two triggers the boot-time task
+// cannot supply — the post-write hook and the periodic backstop — for a graph
+// created, or crossing `ANN_BUILD_THRESHOLD`, after boot. Gated with the `ann`
+// feature the mechanism requires; its durable tier additionally needs `ann-redb`.
 #[cfg(feature = "ann")]
-pub mod ann_warm;
+pub mod semantic_activation;
 // Native visualization engine-side state (D-VZ-1 lane V4, "engine integration"):
 // a persistent (process-lifetime, not fresh-per-request) ColumnStore plus a
 // content-addressed render cache and durable render provenance. Gated the SAME
@@ -352,8 +353,8 @@ pub mod graph_tile_server;
 pub(crate) mod graph_tile_source;
 // Fleet server registry stale-lease reaper (CONCEPT:EG-KG.sharding.server-registry, W2.5): periodic
 // sweep that expires a `:Server` node whose `Method::RegisterServer`-issued
-// lease has lapsed. Always declared (mirrors `ann_warm` above) — the sweep is a
-// no-op when nothing has registered.
+// lease has lapsed. Always declared (mirrors `semantic_activation` above) — the
+// sweep is a no-op when nothing has registered.
 pub(crate) mod handlers;
 pub mod registry_reaper;
 // MutationPlan + the single commit gateway (CONCEPT:EG-P0-2): consumes
@@ -635,6 +636,8 @@ pub(crate) use dispatch::{
     apply_replicated_transaction_finalize, apply_replicated_transaction_participant,
     apply_replicated_transaction_prepare, ReplicatedParticipantRef,
 };
+#[cfg(feature = "raft")]
+pub(crate) use handlers::topology::apply_replicated_node_info;
 // NL planner injection (CONCEPT:EG-KG.query.fence-stripper): an embedder opts into engine-driven NL→query.
 #[cfg(feature = "nl-query")]
 pub use nl::{resolve_planner as resolve_nl_planner, set_nl_planner};
@@ -685,16 +688,21 @@ pub(crate) fn test_state_with_services(
     #[cfg(feature = "tsdb")]
     {
         state.tsdb_store = Some(std::sync::Arc::new(
-            eg_tsdb::store::SeriesStore::open_in_dir(&crate::server::unique_temp_dir(tsdb_label))
-                .expect("open test series store"),
+            eg_tsdb::store::SeriesStore::open_in_dir(
+                &crate::server::unique_temp_dir(tsdb_label),
+                crate::store_authority::process_verifier(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .expect("open test series store"),
         ));
     }
     std::sync::Arc::new(tokio::sync::RwLock::new(state))
 }
 
 pub use transport::{
-    handle_connection, run_idle_watcher, serve_tcp, validate_tcp_tls_config, ShutdownCoordinator,
-    TcpTlsConfig,
+    handle_connection, prepare_tcp_tls, run_idle_watcher, serve_tcp, PreparedTcpTls,
+    ShutdownCoordinator, TcpTlsConfig,
 };
 // serve_uds is Unix-only (UnixListener); on Windows the server uses serve_tcp,
 // so gate the re-export to keep the windows-msvc wheel building (main.rs already
@@ -737,19 +745,9 @@ mod ca17_feature_stub_contract {
         ("obda-wire", "[\"obda\"]"),
         ("federation-opensearch", "[\"federation-search\"]"),
         ("lineage-transport", "[\"lake\"]"),
-        // Declared parent change (this table IS the declaration this test demands).
-        // `23107613 feat(ca-16): export the M1 row-visibility policy bundle (DEC-CA-04)`
-        // propagated the feature to its dependency crates -- `eg-types/policy_export`
-        // (crates/eg-types/Cargo.toml:139) and the optional
-        // `eg-capabilities?/policy_export` (crates/eg-capabilities/Cargo.toml:115) -- but
-        // did not update this table, so the contract test correctly failed on first run.
-        // The safety property is unaffected and separately asserted by
-        // `no_reserved_feature_leaks_into_a_release_bundle`: policy_export appears in none
-        // of default/full/all/full-extras/cluster.
-        (
-            "policy_export",
-            "[\"security\", \"eg-types/policy_export\", \"eg-capabilities?/policy_export\"]",
-        ),
+        // HTTP-only policy export shares the verified security authority. It has
+        // no Method or capability-ledger feature to propagate.
+        ("policy_export", "[\"security\"]"),
     ];
 
     /// Release/aggregate bundles a reserved feature must not appear in. Each is an
@@ -1267,7 +1265,7 @@ mod tests {
         .await;
         assert_ok(&up);
         assert!(
-            matches!(up.result, Some(ResultPayload::PropertiesMsgpack(_))),
+            matches!(up.result, Some(ResultPayload::Raw(_))),
             "union point read must find B across graphs, got {:?}",
             up.result
         );
@@ -1320,10 +1318,7 @@ mod tests {
         )
         .await;
         assert_ok(&um);
-        assert!(matches!(
-            um.result,
-            Some(ResultPayload::PropertiesMsgpack(_))
-        ));
+        assert!(matches!(um.result, Some(ResultPayload::Raw(_))));
     }
 
     // ── SQL query surface (CONCEPT:EG-KG.query.read-only-sql-query) ────────────────────────────
@@ -3446,12 +3441,12 @@ mod tests {
         assert!(matches!(resp.result, Some(ResultPayload::Raw(_))));
     }
 
-    /// W0.4 — a graph that crosses `ANN_BUILD_THRESHOLD` AFTER "boot" (this
-    /// harness never runs `main.rs`'s boot-time warm task at all) must still
-    /// reach `is_ready()` WITHOUT a restart: the post-write dispatch-tail trigger
-    /// (`ann_warm::maybe_warm_after_write`) must spawn the warm the moment a
-    /// write on the graph observes the threshold crossed. Brute-force search
-    /// stays exactly correct both before the warm and after.
+    /// W0.4 — a graph crossing `ANN_BUILD_THRESHOLD` AFTER "boot" (this harness
+    /// never runs `main.rs`'s boot-time warm task) must still reach `is_ready()`
+    /// WITHOUT a restart: the post-write dispatch-tail trigger
+    /// (`semantic_activation::maybe_activate_after_write`) must spawn it the moment
+    /// a write observes the crossing. Brute force stays exact before and after. The
+    /// ONLY coverage of that hazard — re-pointed off `ann_warm`, never deleted.
     #[cfg(feature = "ann")]
     #[tokio::test]
     async fn test_ann_warms_on_demand_after_threshold_crossing_post_boot() {

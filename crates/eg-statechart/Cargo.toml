@@ -13,7 +13,7 @@ name = "eg_statechart"
 # definition model + the pure transition function need nothing above `eg-types`
 # (whose `msgpack::decode_bounded` we reuse for the SAME bounded-decode robustness
 # eg-jobs' store relies on). The durable store additionally routes every instance
-# mutation through `eg-mutation-store` — the exact universal MutationBatch /
+# mutation through `eg-transaction` — the exact universal MutationBatch /
 # durable-commit gateway `eg-jobs` uses — so instance transitions carry atomic
 # status/version/fence/idempotency/outbox evidence and are Raft-orderable and
 # crash-consistent across nodes. Durability is the store's reason to exist, so
@@ -21,7 +21,12 @@ name = "eg_statechart"
 # machine-instance plane without a durable store" configuration worth shipping.
 [dependencies]
 eg-types = { path = "../eg-types" }
-eg-mutation-store = { path = "../eg-mutation-store" }
+# RF-RULING-004: `eg-storage` is the sole physical owner of `statecharts.redb`
+# (declared `OwnerLayout::Statechart`) and `eg-transaction` the sole writer.
+# Unconditional for the same reason `redb` is: durability is this crate's reason
+# to exist, so there is no configuration that ships without them.
+eg-storage = { path = "../eg-storage" }
+eg-transaction = { path = "../eg-transaction" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -36,6 +41,9 @@ tempfile = "3"
 # dependency) -- reused here for DE7's replay-determinism property test, the same
 # way eg-jobs' own sibling test does.
 proptest = "1"
+# The integration test must supply the composition root's scope-grant verifier,
+# which is `eg-storage`'s trait; it is already a normal dependency of this crate.
+eg-storage = { path = "../eg-storage" }
 
 [features]
 default = []

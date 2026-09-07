@@ -1,51 +1,72 @@
 //! Generic namespaced Key→Value surface (CONCEPT:EG-KG.storage.namespaced-kv-surface).
 //!
-//! A drop-in KV store layered over the SAME durable substrate the rest of the
-//! engine uses (redb). It is NOT graph-scoped — a KV pair is keyed by
-//! `(namespace, key)` and lives entirely off the node/edge graph — so, exactly like
-//! the BLOB substrate and the TSDB series store, the `Kv*` methods self-route at the
-//! top of dispatch BEFORE the per-graph chain and read their store off
+//! A drop-in KV store over the SAME durable substrate the rest of the engine uses. It is
+//! NOT graph-scoped — a pair is keyed by `(namespace, key)` and lives off the node/edge
+//! graph — so, like the BLOB substrate and the TSDB series store, the `Kv*` methods
+//! self-route at the top of dispatch BEFORE the per-graph chain and read their store off
 //! [`ServerState`](crate::server::ServerState).
 //!
 //! ## Durability
 //!
-//! When a persist dir is configured the store owns `{persist_dir}/kv.redb` and every
-//! mutation (`put`/`delete`/`cas`) commits with `redb::Durability::Immediate` —
-//! commit-before-ack, the SAME durability barrier the redb-authoritative graph write
-//! path gives: a `KvPut` that returned `Ok` survives a `kill -9`. With NO persist dir
-//! the store is an in-memory ordered map (a scratch KV), matching the in-memory-only
-//! philosophy of the blob substrate (no durable place ⇒ ephemeral).
+//! With a persist dir the store owns `{persist_dir}/kv.redb` as ONE physical owner file
+//! under `eg_storage::OwnerLayout::Kv`, and EVERY mutation is an admitted transaction of
+//! the mutation kernel — `*_batch` carrying the caller's identity, plain
+//! `put`/`delete`/`cas` as owner MAINTENANCE mutations (RF-RULING-005), all ledgered,
+//! fenced and version-bumping. Durability is the kernel's and is commit-before-ack, so a
+//! `KvPut` that returned `Ok` survives a `kill -9`. With NO persist dir the store is an
+//! in-memory ordered map (no durable place ⇒ ephemeral), like the blob substrate.
 //!
-//! ## Operations (wire `Method::Kv*`)
-//!   * `KvGet   { namespace, key }`               → the value bytes, or null if absent
-//!   * `KvPut   { namespace, key, value }`        → "ok" (durable commit-before-ack)
-//!   * `KvDelete{ namespace, key }`               → bool (whether the key existed)
-//!   * `KvScan  { namespace, prefix, limit }`     → ordered bounded `[(key, value)]`
-//!   * `KvCas   { namespace, key, expected, new }`→ bool (swapped iff current == expected)
+//! ## Operations
+//! `KvGet`/`KvPut`/`KvDelete`/`KvScan`/`KvCas` — the wire shape of each, and its
+//! response payload, is the `Method::Kv*` match in [`try_handle`].
 
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
+use eg_storage::{KvOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopedRead, StorageKernel};
+use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
+use eg_types::MutationScopeIdentity;
 use parking_lot::Mutex;
-use redb::{Durability, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{ReadableTable, ReadableTableMetadata, TableDefinition};
+use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::RwLock;
 
 use super::state::ServerState;
-use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
+use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::mutation_batch::COMPILED_BATCH_INCARNATION;
 
-/// The single KV table: `(namespace, key) -> value bytes`. Composite key so one redb
-/// file holds every namespace, and a prefix scan over a namespace is a contiguous
-/// range (tuples order lexicographically by namespace then key).
+/// The single KV table: `(namespace, key) -> value bytes`. Composite key so one file
+/// holds every namespace and a prefix scan of one is a contiguous range. `eg-storage`
+/// declares it as an owner table of `OwnerLayout::Kv`; this module only names it
+/// (RF-RULING-004). That layout's OTHER owner table, `eg_kvcache_cold`, is eg-kvcache's.
 const KV: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("kv");
+/// Operator-facing identity of the ONE physical `kv.redb` owner file — the physical
+/// authority boundary, independent of any logical serving scope.
+pub(crate) const KV_PHYSICAL_STORE: &str = "epistemic-graph:kv";
 const MAX_KV_NAMESPACE_BYTES: usize = 256;
 const MAX_KV_KEY_BYTES: usize = 4 * 1024;
 const MAX_KV_VALUE_BYTES: usize = 64 * 1024 * 1024;
 const DEFAULT_KV_SCAN_LIMIT: usize = 10_000;
 const MAX_KV_SCAN_LIMIT: usize = 100_000;
 const MAX_KV_BATCH_RESULT_BYTES: usize = 1024 * 1024;
+
+/// The row one plain KV write acts on, as it appears in the durable batch id: a
+/// content digest of `(namespace, key)`. Digested rather than spelled out because a KV
+/// key is arbitrary caller bytes ([`validate_key`] bounds only its length and rejects
+/// NUL), and a batch id may carry no control character and no surrounding whitespace
+/// (`MutationBatch::validate`). The digest is deterministic, so an auditor reading the
+/// ledger can still recompute which row a batch wrote.
+fn row_subject(namespace: &str, key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(namespace.as_bytes());
+    digest.update([0]);
+    digest.update(key.as_bytes());
+    hex::encode(digest.finalize())
+}
 
 fn validate_key(namespace: &str, key: &str) -> Result<(), String> {
     if namespace.is_empty()
@@ -67,88 +88,300 @@ fn validate_value(value: &[u8]) -> Result<(), String> {
     }
 }
 
-/// Fixed store-private scope used ONLY to bootstrap the physical `kv.redb` root and
-/// materialize the `KV` table on first open (CONCEPT:EG-KG.storage.namespaced-kv-surface,
-/// MutationBatch v1 store-ownership migration — see `crates/eg-core/src/rbac_persist.rs`
-/// for the worked reference this mirrors). Unlike `RbacStore`, `KvStore` serves
-/// arbitrarily many DYNAMIC namespaces out of one physical file rather than a single
-/// fixed scope, so this bootstrap identity is never used for a real write — every real
-/// namespace gets its own identity, built by `kv_scope_identity` below and bound lazily
-/// on first use via `mutation_version`. The resource name is fixed human-readable text
-/// and can never collide with a real namespace's resource, which is always the opaque
-/// `"kv-scope:<sha256-hex>"` form `opaque_coordinator_key` mints in `compile_kv_batch`.
+/// The store's bootstrap AND serving scope (CONCEPT:EG-KG.storage.namespaced-kv-surface):
+/// what cross-namespace reads (`get`/`scan`) and caller-less writes (`put`/`delete`/`cas`)
+/// run on. `KvStore` serves arbitrarily many DYNAMIC namespaces out of one physical file,
+/// each with its own identity from `kv_scope_identity` bound lazily via `mutation_version`;
+/// this fixed human-readable resource can never collide with those, which are always the
+/// opaque `"kv-scope:<sha256-hex>"` form `opaque_coordinator_key` mints.
 const KV_BOOTSTRAP_TENANT: &str = "kv-store";
 const KV_BOOTSTRAP_RESOURCE: &str = "kv-store-bootstrap";
 
-fn kv_bootstrap_identity() -> Result<eg_types::MutationScopeIdentity, String> {
+fn kv_bootstrap_identity() -> Result<MutationScopeIdentity, String> {
     kv_scope_identity(KV_BOOTSTRAP_TENANT, KV_BOOTSTRAP_RESOURCE)
 }
 
 /// Build the native KV mutation-scope identity for one (tenant, resource) pair.
 /// `resource` must be EXACTLY the string `compile_kv_batch` passes as
-/// `CompileBatch::graph` for the same write: `crate::server::mutation_batch::
-/// finish_batch` builds the batch's authoritative `identity` from that identical
-/// (tenant, graph) pair, the SAME `MutationDomain::KvStore` domain (the first — and
-/// only — operation `compile_opaque_method` compiles for a KV write), and the SAME
-/// `COMPILED_BATCH_INCARNATION` constant. `eg_mutation_store`'s scope-binding
-/// validator rejects any mismatch (`binding.identity != *identity`), so drifting
-/// from any one of those three fields here would make every KV write on that
-/// namespace fail closed with "mutation scope binding identity mismatch".
-fn kv_scope_identity(tenant: &str, resource: &str) -> Result<eg_types::MutationScopeIdentity, String> {
-    let tenant = eg_types::TenantId::new(tenant)?;
+/// `CompileBatch::graph` for the same write: `crate::server::mutation_batch::finish_batch`
+/// builds the batch's authoritative `identity` from that identical (tenant, graph) pair,
+/// the SAME `DurabilityDomain::KvStore` domain (also the only native domain
+/// `OwnerLayout::Kv` accepts) and the SAME `COMPILED_BATCH_INCARNATION`. The kernel's
+/// binding validator rejects any mismatch, so drift on any of the three fails closed.
+fn kv_scope_identity(tenant: &str, resource: &str) -> Result<MutationScopeIdentity, String> {
+    let tenant = eg_types::ScopeTenantId::new(tenant)?;
     let resource = eg_types::LogicalName::new(resource)?;
     let incarnation_id = eg_types::IncarnationId::new(COMPILED_BATCH_INCARNATION)
         .map_err(|e| format!("invalid KV scope incarnation id: {e}"))?;
-    eg_types::MutationScopeIdentity::native(tenant, MutationDomain::KvStore, resource, incarnation_id)
+    MutationScopeIdentity::native(tenant, DurabilityDomain::KvStore, resource, incarnation_id)
 }
 
-/// A namespaced key→bytes store. Durable (redb) when a persist dir is configured,
-/// else an in-memory ordered map.
+/// Accumulate one scanned row under the response-size bound; `false` once `limit` rows
+/// are collected and the scan must stop.
+fn push_scan_row(
+    out: &mut Vec<(String, Vec<u8>)>,
+    bytes: &mut usize,
+    limit: usize,
+    key: &str,
+    value: &[u8],
+) -> Result<bool, String> {
+    validate_value(value)?;
+    *bytes = bytes
+        .checked_add(key.len())
+        .and_then(|total| total.checked_add(value.len()))
+        .filter(|total| *total <= MAX_KV_VALUE_BYTES)
+        .ok_or_else(|| "KV scan response exceeds resource limits".to_string())?;
+    out.push((key.to_string(), value.to_vec()));
+    Ok(out.len() < limit)
+}
+
+/// A bound serving scope. `OwnedStoreHandle` is not `Clone` (it IS a capability), so the
+/// cache owns one per scope and hands out `Arc` clones.
+type KvHandle = Arc<OwnedStoreHandle<KvOwner>>;
+
+/// Authenticate and bind ONE logical serving scope on `kv.redb`. The proof bytes are
+/// the composition root's; this module supplies only the identity and the layout.
+fn bind_scope(kernel: &StorageKernel, scope: &MutationScopeIdentity) -> Result<KvHandle, String> {
+    let authority = crate::store_authority::process_authority();
+    let grant = kernel.authenticate_scope::<KvOwner>(
+        authority.as_ref(),
+        scope.clone(),
+        authority.principal().to_string(),
+        &authority.proof(),
+    )?;
+    kernel.bind_serving_scope(grant, 0).map(Arc::new)
+}
+
+/// Compare-and-swap `(namespace, key)` INSIDE one admitted owner write: the current
+/// value is read back through the write's OWN table handle, so check and swap are the
+/// same transaction, serialized against every concurrent writer.
+fn swap_in_owner_write(
+    owner_write: &AdmittedOwnerWrite<'_, KvOwner>,
+    namespace: &str,
+    key: &str,
+    expected: Option<&[u8]>,
+    new: Option<&[u8]>,
+) -> Result<bool, String> {
+    let mut table = owner_write.open_table(KV)?;
+    let current: Option<Vec<u8>> = table
+        .get((namespace, key))
+        .map_err(|e| e.to_string())?
+        .map(|value| {
+            validate_value(value.value())?;
+            Ok::<Vec<u8>, String>(value.value().to_vec())
+        })
+        .transpose()?;
+    if current.as_deref() != expected {
+        return Ok(false);
+    }
+    match new {
+        Some(value) => table.insert((namespace, key), value).map(|_| ()),
+        None => table.remove((namespace, key)).map(|_| ()),
+    }
+    .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Write one KV row inside an admitted owner write; `Some` inserts, `None` removes.
+/// Reports whether a value was there before.
+fn write_kv_row(
+    owner_write: &AdmittedOwnerWrite<'_, KvOwner>,
+    namespace: &str,
+    key: &str,
+    new: Option<&[u8]>,
+) -> Result<bool, String> {
+    let mut table = owner_write.open_table(KV)?;
+    let previous = match new {
+        Some(value) => table.insert((namespace, key), value),
+        None => table.remove((namespace, key)),
+    }
+    .map_err(|e| e.to_string())?;
+    Ok(previous.is_some())
+}
+
+/// A namespaced key→bytes store. Durable (a kernel-owned `kv.redb`) when a persist dir
+/// is configured, else an in-memory ordered map.
 pub struct KvStore {
     backend: Backend,
 }
 
 enum Backend {
-    /// `{persist_dir}/kv.redb` — durable, commit-before-ack. Owns the
-    /// `eg_mutation_store::MutationStore` for that physical file rather than a bare
-    /// `redb::Database` (MutationBatch v1: `MutationWrite` — and so every durable
-    /// commit — can only be minted off a `MutationStore`, never a raw `Database`).
-    /// Plain (non-`_batch`) reads/writes still reach the same physical file directly
-    /// through `MutationStore::database()`, unchanged from the old `Database` path.
-    Redb(eg_mutation_store::MutationStore),
-    /// In-memory ordered map (no persist dir) — ephemeral scratch KV. A single mutex
-    /// keeps compare-and-swap genuinely atomic; the non-durable path is not perf-
-    /// critical so the coarse lock is fine.
-    Memory(Mutex<std::collections::BTreeMap<(String, String), Vec<u8>>>),
+    /// `{persist_dir}/kv.redb` — ONE physical owner file under
+    /// `eg_storage::OwnerLayout::Kv`, served through the two kernels. Boxed: far larger
+    /// than the in-memory variant.
+    Redb(Box<RedbBackend>),
+    /// In-memory ordered map (no persist dir) — ephemeral scratch KV. The single mutex
+    /// keeps compare-and-swap genuinely atomic and this path is not perf-critical.
+    Memory(Mutex<BTreeMap<(String, String), Vec<u8>>>),
+}
+
+/// The kernel-owned durable backend: the storage kernel that owns `kv.redb`, the ONE
+/// mutation kernel it issued, the bootstrap scope every cross-namespace read and
+/// caller-less write runs on, and the per-namespace scopes bound on first use.
+struct RedbBackend {
+    kernel: StorageKernel,
+    mutations: MutationKernel,
+    bootstrap: KvHandle,
+    /// Bound serving scopes, keyed by `identity.binding_digest().to_hex()`.
+    scopes: Mutex<HashMap<String, KvHandle>>,
+}
+
+impl RedbBackend {
+    /// Open (creating if absent) the one owner file at `path`. `create_owner`
+    /// materializes the WHOLE declared `OwnerLayout::Kv` census — `kv` plus
+    /// eg-kvcache's `eg_kvcache_cold` — so the old bootstrap closure is gone.
+    fn open(path: &Path) -> Result<Self, String> {
+        let physical = PhysicalStoreIdentity::new(KV_PHYSICAL_STORE)?;
+        let kernel = if path.exists() {
+            StorageKernel::open_owner::<KvOwner>(path, physical, None)
+        } else {
+            StorageKernel::create_owner::<KvOwner>(path, physical, None)
+        }?;
+        let (kernel, authority) = kernel.into_read_and_mutation_authority()?;
+        let mutations = MutationKernel::new(authority);
+        let bootstrap = bind_scope(&kernel, &kv_bootstrap_identity()?)?;
+        mutations.bootstrap_ledger(&bootstrap)?;
+        Ok(Self {
+            kernel,
+            mutations,
+            bootstrap,
+            scopes: Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// The cross-namespace snapshot `get`/`scan` read: a kernel-issued scoped read on
+    /// the bootstrap scope over the one `KV` table, whose composite key IS the partition.
+    fn read(&self) -> Result<ScopedRead<'_, KvOwner>, String> {
+        self.kernel.read_scope(&self.bootstrap)
+    }
+
+    /// One namespace's serving scope: bound on FIRST use, cached for every later call.
+    fn scope_handle(&self, identity: &MutationScopeIdentity) -> Result<KvHandle, String> {
+        let key = identity.binding_digest().to_hex();
+        if let Some(handle) = self.scopes.lock().get(&key) {
+            return Ok(Arc::clone(handle));
+        }
+        let handle = bind_scope(&self.kernel, identity)?;
+        self.scopes.lock().insert(key, Arc::clone(&handle));
+        Ok(handle)
+    }
+
+    /// The ALREADY bound handle for a batch's own scope. Every `*_batch` caller reached
+    /// its OCC expectation through `mutation_version`, which binds the scope, so an
+    /// unbound identity is a broken precondition — reported, not silently bound.
+    fn bound_scope(&self, identity: &MutationScopeIdentity) -> Result<KvHandle, String> {
+        self.scopes
+            .lock()
+            .get(&identity.binding_digest().to_hex())
+            .map(Arc::clone)
+            .ok_or_else(|| "KV batch scope was never bound by mutation_version".to_string())
+    }
+
+    /// One plain KV write as an owner MAINTENANCE mutation (RF-RULING-005) on the
+    /// bootstrap scope: no caller identity, but ledgered, fenced and version-bumping
+    /// like any other write — no un-ledgered owner-write path exists any more.
+    ///
+    /// `subject` is the row the write acts on, so `kv_put` on two different keys are
+    /// two different durable batches. The version they fence on is resolved INSIDE the
+    /// write transaction by `admit_current`: reading it from a snapshot first let two
+    /// concurrent `put`s at one observed version build byte-identical batches, and the
+    /// second then replayed the first's recorded result — a success ack, over the S3
+    /// and Redis wire surfaces, for a write that never happened.
+    fn maintain<T, F>(&self, event: &str, subject: &str, apply: F) -> Result<T, String>
+    where
+        T: Serialize + DeserializeOwned,
+        F: FnOnce(&AdmittedOwnerWrite<'_, KvOwner>) -> Result<(T, bool), String>,
+    {
+        let write = MaintenanceBatch::new(DurabilityDomain::KvStore, event, subject);
+        let bootstrap = self.bootstrap.as_ref();
+        let (txn, batch, begun) = self.mutations.admit_current(
+            bootstrap,
+            eg_storage::MutationClass::Maintenance,
+            |version| write.for_scope_version(bootstrap, version),
+        )?;
+        let now = crate::server::dispatch::authoritative_now_ms();
+        self.complete_write(bootstrap, txn, &batch, begun, now, apply)
+    }
+
+    /// One caller-identified `*_batch` write, admitted under the batch's OWN bound
+    /// scope. Always commits: a failed `cas_batch` comparison is still terminal and
+    /// replayable, and must persist its verdict.
+    fn admit_batch<T, F>(&self, batch: &MutationBatch, at_ms: u64, apply: F) -> Result<T, String>
+    where
+        T: Serialize + DeserializeOwned,
+        F: FnOnce(&AdmittedOwnerWrite<'_, KvOwner>) -> Result<T, String>,
+    {
+        let owner = self.bound_scope(&batch.identity)?;
+        let owner = owner.as_ref();
+        let (txn, begun) = self.mutations.admit(owner, batch)?;
+        self.complete_write(owner, txn, batch, begun, at_ms, |owner_write| {
+            apply(owner_write).map(|value| (value, true))
+        })
+    }
+
+    /// Stage an ALREADY admitted batch's owner rows, persist the exact verdict as the
+    /// replayable result and commit — ONE transaction, so a KV row and its terminal
+    /// MutationBatch metadata can never disagree. `apply`'s `bool` says whether to
+    /// commit at all: a `cas` that failed its comparison answers `false` and aborts,
+    /// leaving no trace. Shared by both admission classes; only the admission itself
+    /// differs, which is why it is the caller's.
+    fn complete_write<T, F>(
+        &self,
+        owner: &OwnedStoreHandle<KvOwner>,
+        write: eg_transaction::AdmittedMutation<'_, KvOwner>,
+        batch: &MutationBatch,
+        begun: Begin,
+        at_ms: u64,
+        apply: F,
+    ) -> Result<T, String>
+    where
+        T: Serialize + DeserializeOwned,
+        F: FnOnce(&AdmittedOwnerWrite<'_, KvOwner>) -> Result<(T, bool), String>,
+    {
+        let source_version = match begun {
+            // Terminally committed already: the recorded verdict IS the answer, and
+            // re-applying it would double the effect.
+            Begin::Replay(record) => {
+                let replayed = decode_batch_result(&record)?;
+                write.abort()?;
+                return Ok(replayed);
+            }
+            Begin::Apply { source_version } => source_version,
+        };
+        let owner_write = write.owner_rows(owner, batch)?;
+        let staged = apply(&owner_write);
+        // Dropping the owner capability unfinished poisons the write; always close it.
+        owner_write.finish_owner()?;
+        let (value, commit) = match staged {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                write.abort()?;
+                return Err(error);
+            }
+        };
+        if !commit {
+            return write.abort().map(|()| value);
+        }
+        let result = rmp_serde::to_vec_named(&value).map_err(|e| e.to_string())?;
+        self.mutations
+            .finish(&write, batch, Some(result), at_ms, source_version)?;
+        self.mutations.commit(write, batch)?;
+        Ok(value)
+    }
 }
 
 impl KvStore {
     /// Open the KV store. `Some(dir)` ⇒ durable `{dir}/kv.redb`; `None` ⇒ in-memory.
     pub fn open(persist_dir: Option<&str>) -> Result<Self, String> {
-        match persist_dir {
+        let backend = match persist_dir {
             Some(dir) => {
                 std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
                 let path = Path::new(dir).join("kv.redb");
-                let identity = kv_bootstrap_identity()?;
-                // `initialize` creates/opens the physical file, establishes/validates
-                // its `StoreIncarnation` root, and binds the bootstrap scope at
-                // `initial_version: 0`. The bootstrap closure runs only on the FIRST
-                // bind (a fresh file) and just materializes the `KV` table so a later
-                // `get`/`scan` on a fresh DB never sees a "no such table" error —
-                // identical purpose to the old explicit `wtx.open_table(KV)` + commit.
-                let mutation_store =
-                    eg_mutation_store::initialize(&path, &identity, 0, None, |wtx| {
-                        wtx.open_table(KV).map_err(|e| e.to_string())?;
-                        Ok(())
-                    })?;
-                Ok(Self {
-                    backend: Backend::Redb(mutation_store),
-                })
+                Backend::Redb(Box::new(RedbBackend::open(&path)?))
             }
-            None => Ok(Self {
-                backend: Backend::Memory(Mutex::new(std::collections::BTreeMap::new())),
-            }),
-        }
+            None => Backend::Memory(Mutex::new(BTreeMap::new())),
+        };
+        Ok(Self { backend })
     }
 
     /// `true` if writes land durably on disk.
@@ -161,17 +394,16 @@ impl KvStore {
         validate_key(namespace, key)?;
         match &self.backend {
             Backend::Redb(store) => {
-                let rtx = store.database().begin_read().map_err(|e| e.to_string())?;
-                let table = rtx.open_table(KV).map_err(|e| e.to_string())?;
-                let v = table
+                let read = store.read()?;
+                let table = read.open_owner_table(KV)?;
+                table
                     .get((namespace, key))
                     .map_err(|e| e.to_string())?
                     .map(|g| {
                         validate_value(g.value())?;
                         Ok::<Vec<u8>, String>(g.value().to_vec())
                     })
-                    .transpose()?;
-                Ok(v)
+                    .transpose()
             }
             Backend::Memory(m) => {
                 let guard = m.lock();
@@ -184,23 +416,16 @@ impl KvStore {
         }
     }
 
-    /// Store `value` at `(namespace, key)` (overwrite). Durable commit-before-ack.
+    /// Store `value` at `(namespace, key)` (overwrite). Durable commit-before-ack, as
+    /// ONE ledgered owner-maintenance mutation.
     pub fn put(&self, namespace: &str, key: &str, value: Vec<u8>) -> Result<(), String> {
         validate_key(namespace, key)?;
         validate_value(&value)?;
         match &self.backend {
             Backend::Redb(store) => {
-                let mut wtx = store.database().begin_write().map_err(|e| e.to_string())?;
-                wtx.set_durability(Durability::Immediate)
-                    .map_err(|e| e.to_string())?;
-                {
-                    let mut table = wtx.open_table(KV).map_err(|e| e.to_string())?;
-                    table
-                        .insert((namespace, key), value.as_slice())
-                        .map_err(|e| e.to_string())?;
-                }
-                wtx.commit().map_err(|e| e.to_string())?;
-                Ok(())
+                store.maintain("kv_put", &row_subject(namespace, key), |owner_write| {
+                    write_kv_row(owner_write, namespace, key, Some(&value)).map(|_| ((), true))
+                })
             }
             Backend::Memory(m) => {
                 m.lock()
@@ -215,19 +440,9 @@ impl KvStore {
         validate_key(namespace, key)?;
         match &self.backend {
             Backend::Redb(store) => {
-                let mut wtx = store.database().begin_write().map_err(|e| e.to_string())?;
-                wtx.set_durability(Durability::Immediate)
-                    .map_err(|e| e.to_string())?;
-                let existed = {
-                    let mut table = wtx.open_table(KV).map_err(|e| e.to_string())?;
-                    // Bind the removed-value guard to a named local so the `?`
-                    // temporary is resolved before the block tail; `removed` (the
-                    // borrow) then drops before `table`.
-                    let removed = table.remove((namespace, key)).map_err(|e| e.to_string())?;
-                    removed.is_some()
-                };
-                wtx.commit().map_err(|e| e.to_string())?;
-                Ok(existed)
+                store.maintain("kv_delete", &row_subject(namespace, key), |owner_write| {
+                    write_kv_row(owner_write, namespace, key, None).map(|existed| (existed, true))
+                })
             }
             Backend::Memory(m) => Ok(m
                 .lock()
@@ -236,9 +451,8 @@ impl KvStore {
         }
     }
 
-    /// Ordered `(key, value)` pairs in `namespace` whose key starts with `prefix`
-    /// (empty prefix ⇒ every key in the namespace). `limit == 0` uses a safe
-    /// default; every scan remains bounded.
+    /// Ordered `(key, value)` pairs in `namespace` whose key starts with `prefix` (empty
+    /// prefix ⇒ the whole namespace). `limit == 0` uses a safe default; scans stay bounded.
     pub fn scan(
         &self,
         namespace: &str,
@@ -255,28 +469,21 @@ impl KvStore {
         let mut response_bytes = 0usize;
         match &self.backend {
             Backend::Redb(store) => {
-                let rtx = store.database().begin_read().map_err(|e| e.to_string())?;
-                let table = rtx.open_table(KV).map_err(|e| e.to_string())?;
+                let read = store.read()?;
+                let table = read.open_owner_table(KV)?;
                 // Range from (namespace, prefix): all prefix matches are a contiguous
                 // sorted block right after this bound, so we stop as soon as the
                 // namespace changes or a key no longer carries the prefix.
-                let iter = table
+                for entry in table
                     .range((namespace, prefix)..)
-                    .map_err(|e| e.to_string())?;
-                for entry in iter {
+                    .map_err(|e| e.to_string())?
+                {
                     let (k, v) = entry.map_err(|e| e.to_string())?;
                     let (ns, key) = k.value();
                     if ns != namespace || !key.starts_with(prefix) {
                         break;
                     }
-                    validate_value(v.value())?;
-                    response_bytes = response_bytes
-                        .checked_add(key.len())
-                        .and_then(|total| total.checked_add(v.value().len()))
-                        .filter(|total| *total <= MAX_KV_VALUE_BYTES)
-                        .ok_or_else(|| "KV scan response exceeds resource limits".to_string())?;
-                    out.push((key.to_string(), v.value().to_vec()));
-                    if out.len() >= limit {
+                    if !push_scan_row(&mut out, &mut response_bytes, limit, key, v.value())? {
                         break;
                     }
                 }
@@ -288,14 +495,7 @@ impl KvStore {
                     if ns != namespace || !key.starts_with(prefix) {
                         break;
                     }
-                    validate_value(v)?;
-                    response_bytes = response_bytes
-                        .checked_add(key.len())
-                        .and_then(|total| total.checked_add(v.len()))
-                        .filter(|total| *total <= MAX_KV_VALUE_BYTES)
-                        .ok_or_else(|| "KV scan response exceeds resource limits".to_string())?;
-                    out.push((key.clone(), v.clone()));
-                    if out.len() >= limit {
+                    if !push_scan_row(&mut out, &mut response_bytes, limit, key, v)? {
                         break;
                     }
                 }
@@ -306,9 +506,9 @@ impl KvStore {
 
     /// Atomic compare-and-swap: if the CURRENT value equals `expected` (both absent
     /// ⇒ the key must not exist) set it to `new` (`None` ⇒ delete) and return `true`;
-    /// otherwise leave it untouched and return `false`. The redb path does the
-    /// read+compare+write inside ONE durable write transaction, so it is atomic
-    /// against concurrent writers.
+    /// otherwise leave it untouched and return `false`. The durable path does the
+    /// read+compare+write inside ONE admitted write transaction, so it is atomic against
+    /// concurrent writers, and a failed comparison ABORTS that write.
     pub fn cas(
         &self,
         namespace: &str,
@@ -325,42 +525,10 @@ impl KvStore {
         }
         match &self.backend {
             Backend::Redb(store) => {
-                let mut wtx = store.database().begin_write().map_err(|e| e.to_string())?;
-                wtx.set_durability(Durability::Immediate)
-                    .map_err(|e| e.to_string())?;
-                let swapped = {
-                    let mut table = wtx.open_table(KV).map_err(|e| e.to_string())?;
-                    let current: Option<Vec<u8>> = table
-                        .get((namespace, key))
-                        .map_err(|e| e.to_string())?
-                        .map(|g| {
-                            validate_value(g.value())?;
-                            Ok::<Vec<u8>, String>(g.value().to_vec())
-                        })
-                        .transpose()?;
-                    if current.as_deref() == expected {
-                        match &new {
-                            Some(v) => {
-                                table
-                                    .insert((namespace, key), v.as_slice())
-                                    .map_err(|e| e.to_string())?;
-                            }
-                            None => {
-                                table.remove((namespace, key)).map_err(|e| e.to_string())?;
-                            }
-                        }
-                        true
-                    } else {
-                        false
-                    }
-                };
-                if swapped {
-                    wtx.commit().map_err(|e| e.to_string())?;
-                } else {
-                    // No-op: abort the (empty) txn rather than commit a durability flush.
-                    wtx.abort().map_err(|e| e.to_string())?;
-                }
-                Ok(swapped)
+                store.maintain("kv_cas", &row_subject(namespace, key), |owner_write| {
+                    swap_in_owner_write(owner_write, namespace, key, expected, new.as_deref())
+                        .map(|swapped| (swapped, swapped))
+                })
             }
             Backend::Memory(m) => {
                 let mut guard = m.lock();
@@ -383,28 +551,23 @@ impl KvStore {
         }
     }
 
-    /// Current universal MutationBatch version for one namespace scope. Binds the
-    /// scope's identity on first use — `KvStore` serves arbitrarily many dynamic
-    /// namespaces out of one physical file (unlike `RbacStore`'s single fixed
-    /// scope), so each namespace must be registered with `eg_mutation_store`
-    /// before `version`/`begin` will accept it. `eg_mutation_store::bind_scope` is
-    /// idempotent — re-binding the identical identity on every subsequent call is a
-    /// cheap no-op, not a re-registration.
+    /// Current universal MutationBatch version for one namespace scope. Authenticates
+    /// the scope against the composition root's verifier and binds it on FIRST use (the
+    /// mutation kernel admits no batch for an unbound scope), then serves the cache.
     pub fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {
         match &self.backend {
             Backend::Redb(store) => {
-                let identity = kv_scope_identity(tenant, graph)?;
-                eg_mutation_store::bind_scope(store, &identity, 0, |_| Ok(()))?;
-                eg_mutation_store::version(store, &identity)
+                let owner = store.scope_handle(&kv_scope_identity(tenant, graph)?)?;
+                eg_transaction::version(&store.kernel.read_scope(&owner)?)
             }
             Backend::Memory(_) => Ok(0),
         }
     }
 
-    /// Atomically write a KV value and its terminal MutationBatch metadata.
-    /// Precondition (upheld by every caller — `compile_kv_batch`, below): `batch`'s
-    /// identity must already be bound, which happens as a side effect of the prior
-    /// `mutation_version` call every write path uses to compute its OCC expectation.
+    /// Atomically write a KV value and its terminal MutationBatch metadata. Precondition
+    /// (upheld by every caller — `compile_kv_batch`, below): `batch`'s identity is already
+    /// bound, as a side effect of the `mutation_version` call that gave it its OCC
+    /// expectation.
     pub fn put_batch(
         &self,
         namespace: &str,
@@ -416,48 +579,12 @@ impl KvStore {
         validate_key(namespace, key)?;
         validate_value(&value)?;
         match &self.backend {
-            Backend::Redb(store) => {
-                // `MutationStore::write()` already opens with `Durability::Immediate`
-                // (the same durability the old code set by hand on the raw
-                // `WriteTransaction`), so nothing further to set here.
-                let write = store.write()?;
-                match eg_mutation_store::begin(&write, batch)? {
-                    eg_mutation_store::Begin::Replay(record) => {
-                        decode_batch_result::<()>(&record)?;
-                        // `MutationWrite::abort` is crate-private to
-                        // `eg_mutation_store`; returning here without calling
-                        // `.commit()` drops `write` un-committed, which redb's own
-                        // `Drop for WriteTransaction` aborts automatically (same
-                        // reasoning as `crates/eg-core/src/rbac_persist.rs::save`).
-                        Ok(())
-                    }
-                    eg_mutation_store::Begin::Apply { source_version } => {
-                        {
-                            let mut table = write
-                                .owner_rows()
-                                .open_table(KV)
-                                .map_err(|e| e.to_string())?;
-                            table
-                                .insert((namespace, key), value.as_slice())
-                                .map_err(|e| e.to_string())?;
-                        }
-                        let result = rmp_serde::to_vec_named(&()).map_err(|e| e.to_string())?;
-                        eg_mutation_store::finish(
-                            &write,
-                            batch,
-                            Some(result),
-                            committed_at_ms,
-                            source_version,
-                        )?;
-                        eg_mutation_store::commit(write, batch)
-                    }
-                }
-            }
-            Backend::Memory(m) => {
-                m.lock()
-                    .insert((namespace.to_string(), key.to_string()), value);
-                Ok(())
-            }
+            Backend::Redb(store) => store.admit_batch(batch, committed_at_ms, |owner_write| {
+                write_kv_row(owner_write, namespace, key, Some(&value)).map(|_| ())
+            }),
+            // The ephemeral backend keeps no MutationBatch bookkeeping, so a `*_batch`
+            // write IS the plain write.
+            Backend::Memory(_) => self.put(namespace, key, value),
         }
     }
 
@@ -472,49 +599,17 @@ impl KvStore {
     ) -> Result<bool, String> {
         validate_key(namespace, key)?;
         match &self.backend {
-            Backend::Redb(store) => {
-                let write = store.write()?;
-                match eg_mutation_store::begin(&write, batch)? {
-                    eg_mutation_store::Begin::Replay(record) => {
-                        let result = decode_batch_result(&record)?;
-                        // See `put_batch`'s Replay arm for why no explicit abort.
-                        Ok(result)
-                    }
-                    eg_mutation_store::Begin::Apply { source_version } => {
-                        let existed = {
-                            let mut table = write
-                                .owner_rows()
-                                .open_table(KV)
-                                .map_err(|e| e.to_string())?;
-                            let removed =
-                                table.remove((namespace, key)).map_err(|e| e.to_string())?;
-                            removed.is_some()
-                        };
-                        let result =
-                            rmp_serde::to_vec_named(&existed).map_err(|e| e.to_string())?;
-                        eg_mutation_store::finish(
-                            &write,
-                            batch,
-                            Some(result),
-                            committed_at_ms,
-                            source_version,
-                        )?;
-                        eg_mutation_store::commit(write, batch)?;
-                        Ok(existed)
-                    }
-                }
-            }
-            Backend::Memory(m) => Ok(m
-                .lock()
-                .remove(&(namespace.to_string(), key.to_string()))
-                .is_some()),
+            Backend::Redb(store) => store.admit_batch(batch, committed_at_ms, |owner_write| {
+                write_kv_row(owner_write, namespace, key, None)
+            }),
+            // See `put_batch`'s memory arm.
+            Backend::Memory(_) => self.delete(namespace, key),
         }
     }
 
-    /// Atomically compare/swap a KV value and persist the exact verdict in the
-    /// same MutationBatch transaction. A failed comparison is still a terminal,
-    /// replayable request and therefore commits its status/outbox record.
-    /// Same binding precondition as [`KvStore::put_batch`].
+    /// Atomically compare/swap a KV value and persist the exact verdict in the same
+    /// MutationBatch transaction. A failed comparison is still a terminal, replayable
+    /// request and therefore commits its record. Binding precondition: see `put_batch`.
     pub fn cas_batch(
         &self,
         namespace: &str,
@@ -532,77 +627,11 @@ impl KvStore {
             validate_value(value)?;
         }
         match &self.backend {
-            Backend::Redb(store) => {
-                let write = store.write()?;
-                match eg_mutation_store::begin(&write, batch)? {
-                    eg_mutation_store::Begin::Replay(record) => {
-                        let result = decode_batch_result(&record)?;
-                        // See `put_batch`'s Replay arm for why no explicit abort.
-                        Ok(result)
-                    }
-                    eg_mutation_store::Begin::Apply { source_version } => {
-                        let swapped = {
-                            let mut table = write
-                                .owner_rows()
-                                .open_table(KV)
-                                .map_err(|e| e.to_string())?;
-                            let current = table
-                                .get((namespace, key))
-                                .map_err(|e| e.to_string())?
-                                .map(|value| {
-                                    validate_value(value.value())?;
-                                    Ok::<Vec<u8>, String>(value.value().to_vec())
-                                })
-                                .transpose()?;
-                            if current.as_deref() == expected {
-                                match &new {
-                                    Some(value) => {
-                                        table
-                                            .insert((namespace, key), value.as_slice())
-                                            .map_err(|e| e.to_string())?;
-                                    }
-                                    None => {
-                                        table
-                                            .remove((namespace, key))
-                                            .map_err(|e| e.to_string())?;
-                                    }
-                                }
-                                true
-                            } else {
-                                false
-                            }
-                        };
-                        let result =
-                            rmp_serde::to_vec_named(&swapped).map_err(|e| e.to_string())?;
-                        eg_mutation_store::finish(
-                            &write,
-                            batch,
-                            Some(result),
-                            committed_at_ms,
-                            source_version,
-                        )?;
-                        eg_mutation_store::commit(write, batch)?;
-                        Ok(swapped)
-                    }
-                }
-            }
-            Backend::Memory(m) => {
-                let mut guard = m.lock();
-                let map_key = (namespace.to_string(), key.to_string());
-                if guard.get(&map_key).map(Vec::as_slice) == expected {
-                    match new {
-                        Some(value) => {
-                            guard.insert(map_key, value);
-                        }
-                        None => {
-                            guard.remove(&map_key);
-                        }
-                    }
-                    Ok(true)
-                } else {
-                    Ok(false)
-                }
-            }
+            Backend::Redb(store) => store.admit_batch(batch, committed_at_ms, |owner_write| {
+                swap_in_owner_write(owner_write, namespace, key, expected, new.as_deref())
+            }),
+            // See `put_batch`'s memory arm.
+            Backend::Memory(_) => self.cas(namespace, key, expected, new),
         }
     }
 }
@@ -626,9 +655,8 @@ fn decode_batch_result<T: serde::de::DeserializeOwned>(
 }
 
 /// Route a `Method::Kv*` op through the KV store on `ServerState`. Mirrors the
-/// blob/tsdb self-routing handlers: returns `Err(method)` for a method that is not a
-/// KV op (so the caller falls through), `Ok(Response)` otherwise. KV writes are
-/// durable commit-before-ack; classification (`requires_write`) lives in
+/// blob/tsdb self-routing handlers: `Err(method)` for a non-KV method (the caller then
+/// falls through), `Ok(Response)` otherwise. Classification (`requires_write`) lives in
 /// `server::access` alongside the graph-op classifier.
 pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
@@ -659,7 +687,7 @@ pub(crate) async fn try_handle(
         Method::KvGet { namespace, key } => {
             let namespace = authority.namespace("kv-namespace", &namespace);
             match store.get(&namespace, &key) {
-                Ok(Some(v)) => Response::ok(req_id, ResultPayload::PropertiesMsgpack(v)),
+                Ok(Some(v)) => Response::ok(req_id, ResultPayload::Raw(v)),
                 Ok(None) => Response::ok(req_id, ResultPayload::Json(serde_json::Value::Null)),
                 Err(e) => Response::err(req_id, format!("KvGet error: {e}")),
             }
@@ -759,7 +787,7 @@ fn compile_kv_batch(
         },
         method,
         MutationSurface::Other,
-        MutationDomain::KvStore,
+        DurabilityDomain::KvStore,
         "kv_operation",
     )?;
     Ok((batch, now))
@@ -777,271 +805,11 @@ fn is_kv_method(method: &Method) -> bool {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn tmp_dir(tag: &str) -> std::path::PathBuf {
-        crate::test_support::temp_dir("eg-kv", tag)
-    }
-
-    /// put → get → scan → delete → cas round-trip over the durable store.
-    #[test]
-    fn kv_roundtrip_put_get_scan_delete_cas() {
-        let dir = tmp_dir("rt");
-        let store = KvStore::open(Some(dir.to_str().unwrap())).unwrap();
-        assert!(store.is_durable());
-
-        // put → get
-        store.put("ns", "a", b"alpha".to_vec()).unwrap();
-        store.put("ns", "ab", b"alphabet".to_vec()).unwrap();
-        store.put("ns", "b", b"bravo".to_vec()).unwrap();
-        store.put("other", "a", b"x".to_vec()).unwrap();
-        assert_eq!(
-            store.get("ns", "a").unwrap().as_deref(),
-            Some(&b"alpha"[..])
-        );
-        assert_eq!(store.get("ns", "missing").unwrap(), None);
-
-        // scan(prefix) is namespace-bounded + prefix-bounded + ordered.
-        let hits = store.scan("ns", "a", 0).unwrap();
-        assert_eq!(
-            hits,
-            vec![
-                ("a".to_string(), b"alpha".to_vec()),
-                ("ab".to_string(), b"alphabet".to_vec()),
-            ],
-            "prefix 'a' in 'ns' matches a, ab — not b, not the other namespace"
-        );
-        // Empty prefix → whole namespace; limit caps.
-        assert_eq!(store.scan("ns", "", 2).unwrap().len(), 2);
-        assert_eq!(store.scan("ns", "", 0).unwrap().len(), 3);
-
-        // delete
-        assert!(store.delete("ns", "a").unwrap());
-        assert!(!store.delete("ns", "a").unwrap());
-        assert_eq!(store.get("ns", "a").unwrap(), None);
-
-        // cas: wrong expected fails, right expected swaps; absent-expected create.
-        assert!(!store
-            .cas("ns", "b", Some(b"WRONG"), Some(b"new".to_vec()))
-            .unwrap());
-        assert_eq!(
-            store.get("ns", "b").unwrap().as_deref(),
-            Some(&b"bravo"[..])
-        );
-        assert!(store
-            .cas("ns", "b", Some(b"bravo"), Some(b"BRAVO".to_vec()))
-            .unwrap());
-        assert_eq!(
-            store.get("ns", "b").unwrap().as_deref(),
-            Some(&b"BRAVO"[..])
-        );
-        // create-if-absent: expected None on a non-existent key.
-        assert!(store.cas("ns", "fresh", None, Some(b"v".to_vec())).unwrap());
-        assert_eq!(
-            store.get("ns", "fresh").unwrap().as_deref(),
-            Some(&b"v"[..])
-        );
-        // cas-delete: expected current, new None.
-        assert!(store.cas("ns", "fresh", Some(b"v"), None).unwrap());
-        assert_eq!(store.get("ns", "fresh").unwrap(), None);
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// A durable put survives a store close + reopen (persistence across reopen).
-    #[test]
-    fn kv_persists_across_reopen() {
-        let dir = tmp_dir("reopen");
-        {
-            let store = KvStore::open(Some(dir.to_str().unwrap())).unwrap();
-            store.put("cfg", "version", b"42".to_vec()).unwrap();
-        }
-        // Reopen the SAME file — the value is still there.
-        let store = KvStore::open(Some(dir.to_str().unwrap())).unwrap();
-        assert_eq!(
-            store.get("cfg", "version").unwrap().as_deref(),
-            Some(&b"42"[..]),
-            "durable KV value must survive reopen"
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// The in-memory backend (no persist dir) honors the same contract (ephemeral).
-    #[test]
-    fn kv_in_memory_roundtrip() {
-        let store = KvStore::open(None).unwrap();
-        assert!(!store.is_durable());
-        store.put("ns", "k", b"v".to_vec()).unwrap();
-        assert_eq!(store.get("ns", "k").unwrap().as_deref(), Some(&b"v"[..]));
-        assert!(store
-            .cas("ns", "k", Some(b"v"), Some(b"v2".to_vec()))
-            .unwrap());
-        assert_eq!(store.scan("ns", "", 0).unwrap().len(), 1);
-        assert!(store.delete("ns", "k").unwrap());
-    }
-}
-
-/// Wire-level proof: drive the `Method::Kv*` ops through the SAME `dispatch`
-/// entrypoint a real request hits (auth → top-level routing → handler → store),
-/// over a `ServerState` carrying a durable KV store.
-#[cfg(test)]
-mod dispatch_tests {
-    use crate::protocol::{Method, Request, ResultPayload};
-    use crate::server::{
-        auth::{build_shared_test_request, dispatch_test_on_heap as dispatch_on_heap},
-        ServerState,
-    };
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
-
-    const SECRET: &str = "kv-test-secret";
-    const TEST_AGENT: &str = "unit-test-agent";
-
-    fn state_with_kv(dir: &str) -> Arc<RwLock<ServerState>> {
-        let kv = Arc::new(super::KvStore::open(Some(dir)).unwrap());
-        let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation(TEST_AGENT));
-        state.persist_dir = Some(dir.to_string());
-        #[cfg(feature = "kv")]
-        {
-            state.kv = Some(kv);
-        }
-        #[cfg(not(feature = "kv"))]
-        let _ = kv;
-        Arc::new(RwLock::new(state))
-    }
-
-    fn req(id: u64, method: Method) -> Request {
-        build_shared_test_request(SECRET, id, "__commons__", TEST_AGENT, method)
-    }
-
-    #[tokio::test]
-    async fn kv_dispatch_put_get_scan_delete_cas() {
-        let dir = std::env::temp_dir().join(format!("eg-kv-dispatch-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        let state = state_with_kv(&dir.to_string_lossy());
-
-        // KvPut → "ok"
-        let r = dispatch_on_heap(
-            &state,
-            req(
-                1,
-                Method::KvPut {
-                    namespace: "cfg".into(),
-                    key: "k".into(),
-                    value: b"v1".to_vec(),
-                },
-            ),
-        )
-        .await;
-        assert!(
-            matches!(r.result, Some(ResultPayload::String(s)) if s == "ok"),
-            "{:?}",
-            r.error
-        );
-
-        // KvGet → the bytes (PropertiesMsgpack carries the opaque value verbatim).
-        let r = dispatch_on_heap(
-            &state,
-            req(
-                2,
-                Method::KvGet {
-                    namespace: "cfg".into(),
-                    key: "k".into(),
-                },
-            ),
-        )
-        .await;
-        match r.result {
-            Some(ResultPayload::PropertiesMsgpack(v)) => assert_eq!(v, b"v1"),
-            other => panic!("KvGet: {other:?} / {:?}", r.error),
-        }
-
-        // KvScan → ordered [(key, value)].
-        dispatch_on_heap(
-            &state,
-            req(
-                3,
-                Method::KvPut {
-                    namespace: "cfg".into(),
-                    key: "k2".into(),
-                    value: b"v2".to_vec(),
-                },
-            ),
-        )
-        .await;
-        let r = dispatch_on_heap(
-            &state,
-            req(
-                4,
-                Method::KvScan {
-                    namespace: "cfg".into(),
-                    prefix: "k".into(),
-                    limit: 0,
-                },
-            ),
-        )
-        .await;
-        let pairs: Vec<(String, serde_bytes::ByteBuf)> = match r.result {
-            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
-            other => panic!("KvScan: {other:?} / {:?}", r.error),
-        };
-        assert_eq!(pairs.len(), 2);
-        assert_eq!(pairs[0].0, "k");
-
-        // KvCas → swaps only on match.
-        let r = dispatch_on_heap(
-            &state,
-            req(
-                5,
-                Method::KvCas {
-                    namespace: "cfg".into(),
-                    key: "k".into(),
-                    expected: Some(b"v1".to_vec()),
-                    new: Some(b"V1".to_vec()),
-                },
-            ),
-        )
-        .await;
-        assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
-
-        // KvDelete → existed.
-        let r = dispatch_on_heap(
-            &state,
-            req(
-                6,
-                Method::KvDelete {
-                    namespace: "cfg".into(),
-                    key: "k2".into(),
-                },
-            ),
-        )
-        .await;
-        assert!(matches!(r.result, Some(ResultPayload::Bool(true))));
-
-        // Bad auth is rejected before routing.
-        let mut bad = req(
-            7,
-            Method::KvGet {
-                namespace: "cfg".into(),
-                key: "k".into(),
-            },
-        );
-        bad.auth_token = "bogus".into();
-        let r = dispatch_on_heap(&state, bad).await;
-        assert_eq!(r.error.as_deref(), Some("Authentication failed"));
-
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
 /// Bundle the durable namespaced KV surface (CONCEPT:EG-KG.backend.networked-shared-kv) into
 /// an online backup.
 ///
 /// `kv.redb` holds real acknowledged user writes (`KvPut`/`KvCas`) and the fleet-shared
-/// KV-cache blocks, in its OWN durability domain off the graph shards. It was omitted
-/// from every bundle before this, so a restore silently came up with an empty KV surface.
+/// KV-cache blocks, in its OWN durability domain off the graph shards.
 #[cfg(feature = "redb")]
 impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore {
     fn file_name(&self) -> &'static str {
@@ -1052,30 +820,21 @@ impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore 
         let Backend::Redb(source) = &self.backend else {
             return Err("KV store is in-memory; nothing to bundle".to_string());
         };
+        // Counted off the kernel's own snapshot BEFORE the copy: `backup_recovery_store`
+        // copies the declared owner tables itself but reports only ledger counts.
+        let rows = source
+            .read()?
+            .open_owner_table(KV)?
+            .len()
+            .map_err(|e| e.to_string())?;
         // The KV domain's own MutationBatch bookkeeping lives in the SAME file, so a
         // restored store must keep its idempotency/OCC/fence boundary rather than
-        // re-admitting an already-acknowledged write. That half is delegated to
-        // `backup_recovery_store`, which owns the complete table set and re-stamps
-        // `SCOPE_BINDINGS` for the destination's own incarnation.
-        //
-        // Hand-listing those tables here is what produced BUG-PE-054: `VERSIONS` was
-        // copied while `STORE_ROOT`/`SCOPE_BINDINGS` were not, so reopening a restored
-        // bundle failed with "mutation version row exists without a scope binding".
-        // The list cannot be kept correct from outside the crate that defines it.
-        let counts = eg_mutation_store::backup_recovery_store(source, destination)
-            .map_err(|error| error.to_string())?;
-
-        // `KV` is this store's own table, appended with plain redb: it is not part of
-        // the mutation-store contract, and adding a table does not disturb an
-        // incarnation bound to (dev, ino).
-        let rtx = source.database().begin_read().map_err(|e| e.to_string())?;
-        let target = redb::Database::create(destination).map_err(|e| e.to_string())?;
-        let mut wtx = target.begin_write().map_err(|e| e.to_string())?;
-        wtx.set_durability(Durability::Immediate)
-            .map_err(|e| e.to_string())?;
-        let mut rows = 0u64;
-        crate::copy_bundled_table!(rtx, wtx, rows, KV);
-        wtx.commit().map_err(|e| e.to_string())?;
+        // re-admitting an acknowledged write. The WHOLE copy — ledger plus the layout's
+        // declared owner tables — is the storage kernel's, which re-stamps
+        // `SCOPE_BINDINGS` for the destination's incarnation and creates the destination
+        // file itself. Hand-listing those tables out here produced BUG-PE-054:
+        // `VERSIONS` was copied while `STORE_ROOT`/`SCOPE_BINDINGS` were not.
+        let counts = eg_storage::backup_recovery_store(&source.kernel, destination)?;
         Ok(rows
             .saturating_add(counts.batches)
             .saturating_add(counts.idempotency)
@@ -1089,3 +848,8 @@ impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore 
         KvStore::is_durable(self)
     }
 }
+
+#[cfg(test)]
+mod dispatch_tests;
+#[cfg(test)]
+mod tests;

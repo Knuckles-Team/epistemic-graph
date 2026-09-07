@@ -188,6 +188,18 @@ impl TypedJobResult {
         if self.schema_version != Self::SCHEMA_VERSION {
             return Err("typed job result requires a supported schema".to_string());
         }
+        self.check_knowledge_batch_columns()?;
+        if self.evidence_refs.is_empty() {
+            return Err("typed job result requires at least one evidence reference".to_string());
+        }
+        self.check_confidence_scalars()?;
+        self.check_rows()?;
+        self.check_content_identity()
+    }
+
+    /// The schema declares each column once and carries every KnowledgeBatch column, and
+    /// every row carries a field for each of them.
+    fn check_knowledge_batch_columns(&self) -> Result<(), String> {
         let names: std::collections::BTreeSet<_> = self
             .schema
             .iter()
@@ -216,22 +228,32 @@ impl TypedJobResult {
                 ));
             }
         }
-        if self.evidence_refs.is_empty() {
-            return Err("typed job result requires at least one evidence reference".to_string());
-        }
-        if !self
+        Ok(())
+    }
+
+    /// The batch-level uncertainty and calibration interval, when present, are finite and
+    /// inside `[0, 1]`, with the calibration lower bound at or below its upper bound.
+    fn check_confidence_scalars(&self) -> Result<(), String> {
+        let uncertainty_ok = self
             .uncertainty
-            .is_none_or(|value| value.is_finite() && (0.0..=1.0).contains(&value))
-            || !self.calibration.is_none_or(|(lower, upper)| {
-                lower.is_finite()
-                    && upper.is_finite()
-                    && (0.0..=1.0).contains(&lower)
-                    && (0.0..=1.0).contains(&upper)
-                    && lower <= upper
-            })
-        {
-            return Err("typed job result uncertainty/calibration is invalid".to_string());
+            .is_none_or(|value| value.is_finite() && (0.0..=1.0).contains(&value));
+        let calibration_ok = self.calibration.is_none_or(|(lower, upper)| {
+            lower.is_finite()
+                && upper.is_finite()
+                && (0.0..=1.0).contains(&lower)
+                && (0.0..=1.0).contains(&upper)
+                && lower <= upper
+        });
+        if uncertainty_ok && calibration_ok {
+            Ok(())
+        } else {
+            Err("typed job result uncertainty/calibration is invalid".to_string())
         }
+    }
+
+    /// Every row carries a non-empty id, a confidence inside `[0, 1]`, and at least one
+    /// evidence and one source reference.
+    fn check_rows(&self) -> Result<(), String> {
         for row in &self.rows {
             let id = row.get("id").and_then(serde_json::Value::as_str);
             let confidence = row.get("confidence").and_then(serde_json::Value::as_f64);
@@ -250,6 +272,13 @@ impl TypedJobResult {
                 );
             }
         }
+        Ok(())
+    }
+
+    /// The recorded digest and dataset reference are the ones this schema and these rows
+    /// actually hash to — the batch is content-addressed, so a mismatch means the payload
+    /// was edited away from its identity.
+    fn check_content_identity(&self) -> Result<(), String> {
         let expected_digest = content_digest(&self.schema, &self.rows)?;
         if expected_digest != self.content_digest
             || self.dataset_ref != format!("eg:knowledge_batch:{expected_digest}")

@@ -385,14 +385,9 @@ fn read_remote_response(stream: &mut std::net::TcpStream) -> Result<Vec<u8>, Str
     if resp.error.is_some() {
         return Err("federation: remote engine returned an error".to_string());
     }
-    // `ResultPayload::raw()` and `PropertiesMsgpack` are the SAME msgpack `bin` on
-    // the wire; the untagged decoder picks `PropertiesMsgpack` (it is declared
-    // first), so accept either — both carry the msgpack body we re-decode.
+    // `ResultPayload::raw()` is the one MessagePack-bin result representation.
     match resp.result {
-        Some(
-            eg_types::protocol::ResultPayload::Raw(bytes)
-            | eg_types::protocol::ResultPayload::PropertiesMsgpack(bytes),
-        ) => Ok(bytes),
+        Some(eg_types::protocol::ResultPayload::Raw(bytes)) => Ok(bytes),
         _ => Err("federation: remote engine returned an unexpected result".to_string()),
     }
 }
@@ -413,7 +408,7 @@ impl RemoteEngineSource<'_> {
     /// Build the fail-secure `eg2.` token accepted by the remote engine. This is
     /// the same canonical v2 byte layout as `src/server/auth.rs`; v0/v1 and an
     /// empty-secret fallback are deliberately absent from native federation.
-    fn auth_token_v2(
+    fn auth_token(
         &self,
         request: &eg_types::protocol::Request,
         timestamp: u64,
@@ -474,7 +469,7 @@ impl RemoteEngineSource<'_> {
             method,
         };
         request.auth_token =
-            self.auth_token_v2(&request, elapsed.as_secs(), &nonce, &idempotency_key)?;
+            self.auth_token(&request, elapsed.as_secs(), &nonce, &idempotency_key)?;
         Ok(request)
     }
 
@@ -1881,10 +1876,10 @@ mod envelope_signer_tests {
         let claims = context();
         let src = source("federation-test-secret", &claims, "g");
         let token_a = src
-            .auth_token_v2(&request(1, "g", &claims.agent_id), 1, "nonce", "idem")
+            .auth_token(&request(1, "g", &claims.agent_id), 1, "nonce", "idem")
             .unwrap();
         let token_b = src
-            .auth_token_v2(
+            .auth_token(
                 &request(1, "other-graph", &claims.agent_id),
                 1,
                 "nonce",
@@ -1904,10 +1899,10 @@ mod envelope_signer_tests {
         claims_b.tenant = "tenant-b".into();
         let req = request(1, "g", &claims_a.agent_id);
         let t1 = source("federation-test-secret", &claims_a, "g")
-            .auth_token_v2(&req, 1, "nonce", "idem")
+            .auth_token(&req, 1, "nonce", "idem")
             .unwrap();
         let t2 = source("federation-test-secret", &claims_b, "g")
-            .auth_token_v2(&req, 1, "nonce", "idem")
+            .auth_token(&req, 1, "nonce", "idem")
             .unwrap();
         assert_ne!(
             t1, t2,
@@ -1921,9 +1916,9 @@ mod envelope_signer_tests {
         let src = source("federation-test-secret", &claims, "g");
         let mut req = request(1, "g", &claims.agent_id);
         req.method = Method::Ping;
-        let t1 = src.auth_token_v2(&req, 1, "nonce", "idem").unwrap();
+        let t1 = src.auth_token(&req, 1, "nonce", "idem").unwrap();
         req.method = Method::Health;
-        let t2 = src.auth_token_v2(&req, 1, "nonce", "idem").unwrap();
+        let t2 = src.auth_token(&req, 1, "nonce", "idem").unwrap();
         assert_ne!(
             t1, t2,
             "signing over a different method must yield a different token"

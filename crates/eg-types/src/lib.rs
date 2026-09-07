@@ -21,15 +21,22 @@ pub mod asr_wire;
 // wire contract + pure fencing/admission algorithm (cross-host capacity
 // authority for the AU fair scheduler). Unconditional, like `acl`/`jobs`.
 pub mod capacity_lease;
+// RF-RULING-004 — canonical serializable authority/replay evidence for the future
+// eg-transaction admission boundary. This module grants no executable capability.
+pub mod authority;
 pub mod change_envelope;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
 // into `mutation_batch`): `MutationBatch`/`MutationProjectionCursor` remain the
-// per-surface request/outbox envelope; `CommitDescriptorV1` is the one commit
+// per-surface request/outbox envelope; `CommitDescriptor` is the one commit
 // identity every domain's participant registers against. See
 // `plans/graph-os-completion-program/lanes/GOC-03-cross-domain-commit-currency.md`.
 pub mod commit_descriptor;
+// RF-RULING-004 — current-only parent/participant transaction coordination DTOs.
+pub mod consensus;
+// RF-RULING-004 — bounded scalar/collection primitives shared by kernel DTOs.
+pub mod contract;
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed — the pinned embedding-space
 // identity (`EmbeddingSpaceRef`) + stamped-vector (`StampedVector`) currency shared
 // by BOTH `eg-core::compute::semantic` backends, plus their two dimensionality
@@ -62,8 +69,8 @@ pub mod jobs;
 #[cfg(feature = "knowledge-batch")]
 pub mod knowledge_stream;
 // GOC-10 — canonical SQL table / lake catalog authority wire types
-// (`CatalogEntryV1`/`TableSchemaVersionV1`/`PartitionManifestV1`/`LakeSnapshotV1`/
-// `QualityReportRef`/`TableChangeV1`). Pure serde, no dep — unconditional like
+// (`CatalogEntry`/`TableSchemaVersion`/`PartitionManifest`/`LakeSnapshot`/
+// `QualityReportRef`/`TableChange`). Pure serde, no dep — unconditional like
 // `acl`/`mutation_batch`, since it adds no `protocol::Method` variant (the durable
 // store + REST projection that would carry these records over the wire is
 // GOC-10-W03/W05, not yet implemented).
@@ -71,6 +78,9 @@ pub mod lake_catalog;
 #[cfg(feature = "modality-serving")]
 pub mod modality;
 pub mod msgpack;
+// RF-RULING-004 — untrusted serialized mutation request/evidence DTOs only.
+// Executable admitted plans/tokens are private to the future eg-transaction kernel.
+pub mod mutation;
 pub mod mutation_batch;
 // AU wire-first native control-plane operations: bounded capacity leases and
 // WorkItem admission/submission.  This module is hand-written until the AU
@@ -84,6 +94,8 @@ pub mod native_control;
 // (GOC-03/04/19/20/35) file-ownership collision. See
 // `plans/graph-os-completion-program/decisions/GOC-20-atomic-outcome-provenance.md`.
 pub mod outcome_bundle;
+// RF-RULING-004 — mutation-kernel-owned outbox intent, delivery, and cursor DTOs.
+pub mod outbox;
 pub mod protocol;
 // CONCEPT:EG-KG.compute.quantum-agent-api — the agent-facing quantum control-plane
 // wire op (`QuantumOp`), gated `quantum`. Lives here (not in `eg-quantum-core`,
@@ -93,12 +105,16 @@ pub mod protocol;
 #[cfg(feature = "quantum")]
 pub mod quantum;
 pub mod row_predicate;
+// RF-019 — the sole transport-neutral semantic-index contract.  Runtime
+// storage, queues, handlers, and surface projections live in crates above this
+// bottom-of-DAG owner and must consume these exact operation and identity DTOs.
+pub mod semantic_index;
 #[cfg(feature = "statechart")]
 pub mod statechart;
 pub mod types;
 // GOC-19 — the WorkItem submission command-log admission core (tenant-scoped
 // idempotency replay + per-authority fencing), built on GOC-03's
-// `commit_descriptor::CommitDescriptorV1` currency. Unconditional, pure
+// `commit_descriptor::CommitDescriptor` currency. Unconditional, pure
 // data/logic; the native protocol/storage adapter now lives in
 // `native_control`, `server::mutation_batch`, and `redb_store`. See
 // `plans/graph-os-completion-program/lanes/GOC-19-atomic-workitem-command-log.md`.
@@ -132,8 +148,8 @@ pub use embedding::{
 };
 #[cfg(feature = "knowledge-batch")]
 pub use knowledge_stream::{
-    KnowledgeResultFamily, KnowledgeStreamBatchV1, KnowledgeStreamCursorV1,
-    KnowledgeStreamProjection, KnowledgeStreamQuery, KnowledgeStreamRequestV1,
+    KnowledgeResultFamily, KnowledgeStreamBatch, KnowledgeStreamCursor,
+    KnowledgeStreamProjection, KnowledgeStreamQuery, KnowledgeStreamRequest,
     KNOWLEDGE_STREAM_SCHEMA_VERSION,
 };
 #[cfg(feature = "modality-serving")]
@@ -150,6 +166,6 @@ pub use mutation_batch::{
     CommittedVersion, IncarnationId, LogicalName, MutationBatch, MutationBatchCommit,
     MutationBatchRecord, MutationBatchStatus, MutationOperation, MutationOutboxIntent,
     MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor, MutationRequestContext,
-    MutationScope, MutationScopeIdentity, MutationStateDescriptor, MutationSurface, TenantId,
+    MutationScope, MutationScopeIdentity, MutationStateDescriptor, MutationSurface, ScopeTenantId,
     VersionExpectation, MUTATION_BATCH_VERSION,
 };

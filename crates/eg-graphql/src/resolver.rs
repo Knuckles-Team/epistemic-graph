@@ -363,8 +363,37 @@ fn resolve_connection(view: &GraphView, field: &Field) -> Result<Value, String> 
     let (relay, filters) = split_relay_args(&field.args)?;
     let ordered = ordered_matches(view, &field.name, &filters)?;
     let total = ordered.len();
+    let (sel_start, sel_end) = relay_window(&relay, &ordered)?;
+    let page = &ordered[sel_start..sel_end];
+    let has_next = sel_end < total;
+    let has_prev = sel_start > 0;
 
-    // `after` / `before` carve a window out of the full ordered match set.
+    // Build the envelope honoring exactly the fields the selection asked for.
+    let mut conn = Map::new();
+    for sub in &field.selection {
+        let cell = match sub.name.as_str() {
+            "edges" => connection_edges(view, page, &sub.selection)?,
+            "nodes" => {
+                let mut nodes = Vec::new();
+                for (id, val) in page {
+                    nodes.push(resolve_selection(view, id, val, &sub.selection)?);
+                }
+                Value::Array(nodes)
+            }
+            "pageInfo" => connection_page_info(page, &sub.selection, has_next, has_prev),
+            "totalCount" => Value::Number(total.into()),
+            _ => Value::Null,
+        };
+        conn.insert(sub.alias.clone(), cell);
+    }
+    Ok(Value::Object(conn))
+}
+
+/// The half-open `[start, end)` slice of the ordered match set that the relay cursor
+/// arguments select: `after` and `before` carve a window (a cursor naming an id that is
+/// not in the set leaves its edge of the window where it was), then `first` takes from the
+/// window's front and `last` from its back.
+fn relay_window(relay: &RelayArgs, ordered: &[(String, Value)]) -> Result<(usize, usize), String> {
     let mut start = 0usize;
     if let Some(after) = &relay.after {
         let aid =
@@ -373,7 +402,7 @@ fn resolve_connection(view: &GraphView, field: &Field) -> Result<Value, String> 
             start = pos + 1;
         }
     }
-    let mut end = total;
+    let mut end = ordered.len();
     if let Some(before) = &relay.before {
         let bid =
             cursor_decode(before).ok_or_else(|| "GraphQL: invalid `before` cursor".to_string())?;
@@ -384,78 +413,62 @@ fn resolve_connection(view: &GraphView, field: &Field) -> Result<Value, String> 
     if end < start {
         end = start;
     }
-
-    // `first` takes from the front of the window; `last` from the back.
-    let mut sel_start = start;
-    let mut sel_end = end;
     if let Some(first) = relay.first {
-        sel_end = sel_end.min(sel_start + first);
+        end = end.min(start + first);
     }
     if let Some(last) = relay.last {
-        sel_start = sel_start.max(sel_end.saturating_sub(last));
+        start = start.max(end.saturating_sub(last));
     }
-    let page = &ordered[sel_start..sel_end];
-    let has_next = sel_end < total;
-    let has_prev = sel_start > 0;
+    Ok((start, end))
+}
 
-    // Build the envelope honoring exactly the fields the selection asked for.
-    let mut conn = Map::new();
-    for sub in &field.selection {
-        match sub.name.as_str() {
-            "edges" => {
-                let mut edges = Vec::new();
-                for (id, val) in page {
-                    let mut edge = Map::new();
-                    for ef in &sub.selection {
-                        let cell = match ef.name.as_str() {
-                            "node" => resolve_selection(view, id, val, &ef.selection)?,
-                            "cursor" => Value::String(cursor_encode(id)),
-                            _ => Value::Null,
-                        };
-                        edge.insert(ef.alias.clone(), cell);
-                    }
-                    edges.push(Value::Object(edge));
-                }
-                conn.insert(sub.alias.clone(), Value::Array(edges));
-            }
-            "nodes" => {
-                let mut nodes = Vec::new();
-                for (id, val) in page {
-                    nodes.push(resolve_selection(view, id, val, &sub.selection)?);
-                }
-                conn.insert(sub.alias.clone(), Value::Array(nodes));
-            }
-            "pageInfo" => {
-                let start_cursor = page
-                    .first()
-                    .map(|(id, _)| Value::String(cursor_encode(id)))
-                    .unwrap_or(Value::Null);
-                let end_cursor = page
-                    .last()
-                    .map(|(id, _)| Value::String(cursor_encode(id)))
-                    .unwrap_or(Value::Null);
-                let mut pi = Map::new();
-                for pf in &sub.selection {
-                    let cell = match pf.name.as_str() {
-                        "startCursor" => start_cursor.clone(),
-                        "endCursor" => end_cursor.clone(),
-                        "hasNextPage" => Value::Bool(has_next),
-                        "hasPreviousPage" => Value::Bool(has_prev),
-                        _ => Value::Null,
-                    };
-                    pi.insert(pf.alias.clone(), cell);
-                }
-                conn.insert(sub.alias.clone(), Value::Object(pi));
-            }
-            "totalCount" => {
-                conn.insert(sub.alias.clone(), Value::Number(total.into()));
-            }
-            _ => {
-                conn.insert(sub.alias.clone(), Value::Null);
-            }
+/// The `edges { node cursor }` array for one page, honouring exactly the sub-fields the
+/// selection asked for.
+fn connection_edges(
+    view: &GraphView,
+    page: &[(String, Value)],
+    selection: &[Field],
+) -> Result<Value, String> {
+    let mut edges = Vec::new();
+    for (id, val) in page {
+        let mut edge = Map::new();
+        for ef in selection {
+            let cell = match ef.name.as_str() {
+                "node" => resolve_selection(view, id, val, &ef.selection)?,
+                "cursor" => Value::String(cursor_encode(id)),
+                _ => Value::Null,
+            };
+            edge.insert(ef.alias.clone(), cell);
         }
+        edges.push(Value::Object(edge));
     }
-    Ok(Value::Object(conn))
+    Ok(Value::Array(edges))
+}
+
+/// The `pageInfo` object for one page: its bounding cursors and whether the window has
+/// neighbours on either side.
+fn connection_page_info(
+    page: &[(String, Value)],
+    selection: &[Field],
+    has_next: bool,
+    has_prev: bool,
+) -> Value {
+    let cursor_at = |edge: Option<&(String, Value)>| {
+        edge.map(|(id, _)| Value::String(cursor_encode(id)))
+            .unwrap_or(Value::Null)
+    };
+    let mut pi = Map::new();
+    for pf in selection {
+        let cell = match pf.name.as_str() {
+            "startCursor" => cursor_at(page.first()),
+            "endCursor" => cursor_at(page.last()),
+            "hasNextPage" => Value::Bool(has_next),
+            "hasPreviousPage" => Value::Bool(has_prev),
+            _ => Value::Null,
+        };
+        pi.insert(pf.alias.clone(), cell);
+    }
+    Value::Object(pi)
 }
 
 /// The full, deterministically (id-)sorted set of nodes carrying `label` that pass the

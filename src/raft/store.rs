@@ -672,6 +672,16 @@ impl EgStore {
                     .await;
                     return Ok(Some(Self::native_result_outcome_to_response(outcome)));
                 }
+                NativeMutationCommand::NodeInfo { .. } => {
+                    let info = command.open_node_info(server_secret)?;
+                    let outcome = crate::server::apply_replicated_node_info(
+                        &self.ctx.state,
+                        req.mutation.request_id,
+                        info,
+                    )
+                    .await;
+                    return Ok(Some(Self::native_bool_outcome_to_response(outcome)));
+                }
                 _ => {}
             }
             if let Some(method) = command.open_public_method(server_secret)? {
@@ -975,7 +985,8 @@ impl EgStore {
         req.mutation.batch_id != envelope.mutation.batch_id
             || req.mutation.request_id != envelope.mutation.context.request_id
             || req.mutation.tenant_scope != expected_tenant_scope
-            || req.mutation.principal_fingerprint != envelope.mutation.context.principal
+            || Some(req.mutation.principal_fingerprint.as_str())
+                != crate::server::mutation_batch::batch_actor(&envelope.mutation)
             || req.mutation.placement_epoch != envelope.mutation.placement_epoch
             || req.mutation.fencing_token != envelope.mutation.fencing_token
             || req.mutation.created_at_ms != envelope.mutation.created_at_ms
@@ -1098,7 +1109,7 @@ impl EgStore {
             || record.batch.batch_id != batch_id
             || record.batch.identity.tenant().as_str() != req.mutation.tenant_scope.as_str()
             || !graph_matches
-            || record.batch.context.principal != expected_principal
+            || crate::server::mutation_batch::batch_actor(&record.batch) != Some(expected_principal)
             || !operation_matches
             || record.result_msgpack.as_deref() != Some(expected_result)
     }

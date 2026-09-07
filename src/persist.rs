@@ -4,7 +4,7 @@
 //! filesystem-key and in-memory maintenance helpers that sit above that store;
 //! it does not implement a second snapshot or journal format.
 
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 use tokio::sync::RwLock;
@@ -37,11 +37,6 @@ pub(crate) fn sanitize(name: &str) -> String {
         write!(&mut bounded, "{byte:02x}").expect("writing to String cannot fail");
     }
     bounded
-}
-
-/// Directory containing the persisted native ANN index for a graph.
-pub fn annidx_dir(persist_dir: &str, name: &str) -> std::path::PathBuf {
-    Path::new(persist_dir).join(format!("{}.annidx", sanitize(name)))
 }
 
 /// Apply an Ebbinghaus decay sweep across every registered graph.

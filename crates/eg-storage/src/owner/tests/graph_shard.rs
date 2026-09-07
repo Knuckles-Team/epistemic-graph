@@ -1,0 +1,284 @@
+//! `OwnerLayout::GraphShard` — the authoritative graph shard's census, its
+//! table scope classes, and the graph-scope binding rule that makes one shard
+//! file serve many graphs.
+
+use crate::kernel::{authenticate_scope_in, bind_serving_scope_in, create_physical, open_physical};
+use crate::owner::domain::GraphShardOwner;
+use crate::owner::grant::ScopeGrantVerifier;
+use crate::owner::identity::PhysicalStoreIdentity;
+use crate::owner::layout::{OwnerLayout, OWNER_LAYOUT_DOMAINS};
+use crate::owner::registry::{owner_layouts, owner_table_names};
+use crate::owner::table_api::{owner_table_access, OwnerTableAccess};
+use crate::physical::manifest::{OwnerManifest, TableScope};
+use eg_types::mutation_batch::{IncarnationId, LogicalName, DurabilityDomain, ScopeTenantId};
+use eg_types::MutationScopeIdentity;
+
+/// The shard census is exact, and the eight private-ledger tables are absent.
+///
+/// `owner_table_names(GraphShard)` is the manifest contract for `graph-N.redb`,
+/// so this pins the whole list by name and type rather than only its
+/// cardinality: a table silently dropped from, or added to, the shard is a
+/// different physical format under the same layout name.
+#[test]
+fn the_graph_shard_census_is_exact_and_carries_no_private_mutation_ledger() {
+    let manifest = OwnerManifest::new(
+        PhysicalStoreIdentity::new("physical:test:graph-shard-census").unwrap(),
+        OwnerLayout::GraphShard,
+    )
+    .unwrap();
+    let declared = owner_table_names(OwnerLayout::GraphShard);
+
+    for (name, key, value) in [
+        ("nodes", "(&str,&str)", "&[u8]"),
+        ("edges", "(&str,&str,&str,u32)", "&[u8]"),
+        ("ledger", "(&str,u64)", "&str"),
+        ("semantic_store", "&str", "&[u8]"),
+        ("audit_chain", "(&str,u64)", "&[u8]"),
+        ("provenance_anchor_members", "(&str,u64)", "&[u8]"),
+        ("graph_meta", "&str", "&[u8]"),
+        ("work_item_command_sequence", "&str", "u64"),
+        ("resource_reservations", "(&str,&str)", "&[u8]"),
+        ("resource_reservation_tenant_index", "(&str,&str,&str)", "&str"),
+        ("resource_reservation_attempts", "(&str,&str,u64)", "&str"),
+        ("resource_hosts", "(&str,&str)", "&[u8]"),
+        ("resource_exclusivity", "(&str,&str)", "&str"),
+        ("resource_fairness", "(&str,&str)", "&[u8]"),
+        ("resource_concurrency", "(&str,&str)", "u64"),
+        ("resource_anti_affinity", "(&str,&str,&str)", "u64"),
+        ("resource_disk_policies", "(&str,&str)", "&[u8]"),
+        ("change_envelopes", "(&str,&str)", "&[u8]"),
+        ("content_versions", "(&str,&str,&str)", "&[u8]"),
+        ("change_cursors", "(&str,&str,&str,&str)", "&[u8]"),
+        ("change_blobs", "(&str,&str,&str)", "&[u8]"),
+        ("change_features", "(&str,&str,&str)", "&[u8]"),
+        ("change_evidence", "(&str,&str,&str)", "&[u8]"),
+        ("change_policies", "(&str,&str,&str)", "&[u8]"),
+        ("change_lineage", "(&str,&str,&str)", "&[u8]"),
+        ("raft_log", "(u64,u64)", "&[u8]"),
+        ("raft_meta", "(u64,&str)", "&[u8]"),
+        ("xshard_prepare", "(&str,u64)", "&[u8]"),
+        ("xshard_decision", "&str", "u8"),
+        ("matviews", "&str", "&[u8]"),
+        ("plan_matviews", "&str", "&[u8]"),
+        ("matview_operator_state", "&str", "&[u8]"),
+        ("capacity_cells", "(&str,&str)", "&[u8]"),
+        ("capacity_leases", "(&str,&str)", "&[u8]"),
+        ("capacity_usage", "(&str,&str)", "&[u8]"),
+        ("capacity_idempotency", "(&str,&str,&str)", "&[u8]"),
+        ("work_item_claim_capabilities", "(&str,&str)", "&[u8]"),
+        (
+            "work_item_claim_capability_invocations",
+            "(&str,&str)",
+            "&[u8]",
+        ),
+        ("native_work_item_authority", "(&str,&str)", "&[u8]"),
+        ("development_lane_holds", "(&str,&str)", "&[u8]"),
+        ("development_lane_tenant_index", "(&str,&str,&str)", "&str"),
+        ("development_lane_lane_index", "(&str,&str,&str)", "&str"),
+        (
+            "development_lane_repository_branch_index",
+            "(&str,&str,&str)",
+            "&str",
+        ),
+        ("development_lane_worktree_index", "(&str,&str)", "&str"),
+        ("development_lane_work_item_index", "(&str,&str,u64)", "&str"),
+        ("development_lane_counters", "(&str,&str)", "&[u8]"),
+        (
+            "development_lane_pressure_index",
+            "(&str,&str,&str,&str,u64,&str)",
+            "u8",
+        ),
+        ("development_lane_policies", "(&str,&str)", "&[u8]"),
+        ("development_lane_invocations", "(&str,&str,&str)", "&[u8]"),
+        ("encryption_canary", "&str", "&[u8]"),
+        ("series_chunks", "(&str,u64)", "&[u8]"),
+        ("series_meta", "&str", "&[u8]"),
+        ("series_projection_state", "&str", "&[u8]"),
+    ] {
+        assert!(declared.contains(&name), "undeclared shard table: {name}");
+        let table = manifest
+            .tables
+            .iter()
+            .find(|table| table.table_id == name)
+            .unwrap_or_else(|| panic!("no contract for {name}"));
+        assert_eq!(
+            (table.key_type_id.as_str(), table.value_type_id.as_str()),
+            (key, value),
+            "{name}"
+        );
+        assert_eq!(table.domain, Some(DurabilityDomain::GraphRows), "{name}");
+        assert_eq!(
+            owner_table_access(name),
+            OwnerTableAccess::DomainService,
+            "{name}"
+        );
+    }
+
+    // RF-RULING-004: the shard's own admit/idempotency/OCC/fence/outbox/
+    // projection ledger belongs to `MutationKernel`, so none of its eight
+    // tables is an owner table of any layout.
+    for retired in crate::owner::graph_shard::RETIRED_SHARD_LEDGER_TABLES {
+        assert!(
+            owner_layouts()
+                .into_iter()
+                .all(|layout| !owner_table_names(layout).contains(retired)),
+            "retired shard ledger table is still declared: {retired}"
+        );
+    }
+}
+
+/// The Raft, cross-shard, matview, canary and series rows belong to the file,
+/// not to any one graph, and say so in the manifest.
+#[test]
+fn the_shard_separates_graph_scoped_rows_from_file_wide_rows() {
+    let manifest = OwnerManifest::new(
+        PhysicalStoreIdentity::new("physical:test:graph-shard-scope").unwrap(),
+        OwnerLayout::GraphShard,
+    )
+    .unwrap();
+    let scope_of = |name: &str| {
+        manifest
+            .tables
+            .iter()
+            .find(|table| table.table_id == name)
+            .unwrap()
+            .scope
+    };
+    for name in [
+        "raft_log",
+        "raft_meta",
+        "xshard_prepare",
+        "xshard_decision",
+        "matviews",
+        "plan_matviews",
+        "matview_operator_state",
+        "encryption_canary",
+        "series_chunks",
+        "series_meta",
+        "series_projection_state",
+    ] {
+        assert_eq!(scope_of(name), TableScope::StorePrivate, "{name}");
+    }
+    for name in ["nodes", "edges", "graph_meta", "development_lane_holds"] {
+        assert_eq!(scope_of(name), TableScope::Serving, "{name}");
+    }
+    let private = owner_table_names(OwnerLayout::GraphShard)
+        .iter()
+        .filter(|name| scope_of(name) == TableScope::StorePrivate)
+        .count();
+    assert_eq!((private, 53 - private), (11, 42));
+}
+
+/// A graph scope binds to the shard layout and to nothing else, and every
+/// native scope still binds exactly where it did before `accepts` was
+/// generalised.
+#[test]
+fn only_the_shard_layout_accepts_a_graph_scope() {
+    let graph = MutationScopeIdentity::fixed_graph("tenant-a", "graph-a", "inc-1").unwrap();
+    for layout in owner_layouts() {
+        let expected = matches!(layout, OwnerLayout::LedgerOnly | OwnerLayout::GraphShard);
+        assert_eq!(layout.accepts(&graph), expected, "{layout:?}");
+    }
+
+    // The pairing `accepts` used to spell out by hand, asserted as a whole: a
+    // native scope binds to exactly the layouts whose declared domain it names.
+    for domain in [
+        DurabilityDomain::ControlPlane,
+        DurabilityDomain::AnalyticsJob,
+        DurabilityDomain::Lifecycle,
+        DurabilityDomain::TimeSeries,
+        DurabilityDomain::KvStore,
+        DurabilityDomain::BlobStore,
+        DurabilityDomain::SemanticIndex,
+        DurabilityDomain::SqlCatalog,
+    ] {
+        let identity = MutationScopeIdentity::native(
+            ScopeTenantId::new("tenant-a").unwrap(),
+            domain,
+            LogicalName::new("resource-a").unwrap(),
+            IncarnationId::new("inc-1").unwrap(),
+        )
+        .unwrap();
+        for layout in owner_layouts() {
+            let expected = layout == OwnerLayout::LedgerOnly
+                || OWNER_LAYOUT_DOMAINS[layout as usize] == domain;
+            assert_eq!(layout.accepts(&identity), expected, "{layout:?} {domain:?}");
+        }
+    }
+}
+
+/// One shard file serves many graphs: each graph scope authenticates and binds
+/// independently against the same physical store.
+#[test]
+fn many_graph_scopes_bind_to_one_shard_file() {
+    struct ShardVerifier;
+    impl ScopeGrantVerifier for ShardVerifier {
+        fn verify(
+            &self,
+            _physical: &PhysicalStoreIdentity,
+            layout: OwnerLayout,
+            identity: &MutationScopeIdentity,
+            principal: &str,
+            proof: &[u8],
+        ) -> Result<(), String> {
+            (layout == OwnerLayout::GraphShard
+                && identity.scope().graph_name().is_some()
+                && principal == "principal:test:shard"
+                && proof == b"verified")
+                .then_some(())
+                .ok_or_else(|| "test shard authority rejected".to_string())
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("graph-0.redb");
+    let store = create_physical(
+        &path,
+        PhysicalStoreIdentity::new("physical:test:graph-0").unwrap(),
+        None,
+        OwnerLayout::GraphShard,
+    )
+    .unwrap();
+
+    for graph in ["graph-a", "graph-b"] {
+        let identity = MutationScopeIdentity::fixed_graph("tenant-a", graph, "inc-1").unwrap();
+        let grant = authenticate_scope_in::<GraphShardOwner>(
+            &store,
+            &ShardVerifier,
+            identity.clone(),
+            "principal:test:shard".to_string(),
+            b"verified",
+        )
+        .unwrap();
+        let owner = bind_serving_scope_in(&store, grant, 0).unwrap();
+        assert_eq!(owner.identity(), &identity);
+    }
+
+    // A native scope has no shard file to bind to, whatever the verifier says.
+    let native = MutationScopeIdentity::native(
+        ScopeTenantId::new("tenant-a").unwrap(),
+        DurabilityDomain::KvStore,
+        LogicalName::new("kv-catalog").unwrap(),
+        IncarnationId::new("inc-1").unwrap(),
+    )
+    .unwrap();
+    assert!(
+        authenticate_scope_in::<GraphShardOwner>(
+            &store,
+            &ShardVerifier,
+            native,
+            "principal:test:shard".to_string(),
+            b"verified",
+        )
+        .is_err()
+    );
+
+    drop(store);
+    open_physical(
+        &path,
+        PhysicalStoreIdentity::new("physical:test:graph-0").unwrap(),
+        None,
+        OwnerLayout::GraphShard,
+    )
+    .unwrap();
+}

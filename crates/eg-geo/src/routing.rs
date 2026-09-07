@@ -351,14 +351,9 @@ impl Network {
                 continue; // stale heap entry
             }
             for e in &self.adjacency[node] {
-                let tc = if prev == usize::MAX {
-                    0.0
-                } else {
-                    turns.turn_cost(prev, node, e.to)
-                };
-                if !tc.is_finite() {
+                let Some(tc) = turn_charge(turns, prev, node, e.to) else {
                     continue; // banned turn (INFINITY) or NaN
-                }
+                };
                 let nd = cost + e.weight + tc;
                 let key = (node, e.to);
                 if nd < dist.get(&key).copied().unwrap_or(f64::INFINITY) {
@@ -420,10 +415,9 @@ impl Network {
                 continue; // stale heap entry
             }
             for e in &self.adjacency[node] {
-                let travel = cost.traverse_cost(node, e.to, e.weight, t_now);
-                if !travel.is_finite() || travel < 0.0 {
+                let Some(travel) = traversal_at(cost, node, e.to, e.weight, t_now) else {
                     continue; // edge closed at this instant (e.g. outside opening hours)
-                }
+                };
                 let arr = t_now + travel;
                 if arr < arrival[e.to] {
                     arrival[e.to] = arr;
@@ -439,23 +433,40 @@ impl Network {
         if !arrival[target].is_finite() {
             return None;
         }
-        let mut nodes = vec![target];
-        let mut cur = target;
-        while cur != source {
-            let p = prev[cur];
-            if p == usize::MAX {
-                return None;
-            }
-            nodes.push(p);
-            cur = p;
-        }
-        nodes.reverse();
         Some(Path {
-            nodes,
+            nodes: reconstruct_prev(source, target, &prev)?,
             cost: arrival[target] - t_start,
         })
     }
 }
+
+/// The realised traversal cost of the edge `from → to` entered at `t_now`, or `None` when
+/// the edge is closed at that instant — a non-finite or negative cost, which is how a time
+/// model expresses "outside opening hours".
+fn traversal_at<C: TimeCost>(
+    cost: &C,
+    from: usize,
+    to: usize,
+    weight: f64,
+    t_now: f64,
+) -> Option<f64> {
+    let travel = cost.traverse_cost(from, to, weight, t_now);
+    (travel.is_finite() && travel >= 0.0).then_some(travel)
+}
+
+/// What leaving `node` for `next`, having arrived from `prev`, costs in turn penalty —
+/// `None` when the turn is banned (`INFINITY`) or undefined (NaN), which closes the move.
+/// The start state (`prev == usize::MAX`) has no prior edge, so it is charged nothing.
+fn turn_charge<T: TurnCost>(turns: &T, prev: usize, node: usize, next: usize) -> Option<f64> {
+    if prev == usize::MAX {
+        return Some(0.0);
+    }
+    let cost = turns.turn_cost(prev, node, next);
+    cost.is_finite().then_some(cost)
+}
+
+mod frontier;
+use frontier::{reconstruct, reconstruct_prev, reconstruct_turns, Frontier, TurnFrontier};
 
 /// A routed path (CONCEPT:EG-KG.domains.geo-routing): the ordered node ids from source to target and the total
 /// accumulated `cost`.
@@ -463,55 +474,6 @@ impl Network {
 pub struct Path {
     pub nodes: Vec<usize>,
     pub cost: f64,
-}
-
-/// Rebuild the node sequence from a `prev` predecessor array; `None` if `target` was never
-/// reached.
-fn reconstruct(source: usize, target: usize, dist: &[f64], prev: &[usize]) -> Option<Path> {
-    if !dist[target].is_finite() {
-        return None;
-    }
-    let mut nodes = vec![target];
-    let mut cur = target;
-    while cur != source {
-        let p = prev[cur];
-        if p == usize::MAX {
-            return None;
-        }
-        nodes.push(p);
-        cur = p;
-    }
-    nodes.reverse();
-    Some(Path {
-        nodes,
-        cost: dist[target],
-    })
-}
-
-/// A priority-queue frontier entry ordered so [`BinaryHeap`] (a max-heap) pops the
-/// **smallest** `priority` first. NaN sorts last.
-struct Frontier {
-    priority: f64,
-    cost: f64,
-    node: usize,
-}
-impl PartialEq for Frontier {
-    fn eq(&self, o: &Self) -> bool {
-        self.priority == o.priority
-    }
-}
-impl Eq for Frontier {}
-impl PartialOrd for Frontier {
-    fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
-        Some(self.cmp(o))
-    }
-}
-impl Ord for Frontier {
-    fn cmp(&self, o: &Self) -> Ordering {
-        o.priority
-            .partial_cmp(&self.priority)
-            .unwrap_or(Ordering::Equal)
-    }
 }
 
 // ── turn-cost model (CONCEPT:EG-KG.domains.geo-partitioning) ────────────────────────────────────────────────────
@@ -589,54 +551,6 @@ impl TurnCost for TurnRestrictions {
         }
         0.0
     }
-}
-
-/// A turn-aware priority-queue entry (CONCEPT:EG-KG.domains.geo-partitioning): like [`Frontier`] but the search state
-/// is the directed edge `(prev, node)` just travelled, so a node can be re-entered from a
-/// different predecessor. Ordered so the smallest `priority` pops first.
-struct TurnFrontier {
-    priority: f64,
-    cost: f64,
-    prev: usize,
-    node: usize,
-}
-impl PartialEq for TurnFrontier {
-    fn eq(&self, o: &Self) -> bool {
-        self.priority == o.priority
-    }
-}
-impl Eq for TurnFrontier {}
-impl PartialOrd for TurnFrontier {
-    fn partial_cmp(&self, o: &Self) -> Option<Ordering> {
-        Some(self.cmp(o))
-    }
-}
-impl Ord for TurnFrontier {
-    fn cmp(&self, o: &Self) -> Ordering {
-        o.priority
-            .partial_cmp(&self.priority)
-            .unwrap_or(Ordering::Equal)
-    }
-}
-
-/// Rebuild the node sequence for a turn-aware search (CONCEPT:EG-KG.domains.geo-partitioning) by walking the
-/// `(prev, node)` predecessor-state chain back to the start state.
-fn reconstruct_turns(
-    winning: (usize, usize),
-    cost: f64,
-    prev_state: &HashMap<(usize, usize), (usize, usize)>,
-) -> Option<Path> {
-    let mut nodes = Vec::new();
-    let mut st = winning;
-    loop {
-        nodes.push(st.1);
-        match prev_state.get(&st) {
-            Some(&p) => st = p,
-            None => break, // start state (prev == usize::MAX): its node is the source
-        }
-    }
-    nodes.reverse();
-    Some(Path { nodes, cost })
 }
 
 // ── time-dependent edge-cost model (CONCEPT:EG-KG.domains.geo-partitioning) ─────────────────────────────────────

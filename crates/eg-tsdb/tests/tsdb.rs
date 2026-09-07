@@ -1,11 +1,12 @@
 //! Correctness tests for the eg-tsdb store + every query primitive + the Time-ops
-//! sketch. Run: `cargo test -p eg-tsdb --features redb-store`.
-#![cfg(feature = "redb-store")]
+//! sketch. Run: `cargo test -p eg-tsdb --features dev-scope-grant`.
+#![cfg(feature = "dev-scope-grant")]
 
 use eg_tsdb::query::{
     asof_join_backward, decay_weighted_mean, downsample, gap_fill_locf, ohlc_bars, series_ewma,
     time_bucket, Agg,
 };
+use eg_tsdb::dev_scope_grant::open_dev_store;
 use eg_tsdb::store::{Point, SeriesStore};
 use eg_tsdb::time_op::{composed_example, Row, RowSet, TimeOp};
 use tempfile::tempdir;
@@ -14,7 +15,7 @@ const NS: i64 = 1_000_000_000; // 1 second in ns
 
 fn open() -> (tempfile::TempDir, SeriesStore) {
     let dir = tempdir().unwrap();
-    let store = SeriesStore::open(&dir.path().join("ts.redb")).unwrap();
+    let store = open_dev_store(&dir.path().join("ts.redb")).unwrap();
     (dir, store)
 }
 
@@ -85,7 +86,7 @@ fn store_persists_across_reopen() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("persist.redb");
     {
-        let store = SeriesStore::open(&path).unwrap();
+        let store = open_dev_store(&path).unwrap();
         let pts: Vec<Point> = (0..50)
             .map(|i| Point::single(i * NS, (i * 2) as f64))
             .collect();
@@ -93,7 +94,7 @@ fn store_persists_across_reopen() {
             .append_batch("p", 1, 10 * NS as u64, &["v".into()], &pts)
             .unwrap();
     }
-    let store = SeriesStore::open(&path).unwrap();
+    let store = open_dev_store(&path).unwrap();
     let all = store.scan_all("p").unwrap();
     assert_eq!(all.len(), 50);
     assert_eq!(all[49].values[0], 98.0);

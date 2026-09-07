@@ -1,0 +1,5 @@
+async fn nested_grouped_aliases_are_blocking() {
+    let _ = disk::read("before-import.redb");
+    let _ = DiskFile::open("also-before-import.redb");
+    use std::{fs::{self as disk, File as DiskFile}, path::Path};
+}

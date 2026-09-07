@@ -36,7 +36,15 @@ fn tmp_series() -> Arc<SeriesStore> {
             .map(|d| d.as_nanos())
             .unwrap_or(0)
     ));
-    Arc::new(SeriesStore::open(&path).expect("open temp series store"))
+    Arc::new(
+        SeriesStore::open(
+            &path,
+            epistemic_graph::store_authority::process_verifier(),
+            epistemic_graph::store_authority::process_authority().principal(),
+            &epistemic_graph::store_authority::process_authority().proof(),
+        )
+        .expect("open temp series store"),
+    )
 }
 
 // ── text: incremental ≡ rebuild ──────────────────────────────────────────────────

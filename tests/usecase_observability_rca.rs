@@ -91,7 +91,13 @@ fn build_metrics() -> SeriesStore {
             .unwrap()
             .as_nanos()
     ));
-    let store = SeriesStore::open_in_dir(&dir).expect("open tsdb store");
+    let store = SeriesStore::open_in_dir(
+        &dir,
+        epistemic_graph::store_authority::process_verifier(),
+        epistemic_graph::store_authority::process_authority().principal(),
+        &epistemic_graph::store_authority::process_authority().proof(),
+    )
+    .expect("open tsdb store");
     let series = "svc.database.latency_ms";
     let bucket_ns = 3_600_000_000_000u64; // 1h buckets (irrelevant to range reads)
     const S: i64 = 1_000_000_000; // ns per second

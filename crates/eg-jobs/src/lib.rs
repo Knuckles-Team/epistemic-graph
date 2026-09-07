@@ -63,6 +63,11 @@ pub mod model;
 pub mod result;
 pub mod store;
 
+// Development/test composition root for the store's scope grant (see the module
+// doc). Never linked by a production build.
+#[cfg(any(test, feature = "dev-scope-grant"))]
+pub mod dev_scope_grant;
+
 pub use claim::{
     commit_result_claim, plan_result_claim, CalibrationInput, ClaimCommitOutcome, ClaimWritePlan,
 };

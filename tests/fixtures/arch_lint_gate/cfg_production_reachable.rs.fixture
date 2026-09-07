@@ -1,0 +1,4 @@
+#[cfg(any(test, feature = "harness"))]
+async fn production_reachable() {
+    let _ = std::fs::read("feature-harness.redb");
+}

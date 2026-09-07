@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-
 pytestmark = pytest.mark.no_engine
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,3 +66,12 @@ def test_constrained_gate_routes_every_test_phase_through_runner():
     assert "EG_CONSTRAINED_TEST_TIMEOUT" in source
     assert "EG_CONSTRAINED_TERM_GRACE" in source
     assert "EG_CONSTRAINED_KILL_GRACE" in source
+
+
+def test_constrained_gate_kafka_proofs_are_exact_and_short_bounded():
+    source = CONSTRAINED_GATE.read_text(encoding="utf-8")
+    assert "sink::tests::raw_kafka_producer_publish_only_enqueues_locally" in source
+    assert "sink::tests::kafka_cdc_sink_emit_only_enqueues_locally" in source
+    assert "KAFKA_TEST_TIMEOUT_SECS=10" in source
+    assert "bounded_kafka_test() {" in source
+    assert '--test-timeout "$KAFKA_TEST_TIMEOUT_SECS"' in source

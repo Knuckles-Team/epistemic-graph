@@ -24,19 +24,36 @@ cd "$(dirname "$0")/.."
 
 ALLOW_FILE=".cargo-audit-allow.txt"
 DENY_TOML="deny.toml"
+EXPECTED_CARGO_DENY_VERSION="$(
+  PYTHONPATH=scripts python3 -c \
+    'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)'
+)"
+CARGO_DENY_BIN="$(command -v cargo-deny || true)"
 
-if ! command -v cargo-deny >/dev/null 2>&1; then
-  cat >&2 <<'EOF'
+if [[ -z "$CARGO_DENY_BIN" ]]; then
+  cat >&2 <<EOF
 FAIL: cargo-deny is not installed -- Rust dependency advisory validation cannot run.
 
 Install it (requires network access to crates.io / index.crates.io / static.crates.io):
-  cargo install cargo-deny --locked
+  cargo install --locked --version $EXPECTED_CARGO_DENY_VERSION cargo-deny
 
 Then re-run:
   scripts/check_cargo_advisories.sh
   # or directly:  cargo deny check advisories
 
 This is a hard failure, not a skip -- we never report a pass we didn't verify.
+EOF
+  exit 2
+fi
+
+ACTUAL_CARGO_DENY_VERSION="$("$CARGO_DENY_BIN" --version)"
+if [[ "$ACTUAL_CARGO_DENY_VERSION" != "cargo-deny $EXPECTED_CARGO_DENY_VERSION" ]]; then
+  cat >&2 <<EOF
+FAIL: cargo-deny version drift -- expected cargo-deny $EXPECTED_CARGO_DENY_VERSION,
+got: $ACTUAL_CARGO_DENY_VERSION
+
+Install the repository-pinned version:
+  cargo install --locked --version $EXPECTED_CARGO_DENY_VERSION cargo-deny
 EOF
   exit 2
 fi
@@ -134,4 +151,4 @@ print(f"audit: allowlist ledger consistent ({len(ledger)} accepted advisories)")
 PYEOF
 
 # ── The actual advisory gate: whatever deny.toml permits, cargo-deny enforces.
-cargo deny check advisories
+"$CARGO_DENY_BIN" check advisories

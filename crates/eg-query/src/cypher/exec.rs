@@ -2452,7 +2452,7 @@ fn compute_agg(view: &GraphView, expr: &Expr, group: &[&Binding]) -> Value {
                 AggFunc::Collect => Value::Array(vals),
                 AggFunc::Sum => {
                     let sum: f64 = vals.iter().filter_map(as_f64).sum();
-                    number_value(sum)
+                    super::number_value(sum)
                 }
                 AggFunc::Avg => {
                     let nums: Vec<f64> = vals.iter().filter_map(as_f64).collect();
@@ -2543,17 +2543,6 @@ fn arg_value(view: &GraphView, b: &Binding, arg: &AggArg) -> Option<Value> {
                     })
             }
         }
-    }
-}
-
-/// A numeric `Value`: an integer when the float is integral, else a float.
-fn number_value(x: f64) -> Value {
-    if x.fract() == 0.0 && x.abs() < 9.007e15 {
-        Value::Number((x as i64).into())
-    } else {
-        serde_json::Number::from_f64(x)
-            .map(Value::Number)
-            .unwrap_or(Value::Null)
     }
 }
 

@@ -71,7 +71,7 @@ concept_semantics: discovery_tags_only
 ownership_semantics: capability_ids_and_implementation_authority_only
 
 verified_against:
-  repository_head: 1d83cf4b704fdfc2120d9444e9486cfbc4fb7687
+  repository_head: 5523859a32ee7320cee49503359e31a725a471d0
   package_version: 2.27.0
   workspace_members: 48
   verified_on: '2026-09-04'
@@ -79,7 +79,8 @@ verified_against:
   commands_run:
     - "tomllib parse of Cargo.toml [workspace] members and every crates/*/Cargo.toml"
     - "git grep / grep -rn over src/ and crates/ for every cited symbol and line"
-    - "arch-lint check --format json (read-only; arch-lint 0.5.0)"
+    - "arch-lint check --format json (read-only; arch-lint 0.5.0; report SHA-256
+       2f820ac2e7540077219aa4f60fc8dcebbf7138c03d9250a70cfe16e0a739da8a)"
     - "arch-lint list-rules"
   commands_not_run:
     - "cargo (any subcommand) -- explicitly out of scope for this pass"
@@ -615,7 +616,7 @@ components:
       - "eg.timeseries (crates/eg-tsdb -> crates/eg-types)"
     al002_no_sync_io:
       owned_errors: 13
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-resource/src/lib.rs (11)"
         - "crates/eg-capabilities/src/bin/gen_ledger.rs (1)"
@@ -696,7 +697,7 @@ components:
       - "eg.timeseries (crates/eg-tsdb -> crates/eg-mutation-store)"
     al002_no_sync_io:
       owned_errors: 4
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-mutation-store/src/store/identity.rs (3)"
         - "crates/eg-mutation-store/src/store/recovery.rs (1)"
@@ -846,7 +847,7 @@ components:
       - "eg.timeseries (crates/eg-tsdb -> crates/eg-modality)"
     al002_no_sync_io:
       owned_errors: 1
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-tensor/src/store.rs (1)"
     wiring_decision_refs:
@@ -936,7 +937,7 @@ components:
       - "eg.query-plan (crates/eg-query -> crates/eg-numeric)"
     al002_no_sync_io:
       owned_errors: 2
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-ann/src/persist.rs (1)"
         - "crates/eg-ann/src/version.rs (1)"
@@ -1006,7 +1007,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 0
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files: []
     wiring_decision_refs: []
     concepts:
@@ -1078,7 +1079,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 16
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-tts-piper/tests/piper_synthesis.rs (7)"
         - "crates/eg-asr-whisper/tests/real_transcription.rs (3)"
@@ -1169,7 +1170,7 @@ components:
       - "eg.timeseries (crates/eg-tsdb -> crates/eg-core)"
     al002_no_sync_io:
       owned_errors: 23
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-core/src/rbac_persist.rs (6)"
         - "crates/eg-core/src/persist_lock.rs (4)"
@@ -1208,7 +1209,7 @@ components:
     acceptance_evidence: []
     evidence_status: not_run
     summary: >-
-      GraphCore (petgraph graph + ledger), GraphRegistry (multi-tenant), isolation.rs (the zero-trust ACL, AccessLevel/RowVisibility/check_access/can_see_row/filter_view and mint_graph_policy_lease), SemanticStore, rls_view_cache.rs and rbac_persist.rs. Per RF-022/RF-010's four-boundary ruling this is the SOLE deciding authority for durable RBAC/identity admission, graph ACL / tenant isolation / row visibility, and policy-lease minting; eg.query-plan, eg.persistence and eg.server-dispatch are consumers that call lease.filter_view()/validate_before/validate_after, never a second deciding authority.
+      GraphCore (petgraph graph + ledger), GraphRegistry (multi-tenant), isolation.rs (the zero-trust ACL, AccessLevel/RowVisibility/check_access/can_see_row/filter_view and mint_policy_decision_lease), SemanticStore, rls_view_cache.rs and rbac_persist.rs. Per RF-022/RF-010's four-boundary ruling this is the SOLE deciding authority for durable RBAC/identity admission, graph ACL / tenant isolation / row visibility, and policy-decision-lease minting; eg.query-plan, eg.persistence and eg.server-dispatch are consumers that call lease.filter_view()/validate_before/validate_after, never a second deciding authority.
   - component_id: eg.timeseries
     component_kind: implementation_component
     parent_component_id: eg.storage-transaction
@@ -1255,7 +1256,7 @@ components:
       - "eg.query-plan (crates/eg-plan -> crates/eg-tsdb)"
     al002_no_sync_io:
       owned_errors: 5
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-tsdb/src/bin/tsdb_bench.rs (4)"
         - "crates/eg-tsdb/src/store.rs (1)"
@@ -1343,7 +1344,7 @@ components:
       - "eg.quantum (crates/eg-quantum-jobs -> crates/eg-jobs)"
     al002_no_sync_io:
       owned_errors: 2
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-jobs/src/store.rs (1)"
         - "crates/eg-statechart/src/store.rs (1)"
@@ -1415,7 +1416,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 0
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files: []
     wiring_decision_refs:
       - "D-EG-002"
@@ -1486,7 +1487,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 2
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-sqlite-format/src/reader.rs (1)"
         - "crates/eg-sqlite-format/src/writer.rs (1)"
@@ -1567,7 +1568,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 285
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "src/server/persistence/redb_backend.rs (97)"
         - "src/redb_store.rs (49)"
@@ -1643,7 +1644,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 90
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "src/raft/tests.rs (37)"
         - "src/raft/xshard_harness.rs (21)"
@@ -1732,7 +1733,7 @@ components:
       - "eg.timeseries (crates/eg-tsdb -> crates/eg-compute)"
     al002_no_sync_io:
       owned_errors: 1
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-compute/src/graph_algos/leiden.rs (1)"
     wiring_decision_refs:
@@ -1841,7 +1842,7 @@ components:
       - "eg.rdf-semantics (crates/eg-graphql -> crates/eg-plan)"
     al002_no_sync_io:
       owned_errors: 17
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-plan/src/tsdb_scan_tests.rs (6)"
         - "crates/eg-query/src/sql/exec.rs (3)"
@@ -1946,7 +1947,7 @@ components:
       - "eg.query-plan (crates/eg-plan -> crates/eg-rdf)"
     al002_no_sync_io:
       owned_errors: 2
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-rdf/src/rules.rs (2)"
     wiring_decision_refs:
@@ -2025,7 +2026,7 @@ components:
       - "eg.query-plan (crates/eg-plan -> crates/eg-epistemic)"
     al002_no_sync_io:
       owned_errors: 21
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "src/server/reasoning_projection.rs (21)"
     wiring_decision_refs:
@@ -2138,7 +2139,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 0
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files: []
     wiring_decision_refs:
       - "D-EG-003"
@@ -2235,7 +2236,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 6
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "crates/eg-viz-export/examples/render_graph_demo.rs (2)"
         - "src/server/viz_provenance.rs (2)"
@@ -2315,7 +2316,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 120
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "src/server/handlers/admin.rs (19)"
         - "src/server/handlers/sqlite_file.rs (18)"
@@ -2358,7 +2359,7 @@ components:
     acceptance_evidence: []
     evidence_status: not_run
     summary: >-
-      The root facade's server/protocol adapter and the TOP of the DAG. There is deliberately no eg-server crate: the server lib and the bin are 1:1, so splitting would carry no consumer and entangle the server/metrics features. Owns dispatch.rs (14,174 lines -- the 'thin routing table' convention describes the intent, not the present state), handlers/, state.rs, auth.rs, access.rs, transport.rs, mutation.rs, mutation_batch.rs, the ten-member wire family (pgwire, mysql_wire, mssql_wire, bolt_wire, redis_wire, sqlite_wire, amqp_wire, mqtt_wire, stomp_wire, broker_wire), federation/, cdc*, s3/, lake/, obda/, blob/ and kv.rs. It is the one permitted caller of IsolationLayer::mint_graph_policy_lease (authorize_and_route_knowledge_stream), enforced by the mint-lease-call-sites hook.
+      The root facade's server/protocol adapter and the TOP of the DAG. There is deliberately no eg-server crate: the server lib and the bin are 1:1, so splitting would carry no consumer and entangle the server/metrics features. Owns dispatch.rs (14,174 lines -- the 'thin routing table' convention describes the intent, not the present state), handlers/, state.rs, auth.rs, access.rs, transport.rs, mutation.rs, mutation_batch.rs, the ten-member wire family (pgwire, mysql_wire, mssql_wire, bolt_wire, redis_wire, sqlite_wire, amqp_wire, mqtt_wire, stomp_wire, broker_wire), federation/, cdc*, s3/, lake/, obda/, blob/ and kv.rs. It is the one permitted caller of IsolationLayer::mint_policy_decision_lease (authorize_and_route_knowledge_stream), enforced by the mint-lease-call-sites hook.
   - component_id: eg.embedded-bindings
     component_kind: implementation_component
     parent_component_id: eg.server-protocol
@@ -2411,7 +2412,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 11
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "src/embedded/tests.rs (8)"
         - "src/embedded.rs (2)"
@@ -2491,7 +2492,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 25
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "src/server/obs/mod.rs (10)"
         - "src/cost.rs (9)"
@@ -2581,7 +2582,7 @@ components:
     observed_consumers: []
     al002_no_sync_io:
       owned_errors: 41
-      measured_at_head: "1d83cf4b704fdfc2120d9444e9486cfbc4fb7687"
+      measured_at_head: "5523859a32ee7320cee49503359e31a725a471d0"
       top_files:
         - "tests/txn_recovery_key_decoupled_d_orc_50.rs (9)"
         - "tests/advanced_crossmodal_roundtrip.rs (4)"
@@ -3044,56 +3045,91 @@ wiring_decisions:
     acceptance_evidence: []
 
   - decision_id: D-EG-005
-    title: "AL002 no-sync-io: 687 blocking errors, assigned to owners"
+    title: "AL002 no-sync-io: 690 raw candidates, provisional 12 async blockers"
     owning_component: eg.binary-composition
     affected_components: all_with_owned_errors_above_zero
     status: proposed
     decision_authority: operator
     decision_authority_reason: >-
-      Whether 687 blocking errors are burned down, or the rule's severity is lowered, or the
-      release ships with the gate red, is a release-scope call. I can assign the work and say
-      what the correct fix is; I cannot decide the release posture.
-    evidence_status: measured_not_remediated
+      The 690 raw findings must remain visible, but arch-lint 0.5.0 does not prove async
+      reachability or method receiver types. The release gate therefore needs a reviewed,
+      fail-closed context policy rather than either treating all candidates as defects or
+      lowering their severity.
+    evidence_status: raw_measured_classifier_provisional_until_post_land_receipt
 
     measurement:
       command: "arch-lint check --format json"
       tool_version: "arch-lint 0.5.0"
-      head: 1d83cf4b704fdfc2120d9444e9486cfbc4fb7687
+      head: 5523859a32ee7320cee49503359e31a725a471d0
       measured_on: '2026-09-04'
-      files_checked: 1077
-      total_violations: 4642
+      files_checked: 942
+      total_violations: 3499
       by_rule:
-        AL013_no_silent_result_drop_warning: 3845
-        AL002_no_sync_io_error: 687
+        AL013_no_silent_result_drop_warning: 2699
+        AL002_no_sync_io_error: 690
         AL003_no_error_swallowing_warning: 58
         AL005_require_thiserror_warning: 52
       note: >-
-        This reproduces the 2026-09-03 census exactly (4,642 / 687). AL001 contributes zero
-        because it is the one rule explicitly disabled in arch-lint.toml; the other seven run
-        regardless of `preset = "minimal"`, which arch-lint 0.5.0 does not honour as a filter.
+        This is the exact clean-source census from the named head and report identity. It used
+        the pre-change policy's broad fixtures exclusion, hence 942 files; the truthful tracked
+        Rust universe is 943 files. Therefore 690 is an exact pre-policy raw census, while every
+        classifier count below is provisional until the landed wrapper produces and freezes a
+        new 943-file receipt with source, policy, and tool identities. This registry does not
+        present a replay of the stale 942-file report as post-change gate evidence. AL001
+        contributes zero because it is explicitly disabled; the other seven were selected by
+        arch-lint's recommended default, not by `preset = "minimal"` (the CLI ignores preset for
+        rule selection).
+
+    context_classification:
+      classifier: scripts/check_rust_arch_lint.py
+      status: provisional_replay_not_a_post_change_receipt
+      required_receipt_files: 943
+      raw_candidates_retained: 690
+      async_direct_blocking: 12
+      async_alias_blocking: 0
+      receiver_unresolved_not_proven: 76
+      synchronous_context: 150
+      test_bench_example_or_cfg_test_context: 452
+      spawn_blocking_context: 0
+      supplemental_std_fs_alias_candidates: 31
+      supplemental_aliases_blocking: 0
+      policy: >-
+        Raw scanner objects and severities are retained without mutation in the receipt. A direct,
+        qualified std::fs call blocks only when it is inside an async function/block/closure and
+        outside test and proven off-executor context. Only an absolute
+        ::tokio::task::spawn_blocking path or correctly scoped import from that absolute path is
+        trusted; a shadowable tokio:: path is not. Test cfg expressions are evaluated
+        with test=false, so cfg(any(test, feature = "harness")) remains production-reachable;
+        an arbitrary function named spawn_blocking never establishes off-executor execution. A
+        method-name match never proves its receiver type and is reported receiver_unresolved.
+        Scoped std::fs module/function/File aliases apply the same context rule, including legal
+        use-declaration scope before textual declaration. Source/report count or path mismatch,
+        code/rule/severity mismatch, or post-scan tool/source/policy drift is a cannot-run error,
+        not green.
 
     ownership_assignment:
-      total: 687
+      total: 690
       unassigned: 0
       by_component:
         eg.persistence: 285
-        eg.server-dispatch: 153
+        eg.server-dispatch: 120
         eg.cluster-replication: 90
         eg.binary-composition: 41
+        eg.observability: 25
         eg.graph-core: 23
+        eg.epistemic: 21
         eg.query-plan: 17
         eg.speech-providers: 16
-        eg.observability: 15
         eg.contracts: 13
         eg.embedded-bindings: 11
         eg.timeseries: 5
         eg.mutation-store: 4
-        eg.viz: 4
+        eg.viz: 6
         eg.job-plane: 2
         eg.numeric-ann: 2
         eg.rdf-semantics: 2
         eg.lake-interop: 2
-        eg.compute: 1
+        eg.compute: 4
         eg.modality: 1
       heaviest_files:
         - "src/server/persistence/redb_backend.rs (97) -- eg.persistence"
@@ -3112,46 +3148,57 @@ wiring_decisions:
         set before anyone quotes a burndown number.
 
     decision: >-
-      Three of the nineteen owners hold 528 of the 687 (77%): eg.persistence, eg.server-dispatch
-      and eg.cluster-replication. The burndown is those three, in that order, and it is a real
-      defect class, not a lint preference. The correct fix per site is one of exactly three, and
-      which one must be decided per call site, never blanket-applied:
+      Preserve 690 as the pre-policy raw candidate census; do not mass-rewrite it. A provisional
+      replay identifies async lexical context for 12 direct calls. The landed 943-file receipt
+      must confirm that set before it becomes the first product-code refactor batch, grouped by
+      owning component and followed by any alias calls that become proven blockers. The correct
+      fix per proven site is one of exactly two, decided per call site rather than blanket-applied:
         (i)   the path IS reachable from the async runtime -> use the tokio::fs equivalent;
         (ii)  the path is genuinely blocking and belongs off the reactor ->
               tokio::task::spawn_blocking, with the blocking call moved inside;
-        (iii) the path is provably not on an async path (startup, a test harness, a bin main,
-              a #[cfg(test)] fixture) -> it is a FALSE POSITIVE of a syn-based analyzer that
-              cannot see the call graph, and it should be recorded as such, not silenced.
+      Synchronous, test, and already-offloaded contexts remain reported candidates rather than
+      being rewritten. Unresolved receivers require semantic proof before remediation.
     rationale: >-
-      arch-lint's AL002 is a syntactic rule -- it flags `std::fs::*` in a file, not a proven
-      async reachability. 37 of the 687 are in tests/, benches/ and examples/, and a substantial
-      share of eg.cluster-replication's 90 are in `src/raft/tests.rs` (37) and the *_harness.rs
-      files (30+). So the true production denominator is materially smaller than 687 and NOBODY
-      HAS MEASURED IT. Quoting 687 as a production defect count would repeat the exact error the
-      2026-09-03 report corrected itself for: describing a gate's meaning instead of its output.
-      Per the no-ratchets rule the number stays 687 until a per-site triage lowers it with
-      evidence -- it is not lowered by asserting that some of it is tests.
+      arch-lint's AL002 is a syntactic rule: its 0.5.0 implementation never tracks async
+      context, matches method names without resolving their receivers, and misses std::fs
+      aliases. Treating 690 as blocking is therefore factually wrong; suppressing or lowering
+      AL002 would also be wrong. The wrapper makes that uncertainty visible and supplies the
+      missing conservative evidence boundary without a baseline, severity downgrade, or source
+      exclusion.
     concrete_change:
-      - "Split the census into production vs test/bench/example harness before any burndown
-         target is set, and publish both numbers. No baseline file, no ratchet."
-      - "eg.persistence (285) first: redb_backend.rs, redb_store.rs, shard_migrate.rs and
-         backup.rs are 223 of its 285, and all four are on the served persistence path where
-         (i) or (ii) genuinely applies."
-      - "eg.cluster-replication (90): triage first -- the majority look like harness code where
-         (iii) applies."
+      - "Land the explicit rule policy, wrapper, and known-good/known-bad scanner fixtures after
+         independent adversarial review."
+      - "Publish the post-land receipt outside the repository. It must retain all raw findings,
+         bind the scanner binary/policy/source-universe identities, and fail on the proven set."
+      - "Use scripts/check_rust_arch_lint.py in both the local hook and blocking scanner-quality
+         workflow. The release workflow is also changed by the accepted capabilities/toolchain
+         composition, so integration must preserve those disjoint hunks and re-review the
+         combined workflow bytes."
+      - "After the post-land receipt confirms the blocker set, refactor it as the smallest
+         owner-scoped vertical slices; re-run this classifier after each slice and never decrement
+         counts by hand."
       - "Each component's `al002_no_sync_io.owned_errors` in this manifest is the per-owner
-         denominator. It must be re-measured, not decremented by hand, after each slice."
-    acceptance_evidence: []
+         RAW denominator. It must be re-measured, not decremented by hand, after each slice."
+    acceptance_evidence:
+      - "python3 -m pytest tests/test_arch_lint_policy.py -q: 36 passed on 2026-09-04"
+      - "The four isolated overlapping-file composition assertions in
+         tests/test_scanner_distribution.py passed on 2026-09-04; the complete file requires the
+         accepted toolchain lane's co-landed .python-version, scanner contract, advisory wrapper,
+         root-hygiene, and CI-replica bytes."
+      - "Known-good and known-bad fixtures execute the installed arch-lint 0.5.0 binary and cover
+         direct and aliased async calls, Rust 1.96 async closures, async unsafe functions, nested
+         grouped imports, shadowable tokio paths, delimiter-rich async signatures, and raw strings
+         with more than sixteen hashes."
 
   - decision_id: D-EG-006
     title: "arch-lint.toml excludes **/target/** but the build writes to target-isolated/"
     owning_component: eg.binary-composition
     status: proposed
     decision_authority: component_owner
-    evidence_status: measured_not_remediated
+    evidence_status: implemented_focused_tests_passed_not_landed
 
     verified_facts:
-      - "arch-lint.toml `exclude` is exactly:
+      - "At base 5523859a arch-lint.toml `exclude` was:
          [\"**/target/**\", \"**/generated/**\", \"**/vendor/**\", \"**/third_party/**\",
           \"**/fixtures/**\"]. `target-isolated` matches none of them."
       - ".cargo/config.toml sets `[build] target-dir = \"target-isolated\"` as this repository's
@@ -3170,19 +3217,23 @@ wiring_decisions:
       BLOCKING set -- the gate stays red at exactly 687 errors afterwards. The 2026-09-03 report
       says "Fixing the exclude is the first move; it is a quarter of the backlog and none of it
       is real debt", which is true about the count and misleading about the blocker. The
-      source-tree total after the fix is 3,498 findings, still 687 of them blocking.
+      historical source-tree total after that fix was 3,498 findings, still 687 raw AL002
+      errors. At head 5523859a the exact clean-source census is now 3,499 / 690.
     decision: >-
-      Fix the exclude anyway -- linting 41 GiB of build output is wasted work and 1,144 phantom
-      findings distort every count anyone quotes -- but record that it does NOT move the gate
-      toward green and must not be scheduled as if it did.
+      The current slice keeps exactly `**/target/**` and `**/target-*/**`. It also removes the
+      broad generated/vendor/third_party/fixtures source exclusions: tracked Rust is source and
+      remains in the truthful denominator. This changes the expected post-land file universe
+      from 942 to 943 but does not lower or baseline the 690 raw AL002 candidates.
     concrete_change:
       - "arch-lint.toml: extend `exclude` with \"**/target-*/**\" (which covers target-isolated,
          target-wd9recon and every future per-worktree dir named by the .gitignore convention)."
       - "Do NOT rely on `respect_gitignore = true`; it demonstrably did not exclude these paths.
          File that upstream against arch-lint 0.5.0 with this reproduction."
-      - "Re-measure after the change and publish the new absolute number (expected 3,498 total /
-         687 error). No baseline."
-    acceptance_evidence: []
+      - "Re-measure after landing and publish the source-universe digest, raw counts, and
+         context dispositions. No baseline."
+    acceptance_evidence:
+      - "tests/test_arch_lint_policy.py asserts the exact two build-output exclusions and rejects
+         implicit presets or broad source exclusions."
 
   - decision_id: D-EG-007
     title: "RLS view-cache serves rows a revoked grant forbids"

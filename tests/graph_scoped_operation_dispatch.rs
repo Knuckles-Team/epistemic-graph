@@ -130,6 +130,51 @@ async fn t04_cypher_read_query_over_empty_graph() {
     assert!(resp.error.is_none(), "CypherQuery read: {:?}", resp.error);
 }
 
+#[tokio::test]
+async fn retired_graph_compatibility_sql_is_rejected_while_native_cypher_remains() {
+    let state = state();
+    assert!(create_graph(&state, 1, "cx06-op-age1")
+        .await
+        .error
+        .is_none());
+
+    let sql = call(
+        &state,
+        2,
+        "cx06-op-age1",
+        Method::Sql {
+            query: "SELECT * FROM cypher('cx06-op-age1', $$ MATCH (n) RETURN n $$) AS (n agtype)"
+                .to_string(),
+            params_msgpack: Vec::new(),
+        },
+    )
+    .await;
+    assert!(
+        sql.result.is_none(),
+        "retired SQL surface returned a result"
+    );
+    assert!(
+        sql.error.is_some(),
+        "retired SQL surface must fail instead of reaching a graph"
+    );
+
+    let native = call(
+        &state,
+        3,
+        "cx06-op-age1",
+        Method::CypherQuery {
+            query: "MATCH (n) RETURN n LIMIT 5".to_string(),
+            mode: CypherMode::Read,
+        },
+    )
+    .await;
+    assert!(
+        native.error.is_none(),
+        "native Cypher must remain available: {:?}",
+        native.error
+    );
+}
+
 // ── Native audit-chain verification (`Method::AuditVerify`, security feature) ──
 
 #[tokio::test]

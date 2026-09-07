@@ -192,10 +192,15 @@ pub(crate) async fn try_handle(
                 Ok(Ok(result)) => {
                     let (vars, rows) = result.to_rows();
                     let wire = crate::protocol::SparqlResult { vars, rows };
-                    let bytes = rmp_serde::to_vec_named(&wire).unwrap_or_default();
-                    #[cfg(feature = "result-cache")]
-                    core.result_cache().put(hash, version, bytes.clone());
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
+                    match ResultPayload::raw(&wire) {
+                        Ok(ResultPayload::Raw(bytes)) => {
+                            #[cfg(feature = "result-cache")]
+                            core.result_cache().put(hash, version, bytes.clone());
+                            Response::ok(req_id, ResultPayload::Raw(bytes))
+                        }
+                        Ok(_) => unreachable!("ResultPayload::raw always constructs Raw"),
+                        Err(error) => Response::err(req_id, error),
+                    }
                 }
                 Ok(Err(msg)) => Response::err(req_id, format!("SPARQL error: {msg}")),
                 Err(resp) => resp,

@@ -921,7 +921,7 @@ fn ingest(
     let outcome = outcomes
         .pop()
         .ok_or_else(|| "single modality ingest produced no outcome".to_string())?;
-    Ok(ResultPayload::raw(&outcome))
+    ResultPayload::raw(&outcome)
 }
 
 fn query<T>(
@@ -947,7 +947,7 @@ where
             include_cold,
         })
         .map_err(|error| error.to_string())?;
-    Ok(ResultPayload::raw(&page))
+    ResultPayload::raw(&page)
 }
 
 fn native_query<T>(
@@ -972,7 +972,7 @@ where
             include_cold,
         })
         .map_err(|error| error.to_string())?;
-    Ok(ResultPayload::raw(&page))
+    ResultPayload::raw(&page)
 }
 
 fn native_predicate(
@@ -1073,7 +1073,7 @@ where
     ) {
         store_delta(core, authority, modality, &delta)?;
     }
-    Ok(ResultPayload::raw(&outcome))
+    ResultPayload::raw(&outcome)
 }
 
 fn lifecycle<T>(
@@ -1102,7 +1102,7 @@ where
     if let Some(delta) = MutationDelta::capture_lifecycle(&runtime, before.as_ref(), &id) {
         store_delta(core, authority, modality, &delta)?;
     }
-    Ok(ResultPayload::raw(&outcome))
+    ResultPayload::raw(&outcome)
 }
 
 fn events<T>(
@@ -1116,11 +1116,7 @@ where
     T: GovernedModality + Clone + PartialEq + fmt::Debug + Serialize + DeserializeOwned,
 {
     let runtime: ServedModalityRuntime<T> = load_runtime(core, authority, modality)?;
-    Ok(ResultPayload::raw(&runtime.events_after_authorized(
-        &authority.scope,
-        after_sequence,
-        limit,
-    )))
+    ResultPayload::raw(&runtime.events_after_authorized(&authority.scope, after_sequence, limit))
 }
 
 fn stats<T>(
@@ -1134,7 +1130,7 @@ where
     authority.require_management()?;
     let runtime: ServedModalityRuntime<T> = load_runtime(core, authority, modality)?;
     let stats = runtime.stats().map_err(|error| error.to_string())?;
-    Ok(ResultPayload::raw(&stats))
+    ResultPayload::raw(&stats)
 }
 
 fn collect_tombstones<T>(
@@ -1179,7 +1175,7 @@ pub(crate) fn handle(
     op: ServedModalityOp,
 ) -> Result<ResultPayload, String> {
     match op {
-        ServedModalityOp::Authority => Ok(ResultPayload::raw(&authority.view())),
+        ServedModalityOp::Authority => ResultPayload::raw(&authority.view()),
         ServedModalityOp::Ingest {
             modality,
             idempotency_ref,
@@ -1204,7 +1200,7 @@ pub(crate) fn handle(
                 return Err("modality ingest stream cardinality is outside bounds".to_string());
             }
             let outcomes = ingest_stream(core, authority, modality, items)?;
-            Ok(ResultPayload::raw(&outcomes))
+            ResultPayload::raw(&outcomes)
         }
         ServedModalityOp::Query {
             modality,

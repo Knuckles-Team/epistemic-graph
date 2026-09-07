@@ -180,8 +180,10 @@ fn prim_intersect(x: &Prim<'_>, y: &Prim<'_>) -> bool {
     false
 }
 
-/// Orientation of the ordered triple `(a, b, c)`: >0 CCW, <0 CW, 0 collinear.
-fn orient(a: &Point, b: &Point, c: &Point) -> f64 {
+/// Orientation of the ordered triple `(a, b, c)`: >0 CCW, <0 CW, 0 collinear. The
+/// crate's one 2D cross-product authority — the sign also answers "is `c` left of the
+/// directed edge `a→b`", which is how [`crate::algebra`] clips against a convex window.
+pub(crate) fn orient(a: &Point, b: &Point, c: &Point) -> f64 {
     (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
 }
 
@@ -281,23 +283,41 @@ pub fn crosses(a: &Geometry, b: &Geometry) -> bool {
 /// *non-tangential*. Exact for the common polygon cases; segment-based like the sibling
 /// predicates. (CONCEPT:EG-KG.ontology.concept-7)
 pub fn boundaries_intersect(a: &Geometry, b: &Geometry) -> bool {
-    let (pa, pb) = (prims(a), prims(b));
-    for x in &pa {
-        let sa = prim_segments(x);
-        if sa.is_empty() {
-            continue;
-        }
-        for y in &pb {
-            for (a1, a2) in &sa {
-                for (b1, b2) in prim_segments(y) {
-                    if seg_seg_intersect(a1, a2, &b1, &b2) {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    false
+    segments_meet(
+        &boundary_segments(a),
+        &boundary_segments(b),
+        seg_seg_intersect,
+    )
+}
+
+/// Every boundary segment of a geometry, across all its primitives (a point contributes
+/// none, a polygon contributes its exterior and hole rings).
+fn boundary_segments(g: &Geometry) -> Vec<(Point, Point)> {
+    prims(g).iter().flat_map(prim_segments).collect()
+}
+
+/// Every segment of a geometry's LINE primitives only — polygons and points contribute
+/// nothing, because a shared sub-segment of two areal boundaries is not a line overlap.
+fn line_segments(g: &Geometry) -> Vec<(Point, Point)> {
+    prims(g)
+        .iter()
+        .filter_map(|p| match p {
+            Prim::Line(l) => Some(l.segments().collect::<Vec<_>>()),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+/// Does any segment of `a` and any segment of `b` satisfy `hit`? The shared segment-pair
+/// scan behind the segment-level predicates.
+fn segments_meet(
+    a: &[(Point, Point)],
+    b: &[(Point, Point)],
+    hit: impl Fn(&Point, &Point, &Point, &Point) -> bool,
+) -> bool {
+    a.iter()
+        .any(|(a1, a2)| b.iter().any(|(b1, b2)| hit(a1, a2, b1, b2)))
 }
 
 /// Topological dimension of a geometry: 0 (point), 1 (line), 2 (polygon) — the MAX over
@@ -453,20 +473,7 @@ fn poly_all_vertices(pg: &Polygon) -> Vec<Point> {
 /// Do two linestrings share a collinear sub-segment of positive length (an areal-1D
 /// overlap, the `overlaps` criterion for lines)?
 fn lines_share_subsegment(a: &Geometry, b: &Geometry) -> bool {
-    for x in &prims(a) {
-        for y in &prims(b) {
-            if let (Prim::Line(la), Prim::Line(lb)) = (x, y) {
-                for (a1, a2) in la.segments() {
-                    for (b1, b2) in lb.segments() {
-                        if collinear_overlap(&a1, &a2, &b1, &b2) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    false
+    segments_meet(&line_segments(a), &line_segments(b), collinear_overlap)
 }
 
 /// Are segments `a→b` and `c→d` collinear and overlapping over a positive length?

@@ -26,6 +26,7 @@
 pub mod embedding_binding;
 pub mod index;
 pub mod migration;
+pub mod property_graph;
 pub mod provider;
 pub mod schema;
 pub mod store;
@@ -41,8 +42,21 @@ pub use index::{
     SecondaryIndexColumn, SecondaryIndexKind, SecondaryIndexLookup, SecondaryIndexOrder,
     SecondaryIndexSpec,
 };
+pub use property_graph::{
+    decode_property_graph, decode_property_graph_catalog_record, AlterElementAction,
+    AlterPropertyGraphAction, CanonicalCatalogName, DropBehavior, EdgeEndpoint,
+    EdgeTableDefinition, ElementKeyResolution, ElementKind, EndpointResolution, GraphOwner,
+    LabelDefinition, PropertyDefinition, PropertyGraphCatalog, PropertyGraphCatalogRecord,
+    PropertyGraphDefinition, PropertyGraphDependency, PropertyGraphObjectId, PropertyGraphOwner,
+    PropertyGraphStatement, PropertySet, RelationCatalogSnapshot, RelationKind, RelationObjectId,
+    ResolvedColumnDependency, SqlIdentifier, SqlName, VertexTableDefinition,
+    MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES, PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION,
+    PROPERTY_GRAPH_SCHEMA_VERSION,
+};
 pub use schema::{
     Cell, CmpOp, ColCheck, Column, ColumnType, FunctionArg, FunctionLanguage, FunctionReturns,
     StoredFunction, TableSchema,
 };
-pub use store::{ConflictAction, TableStore, TableTxn, TxnOp};
+pub use store::{
+    ConflictAction, IndexCatalogTxnOp, PropertyGraphTxnOp, TableStore, TableTxn, TxnOp,
+};

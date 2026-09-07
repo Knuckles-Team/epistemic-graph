@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::mutation_batch::{
-    IncarnationId, MutationRequestContext, MutationScopeIdentity, TenantId,
+    IncarnationId, MutationRequestContext, MutationScopeIdentity, ScopeTenantId,
 };
 
 fn host() -> DurableResourceHost {
@@ -382,14 +382,14 @@ fn resource_batch(
         // Graph scope, not native: `commit_mutation_batch_inner` (via
         // `mutation_batch_graph_name`) fails closed on any batch that is not
         // graph-scoped, so this is the only route these fixtures actually
-        // commit through. `MutationDomain::ControlPlane` is one of the
+        // commit through. `DurabilityDomain::ControlPlane` is one of the
         // "either" domains (`may_own_native_scope` AND legal in a graph
         // scope per the graph arm of `validate_operations`), so it is free to
         // take the graph route here. `"graph-a"` is reused verbatim as the
         // graph name -- the exact literal the old flat `graph` field carried
         // -- rather than inventing a new sentinel.
         identity: MutationScopeIdentity::graph(
-            TenantId::new(tenant).expect("valid resource-reservation tenant id"),
+            ScopeTenantId::new(tenant).expect("valid resource-reservation tenant id"),
             LogicalName::new("graph-a").expect("valid resource-reservation graph name"),
             IncarnationId::new("incarnation:test:resource-reservation")
                 .expect("valid resource-reservation incarnation id"),
@@ -412,7 +412,7 @@ fn resource_batch(
         operations: vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
-            domain: MutationDomain::ControlPlane,
+            domain: DurabilityDomain::ControlPlane,
             method,
         }],
         outbox: Vec::new(),
@@ -495,7 +495,13 @@ fn commit_racing_resource_batch(
 ) -> (MutationBatch, MutationBatchCommit) {
     loop {
         let expected_version = current_resource_graph_version(db);
-        let batch = resource_batch(tenant, method.clone(), batch_id, idempotency_key, expected_version);
+        let batch = resource_batch(
+            tenant,
+            method.clone(),
+            batch_id,
+            idempotency_key,
+            expected_version,
+        );
         match commit_resource_batch(db, &batch) {
             Ok(commit) => return (batch, commit),
             Err(message) if message.starts_with("STALE_VERSION") => continue,
@@ -532,9 +538,7 @@ fn batch_host_result(commit: &MutationBatchCommit) -> ResourceHostUpdateResult {
         .as_ref()
         .expect("host mutation stores a typed result");
     let payload: crate::protocol::ResultPayload = rmp_serde::from_slice(bytes).unwrap();
-    let (crate::protocol::ResultPayload::Raw(bytes)
-    | crate::protocol::ResultPayload::PropertiesMsgpack(bytes)) = payload
-    else {
+    let crate::protocol::ResultPayload::Raw(bytes) = payload else {
         panic!("host mutation result must be raw typed payload");
     };
     eg_types::msgpack::decode_bounded(
@@ -796,8 +800,18 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
     // `STALE_VERSION` exactly as a real caller would. See its doc comment.
     let mut handles = Vec::new();
     for (tenant, method, batch_id, idempotency_key) in [
-        (tenant_a, method_a, "batch-same-attempt-a", "reserve-same-attempt-a"),
-        (tenant_b, method_b, "batch-same-attempt-b", "reserve-same-attempt-b"),
+        (
+            tenant_a,
+            method_a,
+            "batch-same-attempt-a",
+            "reserve-same-attempt-a",
+        ),
+        (
+            tenant_b,
+            method_b,
+            "batch-same-attempt-b",
+            "reserve-same-attempt-b",
+        ),
     ] {
         let db = db.clone();
         let barrier = barrier.clone();
@@ -986,8 +1000,18 @@ fn mutation_batch_distinct_work_items_race_for_last_slot() {
     // `MUTATION_GRAPH_VERSION` counter, so the version_expectation cannot be
     // fixed up front -- see `commit_racing_resource_batch`'s doc comment.
     let handles = [
-        (tenant_a, method_a, "batch-last-slot-a", "reserve-last-slot-a"),
-        (tenant_b, method_b, "batch-last-slot-b", "reserve-last-slot-b"),
+        (
+            tenant_a,
+            method_a,
+            "batch-last-slot-a",
+            "reserve-last-slot-a",
+        ),
+        (
+            tenant_b,
+            method_b,
+            "batch-last-slot-b",
+            "reserve-last-slot-b",
+        ),
     ]
     .into_iter()
     .map(|(tenant, method, batch_id, idempotency_key)| {
@@ -1218,8 +1242,18 @@ fn mutation_batch_cross_host_repository_and_branch_exclusivity_is_atomic() {
     // `MUTATION_GRAPH_VERSION` counter -- see
     // `commit_racing_resource_batch`'s doc comment.
     let handles = [
-        (tenant_a, method_a, "batch-exclusive-a", "reserve-exclusive-a"),
-        (tenant_b, method_b, "batch-exclusive-b", "reserve-exclusive-b"),
+        (
+            tenant_a,
+            method_a,
+            "batch-exclusive-a",
+            "reserve-exclusive-a",
+        ),
+        (
+            tenant_b,
+            method_b,
+            "batch-exclusive-b",
+            "reserve-exclusive-b",
+        ),
     ]
     .into_iter()
     .map(|(tenant, method, batch_id, idempotency_key)| {
@@ -2509,7 +2543,7 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
     let operation = |method| MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Job,
-        domain: MutationDomain::ControlPlane,
+        domain: DurabilityDomain::ControlPlane,
         method,
     };
     let stored = vec![operation(first)];
@@ -2547,7 +2581,7 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
         // is reused verbatim as the graph name, matching every other fixture
         // here.
         identity: MutationScopeIdentity::graph(
-            TenantId::new("tenant-a").expect("valid tenant id"),
+            ScopeTenantId::new("tenant-a").expect("valid tenant id"),
             LogicalName::new("graph-a").expect("valid graph name"),
             IncarnationId::new("incarnation:test:resource-reservation")
                 .expect("valid incarnation id"),
@@ -2593,7 +2627,7 @@ fn native_retry_rebuilds_projection_outbox_after_authoritative_time_changes() {
     let operation = |method| MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Job,
-        domain: MutationDomain::ControlPlane,
+        domain: DurabilityDomain::ControlPlane,
         method,
     };
     let stored_method = Method::ReserveWorkItemResources { request: request() };
@@ -2759,14 +2793,17 @@ fn terminal_result_replays_exact_record_without_held_capacity() {
     let mut record = resource_build_record(&request, &host(), 7, 1).unwrap();
     record.state = ResourceReservationRecordState::Released;
     record.tombstone = true;
-    let result = resource_decode_result_payload(resource_result_payload(
-        ResourceReservationResultDecision::Idempotent,
-        &request,
-        Some(record.clone()),
-        Some(&host()),
-        9,
-        Vec::new(),
-    ))
+    let result = resource_decode_result_payload(
+        resource_result_payload(
+            ResourceReservationResultDecision::Idempotent,
+            &request,
+            Some(record.clone()),
+            Some(&host()),
+            9,
+            Vec::new(),
+        )
+        .unwrap(),
+    )
     .unwrap();
     assert!(resource_request_matches_record(&request, &record));
     assert!(result.tombstone);
@@ -3371,7 +3408,7 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
                 expected_version,
             );
             batch.operations[0].surface = MutationSurface::Lifecycle;
-            batch.operations[0].domain = MutationDomain::Lifecycle;
+            batch.operations[0].domain = DurabilityDomain::Lifecycle;
             batch
         };
 

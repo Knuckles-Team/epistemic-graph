@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 /// `WHERE` fragment and evaluated by the DataFusion FILTER leg in `eg-plan`.
 #[cfg(feature = "query")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum Pred {
     /// `prop == value` (string compare on the JSON-stringified value).
     Eq { prop: String, value: String },
@@ -89,6 +90,7 @@ pub enum Pred {
 /// `eg_core::jsonpath` behind eg-plan's FILTER leg — this is the wire variant.
 #[cfg(feature = "query")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum JsonPathOp {
     /// The path resolves to at least one value (`jsonb_path_query` existence / `@?`).
     Exists,
@@ -108,6 +110,7 @@ pub enum JsonPathOp {
 /// take the second operand as a WKT literal.
 #[cfg(feature = "geo")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SpatialOpKind {
     /// Grow the geometry outward by `distance` (a convex buffer polygon).
     Buffer { distance: f64 },
@@ -131,6 +134,7 @@ pub enum SpatialOpKind {
 /// `tensor` gate.
 #[cfg(feature = "tensor")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum TensorReduceKind {
     Sum,
     Mean,
@@ -142,6 +146,7 @@ pub enum TensorReduceKind {
 /// (CONCEPT:EG-KG.storage.content-addressed-dedup). Mirrors eg-tensor's `ElementwiseOp`; pure serde here.
 #[cfg(feature = "tensor")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum TensorElementwiseOp {
     Add,
     Sub,
@@ -157,6 +162,7 @@ pub enum TensorElementwiseOp {
 /// eg-tensor behind eg-plan's `tensor` gate; this is the wire variant.
 #[cfg(feature = "tensor")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum TensorOpKind {
     Slice {
         ranges: Vec<(usize, usize)>,
@@ -180,6 +186,7 @@ pub enum TensorOpKind {
 #[cfg(feature = "probabilistic")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ProbEvidenceSpec {
     Bernoulli {
         successes: f64,
@@ -206,6 +213,7 @@ pub enum ProbEvidenceSpec {
 #[cfg(feature = "probabilistic")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ProbQuery {
     Expectation,
     Marginal {
@@ -228,6 +236,7 @@ pub enum ProbQuery {
 /// `stream` gate.
 #[cfg(feature = "stream")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CepAttrPredSpec {
     Eq {
         field: String,
@@ -250,6 +259,7 @@ pub enum CepAttrPredSpec {
 /// must hold (CONCEPT:EG-KG.query.pipelined-execution). Mirrors eg-stream's `EventMatcher`; pure serde here.
 #[cfg(feature = "stream")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CepMatcherSpec {
     #[serde(default)]
     pub key: Option<String>,
@@ -261,6 +271,7 @@ pub struct CepMatcherSpec {
 /// Mirrors eg-stream's `Window`; pure serde here.
 #[cfg(feature = "stream")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CepWindowSpec {
     Sliding { size: u64 },
     Tumbling { size: u64 },
@@ -272,6 +283,7 @@ pub enum CepWindowSpec {
 /// serde — the actual NFA lives in eg-stream behind eg-plan's `stream` gate.
 #[cfg(feature = "stream")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CepNodeSpec {
     Sequence(Vec<CepMatcherSpec>),
     Within {
@@ -291,6 +303,7 @@ pub enum CepNodeSpec {
 /// the wire variant.
 #[cfg(feature = "stream")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CepPatternSpec {
     pub pattern: CepNodeSpec,
     pub window: CepWindowSpec,
@@ -304,6 +317,7 @@ pub struct CepPatternSpec {
 /// a [`crate::RowSet`].
 #[cfg(feature = "federation")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ForeignSourceSpec {
     /// A REMOTE epistemic-graph engine, reached over the SAME length-prefixed
     /// MessagePack + HMAC transport this engine speaks. The federation client
@@ -403,6 +417,7 @@ pub enum ForeignSourceSpec {
 /// [`ForeignSourceSpec::HttpJson`]).
 #[cfg(feature = "federation")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct HttpFieldMap {
     /// The element field whose value is the row id (stringified).
     pub id: String,
@@ -414,6 +429,7 @@ pub struct HttpFieldMap {
 /// Which timeline an [`Op::AsOf`] instant pins (bi-temporal, KG-2.250).
 #[cfg(feature = "query")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum TimeAxis {
     /// Valid (event) time — "what was TRUE at the instant" (`valid_from`/`valid_until`).
     #[default]
@@ -428,6 +444,7 @@ pub enum TimeAxis {
 /// increments. The algorithm lives in `eg-plan`; this is the wire DTO.
 #[cfg(feature = "query")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum Op {
     /// SOURCE — seed from all nodes carrying `label` (`type == label`).
     Scan { label: String },
@@ -763,6 +780,7 @@ pub enum Op {
 /// wire payload of `Method::UnifiedQuery` (CONCEPT:AU-KG.compute.vector).
 #[cfg(feature = "query")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct Plan {
     pub ops: Vec<Op>,
 }
@@ -779,6 +797,7 @@ impl Plan {
 /// A single order in the book (matched by `eg-compute::finance::exchange`).
 #[cfg(feature = "finance")]
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct Order {
     pub id: String,
     pub side: String, // "buy" or "sell"
@@ -790,6 +809,7 @@ pub struct Order {
 /// One fiscal year of standardized financial-statement inputs (forensic scores).
 #[cfg(feature = "finance")]
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct YearData {
     pub sales: f64,
     pub cogs: f64,
@@ -831,6 +851,7 @@ pub struct YearData {
 // which is exactly what every `epistemic_graph/client.py` caller does.
 #[cfg(feature = "datascience")]
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct EstimatorParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alpha: Option<f64>,
@@ -870,6 +891,7 @@ pub struct EstimatorParams {
 /// A flat regression tree: node `i` is a leaf when `feature < 0`.
 #[cfg(feature = "datascience")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct TreeNode {
     pub feature: i64,
     pub threshold: f64,
@@ -880,6 +902,7 @@ pub struct TreeNode {
 
 #[cfg(feature = "datascience")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DecisionTree {
     pub nodes: Vec<TreeNode>,
 }
@@ -912,6 +935,7 @@ impl DecisionTree {
 #[cfg(feature = "datascience")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "model")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum FittedModel {
     Linear {
         coefficients: Vec<f64>,
@@ -949,6 +973,7 @@ pub enum FittedModel {
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", content = "model")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum FittedClassifier {
     /// Gaussian Naive Bayes — per-class prior + per-feature (mean, variance).
     GaussianNb {
@@ -998,6 +1023,7 @@ pub enum FittedClassifier {
 #[cfg(feature = "ml-pipeline")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "step", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum FeatureStep {
     /// Structural node embeddings computed over the label subgraph — `method` is
     /// `fastrp` (default, training-free) or `node2vec` (biased walks + SGNS). The
@@ -1072,6 +1098,7 @@ fn default_embed_seed() -> u64 {
 /// train_test_split`).
 #[cfg(feature = "ml-pipeline")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SplitSpec {
     #[serde(default = "default_test_ratio")]
     pub test_ratio: f64,
@@ -1112,6 +1139,7 @@ impl Default for SplitSpec {
 /// `ridge`). `params` carries family-specific knobs the handler reads with defaults.
 #[cfg(feature = "ml-pipeline")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ModelSpec {
     #[serde(default = "default_family")]
     pub family: String,
@@ -1135,6 +1163,7 @@ fn default_params() -> serde_json::Value {
 /// IDENTICALLY from the same recipe without the caller re-specifying it.
 #[cfg(feature = "ml-pipeline")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct PipelineSpec {
     #[serde(default)]
     pub features: Vec<FeatureStep>,

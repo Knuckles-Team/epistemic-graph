@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 /// The analytics-job control-plane operation (CONCEPT:INT-P2-1).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum JobOp {
     /// Submit a new job. Runs asynchronously off the request — the response carries
     /// the freshly durable `Submitted` job record (including its server-issued id),
@@ -91,6 +92,7 @@ fn default_lease_ms() -> u64 {
 
 /// Portable typed result column for remote analytics workers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct JobResultColumn {
     pub name: String,
     pub logical_type: String,
@@ -99,6 +101,7 @@ pub struct JobResultColumn {
 
 /// Reproducibility manifest bound server-side to the leased job lineage.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct JobReproducibilityManifest {
     pub input_dataset_ref: String,
     pub input_content_digest: String,
@@ -112,6 +115,7 @@ pub struct JobReproducibilityManifest {
 
 /// KnowledgeBatch-shaped result currency accepted by [`JobOp::WorkerStage`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct JobResult {
     pub schema_version: u16,
     pub dataset_ref: String,
@@ -139,6 +143,7 @@ pub struct JobResult {
 /// feature provides association-rule mining; the program-optimization feature adds
 /// the graph-native, governed LM-program compiler.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SubmitJobSpec {
     /// Target graph: where the result claim lands, and whose `version()` at submit
     /// time becomes the job's immutable input-snapshot handle.
@@ -183,6 +188,7 @@ fn default_max_attempts() -> u32 {
 
 /// Which analytics computation a job runs (CONCEPT:INT-P2-1).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum JobKind {
     /// Association-rule mining over explicit transactions (mirrors
     /// `Method::MineAssociate`'s non-graph-derived path).
@@ -201,6 +207,7 @@ pub enum JobKind {
     /// of the crate DAG and the server decodes/rebinds it at the verified boundary.
     #[cfg(feature = "program-optimization")]
     ProgramOptimize {
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         request_msgpack: Vec<u8>,
     },

@@ -70,7 +70,13 @@ fn lake_materialize_lineage_event_reaches_the_openlineage_topic() {
     );
 
     let s = store();
-    let tsdb = SeriesStore::open_in_dir(&tsdb_dir("tsdb")).unwrap();
+    let tsdb = SeriesStore::open_in_dir(
+        &tsdb_dir("tsdb"),
+        epistemic_graph::store_authority::process_verifier(),
+        epistemic_graph::store_authority::process_authority().principal(),
+        &epistemic_graph::store_authority::process_authority().proof(),
+    )
+    .unwrap();
     tsdb.append_batch(
         &series_id,
         1,

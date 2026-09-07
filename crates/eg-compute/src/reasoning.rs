@@ -25,30 +25,89 @@ use crate::reasoning_closure::{active_closure_backend, infer_semi_naive};
 
 /// Extract the base type/property facts from `core` as flat `(node, type)` and
 /// `(src, tgt, prop)` lists (the input to the semi-naive evaluator).
-#[allow(clippy::type_complexity)]
-fn extract_facts(core: &GraphCore) -> (Vec<(String, String)>, Vec<(String, String, String)>) {
-    let mut node_types = Vec::new();
-    for entry in core.node_properties.iter() {
-        let (node_id, props_msgpack) = (entry.key(), entry.value());
-        if let Ok(val) = eg_types::msgpack::decode_property_value(props_msgpack) {
-            if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
-                node_types.push((node_id.clone(), t.to_string()));
-            }
-        }
-    }
-
-    let mut edge_types = Vec::new();
+/// Every stored edge as `(src, tgt, relationship)`. The native graph keeps a `Vec` of
+/// msgpack property blobs per ordered pair, so an edge is only a fact once its blob
+/// decodes and names a `relationship`; a blob that does not is skipped, never guessed.
+fn edge_relationship_facts(core: &GraphCore) -> Vec<(String, String, String)> {
+    let mut facts = Vec::new();
     for entry in core.edge_properties.iter() {
         let ((src, tgt), props_msgpack_list) = (entry.key(), entry.value());
         for props_msgpack in props_msgpack_list {
             if let Ok(val) = eg_types::msgpack::decode_property_value(props_msgpack) {
                 if let Some(t) = val.get("relationship").and_then(|v| v.as_str()) {
-                    edge_types.push((src.clone(), tgt.clone(), t.to_string()));
+                    facts.push((src.clone(), tgt.clone(), t.to_string()));
                 }
             }
         }
     }
-    (node_types, edge_types)
+    facts
+}
+
+/// Every stored node as `(node, type)`, on the same decode-or-skip contract.
+fn node_type_facts(core: &GraphCore) -> Vec<(String, String)> {
+    let mut facts = Vec::new();
+    for entry in core.node_properties.iter() {
+        let (node_id, props_msgpack) = (entry.key(), entry.value());
+        if let Ok(val) = eg_types::msgpack::decode_property_value(props_msgpack) {
+            if let Some(t) = val.get("type").and_then(|v| v.as_str()) {
+                facts.push((node_id.clone(), t.to_string()));
+            }
+        }
+    }
+    facts
+}
+
+/// Group `(property, value)` rules by property, preserving declaration order.
+fn group_by_property(rules: Vec<(String, String)>) -> HashMap<String, Vec<String>> {
+    let mut grouped: HashMap<String, Vec<String>> = HashMap::new();
+    for (property, value) in rules {
+        grouped.entry(property).or_default().push(value);
+    }
+    grouped
+}
+
+/// One inference fact in the flat string-map shape every reasoning entrypoint returns.
+fn inference_fact(
+    subject: &str,
+    predicate: &str,
+    object: &str,
+    inference_type: &str,
+) -> HashMap<String, String> {
+    HashMap::from([
+        ("subject".to_string(), subject.to_string()),
+        ("predicate".to_string(), predicate.to_string()),
+        ("object".to_string(), object.to_string()),
+        ("inference_type".to_string(), inference_type.to_string()),
+    ])
+}
+
+/// Read/modify/write one node's decoded property object in place.
+///
+/// A node whose blob is absent, undecodable, not an object, or not re-encodable is left
+/// untouched: inference never destroys a property blob it cannot round-trip.
+fn update_node_properties(
+    core: &GraphCore,
+    node_id: &str,
+    edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+) {
+    let Some(mut props_msgpack) = core.node_properties.get_mut(node_id) else {
+        return;
+    };
+    let Ok(mut val) = eg_types::msgpack::decode_property_value(props_msgpack.as_slice()) else {
+        return;
+    };
+    let Some(obj) = val.as_object_mut() else {
+        return;
+    };
+    edit(obj);
+    if let Ok(updated) = rmp_serde::to_vec_named(&val) {
+        *props_msgpack = std::sync::Arc::new(updated);
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn extract_facts(core: &GraphCore) -> (Vec<(String, String)>, Vec<(String, String, String)>) {
+    (node_type_facts(core), edge_relationship_facts(core))
 }
 
 /// SAFE-MODE invariant (CONCEPT:EG-KG.compute.reasoning-connect-only): materialisation of a
@@ -135,27 +194,13 @@ pub fn run_datalog_reasoning(
 
     // Apply all inferred facts back to internal structures
     for (node_id, new_type) in &new_types_to_add {
-        let mut fact = HashMap::new();
-        fact.insert("subject".to_string(), node_id.clone());
-        fact.insert("predicate".to_string(), "type".to_string());
-        fact.insert("object".to_string(), new_type.clone());
-        fact.insert("inference_type".to_string(), "rust_datalog".to_string());
-        inferred_triples.push(fact);
-
-        if let Some(mut props_msgpack) = core.node_properties.get_mut(node_id) {
-            if let Ok(mut val) = eg_types::msgpack::decode_property_value(props_msgpack.as_slice())
-            {
-                if let Some(obj) = val.as_object_mut() {
-                    obj.insert(
-                        "inferred_type".to_string(),
-                        serde_json::Value::String(new_type.clone()),
-                    );
-                    if let Ok(updated) = rmp_serde::to_vec_named(&val) {
-                        *props_msgpack = std::sync::Arc::new(updated);
-                    }
-                }
-            }
-        }
+        inferred_triples.push(inference_fact(node_id, "type", new_type, "rust_datalog"));
+        update_node_properties(core, node_id, |obj| {
+            obj.insert(
+                "inferred_type".to_string(),
+                serde_json::Value::String(new_type.clone()),
+            );
+        });
     }
 
     // Topology edits run under one write txn (the inferred-edge additions are
@@ -216,93 +261,94 @@ pub fn infer_domain_range(
     domain_rules: Vec<(String, String)>, // (property, domain_type)
     range_rules: Vec<(String, String)>,  // (property, range_type)
 ) -> Vec<HashMap<String, String>> {
+    let domain_map = group_by_property(domain_rules);
+    let range_map = group_by_property(range_rules);
+
     let mut inferred = Vec::new();
     let mut new_types: Vec<(String, String)> = Vec::new();
-
-    // Build lookup
-    let domain_map: HashMap<String, Vec<String>> =
-        domain_rules
-            .into_iter()
-            .fold(HashMap::new(), |mut acc, (prop, domain)| {
-                acc.entry(prop).or_default().push(domain);
-                acc
-            });
-
-    let range_map: HashMap<String, Vec<String>> =
-        range_rules
-            .into_iter()
-            .fold(HashMap::new(), |mut acc, (prop, range)| {
-                acc.entry(prop).or_default().push(range);
-                acc
-            });
-
-    // Scan all edges
-    for entry in core.edge_properties.iter() {
-        let ((src, tgt), props_msgpack_list) = (entry.key(), entry.value());
-        for props_msgpack in props_msgpack_list {
-            if let Ok(val) = eg_types::msgpack::decode_property_value(props_msgpack) {
-                if let Some(edge_type) = val.get("relationship").and_then(|v| v.as_str()) {
-                    // Domain inference: src gets the domain type
-                    if let Some(domains) = domain_map.get(edge_type) {
-                        for domain in domains {
-                            new_types.push((src.clone(), domain.clone()));
-                            let mut fact = HashMap::new();
-                            fact.insert("subject".to_string(), src.clone());
-                            fact.insert("predicate".to_string(), "rdf:type".to_string());
-                            fact.insert("object".to_string(), domain.clone());
-                            fact.insert(
-                                "inference_type".to_string(),
-                                "domain_inference".to_string(),
-                            );
-                            inferred.push(fact);
-                        }
-                    }
-
-                    // Range inference: tgt gets the range type
-                    if let Some(ranges) = range_map.get(edge_type) {
-                        for range in ranges {
-                            new_types.push((tgt.clone(), range.clone()));
-                            let mut fact = HashMap::new();
-                            fact.insert("subject".to_string(), tgt.clone());
-                            fact.insert("predicate".to_string(), "rdf:type".to_string());
-                            fact.insert("object".to_string(), range.clone());
-                            fact.insert(
-                                "inference_type".to_string(),
-                                "range_inference".to_string(),
-                            );
-                            inferred.push(fact);
-                        }
-                    }
-                }
+    for (src, tgt, edge_type) in edge_relationship_facts(core) {
+        // Domain inference gives the source the property's domain types; range
+        // inference gives the target its range types.
+        for (node, types, inference_type) in [
+            (&src, domain_map.get(&edge_type), "domain_inference"),
+            (&tgt, range_map.get(&edge_type), "range_inference"),
+        ] {
+            for inferred_type in types.into_iter().flatten() {
+                new_types.push((node.clone(), inferred_type.clone()));
+                inferred.push(inference_fact(
+                    node,
+                    "rdf:type",
+                    inferred_type,
+                    inference_type,
+                ));
             }
         }
     }
 
-    // Apply inferred types to graph
     for (node_id, new_type) in &new_types {
-        if let Some(mut props_msgpack) = core.node_properties.get_mut(node_id) {
-            if let Ok(mut val) = eg_types::msgpack::decode_property_value(props_msgpack.as_slice())
-            {
-                if let Some(obj) = val.as_object_mut() {
-                    // Append to inferred_types array
-                    let arr = obj
-                        .entry("inferred_types".to_string())
-                        .or_insert_with(|| serde_json::Value::Array(vec![]));
-                    if let serde_json::Value::Array(ref mut a) = arr {
-                        let type_val = serde_json::Value::String(new_type.clone());
-                        if !a.contains(&type_val) {
-                            a.push(type_val);
-                        }
-                    }
-                    if let Ok(updated) = rmp_serde::to_vec_named(&val) {
-                        *props_msgpack = std::sync::Arc::new(updated);
-                    }
+        update_node_properties(core, node_id, |obj| {
+            let arr = obj
+                .entry("inferred_types".to_string())
+                .or_insert_with(|| serde_json::Value::Array(vec![]));
+            if let serde_json::Value::Array(ref mut a) = arr {
+                let type_val = serde_json::Value::String(new_type.clone());
+                if !a.contains(&type_val) {
+                    a.push(type_val);
                 }
             }
-        }
+        });
     }
 
     inferred
+}
+
+/// Whether the ordered pair `(src, tgt)` already carries an edge named `relationship`.
+fn edge_has_relationship(core: &GraphCore, src: &str, tgt: &str, relationship: &str) -> bool {
+    core.edge_properties
+        .get(&(src.to_string(), tgt.to_string()))
+        .is_some_and(|props| {
+            props.iter().any(|blob| {
+                eg_types::msgpack::decode_property_value(blob)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("relationship")
+                            .and_then(|t| t.as_str())
+                            .map(str::to_string)
+                    })
+                    .as_deref()
+                    == Some(relationship)
+            })
+        })
+}
+
+/// The `(a, c)` pairs the chain `prop1 ∘ prop2` entails and `inferred_prop` does not
+/// already connect. A pair reachable through several middles is returned once per
+/// middle, exactly as the chain rule fires.
+fn chain_pairs(
+    core: &GraphCore,
+    edges_by_type: &HashMap<String, Vec<(String, String)>>,
+    prop1: &str,
+    prop2: &str,
+    inferred_prop: &str,
+) -> Vec<(String, String)> {
+    // For prop2, map source -> targets, so each (a, prop1, b) can look up every
+    // (b, prop2, c) in one step.
+    let mut prop2_from: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (src, tgt) in edges_by_type.get(prop2).into_iter().flatten() {
+        prop2_from
+            .entry(src.as_str())
+            .or_default()
+            .push(tgt.as_str());
+    }
+    let mut pairs = Vec::new();
+    for (a, b) in edges_by_type.get(prop1).into_iter().flatten() {
+        for c in prop2_from.get(b.as_str()).into_iter().flatten() {
+            if !edge_has_relationship(core, a, c, inferred_prop) {
+                pairs.push((a.clone(), (*c).to_string()));
+            }
+        }
+    }
+    pairs
 }
 
 /// Property chain inference.
@@ -323,67 +369,18 @@ pub fn infer_property_chains(
 
     // Index edges by canonical relationship for fast lookup.
     let mut edges_by_type: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    for entry in core.edge_properties.iter() {
-        let ((src, tgt), props_msgpack_list) = (entry.key(), entry.value());
-        for props_msgpack in props_msgpack_list {
-            if let Ok(val) = eg_types::msgpack::decode_property_value(props_msgpack) {
-                if let Some(edge_type) = val.get("relationship").and_then(|v| v.as_str()) {
-                    edges_by_type
-                        .entry(edge_type.to_string())
-                        .or_default()
-                        .push((src.clone(), tgt.clone()));
-                }
-            }
-        }
+    for (src, tgt, edge_type) in edge_relationship_facts(core) {
+        edges_by_type.entry(edge_type).or_default().push((src, tgt));
     }
 
     for (prop1, prop2, inferred_prop) in &chains {
-        let edges1 = edges_by_type.get(prop1).cloned().unwrap_or_default();
-        let edges2 = edges_by_type.get(prop2).cloned().unwrap_or_default();
-
-        // Build index: for prop2, map source -> targets
-        let mut prop2_from: HashMap<String, Vec<String>> = HashMap::new();
-        for (src, tgt) in &edges2 {
-            prop2_from.entry(src.clone()).or_default().push(tgt.clone());
-        }
-
-        // For each (a, prop1, b), check if (b, prop2, c) exists
-        for (a, b) in &edges1 {
-            if let Some(targets) = prop2_from.get(b) {
-                for c in targets {
-                    // Check if (a, inferred_prop, c) already exists
-                    let exists = core
-                        .edge_properties
-                        .get(&(a.clone(), c.clone()))
-                        .map(|props| {
-                            props.iter().any(|p| {
-                                eg_types::msgpack::decode_property_value(p)
-                                    .ok()
-                                    .and_then(|v| {
-                                        v.get("relationship")
-                                            .and_then(|t| t.as_str())
-                                            .map(|s| s.to_string())
-                                    })
-                                    == Some(inferred_prop.clone())
-                            })
-                        })
-                        .unwrap_or(false);
-
-                    if !exists {
-                        let mut fact = HashMap::new();
-                        fact.insert("subject".to_string(), a.clone());
-                        fact.insert("predicate".to_string(), inferred_prop.clone());
-                        fact.insert("object".to_string(), c.clone());
-                        fact.insert("inference_type".to_string(), "property_chain".to_string());
-                        // Corrected to "false" below if the pair turns out to already be
-                        // connected (SAFE-MODE: connect-only materialization).
-                        fact.insert("materialized".to_string(), "true".to_string());
-                        let fact_index = inferred.len();
-                        inferred.push(fact);
-                        new_edges.push((a.clone(), c.clone(), inferred_prop.clone(), fact_index));
-                    }
-                }
-            }
+        for (a, c) in chain_pairs(core, &edges_by_type, prop1, prop2, inferred_prop) {
+            let mut fact = inference_fact(&a, inferred_prop, &c, "property_chain");
+            // Corrected to "false" below if the pair turns out to already be connected
+            // (SAFE-MODE: connect-only materialization).
+            fact.insert("materialized".to_string(), "true".to_string());
+            new_edges.push((a, c, inferred_prop.clone(), inferred.len()));
+            inferred.push(fact);
         }
     }
 

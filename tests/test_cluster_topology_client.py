@@ -104,7 +104,6 @@ def _snapshot(fake: _FakeClient) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "cluster_id": cluster_id,
-        "epoch": 4,
         "membership_epoch": 4,
         "placement_epoch": 9,
         "leader": {"group_id": 0, "node_id": node_id},

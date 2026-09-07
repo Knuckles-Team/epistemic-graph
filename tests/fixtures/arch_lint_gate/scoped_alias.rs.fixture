@@ -1,0 +1,5 @@
+async fn grouped_aliases_are_blocking() {
+    let _ = fs::read("before-import.redb");
+    let _ = File::open("also-before-import.redb");
+    use std::fs::{self, File};
+}

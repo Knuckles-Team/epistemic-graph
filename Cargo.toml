@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-mutation-store", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-asr-whisper", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-viz-graph-tiles", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads", "crates/eg-tts-piper", "crates/eg-resource"]
+members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-asr-whisper", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-storage", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-viz-graph-tiles", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads", "crates/eg-tts-piper", "crates/eg-resource"]
 # D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
 # governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
 # QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
@@ -321,7 +321,7 @@ server-tls = ["server", "dep:rustls", "dep:tokio-rustls"]
 # is layered ON TOP and is itself gated on `server` (it talks to `ServerState`
 # + the Tokio dispatch). So `redb` alone (no `server`) compiles a usable durable
 # store — exactly what the EMBEDDED API drives on an edge host with no Tokio.
-redb = ["dep:redb", "dep:eg-mutation-store"]
+redb = ["dep:redb", "dep:eg-storage", "dep:eg-transaction"]
 # Streamed content-addressed BLOB substrate (CONCEPT:KG-2.206): the bytes tier
 # under multimodal `:Media`/`:Blob`. Pulls `redb` (the native CAS lives in
 # `blob.redb`) + `server` (the streaming protocol rides the Tokio transport). The
@@ -432,16 +432,11 @@ viz-gpu-export = ["viz"]
 # (acceptance gate: "the default EG listener builds and starts without ORT, eSpeak,
 # decoder, or other heavy native worker dependencies"). So, like `viz`/`durable`/
 # `quantum` above, `tts-piper` is deliberately EXCLUDED from `full` -- confirmed by
-# `cargo tree` (no ort/espeak-rs-sys hit without `--features tts-piper`). Unlike bare
-# `viz` (contracts only, no handler yet), this DOES wire a real `Method::TtsSynthesize`
-# handler (`src/server/handlers/tts.rs`), so it pulls `server` directly rather than
-# needing a separate `-static-export`-style second tier. `eg-capabilities?/tts-piper`
-# is the same WEAK-dep lockstep edge `viz` uses (Cargo `pkg?/feature` syntax), keeping
-# `policy()`'s exhaustive `Method` match in sync whenever both happen to be linked.
+# `cargo tree` (no ort/espeak-rs-sys hit without `--features tts-piper`). This feature
+# exposes only the internal provider library. No public synthesis method is served
+# until the accepted CAS-backed job/consent contract exists.
 tts-piper = [
-    "server",
     "dep:eg-tts-piper", "dep:eg-audio", "eg-audio/tts",
-    "eg-types/tts-piper", "eg-capabilities?/tts-piper",
 ]
 # D-VZ-1 lane V1: the ColumnStore (canonical columns, zone maps, content-addressed
 # chunks, validity bitmaps, dictionary categoricals) implementing `eg-viz-core`'s
@@ -499,7 +494,7 @@ viz-graph-tiles = ["viz-interactive", "dep:eg-viz-graph-tiles"]
 # -- the durable-execution ROUTING contract. `durable` links `eg-durable` alone (the
 # CallShape/WorkShape/DurableBackendKind routing table + the DurableExecutionUnitMirror
 # DTO, no journal/lease/2PC/state-store code -- those already exist in eg-statechart/
-# eg-jobs/eg-mutation-store and are not reimplemented here, see that crate's own docs).
+# eg-jobs/eg-transaction and are not reimplemented here, see that crate's own docs).
 # Deliberately EXCLUDED from `full`, same posture as `viz`/`quantum` above: DE0 ships
 # contracts only, nothing here is wired to a server handler yet, so folding it into the
 # one main build would add a dependency with zero behavior to show for it. `cargo
@@ -530,7 +525,13 @@ modality-serving = [
 asr-whisper = ["server", "dep:eg-asr-whisper", "eg-audio/asr", "eg-types/asr-native", "eg-capabilities/asr-native"]
 # Read-only SQL query surface (CONCEPT:KG-2.178). Pulls eg-query + DataFusion/Arrow
 # and is included in the one main build.
-query = ["dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query", "eg-tsdb?/arrow-seg"]
+# `redb` is REQUIRED, not incidental: RF-RULING-006 opens the SQL catalog through
+# the storage kernel, so `TableStore::open` now takes this binary's
+# `eg_storage::ScopeGrantVerifier` (`store_authority`) -- a type that only exists
+# when `dep:eg-storage` is linked, which is what the `redb` feature does. A
+# `--features query` build without it cannot name the composition root's
+# verifier, so the edge is stated here rather than left to fail at link time.
+query = ["redb", "dep:eg-query", "eg-query/sql", "dep:eg-plan", "eg-plan/query", "eg-types/query", "eg-tsdb?/arrow-seg"]
 # The one native streaming query/job result currency. Every served family adapts to
 # governed, bounded KnowledgeBatch envelopes with stable Arrow schemas.
 knowledge-batch = [
@@ -760,12 +761,12 @@ cold-tier-s3 = ["cold-tier", "blob-s3"]
 # (durability-gated LRU, reusing the KG-2.191 path) and hibernated (KG-2.224) until it
 # is back under cap, with a global memory ceiling + fair per-tenant caps so one hot
 # tenant cannot starve others. Surfaces the autoscaler-facing signals an external
-# autoscaler (agent-utilities OS-5.27) consumes via a `ResourceStats` Method + the
+# autoscaler (agent-utilities OS-5.27) consumes via `ResourceStatsPage` + the
 # Prometheus metrics endpoint. PURE-RUST (no DataFusion/openraft/object_store — the
 # enforcer is a periodic sweep over the registry + the existing evict/hibernate ops),
 # included in the one main build. Needs `server` (the
-# budget enforcer + ResourceStats handler live on ServerState + the dispatch path);
-# `eg-types/cost` carries the `ResourceStats` Method + the snapshot wire DTOs.
+# budget enforcer + ResourceStatsPage handler live on ServerState + the dispatch path);
+# `eg-types/cost` carries `ResourceStatsPage` + the snapshot wire DTOs.
 cost = ["server", "eg-types/cost"]
 # In-engine Raft replication (CONCEPT:KG-2.188): runs the engine as a multi-node
 # HA cluster replicating its AUTHORITATIVE state via openraft. It is included only in
@@ -853,7 +854,15 @@ harness = ["raft"]
 # NO pgwire/postgres-types. `pgwire` and the other SQL adapters reuse it; those adapters
 # are collected by the one main `full` build.
 wire = ["query", "server"]
-pgwire = ["dep:pgwire", "dep:futures", "query", "server", "wire"]
+pgwire = [
+    "dep:pgwire",
+    "dep:futures",
+    "dep:rustix",
+    "dep:windows-sys",
+    "query",
+    "server",
+    "wire",
+]
 # SQLite-compatible served surface (CONCEPT:EG-075) — Phase J of the multi-wire program.
 # SQLite has NO client/server wire protocol (embedded library + file format), so this is
 # a lightweight dependency-free NDJSON-over-TCP endpoint (the same hand-rolled tokio idiom
@@ -875,7 +884,13 @@ sqlite-wire = ["wire"]
 # "a spec-correct pure-Rust writer is infeasible" blocker; proved by a real-`sqlite3`
 # `PRAGMA integrity_check` differential test). Needs `query` (the TableStore) + `server`
 # (the dispatch handler); `eg-types/sqlite-file` gates the two `Method` variants.
-sqlite-file = ["query", "server", "dep:eg-sqlite-format", "eg-types/sqlite-file"]
+sqlite-file = [
+    "query",
+    "server",
+    "dep:eg-sqlite-format",
+    "dep:rustix",
+    "eg-types/sqlite-file",
+]
 # MySQL / MariaDB wire-protocol listener (CONCEPT:EG-076) — the SECOND `WireProtocol`
 # adapter (CONCEPT:EG-074), a HAND-ROLLED MySQL client/server protocol (handshake v10,
 # `mysql_native_password` auth, `COM_QUERY`/`COM_PING`/`COM_QUIT`/`COM_INIT_DB`,
@@ -1212,14 +1227,12 @@ compute = ["finance", "ast", "ast-extended", "datascience", "mining", "graphlear
 # Security is mandatory in the one main `full` build and remains present in both
 # source-built layers.
 security = ["redb", "oidc", "dep:chacha20poly1305", "eg-types/security", "eg-core/security"]
-# RLS marking-predicate export (CA-16), off by default. Declared EMPTY here by CA-17's
-# single feature-stub commit; CA-16 extends this ONE line (never any other line in this
-# table) to thread its `Method::PolicyExport` variant through in lockstep, the same
-# `eg-types/eg-capabilities` weak-dep pattern `viz`/`quantum-agent-api`/`asr-whisper`
-# already use -- see those crates' own Cargo.toml comments. Implies `security`.
+# RLS marking-predicate export (CA-16), off by default. This is one authenticated
+# HTTP implementation (`/policy/export`), not a duplicate unbound MessagePack method.
+# Implies `security` for the shared verified-identity authority.
 # Underscore, not hyphen, so the feature name and its module path
 # `src/server/policy_export/` are the same identifier.
-policy_export = ["security", "eg-types/policy_export", "eg-capabilities?/policy_export"]
+policy_export = ["security"]
 # Shared OIDC/JWKS bearer-token verification core (`src/server/oidc.rs`):
 # RSA-signature-against-JWKS, issuer/audience/expiry, Keycloak-compatible. A small,
 # dependency-bounded feature so the RSA/JWT crates are linked exactly once and reused
@@ -1430,7 +1443,6 @@ quantum-agent-api = [
 [dependencies]
 eg-resource = { path = "crates/eg-resource" }
 eg-types = { path = "crates/eg-types" }
-eg-mutation-store = { path = "crates/eg-mutation-store", optional = true }
 eg-core = { path = "crates/eg-core" }
 # The exact-performance probe is part of the digest-bound full server binary and
 # exercises the native ANN implementations directly. Keep this edge behind the
@@ -1546,7 +1558,7 @@ eg-viz-graph-tiles = { path = "crates/eg-viz-graph-tiles", optional = true }
 # D-DE-0 (feature `durable`, see that feature's own comment above): the
 # durable-execution routing contract -- CallShape/WorkShape/DurableBackendKind + the
 # DurableExecutionUnitMirror DTO. Pure serde (already resolved workspace-wide); no
-# dependency on eg-statechart/eg-jobs/eg-mutation-store -- wiring an actual call
+# dependency on eg-statechart/eg-jobs/eg-transaction -- wiring an actual call
 # through to one of those crates is DE2, not this contracts-only crate.
 eg-durable = { path = "crates/eg-durable", optional = true }
 # Clean-room graph-native LM-program contracts, deterministic kernels, and governed
@@ -1702,6 +1714,15 @@ tracing-subscriber = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
 # Durable embedded KV for the redb write-through substrate (feature `redb`).
 redb = { version = "4.1", optional = true }
+# RF-RULING-004: `eg-storage` is the SOLE physical authority that opens any
+# durable file this binary owns (every `OwnerLayout` its stores declare), and
+# `eg-transaction` is the SOLE mutation authority over them. The root binary is
+# the composition root: it mints the one `ScopeGrantVerifier`, holds the one
+# `MutationOwnerAuthority` per store, and hands domain crates only the
+# capabilities those two kernels issue. Both ride the `redb` feature because
+# that is the feature the durable substrate itself rides.
+eg-storage = { path = "crates/eg-storage", optional = true }
+eg-transaction = { path = "crates/eg-transaction", optional = true }
 # Encryption-at-rest AEAD for the redb durable value blobs (feature `security`,
 # included in the main build, CONCEPT:KG-2.231). RustCrypto ChaCha20-Poly1305 is
 # pure Rust and links no ring, OpenSSL, or C crate. Cluster builds also use the
@@ -1760,6 +1781,11 @@ pgwire = { version = "0.40", optional = true, default-features = false, features
     "server-api",
     "_ring",
 ] }
+# Race-safe TLS material opens for pgwire. `rustix` supplies typed
+# O_NOFOLLOW|O_NONBLOCK flags on Unix; `windows-sys` supplies the typed reparse
+# attribute/flag constants used by the corresponding Windows handle open.
+rustix = { version = "1.1.4", optional = true, features = ["fs"] }
+windows-sys = { version = "0.61.2", optional = true, features = ["Win32_Storage_FileSystem"] }
 # Stream/sink combinators for the pgwire DataRow result stream (feature `pgwire`).
 futures = { version = "0.3", optional = true }
 # SHA-1 digest for the hand-rolled MySQL `mysql_native_password` auth exchange

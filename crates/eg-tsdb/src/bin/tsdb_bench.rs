@@ -7,7 +7,8 @@
 use std::time::Instant;
 
 use eg_tsdb::query::{asof_join_backward, decay_weighted_mean, gap_fill_locf, time_bucket, Agg};
-use eg_tsdb::store::{Point, SeriesStore};
+use eg_tsdb::dev_scope_grant::open_dev_store;
+use eg_tsdb::store::Point;
 
 const NS: i64 = 1_000_000_000;
 
@@ -24,7 +25,7 @@ fn main() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("ts.redb");
-    let store = SeriesStore::open(&path).unwrap();
+    let store = open_dev_store(&path).unwrap();
 
     let bucket_ns = bucket_secs * NS as u64;
     // 1 point per second of wall-clock; field0 = a noisy ramp.

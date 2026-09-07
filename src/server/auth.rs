@@ -33,6 +33,7 @@
 //! defaults into that downgrade; an operator must type it.
 
 use crate::acl::{AgentRole, RequestContextClaims};
+use crate::server::request_replay::{durable_replay_ledger, ReplayLedger};
 use crate::protocol::{
     build_context_operation_signature_bytes, build_envelope_v2_bytes, Method, Request,
 };
@@ -43,7 +44,6 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::collections::{BTreeMap, HashSet};
 #[cfg(any(test, feature = "security"))]
-use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -852,7 +852,7 @@ fn warn_absent_node_claim_once(principal: &str) {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EnvelopeV2 {
+struct Envelope {
     context: RequestContextClaims,
     timestamp: u64,
     nonce: String,
@@ -916,7 +916,7 @@ pub fn compute_verified_envelope_token(
     let Some(mac) = envelope_v2_mac(secret, req, params) else {
         return String::new();
     };
-    let envelope = EnvelopeV2 {
+    let envelope = Envelope {
         context: params.context.clone(),
         timestamp: params.timestamp,
         nonce: params.nonce.to_string(),
@@ -924,7 +924,7 @@ pub fn compute_verified_envelope_token(
         // This reference signer does not carry an OIDC assertion; every one of
         // its ~20 call sites across the codebase mints envelopes for HMAC-only
         // deployments/tests. A caller that needs `oidc_token` bound in builds
-        // its own `EnvelopeV2`-shaped envelope (see auth.rs's own OIDC binding
+        // its own `Envelope`-shaped envelope (see auth.rs's own OIDC binding
         // tests) rather than this general-purpose reference implementation.
         oidc_token: None,
         mac: hex::encode(mac.finalize().into_bytes()),
@@ -1083,7 +1083,7 @@ fn sign_test_request_with_context(
     request
 }
 
-fn decode_envelope_v2(req: &Request) -> Result<EnvelopeV2, String> {
+fn decode_envelope(req: &Request) -> Result<Envelope, String> {
     let hex_json = req
         .auth_token
         .strip_prefix(ENVELOPE_V2_PREFIX)
@@ -1185,208 +1185,6 @@ fn validate_context_claims(
     }
 
     Ok(())
-}
-
-/// Replay ledger used after a request MAC, time window, and policy claims have
-/// verified. The production adapter is durable and commits before dispatch.
-trait ReplayLedger: Send + Sync {
-    /// Atomically record a nonce. `Ok(false)` means it was already present.
-    fn check_and_record(&self, nonce: &str, now: u64, window: u64) -> Result<bool, String>;
-}
-
-#[cfg(test)]
-struct ReplayCache {
-    seen: Mutex<HashMap<String, u64>>,
-}
-
-/// Hard cap on cached nonces — bounds memory under a misconfigured
-/// (excessively large) skew window or a deliberate nonce-flood attempt.
-#[cfg(test)]
-const MAX_REPLAY_ENTRIES: usize = 200_000;
-
-#[cfg(test)]
-impl ReplayCache {
-    /// Returns `true` if `nonce` is accepted (not seen before within the
-    /// retention horizon); `false` if it is a replay. Always prunes entries
-    /// older than `2 * window` first (anything older could never pass the
-    /// timestamp-skew check anyway, so retaining it further gains nothing).
-    fn check_and_record_memory(&self, nonce: &str, now: u64, window: u64) -> bool {
-        let mut seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
-        let cutoff = now.saturating_sub(window.saturating_mul(2));
-        seen.retain(|_, ts| *ts >= cutoff);
-        if seen.contains_key(nonce) {
-            return false;
-        }
-        if seen.len() >= MAX_REPLAY_ENTRIES {
-            // Extremely defensive fallback for a pathological configuration
-            // that outpaces normal pruning: drop the older half rather than
-            // growing without bound.
-            let mut entries: Vec<(String, u64)> = seen.drain().collect();
-            entries.sort_by_key(|(_, ts)| *ts);
-            let keep_from = entries.len() / 2;
-            seen.extend(entries.into_iter().skip(keep_from));
-        }
-        seen.insert(nonce.to_string(), now);
-        true
-    }
-}
-
-#[cfg(test)]
-impl ReplayLedger for ReplayCache {
-    fn check_and_record(&self, nonce: &str, now: u64, window: u64) -> Result<bool, String> {
-        Ok(self.check_and_record_memory(nonce, now, window))
-    }
-}
-
-#[cfg(feature = "security")]
-const REPLAY_TABLE: redb::TableDefinition<&str, u64> =
-    redb::TableDefinition::new("verified_request_replay_v2");
-
-/// Durable replay adapter used by secure mode.  A successful insert is
-/// committed with immediate durability before the request is dispatched, so a
-/// process restart cannot make a previously accepted nonce usable again.
-///
-/// **KNOWN GAP — per-node only, NOT replicated across a `cluster`/`raft`
-/// deployment** (tracked in `reports/seam-identity-closure.md`, "Raft
-/// replay-ledger replication" section; called out by
-/// `reports/seam-closure-audit-2026-07-22.md`'s Identity row). This ledger is
-/// a local `redb` table scoped to ONE node's `EPISTEMIC_GRAPH_SECURITY_STATE_DIR`.
-/// It is checked entirely BEFORE any Raft/consensus code runs (see
-/// `dispatch_inner` in `server/dispatch.rs`, which calls
-/// `verify_request_with_security_dir` — and therefore this ledger — before
-/// any `#[cfg(feature = "raft")]` code executes). In a hypothetical
-/// multi-node `cluster` deployment, a captured, still-signature-valid signed
-/// envelope COULD be replayed once against every node independently within
-/// the clock-skew window (`envelope_skew_secs()`, default 300s), because each
-/// node's `seen`-nonce set is disjoint. Closing this requires routing the
-/// nonce check-and-record through the SAME Raft-log consensus path ordinary
-/// mutations use (`crate::raft::ReplicatedMutation` / `NativeMutationCommand`
-/// in `src/raft/mod.rs`) rather than a purely local pre-check — a genuine new
-/// integration point on the hot path of EVERY authenticated request
-/// (including reads), not merely "replicate existing state." As of this
-/// writing the homelab's production `epistemic-graph` deployment does not run
-/// the `cluster`/`raft` feature at all (the default/`full` build links no
-/// `openraft`; see this crate's `Cargo.toml` `cluster` feature and the seam
-/// audit's Placement-seam finding), so this gap is not currently exploitable
-/// in production — but MUST be closed before any multi-node `cluster` rollout.
-#[cfg(feature = "security")]
-struct RedbReplayLedger {
-    db: redb::Database,
-    last_prune: Mutex<u64>,
-}
-
-#[cfg(feature = "security")]
-impl RedbReplayLedger {
-    fn open(dir: &std::path::Path) -> Result<Self, String> {
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("could not create security state directory: {e}"))?;
-        let path = dir.join("request-replay.redb");
-        let db = redb::Database::create(path)
-            .map_err(|e| format!("could not open durable replay ledger: {e}"))?;
-        let wtx = db
-            .begin_write()
-            .map_err(|e| format!("could not initialize durable replay ledger: {e}"))?;
-        wtx.open_table(REPLAY_TABLE)
-            .map_err(|e| format!("could not initialize durable replay table: {e}"))?;
-        wtx.commit()
-            .map_err(|e| format!("could not commit durable replay table: {e}"))?;
-        Ok(RedbReplayLedger {
-            db,
-            last_prune: Mutex::new(0),
-        })
-    }
-}
-
-#[cfg(feature = "security")]
-impl ReplayLedger for RedbReplayLedger {
-    fn check_and_record(&self, nonce: &str, now: u64, window: u64) -> Result<bool, String> {
-        use redb::ReadableTable;
-
-        let should_prune = {
-            let mut last = self.last_prune.lock().unwrap_or_else(|e| e.into_inner());
-            if now.saturating_sub(*last) >= window {
-                *last = now;
-                true
-            } else {
-                false
-            }
-        };
-        let mut wtx = self
-            .db
-            .begin_write()
-            .map_err(|e| format!("durable replay transaction failed: {e}"))?;
-        wtx.set_durability(redb::Durability::Immediate)
-            .map_err(|e| format!("durable replay configuration failed: {e}"))?;
-        {
-            let mut table = wtx
-                .open_table(REPLAY_TABLE)
-                .map_err(|e| format!("durable replay table failed: {e}"))?;
-            if should_prune {
-                let cutoff = now.saturating_sub(window.saturating_mul(2));
-                let mut expired = Vec::new();
-                for row in table
-                    .iter()
-                    .map_err(|e| format!("durable replay scan failed: {e}"))?
-                {
-                    let (key, timestamp) =
-                        row.map_err(|e| format!("durable replay row failed: {e}"))?;
-                    if timestamp.value() < cutoff {
-                        expired.push(key.value().to_string());
-                    }
-                }
-                for key in expired {
-                    table
-                        .remove(key.as_str())
-                        .map_err(|e| format!("durable replay prune failed: {e}"))?;
-                }
-            }
-            if table
-                .get(nonce)
-                .map_err(|e| format!("durable replay lookup failed: {e}"))?
-                .is_some()
-            {
-                return Ok(false);
-            }
-            table
-                .insert(nonce, now)
-                .map_err(|e| format!("durable replay insert failed: {e}"))?;
-        }
-        wtx.commit()
-            .map_err(|e| format!("durable replay commit failed: {e}"))?;
-        Ok(true)
-    }
-}
-
-#[cfg(all(feature = "security", not(test)))]
-fn durable_replay_ledger(state_dir: Option<&str>) -> Result<&'static RedbReplayLedger, String> {
-    static LEDGER: OnceLock<Result<RedbReplayLedger, String>> = OnceLock::new();
-    match LEDGER.get_or_init(|| {
-        let dir = std::env::var("EPISTEMIC_GRAPH_SECURITY_STATE_DIR")
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .or_else(|| state_dir.map(str::to_string))
-            .ok_or_else(|| {
-                "secure request context requires EPISTEMIC_GRAPH_SECURITY_STATE_DIR or a persist directory".to_string()
-            })?;
-        RedbReplayLedger::open(std::path::Path::new(&dir))
-    }) {
-        Ok(ledger) => Ok(ledger),
-        Err(message) => Err(message.clone()),
-    }
-}
-
-#[cfg(all(not(feature = "security"), not(test)))]
-fn durable_replay_ledger(_state_dir: Option<&str>) -> Result<&'static dyn ReplayLedger, String> {
-    Err("secure request context requires the security feature".to_string())
-}
-
-#[cfg(test)]
-fn durable_replay_ledger(_state_dir: Option<&str>) -> Result<&'static dyn ReplayLedger, String> {
-    static LEDGER: OnceLock<ReplayCache> = OnceLock::new();
-    Ok(LEDGER.get_or_init(|| ReplayCache {
-        seen: Mutex::new(HashMap::new()),
-    }))
 }
 
 /// Parse a boolean-ish deployment flag from the environment. Unset or any
@@ -1684,7 +1482,7 @@ fn verify_envelope_v2_with(
     policy: &RequestContextPolicy,
     replay: &dyn ReplayLedger,
 ) -> Result<VerifiedRequestContext, String> {
-    let envelope = decode_envelope_v2(req)?;
+    let envelope = decode_envelope(req)?;
     let got_mac = hex::decode(&envelope.mac).map_err(|_| "Authentication failed".to_string())?;
     let params = VerifiedEnvelopeParams {
         context: &envelope.context,
@@ -2455,9 +2253,9 @@ mod tests {
         }
     }
 
-    fn memory_replay() -> ReplayCache {
-        ReplayCache {
-            seen: Mutex::new(HashMap::new()),
+    fn memory_replay() -> crate::server::request_replay::ReplayCache {
+        crate::server::request_replay::ReplayCache {
+            seen: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -2477,7 +2275,7 @@ mod tests {
         req
     }
 
-    fn signed_v2(id: u64, nonce: &str) -> Request {
+    fn signed(id: u64, nonce: &str) -> Request {
         signed_v2_with_claims(id, nonce, verified_claims())
     }
 
@@ -2489,7 +2287,7 @@ mod tests {
         // envelope). See `oidc_binding` below for the identity-binding
         // security tests.
         let _opt_out = require_oidc_off();
-        let req = signed_v2(501, "v2-context-ok");
+        let req = signed(501, "v2-context-ok");
         let context =
             verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
         assert_eq!(context.agent_id(), "agent:planner");
@@ -2597,7 +2395,7 @@ mod tests {
 
     #[test]
     fn v2_rejects_request_agent_that_conflicts_with_signed_context() {
-        let mut req = signed_v2(502, "v2-agent-mismatch");
+        let mut req = signed(502, "v2-agent-mismatch");
         req.agent_id = Some("agent:attacker".into());
         let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
             .unwrap_err();
@@ -2640,7 +2438,7 @@ mod tests {
         // a plain HMAC envelope (no `oidc_token`), so it deliberately opts
         // out of the mandatory-OIDC posture.
         let _opt_out = require_oidc_off();
-        let req = signed_v2(503, "v2-replay");
+        let req = signed(503, "v2-replay");
         let replay = memory_replay();
         verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap();
         let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap_err();
@@ -2691,7 +2489,7 @@ mod tests {
     fn v2_priority_claim_round_trips_through_verification() {
         let _opt_out = require_oidc_off();
         // Absent priority ⇒ None (an un-upgraded client is unaffected).
-        let plain = signed_v2(540, "v2-prio-absent");
+        let plain = signed(540, "v2-prio-absent");
         let ctx_plain =
             verify_envelope_v2_with(SECRET, &plain, &verified_policy(), &memory_replay()).unwrap();
         assert_eq!(ctx_plain.priority(), None);
@@ -2718,7 +2516,7 @@ mod tests {
         // trying to jump to the interactive lane WITHOUT re-signing (it holds no
         // signing secret). The MAC no longer covers the mutated claim, so
         // verification must fail — the noisy-neighbor defense cannot be forged.
-        let mut envelope = decode_envelope_v2(&req).unwrap();
+        let mut envelope = decode_envelope(&req).unwrap();
         assert_eq!(
             envelope.context.priority.as_deref(),
             Some("background_ingestion")
@@ -3393,7 +3191,7 @@ mod tests {
             let mac = envelope_v2_mac(SECRET, &req, &params).unwrap();
             let timestamp = params.timestamp;
             let idempotency_key = params.idempotency_key.to_string();
-            let envelope = EnvelopeV2 {
+            let envelope = Envelope {
                 context: claims,
                 timestamp,
                 nonce: nonce.to_string(),

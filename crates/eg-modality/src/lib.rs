@@ -100,8 +100,8 @@ pub use native::{
 pub use provenance::Provenance;
 pub use registry::{register_modality, registered_modalities, ModalityDescriptor};
 pub use rows::{
-    events_are_contiguous, ChunkManifestV1, ModalityEventV1, ModalityRow, ModalityRowOperation,
-    RowKey, RowSchemaError, MODALITY_ARTIFACT, MODALITY_CHUNK_MANIFEST, MODALITY_EVENT,
+    events_are_contiguous, ChunkManifest, ModalityEvent, ModalityRow, ModalityRowOperation, RowKey,
+    RowSchemaError, MODALITY_ARTIFACT, MODALITY_CHUNK_MANIFEST, MODALITY_EVENT,
     MODALITY_EVIDENCE_LOCUS, MODALITY_FEATURE, MODALITY_IDEMPOTENCY, MODALITY_INDEX_POSTING,
     MODALITY_OCCURRENCE, MODALITY_PROJECTION_CURSOR, MODALITY_RENDITION,
     MODALITY_ROW_SCHEMA_VERSION, MODALITY_ROW_TABLES, MODALITY_SEGMENT,

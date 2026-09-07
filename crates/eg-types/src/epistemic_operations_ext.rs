@@ -41,6 +41,7 @@ where
 /// authenticated request context and the live WorkItem row; callers provide
 /// only the opaque WorkItem identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum WorkItemClaimCapabilityRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -83,6 +84,7 @@ pub enum WorkItemClaimCapabilityDecision {
 /// authority are deliberately absent: only the engine can derive them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct WorkItemClaimCapabilityMintRequest {
     pub schema_version: WorkItemClaimCapabilityRequestSchemaVersion,
     pub work_item_id: String,
@@ -92,9 +94,11 @@ pub struct WorkItemClaimCapabilityMintRequest {
 /// public DTO can reconstruct authority from owner/epoch/fence/attempt fields.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct WorkItemClaimCapabilityVerifyRequest {
     pub schema_version: WorkItemClaimCapabilityRequestSchemaVersion,
     pub work_item_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
     #[serde(with = "serde_bytes")]
     pub capability: Vec<u8>,
 }
@@ -131,6 +135,7 @@ pub struct WorkItemClaimCapabilityResult {
 // instead of an unconditional refusal.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CasWorkItemMetadataRequestSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -171,6 +176,7 @@ pub enum CasWorkItemMetadataOutcome {
 /// instead.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CasWorkItemMetadataLeaseFence {
     pub worker_ref: String,
     pub lease_epoch: u64,
@@ -186,6 +192,7 @@ pub struct CasWorkItemMetadataLeaseFence {
 /// exact status set the row must currently be in.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CasWorkItemMetadataRequest {
     pub schema_version: CasWorkItemMetadataRequestSchemaVersion,
     pub tenant_ref: String,

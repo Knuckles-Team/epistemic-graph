@@ -1473,13 +1473,15 @@ mod tests {
             confirmed: true,
             duplicate: false,
             delivered: 1,
-        });
+        })
+        .unwrap();
         assert!(decode_confirmed(&confirmed));
         let nacked = ResultPayload::raw(&crate::broker::IdempotentPublish {
             confirmed: false,
             duplicate: false,
             delivered: 0,
-        });
+        })
+        .unwrap();
         assert!(!decode_confirmed(&nacked));
     }
 }

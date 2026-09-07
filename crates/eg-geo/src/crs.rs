@@ -23,7 +23,7 @@
 //! tolerates.
 
 use crate::geodesic::{WGS84_A, WGS84_F};
-use crate::geometry::{Geometry, LineString, Point, Polygon};
+use crate::geometry::{Geometry, Point};
 
 /// A Coordinate Reference System, identified by its EPSG code (CONCEPT:EG-KG.domains.coordinate-reference-system).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -107,50 +107,9 @@ pub fn reproject(geom: &Geometry, from: Crs, to: Crs) -> Result<Geometry, String
     if !to.is_supported() {
         return Err(format!("unsupported target CRS EPSG:{}", to.epsg));
     }
-    map_coords(geom, &|p| {
+    geom.try_map_points(&|p| {
         let ll = to_wgs84(p, from)?; // any → 4326 (lon/lat degrees)
         from_wgs84(&ll, to) // 4326 → any
-    })
-}
-
-/// Apply a fallible per-coordinate transform to every vertex of a geometry, rebuilding
-/// the same structure (CONCEPT:EG-KG.domains.coordinate-reference-system).
-fn map_coords(
-    g: &Geometry,
-    f: &impl Fn(&Point) -> Result<Point, String>,
-) -> Result<Geometry, String> {
-    let line = |l: &LineString| -> Result<LineString, String> {
-        Ok(LineString::new(
-            l.points.iter().map(f).collect::<Result<Vec<_>, _>>()?,
-        ))
-    };
-    let poly = |pg: &Polygon| -> Result<Polygon, String> {
-        Ok(Polygon::new(
-            line(&pg.exterior)?,
-            pg.interiors
-                .iter()
-                .map(line)
-                .collect::<Result<Vec<_>, _>>()?,
-        ))
-    };
-    Ok(match g {
-        Geometry::Point(p) => Geometry::Point(f(p)?),
-        Geometry::LineString(l) => Geometry::LineString(line(l)?),
-        Geometry::Polygon(pg) => Geometry::Polygon(poly(pg)?),
-        Geometry::MultiPoint(ps) => {
-            Geometry::MultiPoint(ps.iter().map(f).collect::<Result<Vec<_>, _>>()?)
-        }
-        Geometry::MultiLineString(ls) => {
-            Geometry::MultiLineString(ls.iter().map(&line).collect::<Result<Vec<_>, _>>()?)
-        }
-        Geometry::MultiPolygon(pgs) => {
-            Geometry::MultiPolygon(pgs.iter().map(&poly).collect::<Result<Vec<_>, _>>()?)
-        }
-        Geometry::GeometryCollection(gs) => Geometry::GeometryCollection(
-            gs.iter()
-                .map(|g| map_coords(g, f))
-                .collect::<Result<Vec<_>, _>>()?,
-        ),
     })
 }
 
@@ -315,6 +274,7 @@ pub fn utm_to_wgs84(p: &Point, zone: u32, north: bool) -> Point {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::LineString;
 
     fn approx(a: f64, b: f64, tol: f64, what: &str) {
         assert!((a - b).abs() < tol, "{what}: {a} vs {b} (tol {tol})");

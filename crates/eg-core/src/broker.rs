@@ -568,33 +568,8 @@ fn f_u64(o: &serde_json::Map<String, serde_json::Value>, k: &str) -> Option<u64>
     o.get(k).and_then(|v| v.as_u64())
 }
 
-/// A claim candidate distilled from a scanned message node.
-struct Candidate {
-    id: String,
-    priority: i64,
-    seq: i64,
-    status: String,
-    lease_until: Option<u64>,
-}
-
-/// Total order for the claim pick (CONCEPT:EG-KG.compute.priority-queues): highest priority first, then
-/// oldest seq (FIFO within a band), ties broken by id for determinism. Returns the
-/// preferred of `a` (incumbent) and `b` (challenger).
-fn prefer(a: Option<Candidate>, b: Candidate) -> Option<Candidate> {
-    match a {
-        None => Some(b),
-        Some(cur) => {
-            let b_wins = b.priority > cur.priority
-                || (b.priority == cur.priority && b.seq < cur.seq)
-                || (b.priority == cur.priority && b.seq == cur.seq && b.id < cur.id);
-            if b_wins {
-                Some(b)
-            } else {
-                Some(cur)
-            }
-        }
-    }
-}
+mod consume_scan;
+use consume_scan::{dead_letter_expired, scan_queue};
 
 /// Consume one message from `queue` for a consumer-group member (CONCEPT:EG-KG.compute.groups-qos-prefetch-honoring
 /// groups + QoS/prefetch), honoring EG-277 TTL / EG-278 priority / EG-279 delay.
@@ -620,78 +595,16 @@ pub fn broker_consume(
     // Bounded retry: dead-letter lazily-found expired messages then re-scan; retry a
     // lost CAS race. The pool only shrinks per iteration, so this terminates.
     for _ in 0..64 {
-        let rows = core.get_nodes_by_label(&label, 0);
-        let mut inflight: u32 = 0;
-        let mut best: Option<Candidate> = None;
-        let mut expired: Vec<String> = Vec::new();
-        for (id, blob) in &rows {
-            let Ok(v) = decode_property(blob) else {
-                continue;
-            };
-            let Some(obj) = v.as_object() else { continue };
-            let status = f_str(obj, "status");
-            let lease_until = f_u64(obj, "lease_until");
-            let mut reclaimable = false;
-            match status {
-                "claimed" => {
-                    // A live (unexpired) lease is held by someone → not claimable.
-                    let leased = lease_until.map(|l| l > now_ms).unwrap_or(true);
-                    if leased {
-                        if f_str(obj, "owner_consumer") == consumer {
-                            inflight += 1;
-                        }
-                        continue;
-                    }
-                    // Lease expired (EG-280) → this message returns to the pool.
-                    reclaimable = true;
-                }
-                "pending" => {}
-                _ => continue, // done / unknown → not claimable
-            }
-            // EG-277: expired → collect for lazy dead-lettering, never deliver.
-            if let Some(ea) = f_u64(obj, "expires_at") {
-                if ea <= now_ms {
-                    expired.push(id.clone());
-                    continue;
-                }
-            }
-            // EG-279: not yet due → skip (still non-claimable until its eta).
-            if let Some(da) = f_u64(obj, "deliver_at") {
-                if da > now_ms {
-                    continue;
-                }
-            }
-            let cand = Candidate {
-                id: id.clone(),
-                priority: f_i64(obj, "priority", 0),
-                seq: f_i64(obj, "seq", i64::MAX),
-                status: if reclaimable {
-                    "claimed".into()
-                } else {
-                    "pending".into()
-                },
-                lease_until,
-            };
-            best = prefer(best, cand);
-        }
-        // Lazy dead-letter of expired messages (EG-277), id-sorted so DLQ seq order is
-        // deterministic across replay, then re-scan.
-        if !expired.is_empty() {
-            expired.sort();
-            for id in expired {
-                if let Some(props) = core.get_node_properties(&id) {
-                    if let Ok(v) = decode_property(&props) {
-                        dead_letter(core, queue, &id, &v, "expired", now_ms);
-                    }
-                }
-            }
+        let scan = scan_queue(core, &label, consumer, now_ms);
+        if !scan.expired.is_empty() {
+            dead_letter_expired(core, queue, scan.expired, now_ms);
             continue;
         }
         // EG-280: per-consumer prefetch ceiling.
-        if prefetch > 0 && inflight >= prefetch {
+        if prefetch > 0 && scan.inflight >= prefetch {
             return None;
         }
-        let cand = best?;
+        let cand = scan.best?;
         // The scan is advisory. The core revalidates it and performs reclaim-tag
         // retirement, counter allocation, message stamping, and lookup creation in
         // one topology transaction, so no stale delivery generation is observable.

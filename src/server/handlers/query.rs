@@ -37,6 +37,19 @@ use crate::server::access::GraphReadAuthority;
 #[cfg(feature = "result-cache")]
 use eg_core::result_cache::ResultCache;
 
+#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
+fn raw_result_bytes<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, String> {
+    let ResultPayload::Raw(bytes) = ResultPayload::raw(value)? else {
+        unreachable!("ResultPayload::raw always constructs the Raw variant")
+    };
+    Ok(bytes)
+}
+
+#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
+fn raw_response<T: serde::Serialize>(req_id: u64, value: &T) -> Response {
+    Response::ok(req_id, ResultPayload::raw(value))
+}
+
 /// Verify that Cypher's explicit wire mode agrees with the native parser.
 ///
 /// The mode is an authorization and durability claim, not a parser hint. Callers
@@ -380,7 +393,7 @@ pub(crate) fn try_handle_with_policy<'a>(
     ctx: super::TryHandleContext<'a>,
     core: Arc<GraphCore>,
     query: PolicyAwareQuery,
-    policy_lease: &'a Arc<crate::isolation::GraphPolicyLease>,
+    policy_lease: &'a Arc<crate::isolation::PolicyDecisionLease>,
     rls: &'a Arc<crate::isolation::IsolationLayer>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, String>> + Send + 'a>> {
     Box::pin(try_handle_with_policy_inner(
@@ -393,7 +406,7 @@ pub(crate) fn try_handle_with_policy<'a>(
     ))
 }
 
-/// A build without `security` has no `GraphPolicyLease` to bind — and every
+/// A build without `security` has no `PolicyDecisionLease` to bind — and every
 /// production caller of this function is itself gated `feature = "security"`
 /// upstream (`KnowledgeStreamAuthority::validate_request_binding` denies
 /// unconditionally without it, mod.rs). This arm exists purely so
@@ -419,7 +432,7 @@ async fn try_handle_with_policy_inner(
     ctx: super::TryHandleContext<'_>,
     core: Arc<GraphCore>,
     query: PolicyAwareQuery,
-    policy_lease: &Arc<crate::isolation::GraphPolicyLease>,
+    policy_lease: &Arc<crate::isolation::PolicyDecisionLease>,
     rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<Response, String> {
     let super::TryHandleContext {
@@ -470,7 +483,7 @@ struct LeaseQueryCtx<'a> {
     read_authority: Option<&'a GraphReadAuthority>,
     caller: &'a str,
     core: &'a Arc<GraphCore>,
-    policy_lease: &'a Arc<crate::isolation::GraphPolicyLease>,
+    policy_lease: &'a Arc<crate::isolation::PolicyDecisionLease>,
     store: &'a dyn eg_core::rbac_persist::RbacPolicyStore,
 }
 
@@ -489,7 +502,7 @@ struct LeaseQueryCtx<'a> {
 #[cfg(all(feature = "query", feature = "security"))]
 fn lease_filtered_snapshot(
     core: &Arc<GraphCore>,
-    lease: &Arc<crate::isolation::GraphPolicyLease>,
+    lease: &Arc<crate::isolation::PolicyDecisionLease>,
     store: &dyn eg_core::rbac_persist::RbacPolicyStore,
 ) -> Result<(Arc<crate::graph::GraphView>, u64), String> {
     // `version` is read before the snapshot, the same "safe LOWER BOUND"
@@ -503,7 +516,7 @@ fn lease_filtered_snapshot(
     let mut view = core.analysis_snapshot();
     lease
         .filter_view(store, &mut view)
-        .map_err(|_| "KnowledgeStream graph policy lease is stale".to_string())?;
+        .map_err(|_| "KnowledgeStream policy decision lease is stale".to_string())?;
     Ok((Arc::new(view), version))
 }
 
@@ -578,18 +591,16 @@ async fn handle_sql_with_lease(
     })
     .await
     {
-        Ok(Ok(typed)) => {
-            let result = crate::protocol::QueryResult {
-                columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
-                rows: typed
-                    .rows
-                    .iter()
-                    .map(|r| rmp_serde::to_vec_named(r).unwrap_or_default())
-                    .collect(),
-            };
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(typed)) => match typed.rows.iter().map(raw_result_bytes).collect() {
+            Ok(rows) => raw_response(
+                req_id,
+                &crate::protocol::QueryResult {
+                    columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                    rows,
+                },
+            ),
+            Err(error) => Response::err(req_id, error),
+        },
         Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
         Err(resp) => resp,
     };
@@ -631,10 +642,7 @@ async fn handle_unified_query_text_with_lease(
     )
     .await
     {
-        Ok(Ok(rows)) => {
-            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(rows)) => raw_response(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     };
@@ -805,18 +813,16 @@ async fn handle_sql(
             })
             .await
             {
-                Ok(Ok(typed)) => {
-                    let result = crate::protocol::QueryResult {
-                        columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
-                        rows: typed
-                            .rows
-                            .iter()
-                            .map(|r| rmp_serde::to_vec_named(r).unwrap_or_default())
-                            .collect(),
-                    };
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
+                Ok(Ok(typed)) => match typed.rows.iter().map(raw_result_bytes).collect() {
+                    Ok(rows) => raw_response(
+                        req_id,
+                        &crate::protocol::QueryResult {
+                            columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                            rows,
+                        },
+                    ),
+                    Err(error) => Response::err(req_id, error),
+                },
                 Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
                 Err(resp) => resp,
             };
@@ -863,7 +869,10 @@ async fn handle_unified_query(
     let dep = plan_dependency_set(&plan);
     #[cfg(feature = "result-cache")]
     let (snap, version, hash) = {
-        let mut payload = rmp_serde::to_vec_named(&plan).unwrap_or_default();
+        let mut payload = match raw_result_bytes(&plan) {
+            Ok(payload) => payload,
+            Err(error) => return Ok(Response::err(req_id, error)),
+        };
         #[cfg(feature = "tsdb")]
         if let Some((tenant, graph)) = tsdb_scope.as_ref() {
             payload.extend_from_slice(tenant.as_bytes());
@@ -937,20 +946,22 @@ async fn handle_unified_query(
     )
     .await
     {
-        Ok(Ok(rows)) => {
-            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-            #[cfg(feature = "result-cache")]
-            match &dep {
-                // Dependency-scoped store: computed against `version`, tagged with the
-                // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
-                Some(deps) => {
-                    core.result_cache()
-                        .put_dep(hash, 0, version, deps.clone(), bytes.clone())
+        Ok(Ok(rows)) => match raw_result_bytes(&rows) {
+            Ok(bytes) => {
+                #[cfg(feature = "result-cache")]
+                match &dep {
+                    // Dependency-scoped store: computed against `version`, tagged with the
+                    // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
+                    Some(deps) => {
+                        core.result_cache()
+                            .put_dep(hash, 0, version, deps.clone(), bytes.clone())
+                    }
+                    None => core.result_cache().put(hash, version, bytes.clone()),
                 }
-                None => core.result_cache().put(hash, version, bytes.clone()),
+                Response::ok(req_id, ResultPayload::Raw(bytes))
             }
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+            Err(error) => Response::err(req_id, error),
+        },
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     };
@@ -1052,20 +1063,22 @@ async fn handle_unified_query_text(
     )
     .await
     {
-        Ok(Ok(rows)) => {
-            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-            #[cfg(feature = "result-cache")]
-            match &dep {
-                // Dependency-scoped store: computed against `version`, tagged with the
-                // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
-                Some(deps) => {
-                    core.result_cache()
-                        .put_dep(hash, 0, version, deps.clone(), bytes.clone())
+        Ok(Ok(rows)) => match raw_result_bytes(&rows) {
+            Ok(bytes) => {
+                #[cfg(feature = "result-cache")]
+                match &dep {
+                    // Dependency-scoped store: computed against `version`, tagged with the
+                    // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
+                    Some(deps) => {
+                        core.result_cache()
+                            .put_dep(hash, 0, version, deps.clone(), bytes.clone())
+                    }
+                    None => core.result_cache().put(hash, version, bytes.clone()),
                 }
-                None => core.result_cache().put(hash, version, bytes.clone()),
+                Response::ok(req_id, ResultPayload::Raw(bytes))
             }
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+            Err(error) => Response::err(req_id, error),
+        },
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     };
@@ -1103,10 +1116,7 @@ async fn handle_explain_plan(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainPlan error: {msg}")),
         Err(resp) => resp,
     };
@@ -1140,10 +1150,7 @@ async fn handle_explain_provenance(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenance error: {msg}")),
         Err(resp) => resp,
     };
@@ -1176,10 +1183,7 @@ async fn handle_explain_provenance_by_ids(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenanceByIds error: {msg}")),
         Err(resp) => resp,
     };
@@ -1217,10 +1221,7 @@ async fn handle_explain_policy(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainPolicy error: {msg}")),
         Err(resp) => resp,
     };
@@ -1248,10 +1249,7 @@ async fn handle_explain_belief(
     let rls = rls.clone();
     let resp = match disclosure_level {
         None => match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
-            Ok(result) => {
-                let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                Response::ok(req_id, ResultPayload::Raw(bytes))
-            }
+            Ok(result) => raw_response(req_id, &result),
             Err(resp) => resp,
         },
         Some(cap) => {
@@ -1260,10 +1258,7 @@ async fn handle_explain_belief(
             })
             .await
             {
-                Ok(result) => {
-                    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                    Response::ok(req_id, ResultPayload::Raw(bytes))
-                }
+                Ok(result) => raw_response(req_id, &result),
                 Err(resp) => resp,
             }
         }
@@ -1293,10 +1288,7 @@ async fn handle_explain_belief(
     }
     let snap = core.analysis_snapshot();
     let resp = match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
-        Ok(result) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(result) => raw_response(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1313,10 +1305,7 @@ async fn handle_epistemic_status(
     let snap = core.analysis_snapshot();
     let resp = match compute_off_lock(req_id, move || epistemic_status_wire(&node_id, &snap)).await
     {
-        Ok(result) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(result) => raw_response(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1335,10 +1324,7 @@ async fn handle_what_changed(
     let snap = core.analysis_snapshot();
     let resp =
         match compute_off_lock(req_id, move || what_changed_wire(&snap, tx_from, tx_to)).await {
-            Ok(result) => {
-                let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-                Response::ok(req_id, ResultPayload::Raw(bytes))
-            }
+            Ok(result) => raw_response(req_id, &result),
             Err(resp) => resp,
         };
     Ok(resp)
@@ -1410,8 +1396,10 @@ async fn handle_recompute_materialization(
             fence_epoch: 0,
             projection_pending: true,
         };
-        let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-        let payload = ResultPayload::Raw(bytes.clone());
+        let payload = match ResultPayload::raw(&result) {
+            Ok(payload) => payload,
+            Err(error) => return Ok(Response::err(req_id, error)),
+        };
         let batch_id = crate::server::mutation_batch::opaque_request_key(
             "reasoning-recompute",
             graph_name,
@@ -1432,7 +1420,7 @@ async fn handle_recompute_materialization(
         {
             return Ok(Response::err(req_id, error));
         }
-        return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+        return Ok(Response::ok(req_id, payload));
     }
     let authoritative_graph_version = core.version();
     let snap = core.analysis_snapshot();
@@ -1441,11 +1429,13 @@ async fn handle_recompute_materialization(
         match crate::server::reasoning_projection::recompute_materialization(
             persist_dir.as_deref(),
             graph_name,
-            &snap,
+            snap,
             authoritative_graph_version,
             &derived_id,
             expected_source_graph_version,
-        ) {
+        )
+        .await
+        {
             Ok(value) => value,
             Err(error) => return Ok(Response::err(req_id, error)),
         };
@@ -1458,8 +1448,7 @@ async fn handle_recompute_materialization(
         fence_epoch,
         projection_pending: false,
     };
-    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-    Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+    Ok(raw_response(req_id, &result))
 }
 
 // Read-only status lookup on the durable per-graph projection.
@@ -1477,7 +1466,9 @@ async fn handle_materialization_status(
             persist_dir.as_deref(),
             graph_name,
             &id,
-        ) {
+        )
+        .await
+        {
             Ok(value) => value,
             Err(error) => return Ok(Response::err(req_id, error)),
         };
@@ -1485,8 +1476,7 @@ async fn handle_materialization_status(
         status: status.map(|status| format!("{status:?}")),
         source_graph_version,
     };
-    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-    Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+    Ok(raw_response(req_id, &result))
 }
 
 // Bulk "what's stale" read on the same durable per-graph projection.
@@ -1500,7 +1490,9 @@ async fn handle_stale_materializations(ctx: &QueryHandlerCtx<'_>) -> Result<Resp
         match crate::server::reasoning_projection::stale_materializations(
             persist_dir.as_deref(),
             graph_name,
-        ) {
+        )
+        .await
+        {
             Ok(value) => value,
             Err(error) => return Ok(Response::err(req_id, error)),
         };
@@ -1508,8 +1500,7 @@ async fn handle_stale_materializations(ctx: &QueryHandlerCtx<'_>) -> Result<Resp
         ids,
         source_graph_version,
     };
-    let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-    Ok(Response::ok(req_id, ResultPayload::Raw(bytes)))
+    Ok(raw_response(req_id, &result))
 }
 
 // EPI-P3-7 (gap-fill): standalone Dung argumentation conflict resolution. A
@@ -1543,10 +1534,7 @@ async fn handle_resolve_conflict(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ResolveConflict error: {msg}")),
         Err(resp) => resp,
     };
@@ -1589,10 +1577,7 @@ async fn handle_explain_evidence(
     })
     .await
     {
-        Ok(result) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(result) => raw_response(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1614,10 +1599,7 @@ async fn handle_explain_evidence(
     rls.filter_view(caller, &mut snap);
     let resp = match compute_off_lock(req_id, move || explain_evidence_wire(&node_id, &snap)).await
     {
-        Ok(result) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(result) => raw_response(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1640,10 +1622,7 @@ async fn handle_causal_estimate(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("CausalEstimate error: {msg}")),
         Err(resp) => resp,
     };
@@ -1667,10 +1646,7 @@ async fn handle_causal_counterfactual(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("CausalCounterfactual error: {msg}")),
         Err(resp) => resp,
     };
@@ -1692,10 +1668,7 @@ async fn handle_rank_by_provenance(
     })
     .await
     {
-        Ok(result) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(result) => raw_response(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1800,6 +1773,7 @@ fn handle_nl_query_plan(
     })
 }
 
+#[cfg(feature = "nl-query")]
 async fn handle_nl_query(
     ctx: &QueryHandlerCtx<'_>,
     text: String,
@@ -1882,10 +1856,7 @@ async fn handle_nl_query(
     })
     .await
     {
-        Ok(Ok(rows)) => {
-            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(rows)) => raw_response(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
         Err(resp) => resp,
     };
@@ -1963,14 +1934,11 @@ async fn handle_graphql_commit_txn(
     )
     .await;
     let resp = match committed {
-        Ok(committed) => Response::ok(
+        Ok(committed) => raw_response(
             req_id,
-            ResultPayload::Raw(
-                rmp_serde::to_vec_named(&serde_json::json!({
-                    "data": {"commitTransaction": {"committed": committed}}
-                }))
-                .unwrap_or_default(),
-            ),
+            &serde_json::json!({
+                "data": {"commitTransaction": {"committed": committed}}
+            }),
         ),
         Err(msg) => Response::err(req_id, format!("GraphQL commitTransaction error: {msg}")),
     };
@@ -1999,10 +1967,7 @@ async fn handle_graphql_staging_mutation(
     })
     .await
     {
-        Ok(Ok(value)) => Response::ok(
-            req_id,
-            ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
-        ),
+        Ok(Ok(value)) => raw_response(req_id, &value),
         Ok(Err(msg)) => Response::err(req_id, format!("GraphQL cross-modal error: {msg}")),
         Err(resp) => resp,
     };
@@ -2023,10 +1988,7 @@ async fn handle_graphql_plain_mutation(
     })
     .await
     {
-        Ok(Ok(value)) => Response::ok(
-            req_id,
-            ResultPayload::Raw(rmp_serde::to_vec_named(&value).unwrap_or_default()),
-        ),
+        Ok(Ok(value)) => raw_response(req_id, &value),
         Ok(Err(msg)) => Response::err(req_id, format!("GraphQL mutation error: {msg}")),
         Err(resp) => resp,
     };
@@ -2128,12 +2090,14 @@ async fn handle_graphql(
     })
     .await
     {
-        Ok(Ok(value)) => {
-            let bytes = rmp_serde::to_vec_named(&value).unwrap_or_default();
-            #[cfg(feature = "result-cache")]
-            core.result_cache().put(hash, version, bytes.clone());
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(value)) => match raw_result_bytes(&value) {
+            Ok(bytes) => {
+                #[cfg(feature = "result-cache")]
+                core.result_cache().put(hash, version, bytes.clone());
+                Response::ok(req_id, ResultPayload::Raw(bytes))
+            }
+            Err(error) => Response::err(req_id, error),
+        },
         Ok(Err(msg)) => Response::err(req_id, format!("GraphQL error: {msg}")),
         Err(resp) => resp,
     };
@@ -2150,15 +2114,13 @@ async fn handle_graphql(
 async fn handle_cypher_write(req_id: u64, core: Arc<GraphCore>, query: String) -> Response {
     let core_w = core.clone();
     match compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query)).await {
-        Ok(Ok(result)) => Response::ok(
-            req_id,
-            ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
-        ),
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
         Err(resp) => resp,
     }
 }
 
+#[cfg(feature = "cypher")]
 async fn handle_cypher_query(
     ctx: &QueryHandlerCtx<'_>,
     query: String,
@@ -2299,20 +2261,19 @@ async fn handle_cypher_query(
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            core.result_cache().put(hash, version, bytes.clone());
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => match raw_result_bytes(&result) {
+            Ok(bytes) => {
+                core.result_cache().put(hash, version, bytes.clone());
+                Response::ok(req_id, ResultPayload::Raw(bytes))
+            }
+            Err(error) => Response::err(req_id, error),
+        },
         Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
         Err(resp) => resp,
     };
     #[cfg(not(feature = "result-cache"))]
     let resp = match compute_off_lock(req_id, move || eg_query::exec_cypher(&snap, &query)).await {
-        Ok(Ok(result)) => {
-            let bytes = rmp_serde::to_vec_named(&result).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(result)) => raw_response(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
         Err(resp) => resp,
     };
@@ -2738,6 +2699,7 @@ fn run_unified_bind_foreign<'a>(
 /// server-side text→vector embedder, if one is bound (`EG_UQL_TEXT_EMBEDDER=hash`
 /// for the deterministic offline fallback; otherwise absent, and `Op::RankEmbed` is
 /// a clean typed error).
+#[cfg(feature = "query")]
 fn run_unified_bind_embedder(ctx: eg_plan::PlanCtx<'_>) -> eg_plan::PlanCtx<'_> {
     match uql_text_embedder() {
         Some(embedder) => ctx.with_embedder(embedder),
@@ -2749,7 +2711,7 @@ fn run_unified_bind_embedder(ctx: eg_plan::PlanCtx<'_>) -> eg_plan::PlanCtx<'_> 
 /// store and its ownership scope atomically (a partial/missing scope never leaves
 /// a raw store reachable through `TsScan`), then the txn's staged-series overlay
 /// (CONCEPT:EG-KG.query.txn-tsdb-read-your) so an in-txn `TsScan` reads its own uncommitted points.
-#[cfg(feature = "tsdb")]
+#[cfg(all(feature = "query", feature = "tsdb"))]
 fn run_unified_bind_tsdb<'a>(
     ctx: eg_plan::PlanCtx<'a>,
     tsdb: Option<&'a eg_tsdb::store::SeriesStore>,
@@ -3517,6 +3479,7 @@ fn explain_belief_redacted_wire(
     }
 }
 
+#[cfg(feature = "epistemic-redaction")]
 fn disclosure_level_from_wire(
     cap: crate::protocol::DisclosureLevelWire,
 ) -> eg_epistemic::DisclosureLevel {
@@ -3529,6 +3492,7 @@ fn disclosure_level_from_wire(
     }
 }
 
+#[cfg(feature = "epistemic-redaction")]
 fn disclosure_level_to_wire(
     level: eg_epistemic::DisclosureLevel,
 ) -> crate::protocol::DisclosureLevelWire {
@@ -3541,6 +3505,7 @@ fn disclosure_level_to_wire(
     }
 }
 
+#[cfg(feature = "epistemic-redaction")]
 fn existence_signal_to_wire(
     existence: eg_epistemic::ExistenceSignal,
 ) -> crate::protocol::ExistenceSignalWire {
@@ -3557,6 +3522,7 @@ fn existence_signal_to_wire(
 /// [`explain_belief_redacted_wire`]'s OTEL span attributes: `None`/`0`/empty when
 /// `root` is `None` (`ExistenceOnly` renders no structure at all, by design) —
 /// never fabricated.
+#[cfg(feature = "epistemic-redaction")]
 fn redacted_tree_summary(
     root: Option<&eg_epistemic::RedactedProofNode>,
 ) -> (Option<f64>, usize, String) {
@@ -3706,6 +3672,7 @@ type ConflictClassification = (
     Vec<String>,
 );
 
+#[cfg(feature = "epistemic-tms")]
 fn resolve_conflict_wire(
     node_ids: &[String],
     semantics: &str,
@@ -3753,6 +3720,7 @@ fn resolve_conflict_wire(
 /// The `"grounded"` arm of [`resolve_conflict_wire`]: each queried id is
 /// `surviving` (in the grounded extension), `defeated` (attacked by some member of
 /// it), or `undecided` (neither).
+#[cfg(feature = "epistemic-tms")]
 fn resolve_conflict_grounded(
     bg: &eg_epistemic::BeliefGraph,
     node_ids: &[String],
@@ -3779,6 +3747,7 @@ fn resolve_conflict_grounded(
 /// The `"preferred"`/`"stable"` arm of [`resolve_conflict_wire`]: each queried id
 /// is `surviving` (in every extension), `defeated` (in no extension), or
 /// `undecided` (in some but not all, or there are no extensions at all).
+#[cfg(feature = "epistemic-tms")]
 fn resolve_conflict_preferred_or_stable(
     bg: &eg_epistemic::BeliefGraph,
     node_ids: &[String],
@@ -4317,7 +4286,7 @@ async fn run_unified_overlaid_resolve_txn(
 /// still sees committed only. `SeriesStore` is redb-file-backed with no in-memory
 /// overlay, so this dep-free map is the RYOW source. Empty when the txn is gone by
 /// the time this runs (best-effort, never an error).
-#[cfg(feature = "tsdb")]
+#[cfg(all(feature = "query", feature = "tsdb"))]
 async fn run_unified_overlaid_staged_series(
     state: &Arc<RwLock<ServerState>>,
     txn_id: &str,
@@ -4337,6 +4306,7 @@ async fn run_unified_overlaid_staged_series(
     staged
 }
 
+#[cfg(feature = "query")]
 async fn run_unified_overlaid(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -4476,10 +4446,7 @@ async fn run_unified_overlaid(
     })
     .await
     {
-        Ok(Ok(rows)) => {
-            let bytes = rmp_serde::to_vec_named(&rows).unwrap_or_default();
-            Response::ok(req_id, ResultPayload::Raw(bytes))
-        }
+        Ok(Ok(rows)) => raw_response(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     }
@@ -4883,53 +4850,6 @@ async fn exec_sql_write_delete_nodes_join(
     sql_write_ack(req_id, "DELETE", r)
 }
 
-/// Execute `Method::Sql`'s Apache-AGE-style `cypher()` table function — pure
-/// extract-method out of `exec_sql_write`'s `K::CypherCall` arm, no behaviour
-/// change. A read (run + projected onto the AS columns), gated on the `cypher`
-/// feature exactly like before.
-#[cfg(feature = "query")]
-async fn exec_sql_write_cypher_call(
-    req_id: u64,
-    read_core: &Arc<GraphCore>,
-    plan: eg_query::CypherCallPlan,
-) -> Response {
-    #[cfg(feature = "cypher")]
-    {
-        let core = read_core.clone();
-        let r = compute_off_lock(req_id, move || {
-            let snap = core.analysis_snapshot();
-            let result = eg_query::exec_cypher(&snap, &plan.cypher)?;
-            let typed =
-                eg_query::project_cypher_rows(&result, &plan.columns, plan.projection.as_deref())?;
-            Ok::<_, String>(crate::protocol::QueryResult {
-                columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
-                rows: typed
-                    .rows
-                    .iter()
-                    .map(|row| rmp_serde::to_vec_named(row).unwrap_or_default())
-                    .collect(),
-            })
-        })
-        .await;
-        match r {
-            Ok(Ok(result)) => Response::ok(
-                req_id,
-                ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
-            ),
-            Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
-            Err(resp) => resp,
-        }
-    }
-    #[cfg(not(feature = "cypher"))]
-    {
-        let _ = (read_core, plan);
-        Response::err(
-            req_id,
-            "SQL error: cypher() (Apache AGE) requires the engine's `cypher` feature".to_string(),
-        )
-    }
-}
-
 /// Execute `Method::Sql`'s `CREATE TABLE …` DDL — pure extract-method out of
 /// `exec_sql_write`'s `K::CreateTable` arm, no behaviour change.
 #[cfg(feature = "query")]
@@ -5266,15 +5186,13 @@ async fn exec_sql_write(
             )
             .await
         }
-        // ── Postgres-family extension parity (wave 19) ──────────────────────────
-        // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE cypher() is a read; run it + project the agtype
-        // result onto the AS columns, returning a result set (like the read path).
-        K::CypherCall(plan) => exec_sql_write_cypher_call(req_id, &read_core, plan).await,
         // CONCEPT:EG-KG.query.real-ann-top-k — persist the pgvector ANN index used
         // by the native eg-ann pushdown planner.
         K::CreateAnnIndex(plan) => {
             let mut txn = eg_query::TableTxn::new();
-            txn.push(eg_query::TxnOp::PutAnnIndex { plan });
+            txn.push(eg_query::TxnOp::IndexCatalog(
+                eg_query::IndexCatalogTxnOp::PutAnnIndex { plan },
+            ));
             commit_sql_catalog_txn(
                 req_id,
                 SqlWriteScope {
@@ -5293,7 +5211,9 @@ async fn exec_sql_write(
         // the native hypertable declaration through the SQL MutationBatch kernel.
         K::CreateHypertable(plan) => {
             let mut txn = eg_query::TableTxn::new();
-            txn.push(eg_query::TxnOp::PutHypertable { plan });
+            txn.push(eg_query::TxnOp::IndexCatalog(
+                eg_query::IndexCatalogTxnOp::PutHypertable { plan },
+            ));
             commit_sql_catalog_txn(
                 req_id,
                 SqlWriteScope {
@@ -5336,9 +5256,143 @@ async fn exec_sql_write(
             req_id,
             "SQL error: COPY … FROM STDIN is a streaming pgwire operation, not available over Method::Sql".to_string(),
         ),
-        // The caller only routes non-`Read` statements here.
-        K::Read => Response::err(req_id, "SQL error: read routed to write path".to_string()),
+        // SQL:2023 SQL/PGQ, plus the plain read the caller never routes here.
+        graph_kind @ (K::Read
+        | K::PropertyGraphDdlRequiresCatalogAdmission(_)
+        | K::GraphTableReadRequiresCatalogAdmission(_)) => {
+            exec_sql_property_graph(
+                req_id,
+                SqlWriteScope {
+                    graph_name,
+                    tenant_scope,
+                    caller,
+                },
+                sql_method,
+                store,
+                &read_core,
+                graph_kind,
+            )
+            .await
+        }
     }
+}
+
+/// The SQL:2023 SQL/PGQ arm of [`exec_sql_write`]. Property-graph DDL is catalog
+/// DDL and commits through the SAME catalog transaction and authorization path
+/// as `CREATE VIEW`; `GRAPH_TABLE` is a read and runs through the same executor
+/// and catalog handle as any other `SELECT` on this route.
+#[cfg(feature = "query")]
+async fn exec_sql_property_graph(
+    req_id: u64,
+    scope: SqlWriteScope<'_>,
+    sql_method: Method,
+    store: &eg_query::TableStore,
+    read_core: &Arc<GraphCore>,
+    kind: eg_query::StatementKind,
+) -> Response {
+    use eg_query::StatementKind as K;
+    match kind {
+        K::PropertyGraphDdlRequiresCatalogAdmission(_) => {
+            exec_sql_property_graph_ddl(req_id, scope, sql_method, store).await
+        }
+        K::GraphTableReadRequiresCatalogAdmission(query) => {
+            exec_sql_graph_table_read(req_id, scope.tenant_scope, store, read_core, &query)
+        }
+        _ => Response::err(req_id, "SQL error: read routed to write path".to_string()),
+    }
+}
+
+/// Commit one `CREATE`/`ALTER`/`DROP PROPERTY GRAPH` through the SQL catalog
+/// MutationBatch kernel every other catalog DDL commits through.
+#[cfg(feature = "query")]
+async fn exec_sql_property_graph_ddl(
+    req_id: u64,
+    scope: SqlWriteScope<'_>,
+    sql_method: Method,
+    store: &eg_query::TableStore,
+) -> Response {
+    let Method::Sql { query, .. } = &sql_method else {
+        return Response::err(
+            req_id,
+            "SQL error: property-graph DDL needs its SQL text".to_string(),
+        );
+    };
+    let actor = scope.caller.unwrap_or(scope.tenant_scope).to_string();
+    let statement = match eg_query::sql::parse_property_graph_ddl(query, scope.tenant_scope) {
+        Ok(statement) => statement,
+        Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+    };
+    let (op, tag) = eg_query::PropertyGraphTxnOp::from_statement(statement, &actor);
+    let mut txn = eg_query::TableTxn::new();
+    txn.push(eg_query::TxnOp::PropertyGraphDdl(op));
+    commit_sql_catalog_txn(req_id, scope, sql_method.clone(), store, txn, tag).await
+}
+
+/// Execute a SQL/PGQ `GRAPH_TABLE` read.
+///
+/// This route's SQL catalog is the caller's OWN per-principal file
+/// (`user_table_store`), exactly as it is for `CREATE TABLE`/`CREATE VIEW`
+/// here, so a graph resolved on this route is one the caller already owns
+/// outright; there is no second principal whose grants to consult. (The
+/// tenant-SHARED catalog the pgwire route uses is a different file, and gates
+/// resolution on `Select` over every base relation -- see
+/// `sql_catalog_acl::authorized_graph_table_sql`. The two catalogs are separate
+/// by construction, so a graph created on one route is not visible on the
+/// other.)
+///
+/// Lowering then runs on the SAME relational executor, the SAME catalog handle,
+/// and the SAME row-level-security-projected graph view every other `SELECT` on
+/// this route uses.
+#[cfg(feature = "query")]
+fn exec_sql_graph_table_read(
+    req_id: u64,
+    tenant_scope: &str,
+    store: &eg_query::TableStore,
+    read_core: &Arc<GraphCore>,
+    query: &eg_query::GraphTableQuery,
+) -> Response {
+    match graph_table_rows(tenant_scope, store, read_core, query) {
+        Ok(typed) => match typed.rows.iter().map(raw_result_bytes).collect() {
+            Ok(rows) => raw_response(
+                req_id,
+                &crate::protocol::QueryResult {
+                    columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                    rows,
+                },
+            ),
+            Err(error) => Response::err(req_id, error),
+        },
+        Err(error) => Response::err(req_id, format!("SQL error: {error}")),
+    }
+}
+
+#[cfg(feature = "query")]
+fn graph_table_rows(
+    tenant_scope: &str,
+    store: &eg_query::TableStore,
+    read_core: &Arc<GraphCore>,
+    query: &eg_query::GraphTableQuery,
+) -> Result<eg_query::TypedQueryResult, String> {
+    // Defence in depth: this file is per-principal, so a record admitted under
+    // another tenant cannot be here -- and if one ever were, it is not readable.
+    let record = store
+        .property_graph(tenant_scope, &query.graph)?
+        .ok_or_else(|| {
+            format!(
+                "property graph `{}` does not exist",
+                query.graph.leaf().value()
+            )
+        })?;
+    // Read-time proof that every pinned base relation still has its admitted
+    // schema digest -- defence in depth behind the base-DDL fence.
+    store.verify_property_graph_dependencies(&record)?;
+    eg_query::exec_graph_table_typed_with_tables(
+        &read_core.analysis_snapshot(),
+        store,
+        query,
+        &record.accepted_definition,
+        tenant_scope,
+    )
 }
 
 /// A scalar cell (from a resolved SELECT row) coerced to the string node-id form the
@@ -5363,17 +5417,15 @@ fn sql_write_ack(
 ) -> Response {
     match outcome {
         Ok(Ok(n)) => {
+            let row = match raw_result_bytes(&vec![serde_json::Value::from(n as u64)]) {
+                Ok(row) => row,
+                Err(error) => return Response::err(req_id, error),
+            };
             let result = crate::protocol::QueryResult {
                 columns: vec![tag.to_string()],
-                rows: vec![
-                    rmp_serde::to_vec_named(&vec![serde_json::Value::from(n as u64)])
-                        .unwrap_or_default(),
-                ],
+                rows: vec![row],
             };
-            Response::ok(
-                req_id,
-                ResultPayload::Raw(rmp_serde::to_vec_named(&result).unwrap_or_default()),
-            )
+            raw_response(req_id, &result)
         }
         Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
         Err(resp) => resp,
@@ -5415,14 +5467,52 @@ async fn commit_sql_catalog_txn(
             .unwrap_or(0);
         // Recovery after commit-before-ack rebuilds the exact proposed batch with
         // the stored OCC observation. `commit_txn_batch` then verifies every
-        // identity byte (including principal + operation digest) before returning
-        // the result without applying `txn` again.
-        let expected_version = match store.mutation_batch(&batch_id)? {
+        // identity byte (including the operation digest) before returning the
+        // result without applying `txn` again.
+        //
+        // The receipt now lives in the mutation kernel's scope-partitioned
+        // ledger, so it is read through the very scope `compile_opaque_method`
+        // below stamps on this batch: native `SqlCatalog`, keyed by
+        // `(tenant, graph)` at `COMPILED_BATCH_INCARNATION`. And the caller is
+        // read back from the outbox row's `actor` header, NOT from
+        // `context.principal`: RF-RULING-006 made the SQL catalog a kernel-owned
+        // owner store, so `context.principal` is now the file's bound serving
+        // principal on every compiled SQL batch and would compare the engine
+        // against the caller. Adopting another caller's OCC observation would
+        // silently plan this statement against a version it never observed, so
+        // that is refused here by name rather than left to surface as an
+        // anonymous `IDEMPOTENCY_CONFLICT` from the kernel's byte comparison.
+        let batch_scope = eg_types::mutation_batch::MutationScopeIdentity::fixed_native(
+            &tenant_scope,
+            eg_types::mutation_batch::DurabilityDomain::SqlCatalog,
+            &graph_name,
+            eg_types::mutation_batch::COMPILED_BATCH_INCARNATION,
+        )?;
+        let expected_version = match store.mutation_batch(&batch_scope, &batch_id)? {
             Some(record) => {
-                let crate::mutation_batch::VersionExpectation::Graph(version) =
+                let caller_actor = crate::server::mutation_batch::principal_fingerprint(
+                    caller.as_deref().ok_or_else(|| {
+                        "durable mutation authority requires a verified principal".to_string()
+                    })?,
+                )?;
+                let recorded_actor = record
+                    .batch
+                    .outbox
+                    .iter()
+                    .find_map(|intent| intent.headers.get("actor"))
+                    .ok_or_else(|| {
+                        "committed SQL MutationBatch carries no actor attribution".to_string()
+                    })?;
+                if recorded_actor != &caller_actor {
+                    return Err(
+                        "IDEMPOTENCY_CONFLICT: SQL batch identity is owned by another actor"
+                            .to_string(),
+                    );
+                }
+                let crate::mutation_batch::VersionExpectation::Native(version) =
                     record.batch.version_expectation
                 else {
-                    return Err("committed SQL MutationBatch has no OCC version".to_string());
+                    return Err("committed SQL MutationBatch has no native OCC version".to_string());
                 };
                 version
             }
@@ -5445,7 +5535,7 @@ async fn commit_sql_catalog_txn(
             },
             &sql_method,
             crate::mutation_batch::MutationSurface::Query,
-            crate::mutation_batch::MutationDomain::SqlCatalog,
+            crate::mutation_batch::DurabilityDomain::SqlCatalog,
             "sql_catalog_operation",
         )?;
         let committed = store.commit_txn_batch(&txn, &batch, created_at_ms)?;

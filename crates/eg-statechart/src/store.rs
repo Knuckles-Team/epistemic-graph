@@ -15,15 +15,26 @@
 //!
 //! Cluster ordering: every authoritative instance write (`instantiate`/
 //! `instantiate_batch` and a FIRING `send_event`) routes through the universal
-//! `MutationBatch` / durable-commit gateway (`eg-mutation-store`) — the SAME
+//! `MutationBatch` / durable-commit gateway (`eg-transaction`) — the SAME
 //! `begin` → change-rows → `finish` → `commit` sequence `eg-jobs`' `mutate_job_batch`
 //! uses, on the *same* redb `WriteTransaction` that mutates the
-//! `STATECHART_INSTANCES` row. So each transition carries an atomic terminal batch
+//! `statechart_instances` owner row. So each transition carries an atomic terminal batch
 //! record, a monotonic domain version, a route fence, an idempotency row and an
 //! outbox intent — exactly the evidence a Raft state machine needs to order and
 //! replay it. The per-instance OCC `version` compare-and-set is preserved on top
 //! of that (it still guards lost updates on a single node). A well-defined NO-OP
 //! event still writes nothing — it never opens a batch.
+//!
+//! **RF-RULING-004/005.** `eg-storage` is the sole physical owner of
+//! `statecharts.redb` (declared `OwnerLayout::Statechart`, owner tables
+//! `statechart_defs` + `statechart_instances`) and `eg-transaction` the sole
+//! writer. `define` used to write `statechart_defs` on a private write
+//! transaction outside any batch; there is no un-ledgered write path any more,
+//! so it is admitted as a **maintenance** mutation — ledgered, fenced and
+//! version-bumping like any other, but carrying no caller identity and
+//! therefore outside operation-replay semantics. It stays idempotent by content
+//! address: the definition digest is the batch's idempotency key, so storing a
+//! byte-identical chart twice replays instead of rewriting.
 //!
 //! **Determinism (CONCEPT:INT-P2-2, was tracked as D-DE7-2 — now closed).**
 //! `instantiate` reads the local wall clock and a local `AtomicU64` instance-id
@@ -49,14 +60,26 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use eg_storage::{
+    OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead, StatechartOwner,
+    StorageKernel,
+};
+use eg_transaction::{Begin, MutationKernel};
 use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, MutationBatch, MutationBatchRecord, MutationDomain,
-    MutationOperation, MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity,
-    MutationSurface, TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
+    DurabilityDomain, MutationBatch, MutationBatchRecord, MutationOperation, MutationOutboxIntent,
+    MutationRequestContext, MutationScopeIdentity, MutationSurface, VersionExpectation,
+    MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{ReadableTable, TableDefinition};
 use serde::de::DeserializeOwned;
+
+mod batches;
+
+use batches::{
+    creation_batch, decode_instance_result, definition_batch, instance_batch,
+    instance_id_for_request, instance_mutation_identity, STATECHART_PHYSICAL_STORE,
+};
 
 use crate::action::apply_all;
 use crate::check::validate;
@@ -201,50 +224,84 @@ pub struct SendOutcome {
 
 /// A durable statechart store, backed by `statecharts.redb`.
 pub struct StatechartStore {
-    /// Owns the physical `statecharts.redb` (was `db: Database` before the
-    /// MutationBatch v1 migration) -- `DEFS`/`INSTANCES` are opened directly off
-    /// `mutation_store.database()`, while every authoritative instance write also
-    /// goes through this SAME store's mutation ledger for the fixed
-    /// `statechart-instances` native scope's version bookkeeping.
-    mutation_store: eg_mutation_store::MutationStore,
-    /// The fixed native scope identity (see `instance_mutation_identity`),
-    /// re-used on every transition so it is validated exactly once per open.
-    identity: MutationScopeIdentity,
+    /// Sole physical owner of `statecharts.redb`. `statechart_defs` and
+    /// `statechart_instances` are reachable only through the scoped read and
+    /// admitted-owner-write capabilities it issues.
+    kernel: StorageKernel,
+    /// Sole writer. Holds this file's one move-once mutation authority.
+    mutations: MutationKernel,
+    /// The one authenticated, bound serving scope -- the fixed native identity
+    /// of `instance_mutation_identity`, validated exactly once per open.
+    owner: OwnedStoreHandle<StatechartOwner>,
     /// Monotonic instance-id source (mirrors `eg-jobs`' `next_id`): `"sc-<hex>"`.
     next_id: AtomicU64,
 }
 
 impl StatechartStore {
-    /// Open (or create) the store at an exact file path, materializing the schema so an
-    /// empty DB is queryable, and seeding the id counter from the highest existing id.
-    pub fn open(path: &Path) -> Result<Self> {
+    /// Open (or create) the store at an exact file path through the storage
+    /// kernel, seeding the id counter from the highest existing id.
+    ///
+    /// The kernel creates the file under `OwnerLayout::Statechart`, whose
+    /// declared owner tables are exactly `statechart_defs` and
+    /// `statechart_instances`, so an empty DB is queryable without a
+    /// hand-written bootstrap closure. `verifier` is the composition root's
+    /// proof authority (RF-RULING-004): only it may decide that `principal` may
+    /// serve the fixed `statechart-instances` scope.
+    pub fn open(
+        path: &Path,
+        verifier: &dyn ScopeGrantVerifier,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<Self> {
         let identity = instance_mutation_identity()?;
-        // `initialize` opens (or creates) the physical `statecharts.redb`,
-        // establishes/validates its `StoreIncarnation` root, and binds the fixed
-        // `statechart-instances` scope at `initial_version: 0`. The bootstrap
-        // closure runs only on the FIRST-ever bind (a fresh file) and just
-        // materializes `DEFS`/`INSTANCES` so an empty DB is queryable, exactly as
-        // `eg-jobs::JobStore::open` does for `jobs.redb`.
-        let mutation_store = eg_mutation_store::initialize(path, &identity, 0, None, |wtx| {
-            wtx.open_table(DEFS).map_err(|e| e.to_string())?;
-            wtx.open_table(INSTANCES).map_err(|e| e.to_string())?;
-            Ok(())
-        })
+        let physical = PhysicalStoreIdentity::new(STATECHART_PHYSICAL_STORE).map_err(redb_err)?;
+        let kernel = if path.exists() {
+            StorageKernel::open_owner::<StatechartOwner>(path, physical, None)
+        } else {
+            StorageKernel::create_owner::<StatechartOwner>(path, physical, None)
+        }
         .map_err(redb_err)?;
-        let seed = initialize_next_id(mutation_store.database())?;
-        Ok(Self {
-            mutation_store,
-            identity,
-            next_id: AtomicU64::new(seed),
-        })
+        let (kernel, authority) = kernel
+            .into_read_and_mutation_authority()
+            .map_err(redb_err)?;
+        let mutations = MutationKernel::new(authority);
+        let grant = kernel
+            .authenticate_scope::<StatechartOwner>(verifier, identity, principal.to_string(), proof)
+            .map_err(redb_err)?;
+        let owner = kernel.bind_serving_scope(grant, 0).map_err(redb_err)?;
+        mutations.bootstrap_ledger(&owner).map_err(redb_err)?;
+        let store = Self {
+            kernel,
+            mutations,
+            owner,
+            next_id: AtomicU64::new(0),
+        };
+        let seed = initialize_next_id(&store.scoped_read()?)?;
+        store.next_id.store(seed, Ordering::Relaxed);
+        Ok(store)
     }
 
     /// Open `{persist_dir}/statecharts.redb` — the durable location beside the graph
     /// shards, exactly as `eg-jobs` opens `jobs.redb`.
-    pub fn open_in_dir(persist_dir: &Path) -> Result<Self> {
+    pub fn open_in_dir(
+        persist_dir: &Path,
+        verifier: &dyn ScopeGrantVerifier,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<Self> {
         std::fs::create_dir_all(persist_dir)
             .map_err(|e| StatechartError::Redb(format!("create persist dir: {e}")))?;
-        Self::open(&persist_dir.join("statecharts.redb"))
+        Self::open(
+            &persist_dir.join("statecharts.redb"),
+            verifier,
+            principal,
+            proof,
+        )
+    }
+
+    /// One kernel-issued scoped read over this store's bound serving scope.
+    fn scoped_read(&self) -> Result<ScopedRead<'_, StatechartOwner>> {
+        self.kernel.read_scope(&self.owner).map_err(redb_err)
     }
 
     fn next_instance_id(&self) -> InstanceId {
@@ -262,18 +319,52 @@ impl StatechartStore {
         validate(def).map_err(|report| StatechartError::InvalidDefinition(report.errors))?;
         let def_id = def.def_id();
         let blob = encode_def(def)?;
-        let wtx = self
-            .mutation_store
-            .database()
-            .begin_write()
-            .map_err(redb_err)?;
+        // Content-addressed idempotency, resolved by a read before any write:
+        // `def_id` is a pure hash of the definition, so a row already under that
+        // key holds byte-identical bytes and re-storing it is a no-op. Doing this
+        // as a read rather than by re-admitting the batch matters because a
+        // batch's identity includes its `version_expectation`, so a second
+        // `define` at a later scope version is a DIFFERENT batch reusing one
+        // idempotency key -- an `IDEMPOTENCY_CONFLICT`, not a replay.
         {
-            let mut table = wtx.open_table(DEFS).map_err(redb_err)?;
-            table
-                .insert(def_id.as_str(), blob.as_slice())
-                .map_err(redb_err)?;
+            let read = self.scoped_read()?;
+            let table = read.open_owner_table(DEFS).map_err(redb_err)?;
+            if table.get(def_id.as_str()).map_err(redb_err)?.is_some() {
+                return Ok(def_id);
+            }
         }
-        wtx.commit().map_err(redb_err)?;
+        let expected_version = self.mutation_version()?;
+        let batch = definition_batch(
+            def_id.as_str(),
+            self.owner.identity(),
+            self.owner.principal(),
+            expected_version,
+        )?;
+        let (write, begun) = self
+            .mutations
+            .admit_maintenance(&self.owner, &batch)
+            .map_err(redb_err)?;
+        let source_version = match begun {
+            // A concurrent writer committed this exact batch between the read
+            // above and this admission. Byte-identical by content address, so
+            // the result is the same id and nothing more is written.
+            Begin::Replay(_) => {
+                write.abort().map_err(redb_err)?;
+                return Ok(def_id);
+            }
+            Begin::Apply { source_version } => source_version,
+        };
+        let owner_write = write.owner_rows(&self.owner, &batch).map_err(redb_err)?;
+        owner_write
+            .open_table(DEFS)
+            .map_err(redb_err)?
+            .insert(def_id.as_str(), blob.as_slice())
+            .map_err(redb_err)?;
+        owner_write.finish_owner().map_err(redb_err)?;
+        self.mutations
+            .finish(&write, &batch, Some(blob), 0, source_version)
+            .map_err(redb_err)?;
+        self.mutations.commit(write, &batch).map_err(redb_err)?;
         Ok(def_id)
     }
 
@@ -282,12 +373,8 @@ impl StatechartStore {
         if !valid_identifier(def_id) {
             return Err(codec_err("statechart definition id is invalid"));
         }
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(DEFS).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(DEFS).map_err(redb_err)?;
         let blob = table
             .get(def_id)
             .map_err(redb_err)?
@@ -297,12 +384,8 @@ impl StatechartStore {
 
     /// List every stored definition id.
     pub fn list_def_ids(&self) -> Result<Vec<DefId>> {
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(DEFS).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(DEFS).map_err(redb_err)?;
         let mut out = Vec::new();
         for entry in table.iter().map_err(redb_err)? {
             let (k, _) = entry.map_err(redb_err)?;
@@ -368,9 +451,8 @@ impl StatechartStore {
             updated_at_ms: now,
         };
         let blob = encode_instance(&instance)?;
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let batch = instance_batch(&instance, &blob, &self.identity, expected_version)?;
+        let expected_version = self.mutation_version()?;
+        let batch = instance_batch(&instance, &blob, &self.owner, expected_version)?;
         let committed_at_ms = instance.updated_at_ms.max(0) as u64;
         self.commit_instance_blob(&instance, &blob, &batch, committed_at_ms)?;
         Ok(instance)
@@ -427,9 +509,8 @@ impl StatechartStore {
             updated_at_ms: now,
         };
         let blob = encode_instance(&instance)?;
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let batch = creation_batch(&instance, request_batch_id, &self.identity, expected_version)?;
+        let expected_version = self.mutation_version()?;
+        let batch = creation_batch(&instance, request_batch_id, &self.owner, expected_version)?;
         self.commit_instance_blob(&instance, &blob, &batch, committed_at_ms)
     }
 
@@ -451,31 +532,31 @@ impl StatechartStore {
         batch: &MutationBatch,
         committed_at_ms: u64,
     ) -> Result<(MachineInstance, bool)> {
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        match eg_mutation_store::begin(&write, batch).map_err(redb_err)? {
-            eg_mutation_store::Begin::Replay(record) => {
+        let (write, begun) = self.mutations.admit(&self.owner, batch).map_err(redb_err)?;
+        match begun {
+            Begin::Replay(record) => {
                 let replayed = decode_instance_result(&record)?;
-                // No public abort; dropping `write` un-committed here aborts the
-                // transaction (redb's `Drop for WriteTransaction`) -- nothing was
-                // written on a replay.
+                write.abort().map_err(redb_err)?;
                 Ok((replayed, true))
             }
-            eg_mutation_store::Begin::Apply { source_version } => {
-                {
-                    let mut table = write.owner_rows().open_table(INSTANCES).map_err(redb_err)?;
-                    table
-                        .insert(instance.instance_id.as_str(), blob)
-                        .map_err(redb_err)?;
-                }
-                eg_mutation_store::finish(
-                    &write,
-                    batch,
-                    Some(blob.to_vec()),
-                    committed_at_ms,
-                    source_version,
-                )
-                .map_err(redb_err)?;
-                eg_mutation_store::commit(write, batch).map_err(redb_err)?;
+            Begin::Apply { source_version } => {
+                let owner_write = write.owner_rows(&self.owner, batch).map_err(redb_err)?;
+                owner_write
+                    .open_table(INSTANCES)
+                    .map_err(redb_err)?
+                    .insert(instance.instance_id.as_str(), blob)
+                    .map_err(redb_err)?;
+                owner_write.finish_owner().map_err(redb_err)?;
+                self.mutations
+                    .finish(
+                        &write,
+                        batch,
+                        Some(blob.to_vec()),
+                        committed_at_ms,
+                        source_version,
+                    )
+                    .map_err(redb_err)?;
+                self.mutations.commit(write, batch).map_err(redb_err)?;
                 Ok((instance.clone(), false))
             }
         }
@@ -486,12 +567,8 @@ impl StatechartStore {
         if instance_id.is_empty() || instance_id.len() > MAX_ID_BYTES {
             return Err(codec_err("statechart instance id is invalid"));
         }
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(INSTANCES).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(INSTANCES).map_err(redb_err)?;
         let blob = table
             .get(instance_id)
             .map_err(redb_err)?
@@ -567,38 +644,40 @@ impl StatechartStore {
         };
         next.updated_at_ms = now;
         let blob = encode_instance(&next)?;
-        let expected_version = eg_mutation_store::version(&self.mutation_store, &self.identity)
-            .map_err(redb_err)?;
-        let batch = instance_batch(&next, &blob, &self.identity, expected_version)?;
+        let expected_version = self.mutation_version()?;
+        let batch = instance_batch(&next, &blob, &self.owner, expected_version)?;
         let committed_at_ms = now.max(0) as u64;
 
         // Commit the row change and its terminal batch/version/fence/idempotency/
-        // outbox evidence through the SAME `eg-mutation-store` gateway `eg-jobs` uses,
-        // on one redb `WriteTransaction`. Inside that txn the row is re-read and its
-        // OCC `version` re-checked (compare-and-set) so a concurrent writer cannot be
+        // outbox evidence through the `eg-transaction` gateway `eg-jobs` uses, on
+        // the one admitted write. Inside that write the row is re-read and its OCC
+        // `version` re-checked (compare-and-set) so a concurrent writer cannot be
         // silently clobbered — the per-instance guard is preserved on top of the
         // gateway.
-        let write = self.mutation_store.write().map_err(redb_err)?;
-        match eg_mutation_store::begin(&write, &batch).map_err(redb_err)? {
-            eg_mutation_store::Begin::Replay(_record) => {
+        let (write, begun) = self
+            .mutations
+            .admit(&self.owner, &batch)
+            .map_err(redb_err)?;
+        match begun {
+            Begin::Replay(_record) => {
                 // This exact resulting image already committed durably (idempotent
                 // replay of a re-proposed transition); the instance is already at
-                // `next`. Report it without writing again. No public abort; dropping
-                // `write` un-committed aborts the transaction.
+                // `next`. Report it without writing again.
+                write.abort().map_err(redb_err)?;
                 Ok(SendOutcome {
                     instance: next,
                     outcome,
                 })
             }
-            eg_mutation_store::Begin::Apply { source_version } => {
-                // Re-open the row inside the write txn and re-check the OCC version.
-                // The block owns every borrow of the `INSTANCES` table and yields a
-                // plain `Result<(), u64>` — `Ok(())` staged the write, `Err(actual)`
-                // found a compare-and-set conflict — so the table borrow is dropped
-                // before `finish`/`commit` (or the implicit abort) touch the
-                // gateway's own tables.
+            Begin::Apply { source_version } => {
+                // Re-open the row inside the admitted owner write and re-check the
+                // OCC version. The inner block owns every borrow of `INSTANCES` and
+                // yields a plain `Result<(), u64>` — `Ok(())` staged the write,
+                // `Err(actual)` found a compare-and-set conflict — so the table
+                // borrow is dropped before the owner capability is finished.
+                let owner_write = write.owner_rows(&self.owner, &batch).map_err(redb_err)?;
                 let occ: std::result::Result<(), u64> = {
-                    let mut table = write.owner_rows().open_table(INSTANCES).map_err(redb_err)?;
+                    let mut table = owner_write.open_table(INSTANCES).map_err(redb_err)?;
                     let current_bytes = {
                         let guard = table
                             .get(instance_id)
@@ -617,25 +696,25 @@ impl StatechartStore {
                         Ok(())
                     }
                 };
+                // Always close the owner capability explicitly: dropping it
+                // unfinished poisons the write, which would mask the OCC conflict
+                // this method must report.
+                owner_write.finish_owner().map_err(redb_err)?;
                 match occ {
                     Ok(()) => {
-                        eg_mutation_store::finish(
-                            &write,
-                            &batch,
-                            Some(blob),
-                            committed_at_ms,
-                            source_version,
-                        )
-                        .map_err(redb_err)?;
-                        eg_mutation_store::commit(write, &batch).map_err(redb_err)?;
+                        self.mutations
+                            .finish(&write, &batch, Some(blob), committed_at_ms, source_version)
+                            .map_err(redb_err)?;
+                        self.mutations.commit(write, &batch).map_err(redb_err)?;
                         Ok(SendOutcome {
                             instance: next,
                             outcome,
                         })
                     }
                     Err(actual) => {
-                        // No public abort; dropping `write` un-committed aborts it --
-                        // the OCC conflict check ran before any table was mutated.
+                        // Nothing was staged; discard the whole admitted write so the
+                        // conflict costs no durable evidence.
+                        write.abort().map_err(redb_err)?;
                         Err(StatechartError::VersionConflict {
                             instance_id: instance_id.to_string(),
                             expected: instance.version,
@@ -652,18 +731,14 @@ impl StatechartStore {
     /// `eg-mutation-store` (mirrors `eg-jobs`' `mutation_version`). A cluster layer
     /// reads this to order/replay instance transitions.
     pub fn mutation_version(&self) -> Result<u64> {
-        eg_mutation_store::version(&self.mutation_store, &self.identity).map_err(redb_err)
+        eg_transaction::version(&self.scoped_read()?).map_err(redb_err)
     }
 
     /// List instance ids, optionally filtered to one definition. Diagnostic/admin use;
     /// ownership filtering is the caller's responsibility (see the dispatch handler).
     pub fn list_instance_ids(&self, def_id: Option<&str>) -> Result<Vec<InstanceId>> {
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(INSTANCES).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(INSTANCES).map_err(redb_err)?;
         let mut out = Vec::new();
         for entry in table.iter().map_err(redb_err)? {
             let (k, v) = entry.map_err(redb_err)?;
@@ -693,12 +768,8 @@ impl StatechartStore {
         actor: &str,
         def_id: Option<&str>,
     ) -> Result<Vec<MachineInstance>> {
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(redb_err)?;
-        let table = rtx.open_table(INSTANCES).map_err(redb_err)?;
+        let read = self.scoped_read()?;
+        let table = read.open_owner_table(INSTANCES).map_err(redb_err)?;
         let mut out = Vec::new();
         for entry in table.iter().map_err(redb_err)? {
             let (_, v) = entry.map_err(redb_err)?;
@@ -718,194 +789,6 @@ impl StatechartStore {
     }
 }
 
-/// Fixed mutation-domain scope for statechart instance writes. A single native
-/// scope gives every instance transition one totally-ordered mutation log —
-/// exactly what a Raft state machine orders and replays — mirroring `eg-jobs`'
-/// fixed `native`/`analytics-jobs` scope. `INSTANCE_MUTATION_INCARNATION` is a
-/// fixed literal rather than one derived from the physical file: this scope has
-/// exactly one lifecycle generation for the life of a `statecharts.redb` (compare
-/// `crates/eg-jobs/src/store.rs`'s `ANALYTICS_JOB_SCOPE_INCARNATION` and
-/// `crates/eg-types/src/mutation_batch.rs`'s own `"incarnation:bootstrap:1"`
-/// fixtures for a fixed scope) -- it is not a placeholder standing in for an
-/// unknown value.
-const INSTANCE_MUTATION_TENANT: &str = "native";
-const INSTANCE_MUTATION_GRAPH: &str = "statechart-instances";
-const INSTANCE_MUTATION_INCARNATION: &str = "incarnation:eg-statechart:statechart-instances:1";
-
-/// Typed identity for the fixed `INSTANCE_MUTATION_*` native scope, shared by
-/// [`instance_batch`] and [`creation_batch`].
-fn instance_mutation_identity() -> Result<MutationScopeIdentity> {
-    MutationScopeIdentity::fixed_native(
-        INSTANCE_MUTATION_TENANT,
-        MutationDomain::Lifecycle,
-        INSTANCE_MUTATION_GRAPH,
-        INSTANCE_MUTATION_INCARNATION,
-    )
-    .map_err(codec_err)
-}
-
-/// Give each durable instance image the same deterministic, digest-only
-/// `MutationBatch` `eg-jobs`' `internal_job_batch` stamps on every `JOBS` transition,
-/// so an `instantiate` or a firing `send_event` carries identical atomic
-/// status/version/fence/idempotency/outbox evidence and is Raft-orderable and
-/// crash-consistent across nodes. The batch identity is a pure hash of the resulting
-/// instance image (`encoded`), so a re-proposed transition replays idempotently
-/// rather than double-applying.
-fn instance_batch(
-    instance: &MachineInstance,
-    encoded: &[u8],
-    identity: &MutationScopeIdentity,
-    expected_version: u64,
-) -> Result<MutationBatch> {
-    use sha2::{Digest, Sha256};
-    let digest = hex::encode(Sha256::digest(encoded));
-    // Attribute the transition to the authenticated, server-hashed owner of the
-    // instance. The actor is already an opaque scope; never emit a raw label.
-    let principal = format!(
-        "principal:sha256:{}",
-        hex::encode(Sha256::digest(instance.actor.as_bytes()))
-    );
-    let batch_id = format!("statechart-transition:{digest}");
-    let operation = MutationOperation {
-        ordinal: 0,
-        surface: MutationSurface::Lifecycle,
-        domain: MutationDomain::Lifecycle,
-        method: Method::ApplyMutation {
-            event_type: "statechart_instance_transition".to_string(),
-            query: format!("sha256:{digest}"),
-        },
-    };
-    let batch = MutationBatch {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: batch_id.clone(),
-        context: MutationRequestContext {
-            request_id: 0,
-            principal,
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // No admission boundary verifies a capability for this internal,
-            // firing-transition mutation -- it is a plain `Native`-versioned
-            // mutation, not the reserved-system `Unversioned` path, so it
-            // legitimately needs none. Empty is the true fact here, not a
-            // default standing in for an unknown value.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
-        identity: identity.clone(),
-        placement_epoch: 0,
-        idempotency_key: batch_id.clone(),
-        // The scope's live authoritative version, supplied by the caller (see
-        // this function's callers, which all read it via
-        // `eg_mutation_store::version(&self.mutation_store, &self.identity)`
-        // before opening the write transaction) -- `eg_mutation_store::finish`
-        // requires `VersionExpectation::Native` to equal the scope's CURRENT
-        // authoritative version.
-        version_expectation: VersionExpectation::Native(expected_version),
-        fencing_token: None,
-        authoritative_state: None,
-        operations: vec![operation.clone()],
-        outbox: vec![MutationOutboxIntent {
-            topic: "engine.statechart-instance.transitioned".to_string(),
-            key: batch_id,
-            payload: rmp_serde::to_vec_named(&operation).map_err(codec_err)?,
-            headers: std::collections::BTreeMap::new(),
-        }],
-        created_at_ms: instance.updated_at_ms.max(0) as u64,
-    };
-    batch.validate().map_err(codec_err)?;
-    Ok(batch)
-}
-
-/// Derive a NEW instance's id from its pre-agreed, pre-Raft-proposal request
-/// identity rather than a local `AtomicU64` counter — the creation-time analogue
-/// of `instance_batch`'s result-content-addressing, and the direct mirror of
-/// `eg-jobs::job_id_for_batch`. `request_batch_id` is already a caller-computed
-/// opaque digest (e.g. of request id + method), so this only domain-separates it
-/// into an instance id shaped like the local-counter form (`sc-<hex>`).
-fn instance_id_for_request(request_batch_id: &str) -> InstanceId {
-    use sha2::{Digest, Sha256};
-    let mut digest = Sha256::new();
-    digest.update(b"eg-statechart.consensus-instance-id.v1\0");
-    digest.update(request_batch_id.as_bytes());
-    format!("sc-{}", hex::encode(&digest.finalize()[..16]))
-}
-
-/// The creation-time sibling of `instance_batch`: rather than content-addressing
-/// the batch from the persisted image (which is circular for a brand-new instance
-/// — the image embeds the id this batch must also help derive), the batch
-/// identity IS the caller-supplied `request_batch_id`, fixed before Raft proposal
-/// and therefore identical on every replica. Same fixed `(tenant, graph)` scope
-/// and gateway shape as `instance_batch`, so creation and transition batches share
-/// ONE totally-ordered mutation log, per this module's `INSTANCE_MUTATION_*` doc.
-fn creation_batch(
-    instance: &MachineInstance,
-    request_batch_id: &str,
-    identity: &MutationScopeIdentity,
-    expected_version: u64,
-) -> Result<MutationBatch> {
-    use sha2::{Digest, Sha256};
-    let principal = format!(
-        "principal:sha256:{}",
-        hex::encode(Sha256::digest(instance.actor.as_bytes()))
-    );
-    let batch_id = request_batch_id.to_string();
-    let operation = MutationOperation {
-        ordinal: 0,
-        surface: MutationSurface::Lifecycle,
-        domain: MutationDomain::Lifecycle,
-        method: Method::ApplyMutation {
-            event_type: "statechart_instance_create".to_string(),
-            query: batch_id.clone(),
-        },
-    };
-    let batch = MutationBatch {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: batch_id.clone(),
-        context: MutationRequestContext {
-            request_id: 0,
-            principal,
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // No admission boundary verifies a capability for this internal
-            // creation mutation -- it is a plain `Native`-versioned mutation,
-            // not the reserved-system `Unversioned` path, so it legitimately
-            // needs none. Empty is the true fact here, not a default standing
-            // in for an unknown value.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
-        identity: identity.clone(),
-        placement_epoch: 0,
-        idempotency_key: batch_id.clone(),
-        // The scope's live authoritative version, supplied by the caller -- see
-        // `instance_batch`'s identical note just above.
-        version_expectation: VersionExpectation::Native(expected_version),
-        fencing_token: None,
-        authoritative_state: None,
-        operations: vec![operation.clone()],
-        outbox: vec![MutationOutboxIntent {
-            topic: "engine.statechart-instance.instantiated".to_string(),
-            key: batch_id,
-            payload: rmp_serde::to_vec_named(&operation).map_err(codec_err)?,
-            headers: std::collections::BTreeMap::new(),
-        }],
-        created_at_ms: instance.updated_at_ms.max(0) as u64,
-    };
-    batch.validate().map_err(codec_err)?;
-    Ok(batch)
-}
-
-/// Decode a committed instance image out of a replayed `MutationBatchRecord`
-/// (mirrors `eg-jobs::decode_job_result`) — the value `commit_instance_blob`
-/// returns on `Begin::Replay`.
-fn decode_instance_result(record: &MutationBatchRecord) -> Result<MachineInstance> {
-    let bytes = record
-        .result_msgpack
-        .as_deref()
-        .ok_or_else(|| codec_err("committed statechart instance batch has no result"))?;
-    decode_stored(bytes)
-}
-
 fn map_transition_error(instance_id: &str, error: TransitionError) -> StatechartError {
     StatechartError::InvalidTransition {
         instance_id: instance_id.to_string(),
@@ -915,9 +798,8 @@ fn map_transition_error(instance_id: &str, error: TransitionError) -> Statechart
 
 /// Seed the monotonic id counter from the highest `sc-<hex>` id already present, so ids
 /// never collide across restarts (mirrors `eg-jobs`' `max_job_sequence` backfill).
-fn initialize_next_id(db: &Database) -> Result<u64> {
-    let rtx = db.begin_read().map_err(redb_err)?;
-    let table = rtx.open_table(INSTANCES).map_err(redb_err)?;
+fn initialize_next_id(read: &ScopedRead<'_, StatechartOwner>) -> Result<u64> {
+    let table = read.open_owner_table(INSTANCES).map_err(redb_err)?;
     let mut max = 0u64;
     for entry in table.iter().map_err(redb_err)? {
         let (k, _) = entry.map_err(redb_err)?;
@@ -933,8 +815,50 @@ fn instance_seq(id: &str) -> Option<u64> {
         .and_then(|hex| u64::from_str_radix(hex, 16).ok())
 }
 
+/// Test-only composition root. Production supplies the real scope-grant proof
+/// authority; this one still checks every field the kernel hands it, so a store
+/// opened with the wrong layout, scope or principal fails closed in tests too.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::batches::INSTANCE_MUTATION_TENANT;
+    use super::*;
+    use eg_storage::{OwnerLayout, PhysicalStoreIdentity};
+
+    pub(crate) const TEST_PRINCIPAL: &str =
+        "principal:sha256:5f2b41b1e0dc61f2b6a4c0a1ee4b9a53d3d2fbb4a45c2d6c7ecb0a7fbb6d0c1e";
+    pub(crate) const TEST_PROOF: &[u8] = b"eg-statechart-test-scope-grant";
+
+    pub(crate) struct TestScopeVerifier;
+
+    impl ScopeGrantVerifier for TestScopeVerifier {
+        fn verify(
+            &self,
+            _physical: &PhysicalStoreIdentity,
+            layout: OwnerLayout,
+            identity: &MutationScopeIdentity,
+            principal: &str,
+            proof: &[u8],
+        ) -> std::result::Result<(), String> {
+            if layout != OwnerLayout::Statechart
+                || identity.tenant().as_str() != INSTANCE_MUTATION_TENANT
+                || principal != TEST_PRINCIPAL
+                || proof != TEST_PROOF
+            {
+                return Err("test scope authority rejected".to_string());
+            }
+            Ok(())
+        }
+    }
+
+    /// Open the store the way the composition root would.
+    pub(crate) fn open_test_store(dir: &Path) -> super::Result<StatechartStore> {
+        StatechartStore::open_in_dir(dir, &TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::test_support::open_test_store;
     use super::*;
     use crate::model::{State, Transition};
 
@@ -956,7 +880,7 @@ mod tests {
 
     fn store() -> (StatechartStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let store = StatechartStore::open_in_dir(dir.path()).unwrap();
+        let store = open_test_store(dir.path()).unwrap();
         (store, dir)
     }
 
@@ -987,7 +911,7 @@ mod tests {
         let def_id;
         let instance_id;
         {
-            let store = StatechartStore::open_in_dir(dir.path()).unwrap();
+            let store = open_test_store(dir.path()).unwrap();
             def_id = store.define(&turnstile()).unwrap();
             let instance = store
                 .instantiate(&def_id, Context::new(), "tenant-x", "actor-y")
@@ -1003,7 +927,7 @@ mod tests {
         }
         // Reopen a brand-new store handle on the same dir: the waiting machine is just
         // (state, context) on disk — rehydrate and continue.
-        let store = StatechartStore::open_in_dir(dir.path()).unwrap();
+        let store = open_test_store(dir.path()).unwrap();
         let rehydrated = store.get_instance(&instance_id).unwrap();
         assert!(rehydrated.in_state("unlocked"));
         assert_eq!(rehydrated.version, 1);
@@ -1096,8 +1020,8 @@ mod tests {
             .unwrap();
         let v_after_instantiate = store.mutation_version().unwrap();
         assert_eq!(
-            v_after_instantiate, 1,
-            "instantiate must commit exactly one gateway batch"
+            v_after_instantiate, 2,
+            "define commits one maintenance batch and instantiate one operation batch"
         );
 
         // A FIRING transition advances the gateway version by exactly one and leaves a
@@ -1117,7 +1041,7 @@ mod tests {
         assert_eq!(out.instance.version, 1);
         let v_after_fire = store.mutation_version().unwrap();
         assert_eq!(
-            v_after_fire, 2,
+            v_after_fire, 3,
             "a firing transition commits exactly one gateway batch"
         );
 
@@ -1129,17 +1053,16 @@ mod tests {
         // `blob`, independent of `version_expectation`, so any live version value
         // reconstructs the identical id -- `v_after_fire` is simply a genuine one
         // already in scope.
-        let batch = instance_batch(&out.instance, &blob, &store.identity, v_after_fire).unwrap();
-        let record = eg_mutation_store::read_record(&store.mutation_store, &store.identity, &batch.batch_id)
+        let batch = instance_batch(&out.instance, &blob, &store.owner, v_after_fire).unwrap();
+        let read = store.scoped_read().unwrap();
+        let record = eg_transaction::read_ledger(&read, &batch.batch_id)
             .unwrap()
             .expect("a firing transition must leave a committed batch record");
         assert_eq!(record.status, eg_types::MutationBatchStatus::Committed);
         let committed_image: MachineInstance =
             decode_stored(record.result_msgpack.as_ref().unwrap()).unwrap();
         assert_eq!(committed_image, out.instance);
-        let outbox =
-            eg_mutation_store::read_outbox(&store.mutation_store, &store.identity, &batch.batch_id)
-                .unwrap();
+        let outbox = eg_transaction::read_outbox(&read, &batch.batch_id).unwrap();
         assert_eq!(outbox.len(), 1);
         assert_eq!(
             outbox[0].intent.topic,
@@ -1246,7 +1169,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let instance_id;
         {
-            let store = StatechartStore::open_in_dir(dir.path()).unwrap();
+            let store = open_test_store(dir.path()).unwrap();
             let def_id = store.define(&nested()).unwrap();
             let inst = store
                 .instantiate(&def_id, Context::new(), "t", "a")
@@ -1260,7 +1183,7 @@ mod tests {
             assert!(out.instance.in_state("active") && out.instance.in_state("running"));
         }
         // Rehydrate: the parent-level `kill` edge applies to the active `running` state.
-        let store = StatechartStore::open_in_dir(dir.path()).unwrap();
+        let store = open_test_store(dir.path()).unwrap();
         let rehydrated = store.get_instance(&instance_id).unwrap();
         assert!(rehydrated.in_state("running"));
         let out = store

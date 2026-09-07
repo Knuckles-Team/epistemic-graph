@@ -30,6 +30,8 @@ from typing import Any, Literal, NamedTuple, NoReturn, TypedDict, cast
 
 import msgpack
 
+from . import generated as _gen
+
 logger = logging.getLogger(__name__)
 
 
@@ -148,7 +150,7 @@ class RequestContextClaims(_RequiredRequestContextClaims, total=False):
     verified external identity. Unlike ``node``/``priority`` it does NOT ride
     the canonical MAC-covered claim set -- it is carried as a SIBLING top-level
     field on the wire envelope (``{"context": {...}, "oidc_token": "...",
-    ...}``), matching the Rust decode shape (``EnvelopeV2.oidc_token`` in
+    ...}``), matching the Rust decode shape (``Envelope.oidc_token`` in
     ``src/server/auth.rs``, deliberately kept out of ``build_envelope_v2_bytes``
     since the token's own RSA/JWKS signature is the trust anchor, not MAC
     coverage -- a holder of the HMAC secret gains nothing by swapping it, since
@@ -3001,8 +3003,8 @@ class NodeClient:
         self._client = client
 
     async def add(self, node_id: str, properties: dict[str, Any] | None = None) -> None:
-        await self._client._send(
-            "AddNode",
+        await _gen.graph.send_add_node(
+            self._client,
             {
                 "node_id": node_id,
                 "properties_msgpack": _pack_binary_msgpack(properties or {}),
@@ -3018,8 +3020,8 @@ class NodeClient:
         callers execute one durable server-side membership-test-and-insert operation;
         losers return ``False`` and leave the winning properties untouched.
         """
-        return await self._client._send(
-            "CreateNodeIfAbsent",
+        return await _gen.graph.send_create_node_if_absent(
+            self._client,
             {
                 "node_id": node_id,
                 "properties_msgpack": _pack_binary_msgpack(properties or {}),
@@ -3027,10 +3029,10 @@ class NodeClient:
         )
 
     async def remove(self, node_id: str) -> None:
-        await self._client._send("RemoveNode", {"node_id": node_id})
+        await _gen.graph.send_remove_node(self._client, {"node_id": node_id})
 
     async def has(self, node_id: str) -> bool:
-        return await self._client._send("HasNode", {"node_id": node_id})
+        return await _gen.graph.send_has_node(self._client, {"node_id": node_id})
 
     async def compare_and_set(
         self, node_id: str, conditions: dict[str, Any], updates: dict[str, Any]
@@ -3042,8 +3044,8 @@ class NodeClient:
         any condition fails, or decode fails) the node is untouched and ``False``
         is returned. The read-modify-write runs atomically in the engine, so this
         is a backend-agnostic atomic claim for ``:Task``/``:Loop`` nodes."""
-        return await self._client._send(
-            "CompareAndSetNodeFields",
+        return await _gen.graph.send_compare_and_set_node_fields(
+            self._client,
             {
                 "node_id": node_id,
                 "conditions_msgpack": _pack_binary_msgpack(conditions),
@@ -3062,10 +3064,12 @@ class NodeClient:
         Returns ``(node_id, updated_properties)`` or ``None`` if nothing is claimable.
         ``updates`` MUST carry no wall-clock read (pass the lease/marker in) so WAL
         and Raft replay stay deterministic."""
-        raw_val = await self._client._send(
-            "ClaimNext",
-            {"label": label, "updates_msgpack": _pack_binary_msgpack(updates)},
-        )
+        raw_val = (
+            await _gen.coordination.send_claim_next(
+                self._client,
+                {"label": label, "updates_msgpack": _pack_binary_msgpack(updates)},
+            )
+        ).payload
         if isinstance(raw_val, bytes):
             raw_val = msgpack.unpackb(raw_val, raw=False)
         if not raw_val:
@@ -3082,7 +3086,7 @@ class NodeClient:
         frame that would reset the connection. Use :meth:`list_by_label` (which is
         bounded by ``limit``) or paginate for large graphs.
         """
-        return await self._client._send("GetNodes")
+        return await _gen.graph.send_get_nodes(self._client)
 
     async def list_by_label(
         self, label: str, limit: int = 0, *, after: str | None = None
@@ -3093,13 +3097,16 @@ class NodeClient:
         each non-empty page. ``limit=0`` is uncapped and intended only for small
         graphs.
         """
-        return await self._client._send(
-            "GetNodesByLabel",
-            {"label": label, "after": after, "limit": int(limit)},
+        return await _gen.graph.send_get_nodes_by_label(
+            self._client, {"label": label, "after": after, "limit": int(limit)}
         )
 
     async def properties(self, node_id: str) -> dict[str, Any] | None:
-        raw_val = await self._client._send("GetNodeProperties", {"node_id": node_id})
+        raw_val = (
+            await _gen.graph.send_get_node_properties(
+                self._client, {"node_id": node_id}
+            )
+        ).payload
         if raw_val is None:
             return None
         if isinstance(raw_val, bytes):
@@ -3117,9 +3124,11 @@ class NodeClient:
         the graph). Collapses what would be N ``properties()`` calls — and N
         network round-trips — into a single request.
         """
-        rows = await self._client._send(
-            "GetNodePropertiesBatch", {"node_ids": list(node_ids)}
-        )
+        rows = (
+            await _gen.graph.send_get_node_properties_batch(
+                self._client, {"node_ids": list(node_ids)}
+            )
+        ).payload
         out: dict[str, dict[str, Any] | None] = {}
         for entry in rows or []:
             nid, blob = entry[0], entry[1]
@@ -3129,29 +3138,33 @@ class NodeClient:
     async def has_batch(self, node_ids: builtins.list[str]) -> dict[str, bool]:
         """Existence check for many nodes in one round-trip."""
         ids = list(node_ids)
-        flags = await self._client._send("HasNodesBatch", {"node_ids": ids})
+        flags = (
+            await _gen.graph.send_has_nodes_batch(self._client, {"node_ids": ids})
+        ).payload
         return dict(zip(ids, flags or [], strict=False))
 
     async def count(self) -> int:
-        return await self._client._send("NodeCount")
+        return await _gen.graph.send_node_count(self._client)
 
     async def ids(self) -> builtins.list[str]:
-        return await self._client._send("NodeIds")
+        return await _gen.graph.send_node_ids(self._client)
 
     async def in_degree(self, node_id: str) -> int:
-        return await self._client._send("InDegree", {"node_id": node_id})
+        return await _gen.graph.send_in_degree(self._client, {"node_id": node_id})
 
     async def out_degree(self, node_id: str) -> int:
-        return await self._client._send("OutDegree", {"node_id": node_id})
+        return await _gen.graph.send_out_degree(self._client, {"node_id": node_id})
 
     async def predecessors(self, node_id: str) -> builtins.list[str]:
-        return await self._client._send("GetPredecessors", {"node_id": node_id})
+        return await _gen.graph.send_get_predecessors(
+            self._client, {"node_id": node_id}
+        )
 
     async def successors(self, node_id: str) -> builtins.list[str]:
-        return await self._client._send("GetSuccessors", {"node_id": node_id})
+        return await _gen.graph.send_get_successors(self._client, {"node_id": node_id})
 
     async def neighbors(self, node_id: str) -> builtins.list[str]:
-        return await self._client._send("GetNeighbors", {"node_id": node_id})
+        return await _gen.graph.send_get_neighbors(self._client, {"node_id": node_id})
 
     async def neighbors_batch(
         self, node_ids: builtins.list[str]
@@ -3167,7 +3180,9 @@ class NodeClient:
         / :meth:`has_batch`.
         """
         ids = list(node_ids)
-        rows = await self._client._send("GetNeighborsBatch", {"node_ids": ids})
+        rows = (
+            await _gen.graph.send_get_neighbors_batch(self._client, {"node_ids": ids})
+        ).payload
         return {nid: list(neighbor_ids) for nid, neighbor_ids in (rows or [])}
 
     # ── Cross-graph union reads (CONCEPT:EG-KG.query.cross-graph-union) ───────────────────────
@@ -3179,9 +3194,11 @@ class NodeClient:
         self, node_id: str, graphs: builtins.list[str]
     ) -> dict[str, Any] | None:
         """First-found node properties across ``graphs`` (in order)."""
-        raw_val = await self._client._send(
-            "UnionGetNodeProperties", {"graphs": list(graphs), "node_id": node_id}
-        )
+        raw_val = (
+            await _gen.graph.send_union_get_node_properties(
+                self._client, {"graphs": list(graphs), "node_id": node_id}
+            )
+        ).payload
         if raw_val is None:
             return None
         if isinstance(raw_val, bytes):
@@ -3194,17 +3211,19 @@ class NodeClient:
         self, label: str, graphs: builtins.list[str], limit: int = 0
     ) -> builtins.list[tuple[str, Any]]:
         """Label scan unioned + deduped by id across ``graphs`` (``limit=0`` ⇒ no cap)."""
-        return await self._client._send(
-            "UnionGetNodesByLabel",
-            {"graphs": list(graphs), "label": label, "limit": int(limit)},
-        )
+        return (
+            await _gen.graph.send_union_get_nodes_by_label(
+                self._client,
+                {"graphs": list(graphs), "label": label, "limit": int(limit)},
+            )
+        ).payload
 
     async def neighbors_union(
         self, node_id: str, graphs: builtins.list[str]
     ) -> builtins.list[str]:
         """Neighbour ids unioned + deduped across every graph that holds the anchor."""
-        return await self._client._send(
-            "UnionGetNeighbors", {"graphs": list(graphs), "node_id": node_id}
+        return await _gen.graph.send_union_get_neighbors(
+            self._client, {"graphs": list(graphs), "node_id": node_id}
         )
 
 
@@ -3243,9 +3262,11 @@ class StatechartClient:
         if not isinstance(definition, dict):
             raise TypeError("definition must be a dict shaped like StatechartDef")
         blob = _pack_binary_msgpack(definition)
-        resp = await self._client._send(
-            "Statechart", {"op": {"Define": {"def_msgpack": blob}}}
-        )
+        resp = (
+            await _gen.coordination.send_statechart(
+                self._client, {"op": {"Define": {"def_msgpack": blob}}}
+            )
+        ).payload
         return str(resp["def_id"])
 
     async def instantiate(
@@ -3255,10 +3276,12 @@ class StatechartClient:
         ``context`` (a JSON object; empty/``None`` for no initial extended state).
         Returns the freshly durable ``MachineInstance`` record (including its
         server-issued ``instance_id``)."""
-        return await self._client._send(
-            "Statechart",
-            {"op": {"Instantiate": {"def_id": def_id, "context": context or {}}}},
-        )
+        return (
+            await _gen.coordination.send_statechart(
+                self._client,
+                {"op": {"Instantiate": {"def_id": def_id, "context": context or {}}}},
+            )
+        ).payload
 
     async def send_event(
         self,
@@ -3272,33 +3295,39 @@ class StatechartClient:
         read) to ``instance_id``. ``expected_version``, when given, is an OCC token —
         the send is rejected if the stored instance has moved on. Returns
         ``{"instance", "fired", "no_op_reason", "fired_label", "actions", "effects"}``."""
-        return await self._client._send(
-            "Statechart",
-            {
-                "op": {
-                    "SendEvent": {
-                        "instance_id": instance_id,
-                        "event": event,
-                        "payload": payload if payload is not None else {},
-                        "expected_version": expected_version,
+        return (
+            await _gen.coordination.send_statechart(
+                self._client,
+                {
+                    "op": {
+                        "SendEvent": {
+                            "instance_id": instance_id,
+                            "event": event,
+                            "payload": payload if payload is not None else {},
+                            "expected_version": expected_version,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
     async def get_state(self, instance_id: str) -> dict[str, Any]:
         """Fetch (rehydrate) ``instance_id``'s current durable ``(state, context)`` +
         version. Read-only, owner-scoped."""
-        return await self._client._send(
-            "Statechart", {"op": {"GetState": {"instance_id": instance_id}}}
-        )
+        return (
+            await _gen.coordination.send_statechart(
+                self._client, {"op": {"GetState": {"instance_id": instance_id}}}
+            )
+        ).payload
 
     async def list(self, def_id: str | None = None) -> dict[str, Any]:
         """List instance ids owned by the caller, optionally filtered to one
         definition. Returns ``{"instance_ids", "count"}``."""
-        return await self._client._send(
-            "Statechart", {"op": {"List": {"def_id": def_id}}}
-        )
+        return (
+            await _gen.coordination.send_statechart(
+                self._client, {"op": {"List": {"def_id": def_id}}}
+            )
+        ).payload
 
 
 class VizClient:
@@ -3353,10 +3382,12 @@ class VizClient:
 
         ``_send`` already decodes the wire's compact MessagePack `Raw` payload
         (the same "second unpackb over a top-level bytes result" every other
-        ``Raw``/``PropertiesMsgpack`` result goes through) — no special-cased
+        structured ``Raw`` result goes through) — no special-cased
         decoding needed here.
         """
-        return await self._client._send("Viz", {"op": "CapabilityMatrix"})
+        return (
+            await _gen.ingestion.send_viz(self._client, {"op": "CapabilityMatrix"})
+        ).payload
 
     async def render(
         self,
@@ -3407,23 +3438,25 @@ class VizClient:
         render — see ``eg_viz_core::ViewResult``'s own doc for why a caller
         must check this rather than infer it from the tier name).
         """
-        return await self._client._send(
-            "Viz",
-            {
-                "op": {
-                    "Render": {
-                        "spec_json": spec,
-                        "dataset": dataset,
-                        "width_px": width_px,
-                        "height_px": height_px,
-                        "format": format,
-                        "max_primitives": max_primitives,
-                        "max_bytes": max_bytes,
-                        "dataset_ref": dataset_ref,
+        return (
+            await _gen.ingestion.send_viz(
+                self._client,
+                {
+                    "op": {
+                        "Render": {
+                            "spec_json": spec,
+                            "dataset": dataset,
+                            "width_px": width_px,
+                            "height_px": height_px,
+                            "format": format,
+                            "max_primitives": max_primitives,
+                            "max_bytes": max_bytes,
+                            "dataset_ref": dataset_ref,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
 
 class AsrClient:
@@ -3464,22 +3497,24 @@ class AsrClient:
         bool}`` — the same shape ``audio_transcriber.asr_providers``'s
         ``TranscriptionProvider.transcribe`` Protocol expects.
         """
-        return await self._client._send(
-            "Asr",
-            {
-                "op": {
-                    "TranscribeFile": {
-                        "model_path": model_path,
-                        "model_sha256": model_sha256,
-                        "audio_wav": audio_wav,
-                        "language": language,
-                        "translate": translate,
-                        "word_timing": word_timing,
-                        "window_ms": window_ms,
+        return (
+            await _gen.ingestion.send_asr(
+                self._client,
+                {
+                    "op": {
+                        "TranscribeFile": {
+                            "model_path": model_path,
+                            "model_sha256": model_sha256,
+                            "audio_wav": audio_wav,
+                            "language": language,
+                            "translate": translate,
+                            "word_timing": word_timing,
+                            "window_ms": window_ms,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
 
 class QuantumClient:
@@ -3536,19 +3571,21 @@ class QuantumClient:
         ``MAX_RANK_CANDIDATES``; an oversized request is rejected outright,
         never silently truncated.
         """
-        return await self._client._send(
-            "Quantum",
-            {
-                "op": {
-                    "Rank": {
-                        "candidates": candidates,
-                        "shots": shots,
-                        "seed": seed,
-                        "backend_id": backend_id,
+        return (
+            await _gen.ingestion.send_quantum(
+                self._client,
+                {
+                    "op": {
+                        "Rank": {
+                            "candidates": candidates,
+                            "shots": shots,
+                            "seed": seed,
+                            "backend_id": backend_id,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
     async def optimize_qaoa(
         self,
@@ -3577,7 +3614,11 @@ class QuantumClient:
         }
         if p_layers is not None:
             op["p_layers"] = p_layers
-        return await self._client._send("Quantum", {"op": {"OptimizeQaoa": op}})
+        return (
+            await _gen.ingestion.send_quantum(
+                self._client, {"op": {"OptimizeQaoa": op}}
+            )
+        ).payload
 
     async def expectation(
         self,
@@ -3597,20 +3638,22 @@ class QuantumClient:
         silently appending measurements to a caller's circuit. Q8 v0 is
         restricted to Pauli-Z strings.
         """
-        return await self._client._send(
-            "Quantum",
-            {
-                "op": {
-                    "Expectation": {
-                        "program": program,
-                        "observable_qubits": observable_qubits,
-                        "shots": shots,
-                        "seed": seed,
-                        "backend_id": backend_id,
+        return (
+            await _gen.ingestion.send_quantum(
+                self._client,
+                {
+                    "op": {
+                        "Expectation": {
+                            "program": program,
+                            "observable_qubits": observable_qubits,
+                            "shots": shots,
+                            "seed": seed,
+                            "backend_id": backend_id,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
 
 _CAPACITY_DECISIONS = frozenset(
@@ -3912,7 +3955,11 @@ class WorkItemClient:
         self._submit_scheduling(value)
         self._submit_payload(value)
         await self._require_submit_method("SubmitWorkItem")
-        result = await self._client._send("SubmitWorkItem", {"request": value})
+        result = (
+            await _gen.coordination.send_submit_work_item(
+                self._client, {"request": value}
+            )
+        ).payload
         return _submit_work_item_result(result)
 
     async def submit_batch(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -3934,7 +3981,11 @@ class WorkItemClient:
         for child in requests:
             _submit_work_item_request_shape(child)
         await self._require_submit_method("SubmitWorkItems")
-        result = await self._client._send("SubmitWorkItems", {"request": value})
+        result = (
+            await _gen.coordination.send_submit_work_items(
+                self._client, {"request": value}
+            )
+        ).payload
         return _submit_work_items_result(result)
 
     @staticmethod
@@ -4008,7 +4059,11 @@ class WorkItemClient:
         limit is required and bounded by the current wire contract (1..=4096).
         """
         value = self._claim_request(request)
-        result = await self._client._send("ClaimWorkItem", {"request": value})
+        result = (
+            await _gen.coordination.send_claim_work_item(
+                self._client, {"request": value}
+            )
+        ).payload
         return self._claim_result(result)
 
     async def mint_capability(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -4030,7 +4085,11 @@ class WorkItemClient:
         if len(value["work_item_id"]) > 512:
             raise ValueError("WorkItemClaimCapability.work_item_id exceeds 512 bytes")
         return _work_item_capability_result(
-            await self._client._send("MintWorkItemClaimCapability", {"request": value}),
+            (
+                await _gen.coordination.send_mint_work_item_claim_capability(
+                    self._client, {"request": value}
+                )
+            ).payload,
             verify=False,
         )
 
@@ -4061,9 +4120,11 @@ class WorkItemClient:
                 "WorkItemClaimCapability.capability must be at most 128 bytes"
             )
         return _work_item_capability_result(
-            await self._client._send(
-                "VerifyWorkItemClaimCapability", {"request": value}
-            ),
+            (
+                await _gen.coordination.send_verify_work_item_claim_capability(
+                    self._client, {"request": value}
+                )
+            ).payload,
             verify=True,
         )
 
@@ -4078,18 +4139,20 @@ class WorkItemClient:
         now_ms: int,
         lease_ms: int,
     ) -> dict[str, Any]:
-        return await self._client._send(
-            "RenewWorkItemLease",
-            {
-                "tenant": tenant,
-                "work_item_id": work_item_id,
-                "worker_id": worker_id,
-                "lease_epoch": int(lease_epoch),
-                "fencing_token": int(fencing_token),
-                "now_ms": int(now_ms),
-                "lease_ms": int(lease_ms),
-            },
-        )
+        return (
+            await _gen.coordination.send_renew_work_item_lease(
+                self._client,
+                {
+                    "tenant": tenant,
+                    "work_item_id": work_item_id,
+                    "worker_id": worker_id,
+                    "lease_epoch": int(lease_epoch),
+                    "fencing_token": int(fencing_token),
+                    "now_ms": int(now_ms),
+                    "lease_ms": int(lease_ms),
+                },
+            )
+        ).payload
 
     async def commit_result(
         self,
@@ -4106,22 +4169,24 @@ class WorkItemClient:
         error_ref: str | None = None,
         retryable: bool = False,
     ) -> dict[str, Any]:
-        return await self._client._send(
-            "CommitWorkItemResult",
-            {
-                "tenant": tenant,
-                "work_item_id": work_item_id,
-                "worker_id": worker_id,
-                "lease_epoch": int(lease_epoch),
-                "fencing_token": int(fencing_token),
-                "idempotency_key": idempotency_key,
-                "outcome": outcome,
-                "result_ref": result_ref,
-                "error_ref": error_ref,
-                "retryable": bool(retryable),
-                "now_ms": int(now_ms),
-            },
-        )
+        return (
+            await _gen.coordination.send_commit_work_item_result(
+                self._client,
+                {
+                    "tenant": tenant,
+                    "work_item_id": work_item_id,
+                    "worker_id": worker_id,
+                    "lease_epoch": int(lease_epoch),
+                    "fencing_token": int(fencing_token),
+                    "idempotency_key": idempotency_key,
+                    "outcome": outcome,
+                    "result_ref": result_ref,
+                    "error_ref": error_ref,
+                    "retryable": bool(retryable),
+                    "now_ms": int(now_ms),
+                },
+            )
+        ).payload
 
     async def cancel(
         self,
@@ -4138,16 +4203,18 @@ class WorkItemClient:
         an opaque ``reason_ref`` is transmitted; free-form reason bodies are not
         retained by the engine.
         """
-        return await self._client._send(
-            "CancelWorkItem",
-            {
-                "tenant": tenant,
-                "work_item_id": work_item_id,
-                "idempotency_key": idempotency_key,
-                "reason_ref": reason_ref,
-                "now_ms": int(now_ms),
-            },
-        )
+        return (
+            await _gen.coordination.send_cancel_work_item(
+                self._client,
+                {
+                    "tenant": tenant,
+                    "work_item_id": work_item_id,
+                    "idempotency_key": idempotency_key,
+                    "reason_ref": reason_ref,
+                    "now_ms": int(now_ms),
+                },
+            )
+        ).payload
 
     async def defer(
         self,
@@ -4163,20 +4230,22 @@ class WorkItemClient:
         reason_ref: str | None = None,
     ) -> dict[str, Any]:
         """Release a fenced lease for later polling without using an attempt."""
-        return await self._client._send(
-            "DeferWorkItem",
-            {
-                "tenant": tenant,
-                "work_item_id": work_item_id,
-                "worker_id": worker_id,
-                "lease_epoch": int(lease_epoch),
-                "fencing_token": int(fencing_token),
-                "idempotency_key": idempotency_key,
-                "next_retry_at_ms": int(next_retry_at_ms),
-                "reason_ref": reason_ref,
-                "now_ms": int(now_ms),
-            },
-        )
+        return (
+            await _gen.coordination.send_defer_work_item(
+                self._client,
+                {
+                    "tenant": tenant,
+                    "work_item_id": work_item_id,
+                    "worker_id": worker_id,
+                    "lease_epoch": int(lease_epoch),
+                    "fencing_token": int(fencing_token),
+                    "idempotency_key": idempotency_key,
+                    "next_retry_at_ms": int(next_retry_at_ms),
+                    "reason_ref": reason_ref,
+                    "now_ms": int(now_ms),
+                },
+            )
+        ).payload
 
     async def cas_metadata(
         self,
@@ -4251,7 +4320,11 @@ class WorkItemClient:
             "set_prio_bucket": set_prio_bucket,
             "now_ms": int(now_ms),
         }
-        result = await self._client._send("CasWorkItemMetadata", {"request": request})
+        result = (
+            await _gen.coordination.send_cas_work_item_metadata(
+                self._client, {"request": request}
+            )
+        ).payload
         return _cas_metadata_result(result, work_item_id)
 
     async def _require_resource_method(self, method: str) -> None:
@@ -4273,9 +4346,11 @@ class WorkItemClient:
 
         payload = _resource_reservation_request(request)
         await self._require_resource_method("ReserveWorkItemResources")
-        value = await self._client._send(
-            "ReserveWorkItemResources", {"request": payload}
-        )
+        value = (
+            await _gen.coordination.send_reserve_work_item_resources(
+                self._client, {"request": payload}
+            )
+        ).payload
         return _resource_reservation_result(value)
 
     async def release(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -4283,9 +4358,11 @@ class WorkItemClient:
 
         payload = _resource_reservation_request(request)
         await self._require_resource_method("ReleaseWorkItemResources")
-        value = await self._client._send(
-            "ReleaseWorkItemResources", {"request": payload}
-        )
+        value = (
+            await _gen.coordination.send_release_work_item_resources(
+                self._client, {"request": payload}
+            )
+        ).payload
         return _resource_reservation_result(value)
 
     async def reclaim(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -4293,18 +4370,22 @@ class WorkItemClient:
 
         payload = _resource_reservation_request(request)
         await self._require_resource_method("ReclaimWorkItemResources")
-        value = await self._client._send(
-            "ReclaimWorkItemResources", {"request": payload}
-        )
+        value = (
+            await _gen.coordination.send_reclaim_work_item_resources(
+                self._client, {"request": payload}
+            )
+        ).payload
         return _resource_reservation_result(value)
 
     async def query_reservation(self, request: dict[str, Any]) -> dict[str, Any]:
         """Read one native reservation/tombstone; local mirrors are not authority."""
 
         await self._require_resource_method("QueryWorkItemReservation")
-        value = await self._client._send(
-            "QueryWorkItemReservation", {"request": _resource_status_request(request)}
-        )
+        value = (
+            await _gen.coordination.send_query_work_item_reservation(
+                self._client, {"request": _resource_status_request(request)}
+            )
+        ).payload
         return _resource_reservation_result(value)
 
     async def status(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -4312,9 +4393,11 @@ class WorkItemClient:
 
         await self._require_resource_method("ResourceReservationStatus")
         request = _resource_status_request(request)
-        value = await self._client._send(
-            "ResourceReservationStatus", {"request": request}
-        )
+        value = (
+            await _gen.coordination.send_resource_reservation_status(
+                self._client, {"request": request}
+            )
+        ).payload
         result = _resource_reservation_status_result(value)
         if len(result["reservations"]) > request["limit"]:
             raise ValueError("ResourceReservationStatus result exceeds requested limit")
@@ -4325,7 +4408,11 @@ class WorkItemClient:
 
         update = _resource_host_update_request(request)
         await self._require_resource_method("UpdateResourceHost")
-        value = await self._client._send("UpdateResourceHost", {"request": update})
+        value = (
+            await _gen.coordination.send_update_resource_host(
+                self._client, {"request": update}
+            )
+        ).payload
         return _resource_host_update_result(value)
 
 
@@ -4436,7 +4523,11 @@ class CapacityLeaseClient:
         self._acquire_demands(value)
         self._acquire_budgets(value)
         await self._require_method("AcquireCapacity")
-        result = await self._client._send("AcquireCapacity", {"request": value})
+        result = (
+            await _gen.coordination.send_acquire_capacity(
+                self._client, {"request": value}
+            )
+        ).payload
         return self._acquire_result(result)
 
     async def renew(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -4489,7 +4580,7 @@ class CapacityLeaseClient:
             _string(f"{method}.idempotency_key", value["idempotency_key"])
         await self._require_method(method)
         return self._lease_result(
-            await self._client._send(method, {"request": value}), method
+            await _gen.send_by_id(self._client, method, {"request": value}), method
         )
 
     async def reclaim(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -4573,7 +4664,7 @@ class CapacityLeaseClient:
     ) -> dict[str, Any]:
         value = self._reclaim_or_status_request(method, request, reclaim=reclaim)
         await self._require_method(method)
-        result = await self._client._send(method, {"request": value})
+        result = await _gen.send_by_id(self._client, method, {"request": value})
         if reclaim:
             return self._reclaim_result(method, result)
         return self._capacity_status_result(method, result)
@@ -4592,7 +4683,11 @@ class CapacityLeaseClient:
                 "UpdateCapacityCell.expected_epoch", value["expected_epoch"], minimum=0
             )
         await self._require_method("UpdateCapacityCell")
-        result = await self._client._send("UpdateCapacityCell", {"request": value})
+        result = (
+            await _gen.coordination.send_update_capacity_cell(
+                self._client, {"request": value}
+            )
+        ).payload
         answer = _exact_mapping(
             "UpdateCapacityCell result",
             result,
@@ -5061,7 +5156,11 @@ class DevelopmentLaneClient:
         for field in ("attempt", "lease_epoch", "fencing_token", "now_ms"):
             _integer(f"DevelopmentLaneReserveRequest.{field}", value[field])
         _development_lane_intent(value["intent"])
-        result = await self._client._send("ReserveDevelopmentLane", {"request": value})
+        result = (
+            await _gen.coordination.send_reserve_development_lane(
+                self._client, {"request": value}
+            )
+        ).payload
         return _development_lane_hold_result("DevelopmentLaneResult", result)
 
     async def renew(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -5108,7 +5207,11 @@ class DevelopmentLaneClient:
         ):
             _integer(f"DevelopmentLaneRenewRequest.{field}", value[field])
         _integer("DevelopmentLaneRenewRequest.ttl_ms", value["ttl_ms"], minimum=1)
-        result = await self._client._send("RenewDevelopmentLane", {"request": value})
+        result = (
+            await _gen.coordination.send_renew_development_lane(
+                self._client, {"request": value}
+            )
+        ).payload
         return _development_lane_hold_result("DevelopmentLaneRenewResult", result)
 
     async def observe(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -5157,7 +5260,11 @@ class DevelopmentLaneClient:
             "now_ms",
         ):
             _integer(f"DevelopmentLaneObserveRequest.{field}", value[field])
-        result = await self._client._send("ObserveDevelopmentLane", {"request": value})
+        result = (
+            await _gen.coordination.send_observe_development_lane(
+                self._client, {"request": value}
+            )
+        ).payload
         return _development_lane_hold_result("DevelopmentLaneObserveResult", result)
 
     async def finish(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -5205,7 +5312,11 @@ class DevelopmentLaneClient:
             _integer(f"DevelopmentLaneFinishRequest.{field}", value[field])
         if value["terminal_state"] not in _DEVELOPMENT_LANE_TERMINAL_STATES:
             raise ValueError("DevelopmentLaneFinishRequest.terminal_state is invalid")
-        result = await self._client._send("FinishDevelopmentLane", {"request": value})
+        result = (
+            await _gen.coordination.send_finish_development_lane(
+                self._client, {"request": value}
+            )
+        ).payload
         return _development_lane_hold_result("DevelopmentLaneFinishResult", result)
 
     async def cleanup_complete(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -5264,7 +5375,11 @@ class DevelopmentLaneClient:
             "now_ms",
         ):
             _integer(f"DevelopmentLaneCleanupCompleteRequest.{field}", value[field])
-        result = await self._client._send("CleanupDevelopmentLane", {"request": value})
+        result = (
+            await _gen.coordination.send_cleanup_development_lane(
+                self._client, {"request": value}
+            )
+        ).payload
         return _development_lane_hold_result(
             "DevelopmentLaneCleanupCompleteResult", result
         )
@@ -5282,7 +5397,11 @@ class DevelopmentLaneClient:
         _string("DevelopmentLaneQueryRequest.tenant_ref", value["tenant_ref"])
         _string("DevelopmentLaneQueryRequest.hold_id", value["hold_id"])
         _integer("DevelopmentLaneQueryRequest.now_ms", value["now_ms"])
-        result = await self._client._send("QueryDevelopmentLane", {"request": value})
+        result = (
+            await _gen.coordination.send_query_development_lane(
+                self._client, {"request": value}
+            )
+        ).payload
         answer = _exact_mapping(
             "DevelopmentLaneQueryResult",
             result,
@@ -5341,7 +5460,11 @@ class DevelopmentLaneClient:
             "DevelopmentLaneStatusRequest.limit", value["limit"], minimum=1
         )
         _integer("DevelopmentLaneStatusRequest.now_ms", value["now_ms"])
-        result = await self._client._send("DevelopmentLaneStatus", {"request": value})
+        result = (
+            await _gen.coordination.send_development_lane_status(
+                self._client, {"request": value}
+            )
+        ).payload
         answer = _exact_mapping(
             "DevelopmentLaneStatusResult",
             result,
@@ -5426,9 +5549,11 @@ class DevelopmentLaneClient:
                 value["expected_policy_version"],
             )
         _integer("DevelopmentLaneQuotaUpdateRequest.now_ms", value["now_ms"])
-        result = await self._client._send(
-            "UpdateDevelopmentLaneQuota", {"request": value}
-        )
+        result = (
+            await _gen.coordination.send_update_development_lane_quota(
+                self._client, {"request": value}
+            )
+        ).payload
         answer = _exact_mapping(
             "DevelopmentLaneQuotaUpdateResult",
             result,
@@ -5739,12 +5864,14 @@ class ChangeEnvelopeClient:
     async def apply(self, envelope: dict[str, Any]) -> dict[str, Any]:
         canonical = self._canonical(envelope)
         mutation = canonical["mutation"]
-        return await self._client._send(
-            "ApplyChangeEnvelope",
-            {"envelope": canonical},
-            graph=mutation["graph"],
-            idempotency_key=mutation["idempotency_key"],
-        )
+        return (
+            await _gen.transactions.send_apply_change_envelope(
+                self._client,
+                {"envelope": canonical},
+                graph=mutation["graph"],
+                idempotency_key=mutation["idempotency_key"],
+            )
+        ).payload
 
     async def apply_batch(
         self, envelopes: list[dict[str, Any]]
@@ -5782,33 +5909,41 @@ class ChangeEnvelopeClient:
             sorted(canonical["mutation"]["idempotency_key"] for canonical in canonicals)
         ).encode("utf-8")
         batch_key = "change-batch:sha256:" + hashlib.sha256(material).hexdigest()
-        result = await self._client._send(
-            "ApplyChangeEnvelopes",
-            {"envelopes": canonicals},
-            graph=graph,
-            idempotency_key=batch_key,
-        )
+        result = (
+            await _gen.transactions.send_apply_change_envelopes(
+                self._client,
+                {"envelopes": canonicals},
+                graph=graph,
+                idempotency_key=batch_key,
+            )
+        ).payload
         results = result.get("results") if isinstance(result, dict) else None
         return results if isinstance(results, list) else []
 
     async def get(self, envelope_id: str) -> dict[str, Any] | None:
         tenant = self._client._verified_tenant()
-        return await self._client._send(
-            "GetChangeEnvelope", {"envelope_id": envelope_id, "tenant": tenant}
-        )
+        return (
+            await _gen.query.send_get_change_envelope(
+                self._client, {"envelope_id": envelope_id, "tenant": tenant}
+            )
+        ).payload
 
     async def content_version(self, object_id: str) -> dict[str, Any] | None:
         tenant = self._client._verified_tenant()
-        return await self._client._send(
-            "GetContentVersion", {"object_id": object_id, "tenant": tenant}
-        )
+        return (
+            await _gen.query.send_get_content_version(
+                self._client, {"object_id": object_id, "tenant": tenant}
+            )
+        ).payload
 
     async def cursor(self, source: str, partition: str = "") -> dict[str, Any] | None:
         tenant = self._client._verified_tenant()
-        return await self._client._send(
-            "GetChangeCursor",
-            {"source": source, "partition": partition, "tenant": tenant},
-        )
+        return (
+            await _gen.query.send_get_change_cursor(
+                self._client,
+                {"source": source, "partition": partition, "tenant": tenant},
+            )
+        ).payload
 
 
 class EdgeClient:
@@ -5820,8 +5955,8 @@ class EdgeClient:
     async def add(
         self, source_id: str, target_id: str, properties: dict[str, Any] | None = None
     ) -> None:
-        await self._client._send(
-            "AddEdge",
+        await _gen.graph.send_add_edge(
+            self._client,
             {
                 "source_id": source_id,
                 "target_id": target_id,
@@ -5830,8 +5965,8 @@ class EdgeClient:
         )
 
     async def remove(self, source_id: str, target_id: str) -> None:
-        await self._client._send(
-            "RemoveEdge", {"source_id": source_id, "target_id": target_id}
+        await _gen.graph.send_remove_edge(
+            self._client, {"source_id": source_id, "target_id": target_id}
         )
 
     async def invalidate(
@@ -5848,8 +5983,8 @@ class EdgeClient:
         instead of deleting it, so an ``AS OF`` before ``invalid_at`` still sees the
         fact. Returns the number of edge blobs updated.
         """
-        return await self._client._send(
-            "InvalidateEdge",
+        return await _gen.graph.send_invalidate_edge(
+            self._client,
             {
                 "source_id": source_id,
                 "target_id": target_id,
@@ -5877,8 +6012,8 @@ class EdgeClient:
         new edge's ``properties`` should carry ``valid_from = valid_at`` and a
         ``supersedes`` provenance pointer.
         """
-        await self._client._send(
-            "SupersedeEdge",
+        await _gen.graph.send_supersede_edge(
+            self._client,
             {
                 "source_id": source_id,
                 "target_id": target_id,
@@ -5892,8 +6027,8 @@ class EdgeClient:
         )
 
     async def has(self, source_id: str, target_id: str) -> bool:
-        return await self._client._send(
-            "HasEdge", {"source_id": source_id, "target_id": target_id}
+        return await _gen.graph.send_has_edge(
+            self._client, {"source_id": source_id, "target_id": target_id}
         )
 
     async def list(self) -> builtins.list[tuple[str, str, builtins.list[int] | bytes]]:
@@ -5906,7 +6041,7 @@ class EdgeClient:
         frame that would reset the connection. Use :meth:`list_page` (bounded
         by ``limit``) to paginate for large graphs.
         """
-        return await self._client._send("GetEdges")
+        return await _gen.graph.send_get_edges(self._client)
 
     async def list_page(
         self,
@@ -5923,18 +6058,22 @@ class EdgeClient:
         it to the last row returned in each non-empty page. ``limit=0`` is
         uncapped and intended only for small graphs.
         """
-        return await self._client._send(
-            "GetEdgesPage",
-            {
-                "after": list(after) if after is not None else None,
-                "limit": int(limit),
-            },
-        )
+        return (
+            await _gen.graph.send_get_edges_page(
+                self._client,
+                {
+                    "after": list(after) if after is not None else None,
+                    "limit": int(limit),
+                },
+            )
+        ).payload
 
     async def properties(self, source_id: str, target_id: str) -> dict[str, Any] | None:
-        raw_val = await self._client._send(
-            "GetEdgeProperties", {"source_id": source_id, "target_id": target_id}
-        )
+        raw_val = (
+            await _gen.graph.send_get_edge_properties(
+                self._client, {"source_id": source_id, "target_id": target_id}
+            )
+        ).payload
         if raw_val is None:
             return None
         if isinstance(raw_val, bytes):
@@ -5953,7 +6092,11 @@ class EdgeClient:
         an empty list means no such edge).
         """
         pairs = [list(e) for e in edges]
-        rows = await self._client._send("GetEdgePropertiesBatch", {"edges": pairs})
+        rows = (
+            await _gen.graph.send_get_edge_properties_batch(
+                self._client, {"edges": pairs}
+            )
+        ).payload
         out: builtins.list[builtins.list[dict[str, Any]]] = []
         for per_edge in rows or []:
             out.append(
@@ -5966,7 +6109,7 @@ class EdgeClient:
         return out
 
     async def count(self) -> int:
-        return await self._client._send("EdgeCount")
+        return await _gen.graph.send_edge_count(self._client)
 
 
 class GraphOperationsClient:
@@ -5976,13 +6119,15 @@ class GraphOperationsClient:
         self._client = client
 
     async def clear(self) -> None:
-        await self._client._send("ClearGraph")
+        await _gen.graph.send_clear_graph(self._client)
 
     async def parse_file(self, file_path: str, source: bytes) -> dict[str, Any]:
-        return await self._client._send(
-            "ParseFile",
-            {"file_path": _logical_source_name(file_path), "source": source},
-        )
+        return (
+            await _gen.ingestion.send_parse_file(
+                self._client,
+                {"file_path": _logical_source_name(file_path), "source": source},
+            )
+        ).payload
 
     async def parse_files(self, files: list[tuple[str, bytes]]) -> list[dict[str, Any]]:
         """Parse many files in ONE round-trip (CONCEPT:EG-KG.memory.forgetting-curve-decay batch op).
@@ -5996,7 +6141,9 @@ class GraphOperationsClient:
             [[_logical_source_name(fp), src] for fp, src in files],
             use_bin_type=True,
         )
-        return await self._client._send("ParseFiles", {"files_msgpack": blob})
+        return (
+            await _gen.ingestion.send_parse_files(self._client, {"files_msgpack": blob})
+        ).payload
 
     async def index_repository(self, files: list[tuple[str, bytes]]) -> dict[str, Any]:
         """Parse a batch AND resolve cross-file edges in ONE round-trip
@@ -6032,7 +6179,11 @@ class GraphOperationsClient:
             [[_logical_source_name(fp), src] for fp, src in files],
             use_bin_type=True,
         )
-        return await self._client._send("IndexRepository", {"files_msgpack": blob})
+        return (
+            await _gen.ingestion.send_index_repository(
+                self._client, {"files_msgpack": blob}
+            )
+        ).payload
 
     async def observe_screen(
         self,
@@ -6071,20 +6222,26 @@ class GraphOperationsClient:
                 "elements": elements or [],
             }
         )
-        return await self._client._send("ObserveScreen", {"obs_msgpack": blob})
+        return (
+            await _gen.ingestion.send_observe_screen(
+                self._client, {"obs_msgpack": blob}
+            )
+        ).payload
 
     async def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        await self._client._send(
-            "AddEmbedding", {"node_id": node_id, "embedding": embedding}
+        await _gen.ingestion.send_add_embedding(
+            self._client, {"node_id": node_id, "embedding": embedding}
         )
 
     async def semantic_search(
         self, query_embedding: list[float], n_results: int = 5
     ) -> list[tuple[str, float]]:
-        return await self._client._send(
-            "SemanticSearch",
-            {"query_embedding": query_embedding, "n_results": n_results},
-        )
+        return (
+            await _gen.ingestion.send_semantic_search(
+                self._client,
+                {"query_embedding": query_embedding, "n_results": n_results},
+            )
+        ).payload
 
     async def discover(
         self,
@@ -6108,10 +6265,12 @@ class GraphOperationsClient:
         unavailable), degrading to a bounded keyword-only scan. Gate on
         :meth:`supports` (``"Discover"``) against an engine built before this op.
         """
-        return await self._client._send(
-            "Discover",
-            {"keywords": keywords, "query_embedding": query_embedding, "k": k},
-        )
+        return (
+            await _gen.ingestion.send_discover(
+                self._client,
+                {"keywords": keywords, "query_embedding": query_embedding, "k": k},
+            )
+        ).payload
 
     async def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
         """CONCEPT:EG-ORCH.routing.lexical-capability-escalation — embedding-free lexical classification gate.
@@ -6122,16 +6281,19 @@ class GraphOperationsClient:
         routing and semantic search: a non-empty result means the turn names a
         real fleet capability and should escalate to the full graph.
         """
-        return await self._client._send(
-            "MatchOntologyTerms",
-            {"query": query},
-        )
+        return (
+            await _gen.compute.send_match_ontology_terms(self._client, {"query": query})
+        ).payload
 
     async def batch_l2_normalize(self, vectors: list[list[float]]) -> list[list[float]]:
         """L2-normalize a batch of vectors IN-ENGINE via the eg-numeric kernel
         (CONCEPT:EG-KG.compute.l2-normalize-batch-vectors, compute-near-data). Returns each row's unit vector `v/‖v‖`
         (a zero vector is returned unchanged). Requires the engine's `numeric` feature."""
-        return await self._client._send("BatchL2Normalize", {"vectors": vectors})
+        return (
+            await _gen.compute.send_batch_l2_normalize(
+                self._client, {"vectors": vectors}
+            )
+        ).payload
 
     async def vf2_subgraph_match(
         self,
@@ -6152,30 +6314,36 @@ class GraphOperationsClient:
         result, not proof no further match exists); pass an explicit
         ``max_results``/``max_steps`` to see more.
         """
-        return await self._client._send(
-            "Vf2SubgraphMatch",
-            {
-                "pattern_graph_name": pattern._graph_name,
-                "max_results": int(max_results),
-                "max_steps": int(max_steps),
-            },
-        )
+        return (
+            await _gen.compute.send_vf2_subgraph_match(
+                self._client,
+                {
+                    "pattern_graph_name": pattern._graph_name,
+                    "max_results": int(max_results),
+                    "max_steps": int(max_steps),
+                },
+            )
+        ).payload
 
     async def topological_sort(self) -> list[str]:
-        return await self._client._send("TopologicalSort")
+        return await _gen.compute.send_topological_sort(self._client)
 
     async def find_cycle(self) -> list[str] | None:
-        return await self._client._send("FindCycle")
+        return (await _gen.compute.send_find_cycle(self._client)).payload
 
     async def shortest_path(self, source_id: str, target_id: str) -> list[str] | None:
-        return await self._client._send(
-            "GetShortestPath", {"source_id": source_id, "target_id": target_id}
-        )
+        return (
+            await _gen.compute.send_get_shortest_path(
+                self._client, {"source_id": source_id, "target_id": target_id}
+            )
+        ).payload
 
     async def blast_radius(self, node_id: str, max_depth: int) -> list[str]:
-        return await self._client._send(
-            "GetBlastRadius", {"node_id": node_id, "max_depth": max_depth}
-        )
+        return (
+            await _gen.compute.send_get_blast_radius(
+                self._client, {"node_id": node_id, "max_depth": max_depth}
+            )
+        ).payload
 
     async def get_subgraph(self, node_ids: list[str]) -> dict[str, Any]:
         """Batch-fetch the induced subgraph in ONE round-trip.
@@ -6185,23 +6353,29 @@ class GraphOperationsClient:
         decoded server-side. Replaces N per-node ``GetNodeProperties`` calls plus
         a full ``GetEdges`` scan — ship the node-id set, get everything back once.
         """
-        return await self._client._send("GetSubgraph", {"node_ids": node_ids})
+        return (
+            await _gen.graph.send_get_subgraph(self._client, {"node_ids": node_ids})
+        ).payload
 
     async def connected_components(self) -> list[list[str]]:
-        return await self._client._send("ConnectedComponents")
+        return (await _gen.compute.send_connected_components(self._client)).payload
 
     async def strongly_connected_components(self) -> list[list[str]]:
         """CONCEPT:EG-KG.memory.forgetting-curve-decay — Tarjan's SCC via Tokio service."""
-        return await self._client._send("StronglyConnectedComponents")
+        return (
+            await _gen.compute.send_strongly_connected_components(self._client)
+        ).payload
 
     async def minimum_spanning_tree(self) -> list[tuple[str, str, float]]:
         """CONCEPT:EG-KG.memory.forgetting-curve-decay — Kruskal's MST via Tokio service."""
-        return await self._client._send("MinimumSpanningTree")
+        return (await _gen.compute.send_minimum_spanning_tree(self._client)).payload
 
     async def community_detection(self, resolution: float = 1.0) -> list[list[str]]:
-        return await self._client._send(
-            "CommunityDetection", {"resolution": resolution}
-        )
+        return (
+            await _gen.compute.send_community_detection(
+                self._client, {"resolution": resolution}
+            )
+        ).payload
 
     async def community_detect_ephemeral(
         self,
@@ -6215,17 +6389,19 @@ class GraphOperationsClient:
         — no bulk-load round-trip, no throwaway tenant, no persistence. Replaces the
         load-tenant-then-detect pattern for the ingest community pass.
         """
-        return await self._client._send(
-            "CommunityDetectEphemeral",
-            {"node_ids": node_ids, "edges": edges, "resolution": resolution},
-        )
+        return (
+            await _gen.compute.send_community_detect_ephemeral(
+                self._client,
+                {"node_ids": node_ids, "edges": edges, "resolution": resolution},
+            )
+        ).payload
 
     async def graph_coloring(self) -> list[tuple[str, int]]:
-        return await self._client._send("GraphColoring")
+        return (await _gen.compute.send_graph_coloring(self._client)).payload
 
     async def compute_similarity_edges(self, threshold: float) -> int:
-        return await self._client._send(
-            "ComputeSimilarityEdges", {"threshold": threshold}
+        return await _gen.compute.send_compute_similarity_edges(
+            self._client, {"threshold": threshold}
         )
 
     async def resolve_candidates(
@@ -6244,14 +6420,16 @@ class GraphOperationsClient:
         agent-utilities dedup ladder routes its residual through instead of an
         O(N²) client-side embedding pass.
         """
-        return await self._client._send(
-            "ResolveCandidates",
-            {
-                "sim_threshold": sim_threshold,
-                "merge_threshold": merge_threshold,
-                "node_type": node_type,
-            },
-        )
+        return (
+            await _gen.compute.send_resolve_candidates(
+                self._client,
+                {
+                    "sim_threshold": sim_threshold,
+                    "merge_threshold": merge_threshold,
+                    "node_type": node_type,
+                },
+            )
+        ).payload
 
     async def cluster_hierarchy_refresh(
         self,
@@ -6270,10 +6448,11 @@ class GraphOperationsClient:
         never recomputed per read. Returns a summary
         ``{levels, base_node_count, base_edge_count, top_level_clusters, cached}``.
         """
-        return await self._client._send(
-            "ClusterHierarchyRefresh",
-            {"label": label, "resolution": resolution, "seed": seed},
-        )
+        return (
+            await _gen.compute.send_cluster_hierarchy_refresh(
+                self._client, {"label": label, "resolution": resolution, "seed": seed}
+            )
+        ).payload
 
     async def cluster_hierarchy_clusters(
         self, level: int, parent_cluster_id: str | None = None
@@ -6287,10 +6466,11 @@ class GraphOperationsClient:
         indices. Raises if no hierarchy is cached yet — call
         ``cluster_hierarchy_refresh`` first.
         """
-        return await self._client._send(
-            "ClusterHierarchyClusters",
-            {"level": level, "parent_cluster_id": parent_cluster_id},
-        )
+        return (
+            await _gen.compute.send_cluster_hierarchy_clusters(
+                self._client, {"level": level, "parent_cluster_id": parent_cluster_id}
+            )
+        ).payload
 
     async def cluster_hierarchy_expand(self, cluster_id: str) -> dict:
         """Expand one cluster one level down (VIZ-1) — ``GET expand(graph,
@@ -6300,9 +6480,11 @@ class GraphOperationsClient:
         (``{nodes: [], edges: [], child_clusters: [...]}``) — call again on a
         child to keep drilling toward level 1.
         """
-        return await self._client._send(
-            "ClusterHierarchyExpand", {"cluster_id": cluster_id}
-        )
+        return (
+            await _gen.compute.send_cluster_hierarchy_expand(
+                self._client, {"cluster_id": cluster_id}
+            )
+        ).payload
 
 
 class AnalyticsClient:
@@ -6312,20 +6494,24 @@ class AnalyticsClient:
         self._client = client
 
     async def degree_centrality(self, node_id: str) -> float:
-        return await self._client._send("DegreeCentrality", {"node_id": node_id})
+        return await _gen.compute.send_degree_centrality(
+            self._client, {"node_id": node_id}
+        )
 
     async def degree_centrality_all(self) -> list[tuple[str, float]]:
-        return await self._client._send("DegreeCentralityAll")
+        return (await _gen.compute.send_degree_centrality_all(self._client)).payload
 
     async def betweenness_centrality(self) -> list[tuple[str, float]]:
-        return await self._client._send("BetweennessCentrality")
+        return (await _gen.compute.send_betweenness_centrality(self._client)).payload
 
     async def pagerank(
         self, damping: float = 0.85, iterations: int = 100
     ) -> list[tuple[str, float]]:
-        return await self._client._send(
-            "PageRank", {"damping": damping, "iterations": iterations}
-        )
+        return (
+            await _gen.compute.send_page_rank(
+                self._client, {"damping": damping, "iterations": iterations}
+            )
+        ).payload
 
     async def personalized_pagerank(
         self,
@@ -6333,10 +6519,16 @@ class AnalyticsClient:
         damping: float = 0.85,
         iterations: int = 100,
     ) -> list[tuple[str, float]]:
-        return await self._client._send(
-            "PersonalizedPageRank",
-            {"seed_nodes": seed_nodes, "damping": damping, "iterations": iterations},
-        )
+        return (
+            await _gen.compute.send_personalized_page_rank(
+                self._client,
+                {
+                    "seed_nodes": seed_nodes,
+                    "damping": damping,
+                    "iterations": iterations,
+                },
+            )
+        ).payload
 
 
 class LifecycleClient:
@@ -6346,14 +6538,18 @@ class LifecycleClient:
         self._client = client
 
     async def prune(self, max_age_secs: int, min_score: float) -> int:
-        return await self._client._send(
-            "PruneByLifecycle", {"max_age_secs": max_age_secs, "min_score": min_score}
-        )
+        return (
+            await _gen.graph.send_prune_by_lifecycle(
+                self._client, {"max_age_secs": max_age_secs, "min_score": min_score}
+            )
+        ).payload
 
     async def get_context_view(self, agent_id: str, max_tokens: int = 4096) -> str:
-        return await self._client._send(
-            "GetContextView", {"agent_id": agent_id, "max_tokens": max_tokens}
-        )
+        return (
+            await _gen.query.send_get_context_view(
+                self._client, {"agent_id": agent_id, "max_tokens": max_tokens}
+            )
+        ).payload
 
     async def batch_update(self, operations: list[dict[str, Any]]) -> Any:
         """Atomically apply validated graph/vector operations to the bound graph.
@@ -6371,9 +6567,11 @@ class LifecycleClient:
         unknown or malformed operation fails the whole batch; no partial-success
         rows are retained.
         """
-        return await self._client._send(
-            "BatchUpdate", {"operations_msgpack": _pack_binary_msgpack(operations)}
-        )
+        return (
+            await _gen.transactions.send_batch_update(
+                self._client, {"operations_msgpack": _pack_binary_msgpack(operations)}
+            )
+        ).payload
 
     async def multi_graph_batch_update(
         self, batches: dict[str, list[dict[str, Any]]]
@@ -6395,23 +6593,24 @@ class LifecycleClient:
             (str(graph), _pack_binary_msgpack(list(ops)))
             for graph, ops in batches.items()
         ]
-        return await self._client._send(
-            "MultiGraphBatchUpdate",
-            {"batches_msgpack": _pack_binary_msgpack(encoded)},
-        )
+        return (
+            await _gen.transactions.send_multi_graph_batch_update(
+                self._client, {"batches_msgpack": _pack_binary_msgpack(encoded)}
+            )
+        ).payload
 
     async def metrics(self) -> dict[str, Any]:
-        return await self._client._send("Metrics")
+        return (await _gen.graph.send_metrics(self._client)).payload
 
     async def to_msgpack(self) -> bytes:
-        return await self._client._send("ToMsgpack")
+        return (await _gen.storage.send_to_msgpack(self._client)).payload
 
     async def from_msgpack(self, msgpack_bytes: bytes) -> None:
-        await self._client._send("FromMsgpack", {"msgpack": msgpack_bytes})
+        await _gen.storage.send_from_msgpack(self._client, {"msgpack": msgpack_bytes})
 
     async def evict_lru(self, max_nodes: int) -> int:
         """Evict oldest nodes to enforce max_nodes cap. Returns eviction count."""
-        return await self._client._send("EvictLRU", {"max_nodes": max_nodes})
+        return await _gen.graph.send_evict_l_r_u(self._client, {"max_nodes": max_nodes})
 
     async def decay_sweep(
         self,
@@ -6429,15 +6628,17 @@ class LifecycleClient:
         authority. Returns ``{nodes_decayed, edges_decayed, nodes_pruned,
         edges_pruned}``.
         """
-        return await self._client._send(
-            "DecaySweep",
-            {"half_life_secs": half_life_secs, "floor": floor, "prune": prune},
-        )
+        return (
+            await _gen.graph.send_decay_sweep(
+                self._client,
+                {"half_life_secs": half_life_secs, "floor": floor, "prune": prune},
+            )
+        ).payload
 
     async def touch_nodes(self, node_ids: list[str]) -> int:
         """Refresh nodes on access (spaced repetition): reset the forgetting clock
         and restore ``confidence = 1.0``. Returns the number of nodes touched."""
-        return await self._client._send("TouchNodes", {"node_ids": node_ids})
+        return await _gen.graph.send_touch_nodes(self._client, {"node_ids": node_ids})
 
 
 class ReasoningClient:
@@ -6469,21 +6670,23 @@ class ReasoningClient:
         object, inference_type}, ...]}``. The inferred edges/types are also
         persisted into the graph as a side effect.
         """
-        return await self._client._send(
-            "RunDatalogReasoning",
-            _datalog_rule_params(
-                {
-                    "subclass_relations": subclass_relations,
-                    "subproperty_relations": subproperty_relations,
-                    "symmetric_properties": symmetric_properties,
-                    "transitive_properties": transitive_properties,
-                    "inverse_properties": inverse_properties,
-                    "domain_rules": domain_rules,
-                    "range_rules": range_rules,
-                    "property_chains": property_chains,
-                }
-            ),
-        )
+        return (
+            await _gen.reasoning.send_run_datalog_reasoning(
+                self._client,
+                _datalog_rule_params(
+                    {
+                        "subclass_relations": subclass_relations,
+                        "subproperty_relations": subproperty_relations,
+                        "symmetric_properties": symmetric_properties,
+                        "transitive_properties": transitive_properties,
+                        "inverse_properties": inverse_properties,
+                        "domain_rules": domain_rules,
+                        "range_rules": range_rules,
+                        "property_chains": property_chains,
+                    }
+                ),
+            )
+        ).payload
 
 
 class LedgerClient:
@@ -6531,7 +6734,7 @@ class LedgerClient:
         history was silently dropped, and fail loudly instead of treating a
         short/empty read as "nothing new to sync".
         """
-        result = await self._client._send("GetLedger")
+        result = (await _gen.security.send_get_ledger(self._client)).payload
         if not isinstance(result, dict) or not result.get("populated", False):
             raise LedgerNotPopulatedError(
                 "GetLedger: the ledger could not be read for this request's "
@@ -6541,10 +6744,12 @@ class LedgerClient:
         return list(result.get("entries", [])), int(result.get("watermark", 0))
 
     async def clear(self) -> None:
-        await self._client._send("ClearLedger")
+        await _gen.storage.send_clear_ledger(self._client)
 
     async def apply(self, transactions: list[str]) -> None:
-        await self._client._send("ApplyLedger", {"transactions": transactions})
+        await _gen.storage.send_apply_ledger(
+            self._client, {"transactions": transactions}
+        )
 
 
 class ChannelsClient:
@@ -6560,8 +6765,8 @@ class ChannelsClient:
         creator: str = "",
         initial_members: list[str] | None = None,
     ) -> None:
-        await self._client._send(
-            "CreateChannel",
+        await _gen.messaging.send_create_channel(
+            self._client,
             {
                 "channel_id": channel_id,
                 "channel_type": channel_type,
@@ -6571,14 +6776,16 @@ class ChannelsClient:
         )
 
     async def join(self, channel_id: str, agent_id: str) -> None:
-        await self._client._send(
-            "JoinChannel", {"channel_id": channel_id, "agent_id": agent_id}
+        await _gen.messaging.send_join_channel(
+            self._client, {"channel_id": channel_id, "agent_id": agent_id}
         )
 
     async def leave(self, channel_id: str, agent_id: str) -> Any:
-        return await self._client._send(
-            "LeaveChannel", {"channel_id": channel_id, "agent_id": agent_id}
-        )
+        return (
+            await _gen.messaging.send_leave_channel(
+                self._client, {"channel_id": channel_id, "agent_id": agent_id}
+            )
+        ).payload
 
     async def close(
         self,
@@ -6586,33 +6793,39 @@ class ChannelsClient:
         summary_embedding: list[float] | None = None,
         topic_metadata: str | None = None,
     ) -> Any:
-        return await self._client._send(
-            "CloseChannel",
-            {
-                "channel_id": channel_id,
-                "summary_embedding": summary_embedding,
-                "topic_metadata": topic_metadata,
-            },
-        )
+        return (
+            await _gen.messaging.send_close_channel(
+                self._client,
+                {
+                    "channel_id": channel_id,
+                    "summary_embedding": summary_embedding,
+                    "topic_metadata": topic_metadata,
+                },
+            )
+        ).payload
 
     async def send_message(self, channel_id: str, sender: str, payload: str) -> None:
-        await self._client._send(
-            "SendMessage",
+        await _gen.messaging.send_send_message(
+            self._client,
             {"channel_id": channel_id, "sender": sender, "payload": payload},
         )
 
     async def get_messages(
         self, channel_id: str, limit: int | None = None
     ) -> list[dict[str, Any]]:
-        return await self._client._send(
-            "GetChannelMessages", {"channel_id": channel_id, "limit": limit}
-        )
+        return (
+            await _gen.messaging.send_get_channel_messages(
+                self._client, {"channel_id": channel_id, "limit": limit}
+            )
+        ).payload
 
     async def list(self) -> builtins.list[dict[str, Any]]:
-        return await self._client._send("ListChannels")
+        return (await _gen.messaging.send_list_channels(self._client)).payload
 
     async def get_members(self, channel_id: str) -> builtins.list[str]:
-        return await self._client._send("GetChannelMembers", {"channel_id": channel_id})
+        return await _gen.messaging.send_get_channel_members(
+            self._client, {"channel_id": channel_id}
+        )
 
 
 #: The engine's closed `GraphType` wire enum (`crates/eg-types/src/protocol.rs`
@@ -6646,15 +6859,15 @@ class MultiTenantClient:
                 "like 'Ontology' is not a lifecycle/isolation graph category "
                 "-- keep ontology semantics in governed graph contents instead)"
             )
-        await self._client._send(
-            "CreateGraph", {"graph_name": graph_name, "graph_type": graph_type}
+        await _gen.cluster.send_create_graph(
+            self._client, {"graph_name": graph_name, "graph_type": graph_type}
         )
 
     async def delete(self, graph_name: str) -> None:
-        await self._client._send("DeleteGraph", {"graph_name": graph_name})
+        await _gen.cluster.send_delete_graph(self._client, {"graph_name": graph_name})
 
     async def list(self) -> list[dict[str, str]]:
-        return await self._client._send("ListGraphs")
+        return (await _gen.cluster.send_list_graphs(self._client)).payload
 
 
 class ReshardingClient:
@@ -6673,50 +6886,56 @@ class ReshardingClient:
         """Online-move ``graph``'s durable rows to ``to_shard`` while the engine runs,
         then flip the catalog route (EG-032). Returns a reshard report (counts +
         ``delta_nodes``/``delta_edges`` = the rows copied under the brief write-pause)."""
-        return await self._client._send(
-            "Reshard", {"graph": graph, "to_shard": to_shard}
-        )
+        return (
+            await _gen.cluster.send_reshard(
+                self._client, {"graph": graph, "to_shard": to_shard}
+            )
+        ).payload
 
     async def catalog_assign(
         self, graph: str, shard: int, node: int | None = None
     ) -> bool:
         """Populate / assign an explicit catalog placement for ``graph`` (EG-031). Flips
         the ROUTE only — to MOVE the rows too use :meth:`reshard`."""
-        return await self._client._send(
-            "CatalogAssign", {"graph": graph, "shard": shard, "node": node}
+        return await _gen.cluster.send_catalog_assign(
+            self._client, {"graph": graph, "shard": shard, "node": node}
         )
 
     async def catalog_reassign(self, graph: str, shard: int) -> bool:
         """Re-place ``graph`` onto ``shard``, preserving its node placement (EG-031)."""
-        return await self._client._send(
-            "CatalogReassign", {"graph": graph, "shard": shard}
+        return await _gen.cluster.send_catalog_reassign(
+            self._client, {"graph": graph, "shard": shard}
         )
 
     async def catalog_remove(self, graph: str) -> bool:
         """Drop ``graph``'s catalog row; the engine chooses its unplaced policy."""
-        return await self._client._send("CatalogRemove", {"graph": graph})
+        return await _gen.cluster.send_catalog_remove(self._client, {"graph": graph})
 
     async def catalog_list(self) -> dict[str, Any]:
         """List every explicit catalog placement ``{graph, shard, node}`` (EG-031)."""
-        return await self._client._send("CatalogList")
+        return (await _gen.cluster.send_catalog_list(self._client)).payload
 
     async def rebalance_plan(
         self, tolerance: float | None = None, max_moves: int | None = None
     ) -> dict[str, Any]:
         """Compute (do NOT execute) a rebalance plan over live per-shard/per-graph load
         (EG-035). Returns ``{moves: [...], shards: [...]}``."""
-        return await self._client._send(
-            "RebalancePlan", {"tolerance": tolerance, "max_moves": max_moves}
-        )
+        return (
+            await _gen.cluster.send_rebalance_plan(
+                self._client, {"tolerance": tolerance, "max_moves": max_moves}
+            )
+        ).payload
 
     async def rebalance_execute(
         self, tolerance: float | None = None, max_moves: int | None = None
     ) -> dict[str, Any]:
         """Compute a rebalance plan AND execute it move-by-move via online resharding
         (EG-039) — online, one graph at a time. Returns ``{executed: [report, ...]}``."""
-        return await self._client._send(
-            "RebalanceExecute", {"tolerance": tolerance, "max_moves": max_moves}
-        )
+        return (
+            await _gen.cluster.send_rebalance_execute(
+                self._client, {"tolerance": tolerance, "max_moves": max_moves}
+            )
+        ).payload
 
 
 class PlacementClient:
@@ -6759,17 +6978,19 @@ class PlacementClient:
         ``placement_catalog.py`` consume it as the primary resolution source,
         ahead of the static ``GRAPH_RAFT_GROUP_ENDPOINTS`` override.
         """
-        answer = await self._client._send(
-            "PlacementRoute",
-            {
-                "request": {
-                    "schema_version": "1",
-                    "tenant_ref": tenant,
-                    "partition_ref": sub_key,
-                    "client_epoch": client_epoch,
-                }
-            },
-        )
+        answer = (
+            await _gen.cluster.send_placement_route(
+                self._client,
+                {
+                    "request": {
+                        "schema_version": "1",
+                        "tenant_ref": tenant,
+                        "partition_ref": sub_key,
+                        "client_epoch": client_epoch,
+                    }
+                },
+            )
+        ).payload
         return _validate_placement_route(answer, tenant, sub_key)
 
     async def assign(self, tenant: str, group: int) -> int:
@@ -6777,10 +6998,12 @@ class PlacementClient:
         DECISION leg, DIST-P2-5, ``Method::PlacementAdmin`` op ``assign``). Collapses
         any prior split. Raft/cluster-only. Returns the new routing epoch — every
         subsequent :meth:`route` call observes it immediately."""
-        result = await self._client._send(
-            "PlacementAdmin",
-            {"op": {"operation": "assign", "tenant": tenant, "group": group}},
-        )
+        result = (
+            await _gen.cluster.send_placement_admin(
+                self._client,
+                {"op": {"operation": "assign", "tenant": tenant, "group": group}},
+            )
+        ).payload
         return _integer("PlacementAdmin.assign.epoch", result["epoch"])
 
     async def move(
@@ -6794,27 +7017,31 @@ class PlacementClient:
         move journal). Raft/cluster-only. Returns the engine's
         ``PlacementMoveReport``: ``{tenant, range: [start, end], target, epoch,
         graphs: [{graph, from_group, to_group, nodes_transferred}, ...]}``."""
-        return await self._client._send(
-            "PlacementAdmin",
-            {
-                "op": {
-                    "operation": "move",
-                    "tenant": tenant,
-                    "range_start": range_start,
-                    "range_end": range_end,
-                    "target": target,
-                }
-            },
-        )
+        return (
+            await _gen.cluster.send_placement_admin(
+                self._client,
+                {
+                    "op": {
+                        "operation": "move",
+                        "tenant": tenant,
+                        "range_start": range_start,
+                        "range_end": range_end,
+                        "target": target,
+                    }
+                },
+            )
+        ).payload
 
     async def abort_move(self, move_id: str) -> bool:
         """Abort an in-flight online move identified by ``move_id`` before its
         cutover fence (DIST-P2-5, ``Method::PlacementAdmin`` op ``abort_move``). A
         move already past its epoch fence is rejected — recovery is roll-forward
         only. Raft/cluster-only."""
-        return await self._client._send(
-            "PlacementAdmin", {"op": {"operation": "abort_move", "move_id": move_id}}
-        )
+        return (
+            await _gen.cluster.send_placement_admin(
+                self._client, {"op": {"operation": "abort_move", "move_id": move_id}}
+            )
+        ).payload
 
 
 class ClusterTopologyClient:
@@ -7033,7 +7260,6 @@ class ClusterTopologyClient:
         if set(answer) != {
             "schema_version",
             "cluster_id",
-            "epoch",
             "membership_epoch",
             "placement_epoch",
             "leader",
@@ -7078,15 +7304,10 @@ class ClusterTopologyClient:
                 )
             return value
 
-        epoch = non_negative_int(answer["epoch"], "epoch")
         membership_epoch = non_negative_int(
             answer["membership_epoch"], "membership_epoch"
         )
         placement_epoch = non_negative_int(answer["placement_epoch"], "placement_epoch")
-        if epoch != membership_epoch:
-            raise ValueError(
-                "ClusterMembers epoch alias does not match membership_epoch"
-            )
         if min_membership_epoch is not None and membership_epoch < min_membership_epoch:
             raise ValueError("ClusterMembers membership snapshot is stale")
         if min_placement_epoch is not None and placement_epoch < min_placement_epoch:
@@ -7395,7 +7616,7 @@ class ClusterTopologyClient:
         identity/epoch expectations; it has no caller-supplied endpoint
         authority.
         """
-        answer = await self._client._send("ClusterMembers")
+        answer = (await _gen.cluster.send_cluster_members(self._client)).payload
         if not isinstance(answer, dict):
             raise TypeError("ClusterMembers must be a mapping")
         return self._validate_and_verify(
@@ -7452,15 +7673,17 @@ class ServerRegistryClient:
             if resources
             else ""
         )
-        result = await self._client._send(
-            "RegisterServer",
-            {
-                "name": name,
-                "url": url,
-                "resources_json": resources_json,
-                "ttl_secs": ttl_secs,
-            },
-        )
+        result = (
+            await _gen.cluster.send_register_server(
+                self._client,
+                {
+                    "name": name,
+                    "url": url,
+                    "resources_json": resources_json,
+                    "ttl_secs": ttl_secs,
+                },
+            )
+        ).payload
         return bool(result)
 
 
@@ -7489,9 +7712,8 @@ class RaftAdminClient:
         unaffected. MUST be issued against the group's current leader. The safe
         first step before optionally promoting the node with
         :meth:`change_membership`."""
-        return await self._client._send(
-            "RaftAddLearner",
-            {"group": group, "node_id": node_id, "addr": addr},
+        return await _gen.cluster.send_raft_add_learner(
+            self._client, {"group": group, "node_id": node_id, "addr": addr}
         )
 
     async def change_membership(
@@ -7502,9 +7724,8 @@ class RaftAdminClient:
         pass the full desired voter set (existing voters plus the learner(s) being
         promoted). Refuses to produce an empty voter set. MUST be issued against
         the group's current leader."""
-        return await self._client._send(
-            "RaftChangeMembership",
-            {"group": group, "voters": voters},
+        return await _gen.cluster.send_raft_change_membership(
+            self._client, {"group": group, "voters": voters}
         )
 
 
@@ -7583,11 +7804,8 @@ class ConsensusClient:
             signer_id=signer_id,
             signer_key=signer_key,
         )
-        return await self._client._send(
-            "RegisterIdentity",
-            params,
-            graph="__commons__",
-            idempotency_key=idempotency_key,
+        return await _gen.security.send_register_identity(
+            self._client, params, graph="__commons__", idempotency_key=idempotency_key
         )
 
     async def bootstrap_system_identity(
@@ -7638,11 +7856,11 @@ class ConsensusClient:
 
         if not isinstance(agent_id, str) or not agent_id.strip():
             raise ValueError("agent_id must be a non-empty opaque identifier")
-        result = await self._client._send(
-            "GetIdentity",
-            {"agent_id": agent_id},
-            graph="__commons__",
-        )
+        result = (
+            await _gen.security.send_get_identity(
+                self._client, {"agent_id": agent_id}, graph="__commons__"
+            )
+        ).payload
         if result is None:
             return None
         return cast(
@@ -7690,12 +7908,14 @@ class ConsensusClient:
             for signer_id in sorted(signer_keys)
         ]
         params["signatures"] = signatures
-        return await self._client._send(
-            "ApplyMultisigMutation",
-            params,
-            graph="__commons__",
-            idempotency_key=idempotency_key,
-        )
+        return (
+            await _gen.transactions.send_apply_multisig_mutation(
+                self._client,
+                params,
+                graph="__commons__",
+                idempotency_key=idempotency_key,
+            )
+        ).payload
 
 
 class FinanceClient:
@@ -7712,22 +7932,25 @@ class FinanceClient:
         min_weight: float | None = None,
         max_weight: float | None = None,
     ) -> dict[str, Any]:
-        return await self._client._send(
-            "FinanceOptimizePortfolio",
-            {
-                "expected_returns": expected_returns,
-                "cov_matrix": cov_matrix,
-                "risk_free_rate": risk_free_rate,
-                "min_weight": min_weight,
-                "max_weight": max_weight,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_optimize_portfolio(
+                self._client,
+                {
+                    "expected_returns": expected_returns,
+                    "cov_matrix": cov_matrix,
+                    "risk_free_rate": risk_free_rate,
+                    "min_weight": min_weight,
+                    "max_weight": max_weight,
+                },
+            )
+        ).payload
 
     async def risk_parity(self, cov_matrix: list[list[float]]) -> dict[str, Any]:
-        return await self._client._send(
-            "FinanceRiskParity",
-            {"cov_matrix": cov_matrix},
-        )
+        return (
+            await _gen.compute.send_finance_risk_parity(
+                self._client, {"cov_matrix": cov_matrix}
+            )
+        ).payload
 
     async def black_litterman(
         self,
@@ -7738,17 +7961,19 @@ class FinanceClient:
         tau: float,
         risk_aversion: float,
     ) -> dict[str, Any]:
-        return await self._client._send(
-            "FinanceBlackLitterman",
-            {
-                "market_weights": market_weights,
-                "cov_matrix": cov_matrix,
-                "views": views,
-                "pick_matrix": pick_matrix,
-                "tau": tau,
-                "risk_aversion": risk_aversion,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_black_litterman(
+                self._client,
+                {
+                    "market_weights": market_weights,
+                    "cov_matrix": cov_matrix,
+                    "views": views,
+                    "pick_matrix": pick_matrix,
+                    "tau": tau,
+                    "risk_aversion": risk_aversion,
+                },
+            )
+        ).payload
 
     async def efficient_frontier(
         self,
@@ -7756,46 +7981,55 @@ class FinanceClient:
         cov_matrix: list[list[float]],
         target_return: float,
     ) -> dict[str, Any]:
-        return await self._client._send(
-            "FinanceEfficientFrontier",
-            {
-                "expected_returns": expected_returns,
-                "cov_matrix": cov_matrix,
-                "target_return": target_return,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_efficient_frontier(
+                self._client,
+                {
+                    "expected_returns": expected_returns,
+                    "cov_matrix": cov_matrix,
+                    "target_return": target_return,
+                },
+            )
+        ).payload
 
     # ── Risk metrics ──────────────────────────────────────────────────
     async def var(self, returns: list[float], confidence: float = 0.95) -> float:
-        return await self._client._send(
-            "FinanceVar", {"returns": returns, "confidence": confidence}
+        return await _gen.compute.send_finance_var(
+            self._client, {"returns": returns, "confidence": confidence}
         )
 
     async def cvar(self, returns: list[float], confidence: float = 0.95) -> float:
-        return await self._client._send(
-            "FinanceCvar", {"returns": returns, "confidence": confidence}
+        return await _gen.compute.send_finance_cvar(
+            self._client, {"returns": returns, "confidence": confidence}
         )
 
     async def max_drawdown(self, returns: list[float]) -> float:
-        return await self._client._send("FinanceMaxDrawdown", {"returns": returns})
+        return await _gen.compute.send_finance_max_drawdown(
+            self._client, {"returns": returns}
+        )
 
     async def drawdown_series(self, returns: list[float]) -> list[float]:
-        return await self._client._send("FinanceDrawdownSeries", {"returns": returns})
+        return (
+            await _gen.compute.send_finance_drawdown_series(
+                self._client, {"returns": returns}
+            )
+        ).payload
 
     async def downside_deviation(
         self, returns: list[float], target: float = 0.0
     ) -> float:
-        return await self._client._send(
-            "FinanceDownsideDeviation", {"returns": returns, "target": target}
+        return await _gen.compute.send_finance_downside_deviation(
+            self._client, {"returns": returns, "target": target}
         )
 
     async def risk_metrics(
         self, returns: list[float], risk_free_rate: float = 0.0
     ) -> dict[str, Any]:
-        return await self._client._send(
-            "FinanceRiskMetrics",
-            {"returns": returns, "risk_free_rate": risk_free_rate},
-        )
+        return (
+            await _gen.compute.send_finance_risk_metrics(
+                self._client, {"returns": returns, "risk_free_rate": risk_free_rate}
+            )
+        ).payload
 
     async def monte_carlo_var(
         self,
@@ -7804,8 +8038,8 @@ class FinanceClient:
         n_simulations: int = 10000,
         confidence: float = 0.95,
     ) -> float:
-        return await self._client._send(
-            "FinanceMonteCarloVar",
+        return await _gen.compute.send_finance_monte_carlo_var(
+            self._client,
             {
                 "mean": mean,
                 "std_dev": std_dev,
@@ -7821,15 +8055,17 @@ class FinanceClient:
         cov_matrix: list[list[float]],
         shock_factors: list[float],
     ) -> list[float]:
-        return await self._client._send(
-            "FinanceStressTest",
-            {
-                "weights": weights,
-                "expected_returns": expected_returns,
-                "cov_matrix": cov_matrix,
-                "shock_factors": shock_factors,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_stress_test(
+                self._client,
+                {
+                    "weights": weights,
+                    "expected_returns": expected_returns,
+                    "cov_matrix": cov_matrix,
+                    "shock_factors": shock_factors,
+                },
+            )
+        ).payload
 
     # ── Regime detection (HMM) ────────────────────────────────────────
     async def detect_regimes(
@@ -7839,60 +8075,77 @@ class FinanceClient:
         max_iter: int = 100,
         tol: float = 1e-4,
     ) -> dict[str, Any]:
-        return await self._client._send(
-            "FinanceDetectRegimes",
-            {
-                "observations": observations,
-                "n_states": n_states,
-                "max_iter": max_iter,
-                "tol": tol,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_detect_regimes(
+                self._client,
+                {
+                    "observations": observations,
+                    "n_states": n_states,
+                    "max_iter": max_iter,
+                    "tol": tol,
+                },
+            )
+        ).payload
 
     # ── Signals / alpha ───────────────────────────────────────────────
     async def rolling_zscore(self, values: list[float], window: int) -> list[float]:
-        return await self._client._send(
-            "FinanceRollingZscore", {"values": values, "window": window}
-        )
+        return (
+            await _gen.compute.send_finance_rolling_zscore(
+                self._client, {"values": values, "window": window}
+            )
+        ).payload
 
     async def ewma(self, values: list[float], span: int) -> list[float]:
-        return await self._client._send("FinanceEwma", {"values": values, "span": span})
+        return (
+            await _gen.compute.send_finance_ewma(
+                self._client, {"values": values, "span": span}
+            )
+        ).payload
 
     async def signal_decay(self, signal: list[float], half_life: float) -> list[float]:
-        return await self._client._send(
-            "FinanceSignalDecay", {"signal": signal, "half_life": half_life}
-        )
+        return (
+            await _gen.compute.send_finance_signal_decay(
+                self._client, {"signal": signal, "half_life": half_life}
+            )
+        ).payload
 
     async def combine_alphas(
         self, signals: list[list[float]], weights: list[float]
     ) -> list[float]:
-        return await self._client._send(
-            "FinanceCombineAlphas", {"signals": signals, "weights": weights}
-        )
+        return (
+            await _gen.compute.send_finance_combine_alphas(
+                self._client, {"signals": signals, "weights": weights}
+            )
+        ).payload
 
     async def cross_sectional_rank(
         self, cross_section: list[list[float]]
     ) -> list[list[float]]:
-        return await self._client._send(
-            "FinanceCrossSectionalRank", {"cross_section": cross_section}
-        )
+        return (
+            await _gen.compute.send_finance_cross_sectional_rank(
+                self._client, {"cross_section": cross_section}
+            )
+        ).payload
 
     async def momentum(self, prices: list[float], lookback: int) -> list[float]:
-        return await self._client._send(
-            "FinanceMomentum", {"prices": prices, "lookback": lookback}
-        )
+        return (
+            await _gen.compute.send_finance_momentum(
+                self._client, {"prices": prices, "lookback": lookback}
+            )
+        ).payload
 
     async def mean_reversion(self, values: list[float], window: int) -> list[float]:
-        return await self._client._send(
-            "FinanceMeanReversion", {"values": values, "window": window}
-        )
+        return (
+            await _gen.compute.send_finance_mean_reversion(
+                self._client, {"values": values, "window": window}
+            )
+        ).payload
 
     async def information_coefficient(
         self, signal: list[float], forward_returns: list[float]
     ) -> float:
-        return await self._client._send(
-            "FinanceInformationCoefficient",
-            {"signal": signal, "forward_returns": forward_returns},
+        return await _gen.compute.send_finance_information_coefficient(
+            self._client, {"signal": signal, "forward_returns": forward_returns}
         )
 
     # ── Execution / microstructure ────────────────────────────────────
@@ -7903,15 +8156,17 @@ class FinanceClient:
         start_time: int = 0,
         interval_secs: int = 60,
     ) -> list[tuple[int, float]]:
-        return await self._client._send(
-            "FinanceTwap",
-            {
-                "total_quantity": total_quantity,
-                "n_slices": n_slices,
-                "start_time": start_time,
-                "interval_secs": interval_secs,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_twap(
+                self._client,
+                {
+                    "total_quantity": total_quantity,
+                    "n_slices": n_slices,
+                    "start_time": start_time,
+                    "interval_secs": interval_secs,
+                },
+            )
+        ).payload
 
     async def vwap(
         self,
@@ -7920,15 +8175,17 @@ class FinanceClient:
         start_time: int = 0,
         interval_secs: int = 60,
     ) -> list[tuple[int, float]]:
-        return await self._client._send(
-            "FinanceVwap",
-            {
-                "total_quantity": total_quantity,
-                "volume_profile": volume_profile,
-                "start_time": start_time,
-                "interval_secs": interval_secs,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_vwap(
+                self._client,
+                {
+                    "total_quantity": total_quantity,
+                    "volume_profile": volume_profile,
+                    "start_time": start_time,
+                    "interval_secs": interval_secs,
+                },
+            )
+        ).payload
 
     async def market_impact(
         self,
@@ -7937,8 +8194,8 @@ class FinanceClient:
         average_daily_volume: float,
         impact_coefficient: float = 0.1,
     ) -> float:
-        return await self._client._send(
-            "FinanceMarketImpact",
+        return await _gen.compute.send_finance_market_impact(
+            self._client,
             {
                 "daily_volatility": daily_volatility,
                 "order_quantity": order_quantity,
@@ -7950,14 +8207,20 @@ class FinanceClient:
     async def pairs_trading(
         self, prices_a: list[float], prices_b: list[float], lookback: int
     ) -> list[float]:
-        return await self._client._send(
-            "FinancePairsTrading",
-            {"prices_a": prices_a, "prices_b": prices_b, "lookback": lookback},
-        )
+        return (
+            await _gen.compute.send_finance_pairs_trading(
+                self._client,
+                {"prices_a": prices_a, "prices_b": prices_b, "lookback": lookback},
+            )
+        ).payload
 
     async def match_orders(self, orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Match a limit-order book. Each order: {id, side, price, quantity, timestamp}."""
-        return await self._client._send("FinanceMatchOrders", {"orders": orders})
+        return (
+            await _gen.compute.send_finance_match_orders(
+                self._client, {"orders": orders}
+            )
+        ).payload
 
     # ── Market making / microstructure (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ──────────────
     async def avellaneda_stoikov(
@@ -7971,17 +8234,19 @@ class FinanceClient:
     ) -> dict[str, Any]:
         """Optimal AS quotes around a freely-drifting mid. Returns
         {bid, ask, reservation, half_spread, withdraw}."""
-        return await self._client._send(
-            "FinanceAvellanedaStoikov",
-            {
-                "mid": mid,
-                "inventory": inventory,
-                "sigma": sigma,
-                "gamma": gamma,
-                "kappa": kappa,
-                "tau": tau,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_avellaneda_stoikov(
+                self._client,
+                {
+                    "mid": mid,
+                    "inventory": inventory,
+                    "sigma": sigma,
+                    "gamma": gamma,
+                    "kappa": kappa,
+                    "tau": tau,
+                },
+            )
+        ).payload
 
     async def glt_quotes(
         self,
@@ -7993,17 +8258,19 @@ class FinanceClient:
         a: float,
     ) -> dict[str, Any]:
         """Guéant-Lehalle-Fernandez-Tapia closed-form quotes with inventory skew."""
-        return await self._client._send(
-            "FinanceGltQuotes",
-            {
-                "mid": mid,
-                "inventory": inventory,
-                "sigma": sigma,
-                "gamma": gamma,
-                "kappa": kappa,
-                "a": a,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_glt_quotes(
+                self._client,
+                {
+                    "mid": mid,
+                    "inventory": inventory,
+                    "sigma": sigma,
+                    "gamma": gamma,
+                    "kappa": kappa,
+                    "a": a,
+                },
+            )
+        ).payload
 
     async def logit_quotes(
         self,
@@ -8017,22 +8284,24 @@ class FinanceClient:
     ) -> dict[str, Any]:
         """Logit-space AS quotes for bounded (0,1) prediction-market prices, with
         a boundary-aware inventory cap. ``withdraw=True`` ⇒ pull quotes."""
-        return await self._client._send(
-            "FinanceLogitQuotes",
-            {
-                "p_mid": p_mid,
-                "inventory": inventory,
-                "sigma": sigma,
-                "gamma": gamma,
-                "kappa": kappa,
-                "tau": tau,
-                "boundary_m": boundary_m,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_logit_quotes(
+                self._client,
+                {
+                    "p_mid": p_mid,
+                    "inventory": inventory,
+                    "sigma": sigma,
+                    "gamma": gamma,
+                    "kappa": kappa,
+                    "tau": tau,
+                    "boundary_m": boundary_m,
+                },
+            )
+        ).payload
 
     async def glosten_milgrom_spread(self, alpha: float, p: float) -> float:
-        return await self._client._send(
-            "FinanceGlostenMilgromSpread", {"alpha": alpha, "p": p}
+        return await _gen.compute.send_finance_glosten_milgrom_spread(
+            self._client, {"alpha": alpha, "p": p}
         )
 
     async def expected_pnl_rate(
@@ -8045,8 +8314,8 @@ class FinanceClient:
         v_h: float = 1.0,
         v_l: float = 0.0,
     ) -> float:
-        return await self._client._send(
-            "FinanceExpectedPnlRate",
+        return await _gen.compute.send_finance_expected_pnl_rate(
+            self._client,
             {
                 "delta": delta,
                 "a": a,
@@ -8061,8 +8330,8 @@ class FinanceClient:
     async def breakeven_alpha(
         self, delta: float, p: float, v_h: float = 1.0, v_l: float = 0.0
     ) -> float:
-        return await self._client._send(
-            "FinanceBreakevenAlpha", {"delta": delta, "p": p, "v_h": v_h, "v_l": v_l}
+        return await _gen.compute.send_finance_breakeven_alpha(
+            self._client, {"delta": delta, "p": p, "v_h": v_h, "v_l": v_l}
         )
 
     async def ofi_series(
@@ -8075,17 +8344,19 @@ class FinanceClient:
         window_secs: float = 1.0,
     ) -> list[float]:
         """Cont-Kukanov-Stoikov rolling order-flow imbalance over book events."""
-        return await self._client._send(
-            "FinanceOfiSeries",
-            {
-                "ts": ts,
-                "bid_px": bid_px,
-                "bid_sz": bid_sz,
-                "ask_px": ask_px,
-                "ask_sz": ask_sz,
-                "window_secs": window_secs,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_ofi_series(
+                self._client,
+                {
+                    "ts": ts,
+                    "bid_px": bid_px,
+                    "bid_sz": bid_sz,
+                    "ask_px": ask_px,
+                    "ask_sz": ask_sz,
+                    "window_secs": window_secs,
+                },
+            )
+        ).payload
 
     async def microprice_series(
         self,
@@ -8094,10 +8365,17 @@ class FinanceClient:
         ask_px: list[float],
         ask_sz: list[float],
     ) -> list[float]:
-        return await self._client._send(
-            "FinanceMicropriceSeries",
-            {"bid_px": bid_px, "bid_sz": bid_sz, "ask_px": ask_px, "ask_sz": ask_sz},
-        )
+        return (
+            await _gen.compute.send_finance_microprice_series(
+                self._client,
+                {
+                    "bid_px": bid_px,
+                    "bid_sz": bid_sz,
+                    "ask_px": ask_px,
+                    "ask_sz": ask_sz,
+                },
+            )
+        ).payload
 
     async def vpin_pm(
         self,
@@ -8106,9 +8384,8 @@ class FinanceClient:
         p_mean: list[float],
     ) -> float:
         """VPIN toxicity normalised for binary-payoff variance (prediction markets)."""
-        return await self._client._send(
-            "FinanceVpinPm",
-            {"buy_vol": buy_vol, "sell_vol": sell_vol, "p_mean": p_mean},
+        return await _gen.compute.send_finance_vpin_pm(
+            self._client, {"buy_vol": buy_vol, "sell_vol": sell_vol, "p_mean": p_mean}
         )
 
     async def hawkes_mle(
@@ -8116,17 +8393,19 @@ class FinanceClient:
     ) -> dict[str, Any]:
         """Fit an exponential-kernel Hawkes process. Returns mu/alpha/beta plus
         branching_ratio (>0.95 ⇒ near-critical / crash early-warning)."""
-        return await self._client._send(
-            "FinanceHawkesMle",
-            {"times": times, "t_horizon": t_horizon, "max_iter": max_iter},
-        )
+        return (
+            await _gen.compute.send_finance_hawkes_mle(
+                self._client,
+                {"times": times, "t_horizon": t_horizon, "max_iter": max_iter},
+            )
+        ).payload
 
     async def hardiman_bouchaud(
         self, times: list[float], t_horizon: float, n_windows: int = 100
     ) -> float:
         """Model-free Hawkes branching ratio from count over-dispersion."""
-        return await self._client._send(
-            "FinanceHardimanBouchaud",
+        return await _gen.compute.send_finance_hardiman_bouchaud(
+            self._client,
             {"times": times, "t_horizon": t_horizon, "n_windows": n_windows},
         )
 
@@ -8135,8 +8414,8 @@ class FinanceClient:
         self, price_changes: list[float], signed_order_flow: list[float]
     ) -> float:
         """Empirical Kyle's λ — price impact (depth) per unit signed net order flow."""
-        return await self._client._send(
-            "FinanceKyleLambda",
+        return await _gen.compute.send_finance_kyle_lambda(
+            self._client,
             {"price_changes": price_changes, "signed_order_flow": signed_order_flow},
         )
 
@@ -8156,23 +8435,25 @@ class FinanceClient:
         DEFENSIVE use: informed-flow detection + maker adverse-selection protection.
         Pass ``baseline_sigma`` ≤ 0 to use the sample std of ``signed_flow``.
         """
-        return await self._client._send(
-            "FinanceSurveillanceRisk",
-            {
-                "buy_vol": buy_vol,
-                "sell_vol": sell_vol,
-                "p_mean": p_mean,
-                "signed_flow": signed_flow,
-                "price_changes": price_changes,
-                "baseline_sigma": baseline_sigma,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_surveillance_risk(
+                self._client,
+                {
+                    "buy_vol": buy_vol,
+                    "sell_vol": sell_vol,
+                    "p_mean": p_mean,
+                    "signed_flow": signed_flow,
+                    "price_changes": price_changes,
+                    "baseline_sigma": baseline_sigma,
+                },
+            )
+        ).payload
 
     # ── Position sizing (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ─────────────────────────────
     async def kelly_fraction(self, q: float, c: float, fraction: float = 0.25) -> float:
         """Fractional Kelly for a YES contract: f* = (q−c)/(1−c), scaled."""
-        return await self._client._send(
-            "FinanceKellyFraction", {"q": q, "c": c, "fraction": fraction}
+        return await _gen.compute.send_finance_kelly_fraction(
+            self._client, {"q": q, "c": c, "fraction": fraction}
         )
 
     async def bayesian_kelly(
@@ -8180,18 +8461,19 @@ class FinanceClient:
     ) -> float:
         """Kelly under a Beta(α,β) posterior over the true probability — shrinks
         the bet as posterior variance grows."""
-        return await self._client._send(
-            "FinanceBayesianKelly",
+        return await _gen.compute.send_finance_bayesian_kelly(
+            self._client,
             {"alpha": alpha, "beta": beta, "c": c, "n_quadrature": n_quadrature},
         )
 
     async def posterior_credible_interval(
         self, alpha: float, beta: float, level: float = 0.05
     ) -> dict[str, float]:
-        return await self._client._send(
-            "FinancePosteriorCredibleInterval",
-            {"alpha": alpha, "beta": beta, "level": level},
-        )
+        return (
+            await _gen.compute.send_finance_posterior_credible_interval(
+                self._client, {"alpha": alpha, "beta": beta, "level": level}
+            )
+        ).payload
 
     # ── Backtest validation (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ─────────────────────────
     async def purged_cpcv(
@@ -8203,24 +8485,26 @@ class FinanceClient:
         embargo: int = 0,
     ) -> list[dict[str, list[int]]]:
         """Purged combinatorial CV splits — each {train: [...], test: [...]}."""
-        return await self._client._send(
-            "FinancePurgedCpcv",
-            {
-                "n_samples": n_samples,
-                "n_groups": n_groups,
-                "n_test_groups": n_test_groups,
-                "purge_window": purge_window,
-                "embargo": embargo,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_purged_cpcv(
+                self._client,
+                {
+                    "n_samples": n_samples,
+                    "n_groups": n_groups,
+                    "n_test_groups": n_test_groups,
+                    "purge_window": purge_window,
+                    "embargo": embargo,
+                },
+            )
+        ).payload
 
     async def deflated_sharpe(
         self, observed_sr: float, n_trials: int, sr_returns: list[float]
     ) -> float:
         """Probability the observed Sharpe beats zero after deflating for trials
         and non-normality (Bailey & López de Prado). DSR > 0.95 = strong."""
-        return await self._client._send(
-            "FinanceDeflatedSharpe",
+        return await _gen.compute.send_finance_deflated_sharpe(
+            self._client,
             {
                 "observed_sr": observed_sr,
                 "n_trials": n_trials,
@@ -8232,19 +8516,19 @@ class FinanceClient:
         self, insample: list[list[float]], oos: list[list[float]]
     ) -> float:
         """PBO — rows = CV splits, cols = strategies. < 0.3 robust; > 0.5 overfit."""
-        return await self._client._send(
-            "FinanceProbabilityBacktestOverfit",
-            {"insample": insample, "oos": oos},
+        return await _gen.compute.send_finance_probability_backtest_overfit(
+            self._client, {"insample": insample, "oos": oos}
         )
 
     async def diebold_mariano(
         self, losses_a: list[float], losses_b: list[float], h: int = 1
     ) -> dict[str, Any]:
         """Test of equal predictive accuracy (Newey-West HAC for h>1)."""
-        return await self._client._send(
-            "FinanceDieboldMariano",
-            {"losses_a": losses_a, "losses_b": losses_b, "h": h},
-        )
+        return (
+            await _gen.compute.send_finance_diebold_mariano(
+                self._client, {"losses_a": losses_a, "losses_b": losses_b, "h": h}
+            )
+        ).payload
 
     # ── Forensic accounting (CONCEPT:EG-KG.domains.forensic-accounting-kernels) ─────────────────────────
     async def forensic_report(
@@ -8253,10 +8537,11 @@ class FinanceClient:
         """Beneish M / Altman Z / Piotroski F / Sloan accruals over two fiscal
         years. Returns scores + flags + verdict (INVESTIGATE | CLEAN). Each year
         dict carries standardized line items (sales, cogs, net_income, cfo, ...)."""
-        return await self._client._send(
-            "FinanceForensicReport",
-            {"this_year": this_year, "prior_year": prior_year},
-        )
+        return (
+            await _gen.compute.send_finance_forensic_report(
+                self._client, {"this_year": this_year, "prior_year": prior_year}
+            )
+        ).payload
 
     # ── State-space / stat-arb (CONCEPT:EG-KG.domains.state-space-statistical-arbitrage) ──────────────────────
     async def kalman_filter_1d(
@@ -8270,18 +8555,20 @@ class FinanceClient:
         p0: float = 1.0,
     ) -> dict[str, Any]:
         """Scalar Kalman filter — returns {states, variances} per step."""
-        return await self._client._send(
-            "FinanceKalmanFilter1d",
-            {
-                "observations": observations,
-                "f": f,
-                "q": q,
-                "h": h,
-                "r": r,
-                "x0": x0,
-                "p0": p0,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_kalman_filter1d(
+                self._client,
+                {
+                    "observations": observations,
+                    "f": f,
+                    "q": q,
+                    "h": h,
+                    "r": r,
+                    "x0": x0,
+                    "p0": p0,
+                },
+            )
+        ).payload
 
     async def kalman_beta(
         self,
@@ -8294,17 +8581,19 @@ class FinanceClient:
     ) -> dict[str, Any]:
         """Dynamic (time-varying) beta via Kalman filter — {states (betas), variances}.
         OLS gives the average; this gives the current hidden beta with uncertainty."""
-        return await self._client._send(
-            "FinanceKalmanBeta",
-            {
-                "market_returns": market_returns,
-                "asset_returns": asset_returns,
-                "q": q,
-                "r": r,
-                "beta0": beta0,
-                "p0": p0,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_kalman_beta(
+                self._client,
+                {
+                    "market_returns": market_returns,
+                    "asset_returns": asset_returns,
+                    "q": q,
+                    "r": r,
+                    "beta0": beta0,
+                    "p0": p0,
+                },
+            )
+        ).payload
 
     async def kalman_volatility(
         self,
@@ -8317,33 +8606,39 @@ class FinanceClient:
     ) -> list[float]:
         """Kalman volatility tracker (log-variance state) — annualised vol series.
         Tells you what volatility *is* now, not what it was (vs GARCH/EWMA)."""
-        return await self._client._send(
-            "FinanceKalmanVolatility",
-            {
-                "returns": returns,
-                "q": q,
-                "r": r,
-                "log_var0": log_var0,
-                "p0": p0,
-                "annualization": annualization,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_kalman_volatility(
+                self._client,
+                {
+                    "returns": returns,
+                    "q": q,
+                    "r": r,
+                    "log_var0": log_var0,
+                    "p0": p0,
+                    "annualization": annualization,
+                },
+            )
+        ).payload
 
     async def adf_test(self, series: list[float], max_lag: int = 1) -> dict[str, Any]:
         """Augmented Dickey-Fuller cointegration/stationarity test — returns
         {statistic, crit_5pct, stationary_5pct, ...}."""
-        return await self._client._send(
-            "FinanceAdfTest", {"series": series, "max_lag": max_lag}
-        )
+        return (
+            await _gen.compute.send_finance_adf_test(
+                self._client, {"series": series, "max_lag": max_lag}
+            )
+        ).payload
 
     async def ou_calibrate(
         self, spread: list[float], dt: float = 1.0
     ) -> dict[str, Any]:
         """Calibrate an Ornstein-Uhlenbeck mean-reversion process from a spread —
         {theta, mu, sigma, half_life, sigma_eq}."""
-        return await self._client._send(
-            "FinanceOuCalibrate", {"spread": spread, "dt": dt}
-        )
+        return (
+            await _gen.compute.send_finance_ou_calibrate(
+                self._client, {"spread": spread, "dt": dt}
+            )
+        ).payload
 
     async def ou_optimal_thresholds(
         self,
@@ -8355,34 +8650,40 @@ class FinanceClient:
     ) -> dict[str, Any]:
         """MFPT-optimal OU entry/exit band — {entry_long, entry_short, exit, z,
         expected_return_per_unit_time}."""
-        return await self._client._send(
-            "FinanceOuOptimalThresholds",
-            {
-                "theta": theta,
-                "mu": mu,
-                "sigma": sigma,
-                "sigma_eq": sigma_eq,
-                "cost": cost,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_ou_optimal_thresholds(
+                self._client,
+                {
+                    "theta": theta,
+                    "mu": mu,
+                    "sigma": sigma,
+                    "sigma_eq": sigma_eq,
+                    "cost": cost,
+                },
+            )
+        ).payload
 
     async def markov_transition_matrix(
         self, states: list[int], n_states: int
     ) -> list[list[float]]:
         """Laplace-smoothed row-stochastic transition matrix from a state sequence
         (cross-venue lead-lag / regime transitions)."""
-        return await self._client._send(
-            "FinanceMarkovTransitionMatrix", {"states": states, "n_states": n_states}
-        )
+        return (
+            await _gen.compute.send_finance_markov_transition_matrix(
+                self._client, {"states": states, "n_states": n_states}
+            )
+        ).payload
 
     # ── Signal combination / sizing / calibration (CONCEPT:EG-KG.domains.quant-finance) ───
     async def order_book_imbalance(
         self, v_bid: list[float], v_ask: list[float]
     ) -> list[float]:
         """Level-1 order-book imbalance series ∈ [−1, 1]."""
-        return await self._client._send(
-            "FinanceOrderBookImbalance", {"v_bid": v_bid, "v_ask": v_ask}
-        )
+        return (
+            await _gen.compute.send_finance_order_book_imbalance(
+                self._client, {"v_bid": v_bid, "v_ask": v_ask}
+            )
+        ).payload
 
     async def queue_imbalance(
         self,
@@ -8394,24 +8695,28 @@ class FinanceClient:
         """Queue-position / time-to-fill signal at the best bid/ask. Returns
         {skew, bid_fill_time, ask_fill_time}; skew = (ask_q−bid_q)/(ask_q+bid_q)
         (positive ⇒ ask queue heavier ⇒ resting bid fills faster)."""
-        return await self._client._send(
-            "FinanceQueueImbalance",
-            {
-                "bid_q": bid_q,
-                "ask_q": ask_q,
-                "bid_rate": bid_rate,
-                "ask_rate": ask_rate,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_queue_imbalance(
+                self._client,
+                {
+                    "bid_q": bid_q,
+                    "ask_q": ask_q,
+                    "bid_rate": bid_rate,
+                    "ask_rate": ask_rate,
+                },
+            )
+        ).payload
 
     async def realized_vol_tick(
         self, mid: list[float], window: int = 20
     ) -> list[float]:
         """Tick-level rolling realized volatility of the mid-price (model-free;
         distinct from the kalman_volatility state-space filter)."""
-        return await self._client._send(
-            "FinanceRealizedVolTick", {"mid": mid, "window": window}
-        )
+        return (
+            await _gen.compute.send_finance_realized_vol_tick(
+                self._client, {"mid": mid, "window": window}
+            )
+        ).payload
 
     async def spread_reversion(
         self, bid_px: list[float], ask_px: list[float], window: int = 20
@@ -8419,22 +8724,23 @@ class FinanceClient:
         """Spread mean-reversion feature. Returns {zscore, signal} where the
         rolling z-score of (ask−bid) drives signal = −zscore (wide ⇒ expect
         tighten). Lightweight rolling stats, NOT the OU calibration."""
-        return await self._client._send(
-            "FinanceSpreadReversion",
-            {"bid_px": bid_px, "ask_px": ask_px, "window": window},
-        )
+        return (
+            await _gen.compute.send_finance_spread_reversion(
+                self._client, {"bid_px": bid_px, "ask_px": ask_px, "window": window}
+            )
+        ).payload
 
     async def information_ratio(self, ic: float, n_independent: float) -> float:
         """Fundamental law of active management: IR = IC · √(N_independent)."""
-        return await self._client._send(
-            "FinanceInformationRatio", {"ic": ic, "n_independent": n_independent}
+        return await _gen.compute.send_finance_information_ratio(
+            self._client, {"ic": ic, "n_independent": n_independent}
         )
 
     async def effective_independent_n(self, returns_matrix: list[list[float]]) -> float:
         """Effective number of independent signals (eigenvalue participation ratio)
         — correlated signals collapse, exposing the real N in IR = IC·√N."""
-        return await self._client._send(
-            "FinanceEffectiveIndependentN", {"returns_matrix": returns_matrix}
+        return await _gen.compute.send_finance_effective_independent_n(
+            self._client, {"returns_matrix": returns_matrix}
         )
 
     async def alpha_combination_engine(
@@ -8442,16 +8748,17 @@ class FinanceClient:
     ) -> list[float]:
         """Combine N signals into weights that reward independent edge and penalise
         shared variance (the IR = IC·√N combination engine). Rows = signals."""
-        return await self._client._send(
-            "FinanceAlphaCombinationEngine",
-            {"returns_matrix": returns_matrix, "lookback": lookback},
-        )
+        return (
+            await _gen.compute.send_finance_alpha_combination_engine(
+                self._client, {"returns_matrix": returns_matrix, "lookback": lookback}
+            )
+        ).payload
 
     async def brier_score(self, forecasts: list[float], outcomes: list[float]) -> float:
         """Brier score of probabilistic forecasts vs binary outcomes (< 0.25 =
         production-grade calibration)."""
-        return await self._client._send(
-            "FinanceBrierScore", {"forecasts": forecasts, "outcomes": outcomes}
+        return await _gen.compute.send_finance_brier_score(
+            self._client, {"forecasts": forecasts, "outcomes": outcomes}
         )
 
     async def convergence_gate(
@@ -8459,14 +8766,16 @@ class FinanceClient:
     ) -> dict[str, Any]:
         """Conviction gate — require ≥min_agree of N signals to STRONGLY agree on a
         direction before trading. Returns {agree, total, fraction, direction, pass}."""
-        return await self._client._send(
-            "FinanceConvergenceGate",
-            {
-                "strengths": strengths,
-                "strong_threshold": strong_threshold,
-                "min_agree": min_agree,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_convergence_gate(
+                self._client,
+                {
+                    "strengths": strengths,
+                    "strong_threshold": strong_threshold,
+                    "min_agree": min_agree,
+                },
+            )
+        ).payload
 
     async def empirical_kelly(
         self,
@@ -8478,8 +8787,8 @@ class FinanceClient:
     ) -> float:
         """Uncertainty-adjusted Kelly: f* · (1 − CV_edge), with CV_edge from a
         seeded bootstrap of the historical returns. Shrinks bets when edge is noisy."""
-        return await self._client._send(
-            "FinanceEmpiricalKelly",
+        return await _gen.compute.send_finance_empirical_kelly(
+            self._client,
             {
                 "p": p,
                 "b": b,
@@ -8501,8 +8810,8 @@ class FinanceClient:
         nu: float,
     ) -> float:
         """SABR lognormal (Black) implied volatility for one strike (Hagan 2002)."""
-        return await self._client._send(
-            "FinanceSabrImpliedVol",
+        return await _gen.compute.send_finance_sabr_implied_vol(
+            self._client,
             {
                 "f": f,
                 "k": k,
@@ -8525,18 +8834,20 @@ class FinanceClient:
         nu: float,
     ) -> list[float]:
         """SABR implied-vol smile across strikes."""
-        return await self._client._send(
-            "FinanceSabrSmile",
-            {
-                "f": f,
-                "strikes": strikes,
-                "t": t,
-                "alpha": alpha,
-                "beta": beta,
-                "rho": rho,
-                "nu": nu,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_sabr_smile(
+                self._client,
+                {
+                    "f": f,
+                    "strikes": strikes,
+                    "t": t,
+                    "alpha": alpha,
+                    "beta": beta,
+                    "rho": rho,
+                    "nu": nu,
+                },
+            )
+        ).payload
 
     async def sabr_calibrate(
         self,
@@ -8548,16 +8859,18 @@ class FinanceClient:
     ) -> dict[str, Any]:
         """Calibrate SABR (α, ρ, ν) to a market smile with β fixed — returns
         {alpha, beta, rho, nu, rmse, converged}."""
-        return await self._client._send(
-            "FinanceSabrCalibrate",
-            {
-                "f": f,
-                "t": t,
-                "strikes": strikes,
-                "market_vols": market_vols,
-                "beta": beta,
-            },
-        )
+        return (
+            await _gen.compute.send_finance_sabr_calibrate(
+                self._client,
+                {
+                    "f": f,
+                    "t": t,
+                    "strikes": strikes,
+                    "market_vols": market_vols,
+                    "beta": beta,
+                },
+            )
+        ).payload
 
 
 class DataScienceClient:
@@ -8573,22 +8886,30 @@ class DataScienceClient:
     async def linear_regression(
         self, x: list[list[float]], y: list[float]
     ) -> dict[str, Any]:
-        return await self._client._send("DsLinearRegression", {"x": x, "y": y})
+        return (
+            await _gen.compute.send_ds_linear_regression(self._client, {"x": x, "y": y})
+        ).payload
 
     async def kmeans(
         self, data: list[list[float]], k: int, max_iter: int = 100
     ) -> dict[str, Any]:
-        return await self._client._send(
-            "DsKMeans", {"data": data, "k": k, "max_iter": max_iter}
-        )
+        return (
+            await _gen.compute.send_ds_k_means(
+                self._client, {"data": data, "k": k, "max_iter": max_iter}
+            )
+        ).payload
 
     async def pca(self, data: list[list[float]], n_components: int) -> dict[str, Any]:
-        return await self._client._send(
-            "DsPca", {"data": data, "n_components": n_components}
-        )
+        return (
+            await _gen.compute.send_ds_pca(
+                self._client, {"data": data, "n_components": n_components}
+            )
+        ).payload
 
     async def compute_stats(self, data: list[list[float]]) -> dict[str, Any]:
-        return await self._client._send("DsComputeStats", {"data": data})
+        return (
+            await _gen.compute.send_ds_compute_stats(self._client, {"data": data})
+        ).payload
 
     async def train_test_split(
         self,
@@ -8598,16 +8919,18 @@ class DataScienceClient:
         shuffle: bool = True,
         seed: int = 42,
     ) -> dict[str, Any]:
-        return await self._client._send(
-            "DsTrainTestSplit",
-            {
-                "data": data,
-                "labels": labels,
-                "test_ratio": test_ratio,
-                "shuffle": shuffle,
-                "seed": seed,
-            },
-        )
+        return (
+            await _gen.compute.send_ds_train_test_split(
+                self._client,
+                {
+                    "data": data,
+                    "labels": labels,
+                    "test_ratio": test_ratio,
+                    "shuffle": shuffle,
+                    "seed": seed,
+                },
+            )
+        ).payload
 
     async def fit_estimator(
         self,
@@ -8619,16 +8942,22 @@ class DataScienceClient:
         """Fit a regression estimator (ridge/lasso/elasticnet/decisiontree/
         randomforest/gradientboosting/adaboost/svr). Returns a serializable
         fitted-model blob to pass back to ``predict_estimator``."""
-        return await self._client._send(
-            "DsFitEstimator",
-            {"estimator": estimator, "x": x, "y": y, "params": params or {}},
-        )
+        return (
+            await _gen.compute.send_ds_fit_estimator(
+                self._client,
+                {"estimator": estimator, "x": x, "y": y, "params": params or {}},
+            )
+        ).payload
 
     async def predict_estimator(
         self, model: dict[str, Any], x: list[list[float]]
     ) -> list[float]:
         """Predict with a model blob returned by ``fit_estimator``."""
-        return await self._client._send("DsPredictEstimator", {"model": model, "x": x})
+        return (
+            await _gen.compute.send_ds_predict_estimator(
+                self._client, {"model": model, "x": x}
+            )
+        ).payload
 
     # ── Training loss / optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss) ──────────────────
     # The Rust performance path for the in-house training substrate (Wave C / C1),
@@ -8639,21 +8968,27 @@ class DataScienceClient:
         self, logits: list[float], temperature: float = 1.0
     ) -> list[float]:
         """Numerically-stable softmax with temperature."""
-        return await self._client._send(
-            "DsSoftmax", {"logits": logits, "temperature": temperature}
-        )
+        return (
+            await _gen.compute.send_ds_softmax(
+                self._client, {"logits": logits, "temperature": temperature}
+            )
+        ).payload
 
     async def log_softmax(self, logits: list[float]) -> list[float]:
         """Numerically-stable log-softmax."""
-        return await self._client._send("DsLogSoftmax", {"logits": logits})
+        return (
+            await _gen.compute.send_ds_log_softmax(self._client, {"logits": logits})
+        ).payload
 
     async def cross_entropy(
         self, logits: list[list[float]], labels: list[int]
     ) -> dict[str, Any]:
         """Mean categorical cross-entropy → ``{loss, grad}`` (grad = softmax−onehot)."""
-        return await self._client._send(
-            "DsCrossEntropy", {"logits": logits, "labels": labels}
-        )
+        return (
+            await _gen.compute.send_ds_cross_entropy(
+                self._client, {"logits": logits, "labels": labels}
+            )
+        ).payload
 
     async def dpo_loss(
         self,
@@ -8664,16 +8999,18 @@ class DataScienceClient:
         beta: float = 0.1,
     ) -> dict[str, Any]:
         """Bradley-Terry DPO loss → ``{loss, grad_chosen, grad_rejected}``."""
-        return await self._client._send(
-            "DsDpoLoss",
-            {
-                "policy_chosen": policy_chosen,
-                "policy_rejected": policy_rejected,
-                "ref_chosen": ref_chosen,
-                "ref_rejected": ref_rejected,
-                "beta": beta,
-            },
-        )
+        return (
+            await _gen.compute.send_ds_dpo_loss(
+                self._client,
+                {
+                    "policy_chosen": policy_chosen,
+                    "policy_rejected": policy_rejected,
+                    "ref_chosen": ref_chosen,
+                    "ref_rejected": ref_rejected,
+                    "beta": beta,
+                },
+            )
+        ).payload
 
     async def grpo_surrogate(
         self,
@@ -8683,22 +9020,24 @@ class DataScienceClient:
         clip_eps: float = 0.2,
     ) -> dict[str, Any]:
         """GRPO clipped surrogate (loss to minimise) → ``{loss, grad}``."""
-        return await self._client._send(
-            "DsGrpoSurrogate",
-            {
-                "logprob": logprob,
-                "old_logprob": old_logprob,
-                "advantage": advantage,
-                "clip_eps": clip_eps,
-            },
-        )
+        return (
+            await _gen.compute.send_ds_grpo_surrogate(
+                self._client,
+                {
+                    "logprob": logprob,
+                    "old_logprob": old_logprob,
+                    "advantage": advantage,
+                    "clip_eps": clip_eps,
+                },
+            )
+        ).payload
 
     async def kl_divergence(
         self, logprob: list[float], ref_logprob: list[float]
     ) -> float:
         """Schulman k3 low-variance KL estimate (≥0)."""
-        return await self._client._send(
-            "DsKlDivergence", {"logprob": logprob, "ref_logprob": ref_logprob}
+        return await _gen.compute.send_ds_kl_divergence(
+            self._client, {"logprob": logprob, "ref_logprob": ref_logprob}
         )
 
     async def adam_step(
@@ -8715,28 +9054,32 @@ class DataScienceClient:
         eps: float = 1e-8,
     ) -> dict[str, Any]:
         """One Adam step with bias correction → ``{params, m, v}``."""
-        return await self._client._send(
-            "DsAdamStep",
-            {
-                "params": params,
-                "grads": grads,
-                "m": m or [],
-                "v": v or [],
-                "lr": lr,
-                "beta1": beta1,
-                "beta2": beta2,
-                "eps": eps,
-                "t": t,
-            },
-        )
+        return (
+            await _gen.compute.send_ds_adam_step(
+                self._client,
+                {
+                    "params": params,
+                    "grads": grads,
+                    "m": m or [],
+                    "v": v or [],
+                    "lr": lr,
+                    "beta1": beta1,
+                    "beta2": beta2,
+                    "eps": eps,
+                    "t": t,
+                },
+            )
+        ).payload
 
     async def sgd_step(
         self, params: list[float], grads: list[float], lr: float
     ) -> list[float]:
         """One plain SGD step ``params − lr·grads``."""
-        return await self._client._send(
-            "DsSgdStep", {"params": params, "grads": grads, "lr": lr}
-        )
+        return (
+            await _gen.compute.send_ds_sgd_step(
+                self._client, {"params": params, "grads": grads, "lr": lr}
+            )
+        ).payload
 
 
 class MiningClient:
@@ -8790,7 +9133,7 @@ class MiningClient:
         params["min_confidence"] = min_confidence
         params["algorithm"] = algorithm
         params["writeback"] = writeback
-        return await self._client._send("MineAssociate", params)
+        return (await _gen.compute.send_mine_associate(self._client, params)).payload
 
     async def cluster(
         self,
@@ -8844,7 +9187,7 @@ class MiningClient:
             params["plan"] = {"ops": plan}
         if source is not None:
             params["source"] = source
-        return await self._client._send("MineCluster", params)
+        return (await _gen.compute.send_mine_cluster(self._client, params)).payload
 
     async def anomaly(
         self,
@@ -8902,7 +9245,7 @@ class MiningClient:
             params["plan"] = {"ops": plan}
         if source is not None:
             params["source"] = source
-        return await self._client._send("MineAnomaly", params)
+        return (await _gen.compute.send_mine_anomaly(self._client, params)).payload
 
     async def classify_fit(
         self,
@@ -8948,7 +9291,7 @@ class MiningClient:
             params["plan"] = {"ops": plan}
         if source is not None:
             params["source"] = source
-        return await self._client._send("MineClassifyFit", params)
+        return (await _gen.compute.send_mine_classify_fit(self._client, params)).payload
 
     async def classify_predict(
         self,
@@ -8975,7 +9318,9 @@ class MiningClient:
             params["plan"] = {"ops": plan}
         if source is not None:
             params["source"] = source
-        return await self._client._send("MineClassifyPredict", params)
+        return (
+            await _gen.compute.send_mine_classify_predict(self._client, params)
+        ).payload
 
     async def reduce(
         self,
@@ -9028,7 +9373,7 @@ class MiningClient:
             params["source"] = source
         if labels is not None:
             params["labels"] = labels
-        return await self._client._send("MineReduce", params)
+        return (await _gen.compute.send_mine_reduce(self._client, params)).payload
 
     async def sequence(
         self,
@@ -9062,7 +9407,7 @@ class MiningClient:
             params["sequences"] = sequences
         if source is not None:
             params["source"] = source
-        return await self._client._send("MineSequence", params)
+        return (await _gen.compute.send_mine_sequence(self._client, params)).payload
 
     async def forecast(
         self,
@@ -9111,7 +9456,7 @@ class MiningClient:
             "series_id": series_id,
             "writeback": writeback,
         }
-        return await self._client._send("MineForecast", params)
+        return (await _gen.compute.send_mine_forecast(self._client, params)).payload
 
     async def text(
         self,
@@ -9159,7 +9504,7 @@ class MiningClient:
             params["docs"] = docs
         if source is not None:
             params["source"] = source
-        return await self._client._send("MineText", params)
+        return (await _gen.compute.send_mine_text(self._client, params)).payload
 
     async def subgraph(
         self,
@@ -9196,7 +9541,7 @@ class MiningClient:
         }
         if label is not None:
             params["label"] = label
-        return await self._client._send("MineSubgraph", params)
+        return (await _gen.compute.send_mine_subgraph(self._client, params)).payload
 
     async def entity_resolve(
         self,
@@ -9238,7 +9583,9 @@ class MiningClient:
             params["source"] = source
         if ids is not None:
             params["ids"] = ids
-        return await self._client._send("MineEntityResolve", params)
+        return (
+            await _gen.compute.send_mine_entity_resolve(self._client, params)
+        ).payload
 
     async def causal_impact(
         self,
@@ -9264,7 +9611,9 @@ class MiningClient:
             params["control"] = control
         if series_id is not None:
             params["series_id"] = series_id
-        return await self._client._send("MineCausalImpact", params)
+        return (
+            await _gen.compute.send_mine_causal_impact(self._client, params)
+        ).payload
 
     async def process(
         self,
@@ -9282,7 +9631,7 @@ class MiningClient:
         params: dict[str, Any] = {"traces": traces, "writeback": writeback}
         if process_id is not None:
             params["process_id"] = process_id
-        return await self._client._send("MineProcess", params)
+        return (await _gen.compute.send_mine_process(self._client, params)).payload
 
     async def root_cause(
         self,
@@ -9312,7 +9661,7 @@ class MiningClient:
             "decay": decay,
             "writeback": writeback,
         }
-        return await self._client._send("MineRootCause", params)
+        return (await _gen.compute.send_mine_root_cause(self._client, params)).payload
 
     async def risk_propagation(
         self,
@@ -9340,7 +9689,9 @@ class MiningClient:
             "max_iterations": max_iterations,
             "writeback": writeback,
         }
-        return await self._client._send("MineRiskPropagation", params)
+        return (
+            await _gen.compute.send_mine_risk_propagation(self._client, params)
+        ).payload
 
     async def ontology_gap(
         self,
@@ -9359,7 +9710,7 @@ class MiningClient:
         params: dict[str, Any] = {"writeback": writeback}
         if label is not None:
             params["label"] = label
-        return await self._client._send("MineOntologyGap", params)
+        return (await _gen.compute.send_mine_ontology_gap(self._client, params)).payload
 
     async def retrieval_quality(
         self,
@@ -9378,7 +9729,9 @@ class MiningClient:
         params: dict[str, Any] = {"traces": traces, "k": k, "writeback": writeback}
         if query_id is not None:
             params["query_id"] = query_id
-        return await self._client._send("MineRetrievalQuality", params)
+        return (
+            await _gen.compute.send_mine_retrieval_quality(self._client, params)
+        ).payload
 
     async def community(
         self,
@@ -9410,7 +9763,7 @@ class MiningClient:
         }
         if label is not None:
             params["label"] = label
-        return await self._client._send("MineCommunity", params)
+        return (await _gen.compute.send_mine_community(self._client, params)).payload
 
 
 class GraphLearnClient:
@@ -9473,10 +9826,12 @@ class GraphLearnClient:
         }
         if relation is not None:
             source["relation"] = relation
-        return await self._client._send(
-            "GraphLearnFit",
-            {"source": source, "params": params, "writeback": writeback},
-        )
+        return (
+            await _gen.compute.send_graph_learn_fit(
+                self._client,
+                {"source": source, "params": params, "writeback": writeback},
+            )
+        ).payload
 
     async def predict(
         self,
@@ -9513,7 +9868,9 @@ class GraphLearnClient:
         }
         if candidate_pairs is not None:
             params["candidate_pairs"] = [list(p) for p in candidate_pairs]
-        return await self._client._send("GraphLearnPredict", params)
+        return (
+            await _gen.compute.send_graph_learn_predict(self._client, params)
+        ).payload
 
 
 class PipelineClient:
@@ -9559,7 +9916,9 @@ class PipelineClient:
             params["x"] = x
         if y is not None:
             params["y"] = y
-        return await self._client._send("MiningPipelineTrain", params)
+        return (
+            await _gen.compute.send_mining_pipeline_train(self._client, params)
+        ).payload
 
     async def evaluate(
         self,
@@ -9581,15 +9940,19 @@ class PipelineClient:
             params["x"] = x
         if y is not None:
             params["y"] = y
-        return await self._client._send("MiningPipelineEvaluate", params)
+        return (
+            await _gen.compute.send_mining_pipeline_evaluate(self._client, params)
+        ).payload
 
     async def serve(self, name: str, version: int) -> dict[str, Any]:
         """Deploy a versioned ``:Model`` as the served version (writes a
         ``:ServedModel`` pointer so :meth:`predict` with ``version=0`` resolves it).
         """
-        return await self._client._send(
-            "MiningPipelineServe", {"name": name, "version": version}
-        )
+        return (
+            await _gen.compute.send_mining_pipeline_serve(
+                self._client, {"name": name, "version": version}
+            )
+        ).payload
 
     async def predict(
         self,
@@ -9615,7 +9978,9 @@ class PipelineClient:
             params["source"] = source
         if x is not None:
             params["x"] = x
-        return await self._client._send("MiningPipelinePredict", params)
+        return (
+            await _gen.compute.send_mining_pipeline_predict(self._client, params)
+        ).payload
 
     async def compare(
         self, name: str, version_a: int, version_b: int
@@ -9624,10 +9989,12 @@ class PipelineClient:
         version_b, metrics_a, metrics_b, diff}`` where ``diff`` is per-metric
         ``b − a``. Read-only.
         """
-        return await self._client._send(
-            "MiningPipelineCompare",
-            {"name": name, "version_a": version_a, "version_b": version_b},
-        )
+        return (
+            await _gen.compute.send_mining_pipeline_compare(
+                self._client,
+                {"name": name, "version_a": version_a, "version_b": version_b},
+            )
+        ).payload
 
 
 # Per-RPC timeouts (CONCEPT:EG-KG.query.wire-protocol). A wedged or overloaded engine must never
@@ -10252,15 +10619,21 @@ def _validate_resource_stats_arrays(
         raise RuntimeError("summary ResourceStats response must omit detail arrays")
 
 
-def _decode_send_result(result: Any) -> Any:
+_OPAQUE_BINARY_RESULT_METHODS = frozenset({"RunUdf", "KvGet"})
+
+
+def _decode_send_result(method: str, result: Any) -> Any:
     """Decode the compact result encoding (engine Phase C-D).
 
     Heavy algorithm results and node/edge property blobs come back as a
-    top-level MessagePack ``bin`` (the ``Raw``/``PropertiesMsgpack`` payloads) —
-    the server skips building a JSON tree. Decode that second layer here so
-    every caller receives the method's declared result structure.
+    top-level MessagePack ``bin`` (the ``Raw`` payload) — the server skips
+    building a JSON tree. Decode that second layer for structured methods.
+    ``RunUdf`` and ``KvGet`` declare opaque bytes, so their payload is returned
+    exactly and is never interpreted as another MessagePack document.
     """
-    if isinstance(result, (bytes, bytearray)):
+    if method not in _OPAQUE_BINARY_RESULT_METHODS and isinstance(
+        result, (bytes, bytearray)
+    ):
         return msgpack.unpackb(result, raw=False)
     return result
 
@@ -10349,9 +10722,11 @@ class QueryClient:
         `mode` fields have no such optional/omittable field for the plain
         Python wrapper to under-specify.
         """
-        result = await self._client._send(
-            "Sql", {"query": query, "params_msgpack": params_msgpack}
-        )
+        result = (
+            await _gen.query.send_sql(
+                self._client, {"query": query, "params_msgpack": params_msgpack}
+            )
+        ).payload
         return self._rows_to_dicts(result)
 
     async def cypher_read(self, query: str) -> list[dict[str, Any]]:
@@ -10371,9 +10746,11 @@ class QueryClient:
         ``Raw`` payload the transport already double-unpacks); each row blob is a
         list of cell values aligned to ``columns``.
         """
-        result = await self._client._send(
-            "CypherQuery", {"query": query, "mode": "read"}
-        )
+        result = (
+            await _gen.query.send_cypher_query(
+                self._client, {"query": query, "mode": "read"}
+            )
+        ).payload
         return self._rows_to_dicts(result)
 
     async def cypher_write(self, query: str) -> list[dict[str, Any]]:
@@ -10383,9 +10760,11 @@ class QueryClient:
         mismatches before execution. Callers should prefer typed mutation APIs;
         this surface exists for governed query-language mutations.
         """
-        result = await self._client._send(
-            "CypherQuery", {"query": query, "mode": "write"}
-        )
+        result = (
+            await _gen.query.send_cypher_query(
+                self._client, {"query": query, "mode": "write"}
+            )
+        ).payload
         return self._rows_to_dicts(result)
 
     async def graphql(
@@ -10408,9 +10787,11 @@ class QueryClient:
         Mutations / subscriptions / fragments are not supported (read-only surface);
         the engine returns a clear parse error for them.
         """
-        return await self._client._send(
-            "GraphQl", {"query": query, "variables": variables}
-        )
+        return (
+            await _gen.query.send_graph_ql(
+                self._client, {"query": query, "variables": variables}
+            )
+        ).payload
 
     async def import_sqlite_file(self, path: str) -> dict[str, Any]:
         """Import every user table (+ rows) from logical ``.db`` filename ``path``
@@ -10423,7 +10804,9 @@ class QueryClient:
 
         Returns aggregate table counts without exposing a host path.
         """
-        return await self._client._send("ImportSqliteFile", {"path": path})
+        return (
+            await _gen.storage.send_import_sqlite_file(self._client, {"path": path})
+        ).payload
 
     async def export_sqlite_file(
         self, path: str, tables: list[str] | None = None
@@ -10438,9 +10821,11 @@ class QueryClient:
 
         Returns aggregate table counts without exposing a host path.
         """
-        return await self._client._send(
-            "ExportSqliteFile", {"path": path, "tables": list(tables or [])}
-        )
+        return (
+            await _gen.storage.send_export_sqlite_file(
+                self._client, {"path": path, "tables": list(tables or [])}
+            )
+        ).payload
 
     async def unified(
         self,
@@ -10469,7 +10854,9 @@ class QueryClient:
         Returns a list of ``{"id": str, "score": float | None}`` rows, in the plan's
         final order (descending score after a ``Rank``).
         """
-        result = await self._client._send("UnifiedQuery", {"plan": {"ops": plan}})
+        result = (
+            await _gen.query.send_unified_query(self._client, {"plan": {"ops": plan}})
+        ).payload
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
@@ -10502,7 +10889,9 @@ class QueryClient:
         (raised as the transport's error). Returns the same
         ``{"id": str, "score": float | None}`` rows as :meth:`unified`.
         """
-        result = await self._client._send("UnifiedQueryText", {"text": text})
+        result = (
+            await _gen.query.send_unified_query_text(self._client, {"text": text})
+        ).payload
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
@@ -10513,7 +10902,9 @@ class QueryClient:
         execution occurs beyond planning. Returns ``{"before": [{"id", "op", "inputs"},
         ...], "after": [...], "applied_rules": [str, ...]}``.
         """
-        return await self._client._send("ExplainPlan", {"plan": {"ops": plan}})
+        return (
+            await _gen.query.send_explain_plan(self._client, {"plan": {"ops": plan}})
+        ).payload
 
     async def explain_provenance(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
         """``EXPLAIN PROVENANCE`` — run ``plan`` (the SAME plan :meth:`unified` takes)
@@ -10523,7 +10914,11 @@ class QueryClient:
         any resolved evidence (CONCEPT:EG-KB-CURRENCY).
         """
         return _evidence_bundle(
-            await self._client._send("ExplainProvenance", {"plan": {"ops": plan}})
+            (
+                await _gen.query.send_explain_provenance(
+                    self._client, {"plan": {"ops": plan}}
+                )
+            ).payload
         )
 
     async def explain_provenance_by_ids(self, ids: list[str]) -> dict[str, Any]:
@@ -10535,7 +10930,11 @@ class QueryClient:
         calibrated, cited, time-versioned claims. Returns the IDENTICAL shape
         :meth:`explain_provenance` does."""
         return _evidence_bundle(
-            await self._client._send("ExplainProvenanceByIds", {"ids": ids})
+            (
+                await _gen.query.send_explain_provenance_by_ids(
+                    self._client, {"ids": ids}
+                )
+            ).payload
         )
 
     async def explain_policy(self, plan: list[dict[str, Any]]) -> dict[str, Any]:
@@ -10545,7 +10944,9 @@ class QueryClient:
         "policy_denied_ids": [str, ...]}`` — ``policy_denied_ids`` is empty when no
         caller/RLS filtering applies on this connection. Security and query support
         are included in the mandatory main build."""
-        return await self._client._send("ExplainPolicy", {"plan": {"ops": plan}})
+        return (
+            await _gen.query.send_explain_policy(self._client, {"plan": {"ops": plan}})
+        ).payload
 
     async def explain_belief(
         self, node_id: str, disclosure_level: str | None = None
@@ -10575,7 +10976,7 @@ class QueryClient:
         params: dict[str, Any] = {"node_id": node_id}
         if disclosure_level is not None:
             params["disclosure_level"] = disclosure_level
-        return await self._client._send("ExplainBelief", params)
+        return (await _gen.query.send_explain_belief(self._client, params)).payload
 
     async def explain_evidence(self, node_id: str) -> dict[str, Any]:
         """CONCEPT:EG-X1 — resolve ``node_id``'s cited multimodal evidence: walk the
@@ -10588,7 +10989,9 @@ class QueryClient:
         derivation references plus a tagged numeric or opaque ``address``; it is
         never absent on a returned citation. The evidence graph is included in the
         mandatory main build. Read-only."""
-        return await self._client._send("ExplainEvidence", {"node_id": node_id})
+        return (
+            await _gen.query.send_explain_evidence(self._client, {"node_id": node_id})
+        ).payload
 
     async def epistemic_status(self, node_id: str) -> dict[str, Any]:
         """CONCEPT:EPI-P3-5 — the acceptance-query capstone: for ``node_id`` return
@@ -10598,7 +11001,9 @@ class QueryClient:
         ``EpistemicStatusResult`` (belief + evidence + authority + valid/tx time +
         uncertainty + proof + minimal-flip invalidation set). The epistemic TMS is
         included in the mandatory main build. Read-only."""
-        return await self._client._send("EpistemicStatus", {"node_id": node_id})
+        return (
+            await _gen.query.send_epistemic_status(self._client, {"node_id": node_id})
+        ).payload
 
     async def what_changed(self, tx_from: int, tx_to: int) -> dict[str, Any]:
         """CONCEPT:EPI-P3-5 — between two transaction times, which beliefs changed and
@@ -10606,9 +11011,11 @@ class QueryClient:
         from :meth:`epistemic_status`'s single-claim view. Returns a
         ``WhatChangedResult``. The epistemic TMS is included in the mandatory main
         build. Read-only."""
-        return await self._client._send(
-            "WhatChanged", {"tx_from": tx_from, "tx_to": tx_to}
-        )
+        return (
+            await _gen.query.send_what_changed(
+                self._client, {"tx_from": tx_from, "tx_to": tx_to}
+            )
+        ).payload
 
     async def recompute_materialization(
         self, derived_id: str, expected_source_graph_version: int
@@ -10617,25 +11024,29 @@ class QueryClient:
         version must match the durable per-graph reasoning projection watermark.
         Provenance is resolved from the authoritative graph post-image and the
         refreshed projection is fsync'd before this call returns."""
-        return await self._client._send(
-            "RecomputeMaterialization",
-            {
-                "derived_id": derived_id,
-                "expected_source_graph_version": expected_source_graph_version,
-            },
-        )
+        return (
+            await _gen.query.send_recompute_materialization(
+                self._client,
+                {
+                    "derived_id": derived_id,
+                    "expected_source_graph_version": expected_source_graph_version,
+                },
+            )
+        ).payload
 
     async def materialization_status(self, id: str) -> dict[str, Any]:
         """Seam 3 — the current status (``"Fresh"``/``"Stale"``/``"Retracted"``, or
         ``None`` if absent) from the durable per-graph reasoning authority. The
         result also carries its source graph version."""
-        return await self._client._send("MaterializationStatus", {"id": id})
+        return (
+            await _gen.query.send_materialization_status(self._client, {"id": id})
+        ).payload
 
     async def stale_materializations(self) -> dict[str, Any]:
         """Seam 3 follow-up (SURPASS gap-closure: "give staleness a consumer") --
         every opaque materialization reference CURRENTLY ``Stale`` in this graph's
         durable projection, plus the projection source graph version."""
-        return await self._client._send("StaleMaterializations", {})
+        return (await _gen.query.send_stale_materializations(self._client, {})).payload
 
     async def resolve_conflict(
         self, node_ids: list[str], semantics: str = "grounded"
@@ -10671,9 +11082,11 @@ class QueryClient:
         ``node_ids``) the verdict was computed from: exactly one for ``"grounded"``,
         zero-or-more for ``"preferred"``/``"stable"``. The epistemic TMS is included
         in the mandatory main build. Read-only — no graph node is written."""
-        return await self._client._send(
-            "ResolveConflict", {"node_ids": node_ids, "semantics": semantics}
-        )
+        return (
+            await _gen.query.send_resolve_conflict(
+                self._client, {"node_ids": node_ids, "semantics": semantics}
+            )
+        ).payload
 
     async def causal_estimate(
         self,
@@ -10719,7 +11132,7 @@ class QueryClient:
             "do_values": do_values,
             "mode": mode,
         }
-        return await self._client._send("CausalEstimate", params)
+        return (await _gen.query.send_causal_estimate(self._client, params)).payload
 
     async def causal_counterfactual(
         self,
@@ -10749,10 +11162,12 @@ class QueryClient:
         Returns ``{"values": [[var_id, point_value], ...]}``, in the SAME order as
         ``variables``. A pure function over the request — no graph node is read.
         Epistemic-causal support is included in the mandatory main build."""
-        return await self._client._send(
-            "CausalCounterfactual",
-            {"variables": variables, "actual": actual, "do_values": do_values},
-        )
+        return (
+            await _gen.query.send_causal_counterfactual(
+                self._client,
+                {"variables": variables, "actual": actual, "do_values": do_values},
+            )
+        ).payload
 
     async def rank_by_provenance(
         self,
@@ -10782,7 +11197,7 @@ class QueryClient:
         params: dict[str, Any] = {"candidates": candidates}
         if weights is not None:
             params["weights"] = weights
-        return await self._client._send("RankByProvenance", params)
+        return (await _gen.query.send_rank_by_provenance(self._client, params)).payload
 
     async def register_foreign_source(self, name: str, source: dict[str, Any]) -> str:
         """Register a named EXTERNAL source for query federation (CONCEPT:EG-KG.query.query-federation,
@@ -10835,8 +11250,8 @@ class QueryClient:
         pure SOURCE that REPLACES the input (like ``Scan``). Federation is included in
         the mandatory main build.
         """
-        return await self._client._send(
-            "RegisterForeignSource", {"name": name, "source": source}
+        return await _gen.cluster.send_register_foreign_source(
+            self._client, {"name": name, "source": source}
         )
 
     async def nl_query(
@@ -10855,9 +11270,11 @@ class QueryClient:
         Returns the query's result rows (a ``Raw`` payload the transport already
         double-unpacks) — a list of row dicts, exactly as the produced UQL yields."""
         target_graph = graph or self._client._graph_name
-        result = await self._client._send(
-            "NlQuery", {"text": text, "graph": target_graph}, graph=target_graph
-        )
+        result = (
+            await _gen.query.send_nl_query(
+                self._client, {"text": text, "graph": target_graph}, graph=target_graph
+            )
+        ).payload
         return result or []
 
     @staticmethod
@@ -10898,7 +11315,7 @@ class TxnClient:
         """Open a transaction and return its server-issued ``txn_id``. The target
         graph defaults to the connection's graph; pass ``graph`` to override."""
         params: dict[str, Any] = {"graph": graph, "isolation": None}
-        return await self._client._send("BeginTxn", params, graph=graph)
+        return await _gen.transactions.send_begin_txn(self._client, params, graph=graph)
 
     async def add_node(
         self,
@@ -10916,7 +11333,7 @@ class TxnClient:
             "properties_msgpack": _pack_binary_msgpack(properties or {}),
             "graph": graph,
         }
-        return await self._client._send("TxnAddNode", params)
+        return await _gen.transactions.send_txn_add_node(self._client, params)
 
     async def remove_node(
         self, txn_id: str, node_id: str, graph: str | None = None
@@ -10926,7 +11343,7 @@ class TxnClient:
             "node_id": node_id,
             "graph": graph,
         }
-        return await self._client._send("TxnRemoveNode", params)
+        return await _gen.transactions.send_txn_remove_node(self._client, params)
 
     async def add_edge(
         self,
@@ -10943,7 +11360,7 @@ class TxnClient:
             "properties_msgpack": _pack_binary_msgpack(properties or {}),
             "graph": graph,
         }
-        return await self._client._send("TxnAddEdge", params)
+        return await _gen.transactions.send_txn_add_edge(self._client, params)
 
     async def remove_edge(
         self, txn_id: str, source_id: str, target_id: str, graph: str | None = None
@@ -10954,7 +11371,7 @@ class TxnClient:
             "target_id": target_id,
             "graph": graph,
         }
-        return await self._client._send("TxnRemoveEdge", params)
+        return await _gen.transactions.send_txn_remove_edge(self._client, params)
 
     async def cas(
         self,
@@ -10972,7 +11389,7 @@ class TxnClient:
             "updates_msgpack": _pack_binary_msgpack(updates),
             "graph": graph,
         }
-        return await self._client._send("TxnCas", params)
+        return await _gen.transactions.send_txn_cas(self._client, params)
 
     async def add_embedding(
         self,
@@ -10984,8 +11401,8 @@ class TxnClient:
         """Stage a VECTOR upsert (CONCEPT:EG-KG.txn.reader-never-sees-node — cross-modal ACID). The embedding
         lands atomically WITH the txn's graph/property/blob-ref writes in ONE redb
         WriteTransaction at commit (requires the redb persistence backend)."""
-        return await self._client._send(
-            "TxnAddEmbedding",
+        return await _gen.transactions.send_txn_add_embedding(
+            self._client,
             {
                 "txn_id": txn_id,
                 "node_id": node_id,
@@ -11004,8 +11421,8 @@ class TxnClient:
         """Stage a BLOB REFERENCE (CONCEPT:EG-KG.txn.reader-never-sees-node). Records a durable graph-side
         ``__blob__`` link to an already-stored content-addressed blob; lands
         atomically with the node/vector/property at commit."""
-        return await self._client._send(
-            "TxnBlobRef",
+        return await _gen.transactions.send_txn_blob_ref(
+            self._client,
             {
                 "txn_id": txn_id,
                 "node_id": node_id,
@@ -11034,7 +11451,7 @@ class TxnClient:
             ),
             "graph": graph,
         }
-        return await self._client._send("TxnAddMeasurement", params)
+        return await _gen.transactions.send_txn_add_measurement(self._client, params)
 
     async def axiom(self, txn_id: str, turtle: str, graph: str | None = None) -> bool:
         """Stage OWL AXIOMS as Turtle (CONCEPT:EG-KG.txn.extended-cross-modal). At commit they lower to graph
@@ -11046,7 +11463,7 @@ class TxnClient:
             "turtle": turtle,
             "graph": graph,
         }
-        return await self._client._send("TxnAxiom", params)
+        return await _gen.transactions.send_txn_axiom(self._client, params)
 
     async def construct(
         self, txn_id: str, sparql: str, graph: str | None = None
@@ -11059,7 +11476,7 @@ class TxnClient:
             "sparql": sparql,
             "graph": graph,
         }
-        return await self._client._send("TxnConstruct", params)
+        return await _gen.transactions.send_txn_construct(self._client, params)
 
     async def plan_writeback(
         self,
@@ -11084,7 +11501,7 @@ class TxnClient:
             "relationship": relationship,
             "graph": graph,
         }
-        return await self._client._send("TxnPlanWriteback", params)
+        return await _gen.transactions.send_txn_plan_writeback(self._client, params)
 
     async def materialize_belief(
         self, txn_id: str, node_id: str, graph: str | None = None
@@ -11102,7 +11519,7 @@ class TxnClient:
             "node_id": node_id,
             "graph": graph,
         }
-        return await self._client._send("TxnMaterializeBelief", params)
+        return await _gen.transactions.send_txn_materialize_belief(self._client, params)
 
     async def unified_query(
         self,
@@ -11116,9 +11533,11 @@ class TxnClient:
         node/edge/embedding is visible before commit and invisible off-txn until
         commit. Returns the same ``{"id", "score"}`` rows as ``unified``. Query
         support is included in the mandatory main build."""
-        result = await self._client._send(
-            "TxnUnifiedQueryText", {"txn_id": txn_id, "text": text}
-        )
+        result = (
+            await _gen.query.send_txn_unified_query_text(
+                self._client, {"txn_id": txn_id, "text": text}
+            )
+        ).payload
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
@@ -11133,9 +11552,11 @@ class TxnClient:
         carries; the read runs over a snapshot OVERLAID with THIS txn's staged writes.
         Returns the same ``{"id", "score"}`` rows. Query support is included in the
         mandatory main build."""
-        result = await self._client._send(
-            "TxnUnifiedQuery", {"txn_id": txn_id, "plan": {"ops": plan}}
-        )
+        result = (
+            await _gen.query.send_txn_unified_query(
+                self._client, {"txn_id": txn_id, "plan": {"ops": plan}}
+            )
+        ).payload
         rows = result or []
         return [{"id": id_, "score": score} for id_, score in rows]
 
@@ -11157,11 +11578,13 @@ class TxnClient:
         ``txn_id``) to close that gap: a repeat applies the write-set AT MOST
         ONCE. Use :meth:`commit_with_outcome` if you need to know whether a
         given call was the original apply or a replay of an earlier one."""
-        result = await self._client._send(
-            "Commit",
-            {"txn_id": txn_id, "idempotency_key": idempotency_key},
-            idempotency_key=idempotency_key,
-        )
+        result = (
+            await _gen.transactions.send_commit(
+                self._client,
+                {"txn_id": txn_id, "idempotency_key": idempotency_key},
+                idempotency_key=idempotency_key,
+            )
+        ).payload
         if isinstance(result, dict):
             return bool(result.get("committed", False))
         return bool(result)
@@ -11174,11 +11597,13 @@ class TxnClient:
         when this call's result is the CACHED outcome of an earlier commit
         under the same key rather than a fresh apply, mirroring
         ``ApplyChangeEnvelope``'s ``applied``/``idempotent_skip`` vocabulary."""
-        result = await self._client._send(
-            "Commit",
-            {"txn_id": txn_id, "idempotency_key": idempotency_key},
-            idempotency_key=idempotency_key,
-        )
+        result = (
+            await _gen.transactions.send_commit(
+                self._client,
+                {"txn_id": txn_id, "idempotency_key": idempotency_key},
+                idempotency_key=idempotency_key,
+            )
+        ).payload
         if not isinstance(result, dict):
             raise TypeError(
                 "commit_with_outcome requires the engine's keyed Commit response "
@@ -11188,7 +11613,7 @@ class TxnClient:
 
     async def rollback(self, txn_id: str) -> bool:
         """Discard the staged transaction (nothing was applied/persisted)."""
-        return await self._client._send("Rollback", {"txn_id": txn_id})
+        return await _gen.transactions.send_rollback(self._client, {"txn_id": txn_id})
 
 
 class TimeSeriesClient:
@@ -11277,8 +11702,8 @@ class TimeSeriesClient:
         normalized_points = _normalize_ts_points(points, nf)
         names = _ts_field_names(field_names, nf)
         blob = _pack_binary_msgpack(normalized_points)
-        return await self._client._send(
-            "TsAppend",
+        return await _gen.storage.send_ts_append(
+            self._client,
             {
                 "series_id": series_id,
                 "n_fields": nf,
@@ -11293,9 +11718,12 @@ class TimeSeriesClient:
     ) -> list[tuple[int, list[float]]]:
         """Scan ``[from_ts, to_ts)`` of a series in ts order. Returns
         ``(ts_ns, [values])`` points (empty for an unknown series)."""
-        rows = await self._client._send(
-            "TsRange", {"series_id": series_id, "from": int(from_ts), "to": int(to_ts)}
-        )
+        rows = (
+            await _gen.storage.send_ts_range(
+                self._client,
+                {"series_id": series_id, "from": int(from_ts), "to": int(to_ts)},
+            )
+        ).payload
         return [(int(ts), [float(v) for v in vals]) for ts, vals in (rows or [])]
 
     async def asof_join(
@@ -11305,14 +11733,16 @@ class TimeSeriesClient:
         of (nearest at-or-before) that time. Results are in the SAME order as
         ``left_ts``; an unmatched / out-of-tolerance event yields ``None``."""
         blob = _pack_binary_msgpack([int(t) for t in left_ts])
-        return await self._client._send(
-            "TsAsofJoin",
-            {
-                "series_id": series_id,
-                "left_ts_msgpack": blob,
-                "tolerance": -1 if tolerance_ns is None else int(tolerance_ns),
-            },
-        )
+        return (
+            await _gen.storage.send_ts_asof_join(
+                self._client,
+                {
+                    "series_id": series_id,
+                    "left_ts_msgpack": blob,
+                    "tolerance": -1 if tolerance_ns is None else int(tolerance_ns),
+                },
+            )
+        ).payload
 
     async def window(
         self, series_id: str, from_ts: int, to_ts: int, width_ns: int, agg: str = "mean"
@@ -11320,16 +11750,18 @@ class TimeSeriesClient:
         """Windowed aggregate over ``[from_ts, to_ts)`` in ``width_ns`` buckets.
         ``agg`` ∈ first/last/min/max/mean/sum/count. Returns
         ``(bucket_start_ns, value, count)`` per non-empty bucket."""
-        rows = await self._client._send(
-            "TsWindow",
-            {
-                "series_id": series_id,
-                "from": int(from_ts),
-                "to": int(to_ts),
-                "width": int(width_ns),
-                "agg": agg,
-            },
-        )
+        rows = (
+            await _gen.storage.send_ts_window(
+                self._client,
+                {
+                    "series_id": series_id,
+                    "from": int(from_ts),
+                    "to": int(to_ts),
+                    "width": int(width_ns),
+                    "agg": agg,
+                },
+            )
+        ).payload
         return [(int(b), float(v), int(c)) for b, v, c in (rows or [])]
 
     async def gap_fill(
@@ -11339,15 +11771,17 @@ class TimeSeriesClient:
         ``step_ns``. Returns ``(grid_ts_ns, value_or_None, carried_forward)`` —
         ``value`` is ``None`` before the first observation (encoded as NaN on the
         wire); ``carried_forward`` is ``True`` when no real obs landed on that grid ts."""
-        rows = await self._client._send(
-            "TsGapFill",
-            {
-                "series_id": series_id,
-                "from": int(from_ts),
-                "to": int(to_ts),
-                "step": int(step_ns),
-            },
-        )
+        rows = (
+            await _gen.storage.send_ts_gap_fill(
+                self._client,
+                {
+                    "series_id": series_id,
+                    "from": int(from_ts),
+                    "to": int(to_ts),
+                    "step": int(step_ns),
+                },
+            )
+        ).payload
         out: list[tuple[int, float | None, bool]] = []
         for ts, val, filled in rows or []:
             v = (
@@ -11362,8 +11796,8 @@ class TimeSeriesClient:
         bucket straddling the cutoff is trimmed in place rather than counted).
         A series under legal hold is left untouched and this returns ``0``.
         Content-idempotent: re-evicting an already-past cutoff is a safe no-op."""
-        return await self._client._send(
-            "TsEvict", {"series_id": series_id, "cutoff": int(cutoff_ts)}
+        return await _gen.storage.send_ts_evict(
+            self._client, {"series_id": series_id, "cutoff": int(cutoff_ts)}
         )
 
     async def delete_series(self, series_id: str) -> int:
@@ -11371,14 +11805,16 @@ class TimeSeriesClient:
         Returns the number of chunks removed (``0`` for an unknown or held
         series). A subsequently re-appended series with the same id starts fresh.
         Content-idempotent: re-deleting an already-gone series is a safe no-op."""
-        return await self._client._send("TsDeleteSeries", {"series_id": series_id})
+        return await _gen.storage.send_ts_delete_series(
+            self._client, {"series_id": series_id}
+        )
 
     async def list_series(self) -> list[str]:
         """Enumerate every series id under the caller's own tenant+graph scope
         (never cross-tenant/cross-graph). This is the discovery primitive a
         retention sweep needs to know what to evict/delete in the first place —
         see :meth:`evict_before`/:meth:`delete_series`."""
-        rows = await self._client._send("TsListSeries", {})
+        rows = (await _gen.storage.send_ts_list_series(self._client, {})).payload
         return [str(s) for s in (rows or [])]
 
 
@@ -11407,10 +11843,11 @@ class RdfClient:
         explicitly keeps connector admission independent from any graph state
         that may already be materialized.
         """
-        return await self._client._send(
-            "ShaclValidate",
-            {"shapes": shapes, "data_graph": data_graph},
-        )
+        return (
+            await _gen.reasoning.send_shacl_validate(
+                self._client, {"shapes": shapes, "data_graph": data_graph}
+            )
+        ).payload
 
     async def icv_configure(
         self,
@@ -11431,9 +11868,8 @@ class RdfClient:
         successfully without constraining anything. ``graph`` (optional) must
         match the connection's own graph when given -- ``None`` (the default)
         configures the connection's graph directly."""
-        return await self._client._send(
-            "IcvConfigure",
-            {"graph": graph, "mode": mode, "shapes": shapes},
+        return await _gen.reasoning.send_icv_configure(
+            self._client, {"graph": graph, "mode": mode, "shapes": shapes}
         )
 
     async def add_triples(
@@ -11452,15 +11888,16 @@ class RdfClient:
             raise ValueError(
                 "add_triples: provide exactly one of `turtle` or `ntriples`"
             )
-        return await self._client._send(
-            "AddTriples",
-            {"turtle": turtle or "", "ntriples": ntriples or ""},
-        )
+        return (
+            await _gen.graph.send_add_triples(
+                self._client, {"turtle": turtle or "", "ntriples": ntriples or ""}
+            )
+        ).payload
 
     async def get_rdf(self) -> str:
         """Serialize the connection's graph back OUT to N-Triples (datatype/lang
         faithful — the inverse of :meth:`add_triples`)."""
-        return await self._client._send("GetRdf")
+        return await _gen.reasoning.send_get_rdf(self._client)
 
     async def remove_triples(
         self,
@@ -11479,10 +11916,11 @@ class RdfClient:
             raise ValueError(
                 "remove_triples: provide exactly one of `turtle` or `ntriples`"
             )
-        return await self._client._send(
-            "RemoveTriples",
-            {"turtle": turtle or "", "ntriples": ntriples or ""},
-        )
+        return (
+            await _gen.graph.send_remove_triples(
+                self._client, {"turtle": turtle or "", "ntriples": ntriples or ""}
+            )
+        ).payload
 
     async def drop_named_graph(self, graph: str) -> str:
         """DROP a named RDF graph (CONCEPT:EG-KG.query.named-graph-support): physically clear ALL of its RDF
@@ -11492,7 +11930,7 @@ class RdfClient:
         targets the request's graph, so ``graph`` is sent via the request envelope.
         RDF support is included in the mandatory main build.
         """
-        return await self._client._send("DropNamedGraph", graph=graph)
+        return await _gen.graph.send_drop_named_graph(self._client, graph=graph)
 
     async def sparql(
         self,
@@ -11515,14 +11953,16 @@ class RdfClient:
         The engine returns ``{"vars": [...], "rows": [[cell, ...], ...]}`` (a ``Raw``
         payload the transport already double-unpacks); we zip each row to its vars.
         """
-        result = await self._client._send(
-            "Sparql",
-            {
-                "query": query,
-                "base_iri": base_iri,
-                "type_convention": type_convention,
-            },
-        )
+        result = (
+            await _gen.reasoning.send_sparql(
+                self._client,
+                {
+                    "query": query,
+                    "base_iri": base_iri,
+                    "type_convention": type_convention,
+                },
+            )
+        ).payload
         if not result:
             return []
         vars_: list[str] = result.get("vars", [])
@@ -11568,15 +12008,17 @@ class RdfClient:
         ``class_base`` falls back to deriving one from an absolute ``target_class``.
         OWL is included in the mandatory main build. Read-only.
         """
-        return await self._client._send(
-            "OwlReason",
-            {
-                "ontology": ontology or "",
-                "target_class": target_class or "",
-                "class_base": class_base or "",
-                "min_confidence": float(min_confidence),
-            },
-        )
+        return (
+            await _gen.reasoning.send_owl_reason(
+                self._client,
+                {
+                    "ontology": ontology or "",
+                    "target_class": target_class or "",
+                    "class_base": class_base or "",
+                    "min_confidence": float(min_confidence),
+                },
+            )
+        ).payload
 
     async def owl_reason_distributed(
         self,
@@ -11594,16 +12036,18 @@ class RdfClient:
         single-shard fast path stays :meth:`owl_reason`. OWL is included in the mandatory
         main build. Read-only.
         """
-        return await self._client._send(
-            "OwlReasonDistributed",
-            {
-                "graphs": list(graphs),
-                "ontology": ontology or "",
-                "target_class": target_class or "",
-                "class_base": class_base or "",
-                "min_confidence": float(min_confidence),
-            },
-        )
+        return (
+            await _gen.reasoning.send_owl_reason_distributed(
+                self._client,
+                {
+                    "graphs": list(graphs),
+                    "ontology": ontology or "",
+                    "target_class": target_class or "",
+                    "class_base": class_base or "",
+                    "min_confidence": float(min_confidence),
+                },
+            )
+        ).payload
 
     async def explain(
         self,
@@ -11637,14 +12081,16 @@ class RdfClient:
         canonicalized the same way ``target_class`` is elsewhere). OWL is included in
         the mandatory main build. Read-only.
         """
-        return await self._client._send(
-            "OwlExplain",
-            {
-                "ontology": ontology or "",
-                "sub": sub,
-                "sup": sup,
-            },
-        )
+        return (
+            await _gen.reasoning.send_owl_explain(
+                self._client,
+                {
+                    "ontology": ontology or "",
+                    "sub": sub,
+                    "sup": sup,
+                },
+            )
+        ).payload
 
     async def sparql_virtual(
         self,
@@ -11687,15 +12133,17 @@ class RdfClient:
         real ``SELECT … WHERE …`` against the external database (the whole table is never
         scanned). The live SQL path needs a server built with ``federation-sql``.
         """
-        result = await self._client._send(
-            "SparqlVirtual",
-            {
-                "query": query,
-                "mapping": mapping,
-                "tables": list(tables),
-                "external_sources": [dict(s) for s in (external_sources or [])],
-            },
-        )
+        result = (
+            await _gen.reasoning.send_sparql_virtual(
+                self._client,
+                {
+                    "query": query,
+                    "mapping": mapping,
+                    "tables": list(tables),
+                    "external_sources": [dict(s) for s in (external_sources or [])],
+                },
+            )
+        ).payload
         if not result:
             return []
         vars_: list[str] = result.get("vars", [])
@@ -11894,9 +12342,12 @@ class StreamingClient:
         ``watermark`` is the oldest seq this epoch's ring can currently vouch
         for; ``head_seq`` is the current head (next seq to be assigned).
         """
-        result = await self._client._send(
-            "CdcRead", {"graph": graph, "from_seq": int(from_seq), "limit": int(limit)}
-        )
+        result = (
+            await _gen.messaging.send_cdc_read(
+                self._client,
+                {"graph": graph, "from_seq": int(from_seq), "limit": int(limit)},
+            )
+        ).payload
         if not isinstance(result, dict):
             raise TypeError(
                 "CdcRead must return the typed CdcReadResult shape (a dict); "
@@ -11932,20 +12383,25 @@ class StreamingClient:
         else:
             raise ValueError(f"unknown agg '{agg}' (expected 'count' or 'sum')")
         spec = {"graph": graph, "label": label, "agg": spec_agg}
-        return await self._client._send(
-            "RegisterContinuousQuery",
-            {"name": name, "spec_msgpack": _pack_binary_msgpack(spec)},
+        return await _gen.messaging.send_register_continuous_query(
+            self._client, {"name": name, "spec_msgpack": _pack_binary_msgpack(spec)}
         )
 
     async def read_continuous_query(self, name: str) -> dict[str, Any]:
         """Read the current incrementally-maintained result of continuous query
         ``name`` → ``{"name", "value", "through_seq"}`` (the value + the CDC seq it
         reflects)."""
-        return await self._client._send("ReadContinuousQuery", {"name": name})
+        return (
+            await _gen.messaging.send_read_continuous_query(
+                self._client, {"name": name}
+            )
+        ).payload
 
     async def drop_continuous_query(self, name: str) -> bool:
         """Drop a continuous query. Returns ``True`` if it existed."""
-        return await self._client._send("DropContinuousQuery", {"name": name})
+        return await _gen.messaging.send_drop_continuous_query(
+            self._client, {"name": name}
+        )
 
     async def watch(
         self, graph: str, from_seq: int = 0, *, label: str = "", timeout_ms: int = 0
@@ -11963,15 +12419,17 @@ class StreamingClient:
         returned ``epoch`` across resumed calls to also catch a restart that a
         bare bounds check cannot detect on its own (see
         :meth:`cdc_read_with_watermark`'s doc for the full reasoning)."""
-        result = await self._client._send(
-            "Watch",
-            {
-                "graph": graph,
-                "from_seq": int(from_seq),
-                "label": label,
-                "timeout_ms": int(timeout_ms),
-            },
-        )
+        result = (
+            await _gen.messaging.send_watch(
+                self._client,
+                {
+                    "graph": graph,
+                    "from_seq": int(from_seq),
+                    "label": label,
+                    "timeout_ms": int(timeout_ms),
+                },
+            )
+        ).payload
         if isinstance(result, dict) and result.get("gap", False):
             raise CdcGapError(
                 f"Watch: cursor {from_seq} for graph {graph!r} could not be served "
@@ -11994,8 +12452,8 @@ class StreamingClient:
         (empty ⇒ any) + ``op`` (``"add"``/``"remove"``/``"update"``/``"any"``), record a
         firing carrying ``action`` (an opaque reaction payload — e.g. a notification
         topic / webhook spec). Poll firings with ``fired_triggers``. Returns ``name``."""
-        return await self._client._send(
-            "RegisterTrigger",
+        return await _gen.messaging.send_register_trigger(
+            self._client,
             {
                 "name": name,
                 "graph": graph,
@@ -12007,12 +12465,14 @@ class StreamingClient:
 
     async def drop_trigger(self, name: str) -> bool:
         """Drop a trigger. Returns ``True`` if it existed."""
-        return await self._client._send("DropTrigger", {"name": name})
+        return await _gen.messaging.send_drop_trigger(self._client, {"name": name})
 
     async def list_triggers(self, graph: str) -> list[dict[str, Any]]:
         """List the triggers registered on ``graph`` (``name``/``op``/``label``/
         ``fire_count``)."""
-        return await self._client._send("ListTriggers", {"graph": graph})
+        return (
+            await _gen.messaging.send_list_triggers(self._client, {"graph": graph})
+        ).payload
 
     async def fired_triggers(
         self, graph: str, from_seq: int = 0, *, limit: int = 0
@@ -12026,10 +12486,12 @@ class StreamingClient:
         log's own bounded ring (B-8 follow-up, 2026-08-13) -- a SECOND ephemeral
         ring with the identical gap shapes :meth:`cdc_read` documents, over its
         own ``fire_seq`` cursor rather than the CDC ``seq`` cursor."""
-        result = await self._client._send(
-            "FiredTriggers",
-            {"graph": graph, "from_seq": int(from_seq), "limit": int(limit)},
-        )
+        result = (
+            await _gen.messaging.send_fired_triggers(
+                self._client,
+                {"graph": graph, "from_seq": int(from_seq), "limit": int(limit)},
+            )
+        ).payload
         if not isinstance(result, dict):
             raise TypeError(
                 "FiredTriggers must return the typed FiredTriggersResult shape "
@@ -12075,8 +12537,8 @@ class StreamingClient:
         coexist, neither replaces the other. Returns the subscription id, passed to
         :meth:`cep_poll` / :meth:`cep_unsubscribe`."""
         spec = {"pattern": pattern, "window": window}
-        return await self._client._send(
-            "CepSubscribe",
+        return await _gen.messaging.send_cep_subscribe(
+            self._client,
             {"pattern_msgpack": _pack_binary_msgpack(spec), "buffer": int(buffer)},
         )
 
@@ -12090,14 +12552,18 @@ class StreamingClient:
         ``{"events": [{"ts": int, "key": str, "attrs": {...}}, ...], "start_ts": int,
         "end_ts": int}``. An empty list means "nothing yet" — re-poll to keep tailing.
         Raises if ``sub_id`` was dropped (unsubscribed, or never registered)."""
-        return await self._client._send(
-            "CepPoll", {"sub_id": int(sub_id), "timeout_ms": int(timeout_ms)}
-        )
+        return (
+            await _gen.messaging.send_cep_poll(
+                self._client, {"sub_id": int(sub_id), "timeout_ms": int(timeout_ms)}
+            )
+        ).payload
 
     async def cep_unsubscribe(self, sub_id: int) -> bool:
         """Drop CEP standing query ``sub_id`` and its subscriber (CONCEPT:EG-KG.query.protocol-types).
         Returns ``True`` if it existed."""
-        return await self._client._send("CepUnsubscribe", {"sub_id": int(sub_id)})
+        return await _gen.messaging.send_cep_unsubscribe(
+            self._client, {"sub_id": int(sub_id)}
+        )
 
 
 class BlobClient:
@@ -12132,19 +12598,23 @@ class BlobClient:
     async def begin(self, chunk_size: int = 0) -> int:
         """Open an upload cursor (server allocates an id). ``chunk_size`` 0 ⇒ engine
         default. Push chunks with :meth:`chunk_put`, finalize with :meth:`commit`."""
-        return await self._client._send("BlobBegin", {"chunk_size": int(chunk_size)})
+        return await _gen.storage.send_blob_begin(
+            self._client, {"chunk_size": int(chunk_size)}
+        )
 
     async def chunk_put(self, cursor: int, data: bytes) -> int:
         """Push one chunk into an open upload cursor (hashed + stored on arrival).
         Returns the running chunk count on the cursor."""
-        return await self._client._send(
-            "BlobChunkPut", {"cursor": int(cursor), "data": data}
+        return await _gen.storage.send_blob_chunk_put(
+            self._client, {"cursor": int(cursor), "data": data}
         )
 
     async def commit(self, cursor: int) -> str:
         """Finalize an upload cursor → store the manifest content-addressed; returns
         the blob digest (the hash of the manifest, a stable content address)."""
-        return await self._client._send("BlobCommit", {"cursor": int(cursor)})
+        return await _gen.storage.send_blob_commit(
+            self._client, {"cursor": int(cursor)}
+        )
 
     async def store(self, data: bytes, *, chunk_size: int = 0) -> str:
         """Store ``data`` as a content-addressed blob in ONE call (begin → stream
@@ -12159,19 +12629,25 @@ class BlobClient:
 
     async def fetch_begin(self, digest: str) -> tuple[int, int]:
         """Open a fetch cursor for ``digest``; returns ``(cursor, n_chunks)``."""
-        cursor, n = await self._client._send("BlobFetchBegin", {"digest": digest})
+        cursor, n = (
+            await _gen.storage.send_blob_fetch_begin(self._client, {"digest": digest})
+        ).payload
         return int(cursor), int(n)
 
     async def chunk_get(self, cursor: int, idx: int) -> bytes:
         """Pull chunk ``idx`` of an open fetch cursor as raw bytes."""
-        out = await self._client._send(
-            "BlobChunkGet", {"cursor": int(cursor), "idx": int(idx)}
-        )
+        out = (
+            await _gen.storage.send_blob_chunk_get(
+                self._client, {"cursor": int(cursor), "idx": int(idx)}
+            )
+        ).payload
         return bytes(out)
 
     async def fetch_end(self, cursor: int) -> bool:
         """Close a fetch cursor (idempotent)."""
-        return await self._client._send("BlobFetchEnd", {"cursor": int(cursor)})
+        return await _gen.storage.send_blob_fetch_end(
+            self._client, {"cursor": int(cursor)}
+        )
 
     async def fetch(self, digest: str) -> bytes:
         """Fetch a whole blob by digest in ONE call (open → pull every chunk →
@@ -12186,16 +12662,16 @@ class BlobClient:
     async def incref(self, digest: str) -> int:
         """Increment a blob's GC refcount (a ``:Media`` node now references it).
         Returns the new count."""
-        return await self._client._send("BlobRef", {"digest": digest})
+        return await _gen.storage.send_blob_ref(self._client, {"digest": digest})
 
     async def unref(self, digest: str) -> int:
         """Decrement a blob's GC refcount (a reference was removed). Returns the new
         count; a blob at 0 is eligible for the next :meth:`gc`."""
-        return await self._client._send("BlobUnref", {"digest": digest})
+        return await _gen.storage.send_blob_unref(self._client, {"digest": digest})
 
     async def gc(self) -> tuple[int, int]:
         """Run the refcount mark-and-sweep GC; returns ``(blobs, chunks)`` reclaimed."""
-        blobs, chunks = await self._client._send("BlobGc")
+        blobs, chunks = (await _gen.storage.send_blob_gc(self._client)).payload
         return int(blobs), int(chunks)
 
 
@@ -12248,28 +12724,30 @@ class BrokerClient:
     async def declare_exchange(self, exchange: str, kind: str = "direct") -> str:
         """Idempotently upsert an exchange. ``kind`` is ``direct``/``topic``/``fanout``.
         Returns ``"ok"`` (an unknown kind is a clear engine error)."""
-        return await self._client._send(
-            "DeclareExchange", {"exchange": exchange, "kind": kind}
+        return await _gen.messaging.send_declare_exchange(
+            self._client, {"exchange": exchange, "kind": kind}
         )
 
     async def delete_exchange(self, exchange: str) -> bool:
         """Delete an exchange and all its bindings (queues/messages untouched).
         Returns ``True`` if it existed."""
-        return await self._client._send("DeleteExchange", {"exchange": exchange})
+        return await _gen.messaging.send_delete_exchange(
+            self._client, {"exchange": exchange}
+        )
 
     async def bind_queue(self, exchange: str, queue: str, routing_key: str) -> str:
         """Bind ``queue`` to ``exchange`` under ``routing_key`` (idempotent). Returns
         ``"ok"``."""
-        return await self._client._send(
-            "BindQueue",
+        return await _gen.messaging.send_bind_queue(
+            self._client,
             {"exchange": exchange, "queue": queue, "routing_key": routing_key},
         )
 
     async def unbind_queue(self, exchange: str, queue: str, routing_key: str) -> bool:
         """Remove a specific ``exchange``/``queue``/``routing_key`` binding. Returns
         ``True`` if the binding existed."""
-        return await self._client._send(
-            "UnbindQueue",
+        return await _gen.messaging.send_unbind_queue(
+            self._client,
             {"exchange": exchange, "queue": queue, "routing_key": routing_key},
         )
 
@@ -12290,8 +12768,8 @@ class BrokerClient:
         ``max_delivery_count`` configure dead-lettering (EG-276), ``message_ttl_ms`` /
         ``queue_expiry_ms`` TTL (EG-277), ``max_priority`` the priority ceiling (EG-278).
         Returns ``"ok"``."""
-        return await self._client._send(
-            "DeclareQueue",
+        return await _gen.messaging.send_declare_queue(
+            self._client,
             {
                 "queue": queue,
                 "dl_exchange": dl_exchange,
@@ -12307,8 +12785,8 @@ class BrokerClient:
     async def publish(self, exchange: str, routing_key: str, payload: bytes) -> int:
         """Publish ``payload`` to ``exchange`` with ``routing_key``; the engine routes it
         to all matched queues atomically. Returns the delivered-queue count."""
-        return await self._client._send(
-            "Publish",
+        return await _gen.messaging.send_publish(
+            self._client,
             {"exchange": exchange, "routing_key": routing_key, "payload": payload},
         )
 
@@ -12328,8 +12806,8 @@ class BrokerClient:
         ``delay_ms`` eta (EG-279) and a ``ttl_ms`` deadline (EG-277). With ``priority == 0``
         and all options ``None`` it is byte-identical to a plain :meth:`publish`. Returns
         the delivered-queue count."""
-        return await self._client._send(
-            "PublishEx",
+        return await _gen.messaging.send_publish_ex(
+            self._client,
             {
                 "exchange": exchange,
                 "routing_key": routing_key,
@@ -12356,18 +12834,20 @@ class BrokerClient:
         that also allocates a broker-wide monotonic delivery-tag. Returns a
         ``ConfirmToken`` dict ``{"delivery_tag": int, "confirmed": bool}`` (``confirmed``
         is ``False`` — a nack — on an unknown exchange)."""
-        return await self._client._send(
-            "PublishConfirmed",
-            {
-                "exchange": exchange,
-                "routing_key": routing_key,
-                "payload": payload,
-                "priority": int(priority),
-                "delay_ms": delay_ms,
-                "ttl_ms": ttl_ms,
-                "now_ms": now_ms,
-            },
-        )
+        return (
+            await _gen.messaging.send_publish_confirmed(
+                self._client,
+                {
+                    "exchange": exchange,
+                    "routing_key": routing_key,
+                    "payload": payload,
+                    "priority": int(priority),
+                    "delay_ms": delay_ms,
+                    "ttl_ms": ttl_ms,
+                    "now_ms": now_ms,
+                },
+            )
+        ).payload
 
     async def publish_idempotent(
         self,
@@ -12389,20 +12869,22 @@ class BrokerClient:
         confirmed); a ``seq`` above it advances the mark and enqueues. Returns an
         ``IdempotentPublish`` dict ``{"confirmed": bool, "duplicate": bool,
         "delivered": int}``."""
-        return await self._client._send(
-            "PublishIdempotent",
-            {
-                "exchange": exchange,
-                "routing_key": routing_key,
-                "payload": payload,
-                "producer_id": producer_id,
-                "seq": int(seq),
-                "priority": int(priority),
-                "delay_ms": delay_ms,
-                "ttl_ms": ttl_ms,
-                "now_ms": now_ms,
-            },
-        )
+        return (
+            await _gen.messaging.send_publish_idempotent(
+                self._client,
+                {
+                    "exchange": exchange,
+                    "routing_key": routing_key,
+                    "payload": payload,
+                    "producer_id": producer_id,
+                    "seq": int(seq),
+                    "priority": int(priority),
+                    "delay_ms": delay_ms,
+                    "ttl_ms": ttl_ms,
+                    "now_ms": now_ms,
+                },
+            )
+        ).payload
 
     # ── Consume / ack / reject (EG-280/276/284) ───────────────────────
     async def consume(
@@ -12422,17 +12904,19 @@ class BrokerClient:
         explicit ack/nack required). Lazily
         dead-letters expired messages it steps over. Returns ``(node_id, properties)`` or
         ``None`` if nothing is deliverable."""
-        claimed = await self._client._send(
-            "BrokerConsume",
-            {
-                "queue": queue,
-                "group": group,
-                "consumer": consumer,
-                "now_ms": int(now_ms),
-                "lease_ms": int(lease_ms),
-                "prefetch": int(prefetch),
-            },
-        )
+        claimed = (
+            await _gen.messaging.send_broker_consume(
+                self._client,
+                {
+                    "queue": queue,
+                    "group": group,
+                    "consumer": consumer,
+                    "now_ms": int(now_ms),
+                    "lease_ms": int(lease_ms),
+                    "prefetch": int(prefetch),
+                },
+            )
+        ).payload
         if not claimed:
             return None
         node_id, props = claimed
@@ -12441,8 +12925,8 @@ class BrokerClient:
     async def ack(self, queue: str, node_id: str) -> bool:
         """Acknowledge (remove) a claimed message, freeing the consumer's in-flight slot
         (EG-280). Returns ``True`` if the message existed."""
-        return await self._client._send(
-            "BrokerAck", {"queue": queue, "node_id": node_id}
+        return await _gen.messaging.send_broker_ack(
+            self._client, {"queue": queue, "node_id": node_id}
         )
 
     async def reject(
@@ -12452,8 +12936,8 @@ class BrokerClient:
         under the queue's ``max_delivery_count`` it returns to claimable; otherwise it is
         dead-lettered or dropped. Returns the outcome string (``requeued``/
         ``dead-lettered``/``dropped``/``absent``)."""
-        return await self._client._send(
-            "BrokerReject",
+        return await _gen.messaging.send_broker_reject(
+            self._client,
             {
                 "queue": queue,
                 "node_id": node_id,
@@ -12466,9 +12950,8 @@ class BrokerClient:
         """Acknowledge a claimed message by its consumer ``delivery_tag`` (EG-284) — the
         tag-addressed sibling of :meth:`ack`. Status, tag, and current owner are
         fenced atomically; stale or foreign deliveries return ``False``."""
-        return await self._client._send(
-            "BrokerAckTag",
-            {"delivery_tag": int(delivery_tag), "consumer": consumer},
+        return await _gen.messaging.send_broker_ack_tag(
+            self._client, {"delivery_tag": int(delivery_tag), "consumer": consumer}
         )
 
     async def nack_tag(
@@ -12482,8 +12965,8 @@ class BrokerClient:
         """Nack a claimed message by its consumer ``delivery_tag`` (EG-284) — the
         tag-addressed sibling of :meth:`reject`. Only the current owner can end the
         current tag generation. Returns the outcome string."""
-        return await self._client._send(
-            "BrokerNackTag",
+        return await _gen.messaging.send_broker_nack_tag(
+            self._client,
             {
                 "delivery_tag": int(delivery_tag),
                 "consumer": consumer,
@@ -12507,8 +12990,8 @@ class BrokerClient:
         foreign-owner, non-extending, and zero-duration renewals return ``False``.
         A failed renewal never retires an otherwise-current ack/nack generation.
         """
-        return await self._client._send(
-            "BrokerRenewTag",
+        return await _gen.messaging.send_broker_renew_tag(
+            self._client,
             {
                 "delivery_tag": int(delivery_tag),
                 "consumer": consumer,
@@ -12521,7 +13004,9 @@ class BrokerClient:
         """Reaper sweep (EG-277): dead-letter/drop messages whose TTL has passed and
         return lease-expired messages to claimable, across every queue. Returns the count
         of messages acted on. Called periodically by a scheduler with the current clock."""
-        return await self._client._send("SweepExpired", {"now_ms": int(now_ms)})
+        return await _gen.messaging.send_sweep_expired(
+            self._client, {"now_ms": int(now_ms)}
+        )
 
     # ── Replayable append-log streams (EG-283) ────────────────────────
     async def stream_declare(
@@ -12534,8 +13019,8 @@ class BrokerClient:
         """Idempotently upsert a stream's retention policy (EG-283). Both bounds optional —
         an all-``None`` policy is an unbounded append log a trim never touches. Also ensures
         the offset counter so the stream is publishable. Returns ``"ok"``."""
-        return await self._client._send(
-            "StreamDeclare",
+        return await _gen.messaging.send_stream_declare(
+            self._client,
             {"stream": stream, "max_messages": max_messages, "max_age_ms": max_age_ms},
         )
 
@@ -12543,9 +13028,8 @@ class BrokerClient:
         """Append ``payload`` to ``stream``, returning its assigned monotonic offset
         (EG-283). The message is RETAINED (read by offset), never auto-consumed. ``now_ms``
         is stamped as the message ``ts`` for age-based retention."""
-        return await self._client._send(
-            "StreamPublish",
-            {"stream": stream, "payload": payload, "now_ms": int(now_ms)},
+        return await _gen.messaging.send_stream_publish(
+            self._client, {"stream": stream, "payload": payload, "now_ms": int(now_ms)}
         )
 
     async def stream_read(
@@ -12555,10 +13039,12 @@ class BrokerClient:
         WITHOUT deleting (EG-283 — replay). ``from_offset < 0`` ⇒ only-new (from the current
         end); ``0`` ⇒ earliest; otherwise that explicit offset. ``max == 0`` ⇒ uncapped.
         Returns ``[(offset, payload), ...]`` ascending by offset. Read-only."""
-        msgs = await self._client._send(
-            "StreamRead",
-            {"stream": stream, "from_offset": int(from_offset), "max": int(max)},
-        )
+        msgs = (
+            await _gen.messaging.send_stream_read(
+                self._client,
+                {"stream": stream, "from_offset": int(from_offset), "max": int(max)},
+            )
+        ).payload
         # The engine serializes each payload as a raw byte sequence; msgpack surfaces it
         # as ``bytes`` or, for an un-tagged ``Vec<u8>``, a list of ints — normalize both
         # back to ``bytes`` so a publish→read round-trip is byte-clean.
@@ -12568,24 +13054,25 @@ class BrokerClient:
         """Trim ``stream`` per its declared retention (EG-283): drop messages beyond
         ``max_messages`` (oldest first) and/or older than ``max_age_ms``. Returns the count
         removed. An undeclared/unbounded stream trims nothing."""
-        return await self._client._send(
-            "StreamTrim", {"stream": stream, "now_ms": int(now_ms)}
+        return await _gen.messaging.send_stream_trim(
+            self._client, {"stream": stream, "now_ms": int(now_ms)}
         )
 
     async def stream_commit_offset(self, stream: str, group: str, offset: int) -> str:
         """Commit a consumer-group's read ``offset`` on ``stream`` so it can resume
         (EG-283). Idempotent upsert; returns ``"ok"``."""
-        return await self._client._send(
-            "StreamCommitOffset",
-            {"stream": stream, "group": group, "offset": int(offset)},
+        return await _gen.messaging.send_stream_commit_offset(
+            self._client, {"stream": stream, "group": group, "offset": int(offset)}
         )
 
     async def stream_committed_offset(self, stream: str, group: str) -> int | None:
         """Read a consumer-group's committed offset on ``stream`` (EG-283). Returns the
         offset, or ``None`` if the group has never committed. Read-only."""
-        return await self._client._send(
-            "StreamCommittedOffset", {"stream": stream, "group": group}
-        )
+        return (
+            await _gen.messaging.send_stream_committed_offset(
+                self._client, {"stream": stream, "group": group}
+            )
+        ).payload
 
 
 class RbacClient:
@@ -12617,11 +13104,17 @@ class RbacClient:
         """Add (or replace) a durable role that transitively inherits every grant of its
         ``parents`` (a role hierarchy). Returns ``"role_added"``."""
         role = {"name": name, "parents": list(parents or [])}
-        return await self._client._send("RbacAdmin", {"op": {"AddRole": role}})
+        return (
+            await _gen.security.send_rbac_admin(self._client, {"op": {"AddRole": role}})
+        ).payload
 
     async def remove_role(self, name: str) -> str:
         """Remove a role. Returns ``"role_removed"``."""
-        return await self._client._send("RbacAdmin", {"op": {"RemoveRole": name}})
+        return (
+            await _gen.security.send_rbac_admin(
+                self._client, {"op": {"RemoveRole": name}}
+            )
+        ).payload
 
     async def add_grant(
         self,
@@ -12640,7 +13133,11 @@ class RbacClient:
             "action": action,
             "effect": effect,
         }
-        return await self._client._send("RbacAdmin", {"op": {"AddGrant": grant}})
+        return (
+            await _gen.security.send_rbac_admin(
+                self._client, {"op": {"AddGrant": grant}}
+            )
+        ).payload
 
     async def remove_grant(
         self,
@@ -12657,11 +13154,17 @@ class RbacClient:
             "action": action,
             "effect": effect,
         }
-        return await self._client._send("RbacAdmin", {"op": {"RemoveGrant": grant}})
+        return (
+            await _gen.security.send_rbac_admin(
+                self._client, {"op": {"RemoveGrant": grant}}
+            )
+        ).payload
 
     async def list(self) -> dict[str, Any]:
         """List the current policy → ``{"roles": [...], "grants": [...]}``. Read-only."""
-        return await self._client._send("RbacAdmin", {"op": "List"})
+        return (
+            await _gen.security.send_rbac_admin(self._client, {"op": "List"})
+        ).payload
 
 
 class JobsClient:
@@ -12765,7 +13268,11 @@ class JobsClient:
             "backoff_ms": backoff_ms,
             "kind": kind,
         }
-        return await self._client._send("AnalyticsJob", {"op": {"Submit": spec}})
+        return (
+            await _gen.coordination.send_analytics_job(
+                self._client, {"op": {"Submit": spec}}
+            )
+        ).payload
 
     async def submit_program_optimization(
         self,
@@ -12797,9 +13304,11 @@ class JobsClient:
     async def status(self, job_id: str) -> dict[str, Any]:
         """Fetch ``job_id``'s current durable state, including its checkpoint/
         progress. Read-only."""
-        return await self._client._send(
-            "AnalyticsJob", {"op": {"Status": {"job_id": job_id}}}
-        )
+        return (
+            await _gen.coordination.send_analytics_job(
+                self._client, {"op": {"Status": {"job_id": job_id}}}
+            )
+        ).payload
 
     async def cancel(self, job_id: str) -> dict[str, Any]:
         """Cooperatively cancel ``job_id`` — immediate (transitions straight to
@@ -12812,9 +13321,11 @@ class JobsClient:
         :meth:`EpistemicGraphClient.cancel_request`, which cancels an in-flight RPC on
         this connection (and IS a harmless no-op if that request already finished),
         not a durable job."""
-        return await self._client._send(
-            "AnalyticsJob", {"op": {"Cancel": {"job_id": job_id}}}
-        )
+        return (
+            await _gen.coordination.send_analytics_job(
+                self._client, {"op": {"Cancel": {"job_id": job_id}}}
+            )
+        ).payload
 
     async def resume(self, job_id: str) -> dict[str, Any]:
         """Resume ``job_id`` from its last checkpoint — either a ``Failed`` job with
@@ -12824,9 +13335,11 @@ class JobsClient:
         terminal stop (resubmit instead), a ``Succeeded`` job is already done (fetch
         its ``result_ref`` instead), and a ``Failed`` job with no retries remaining
         cannot be resumed either."""
-        return await self._client._send(
-            "AnalyticsJob", {"op": {"Resume": {"job_id": job_id}}}
-        )
+        return (
+            await _gen.coordination.send_analytics_job(
+                self._client, {"op": {"Resume": {"job_id": job_id}}}
+            )
+        ).payload
 
     async def worker_claim(
         self,
@@ -12841,18 +13354,20 @@ class JobsClient:
         with the authenticated principal before persistence and returns ``None``
         when no compatible job is ready.
         """
-        return await self._client._send(
-            "AnalyticsJob",
-            {
-                "op": {
-                    "WorkerClaim": {
-                        "worker_instance": worker_instance,
-                        "capabilities": capabilities,
-                        "lease_ms": lease_ms,
+        return (
+            await _gen.coordination.send_analytics_job(
+                self._client,
+                {
+                    "op": {
+                        "WorkerClaim": {
+                            "worker_instance": worker_instance,
+                            "capabilities": capabilities,
+                            "lease_ms": lease_ms,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
     async def worker_renew(
         self,
@@ -12863,19 +13378,21 @@ class JobsClient:
         lease_ms: int = 60_000,
     ) -> dict[str, Any]:
         """Renew one exact fenced worker lease."""
-        return await self._client._send(
-            "AnalyticsJob",
-            {
-                "op": {
-                    "WorkerRenew": {
-                        "job_id": job_id,
-                        "worker_instance": worker_instance,
-                        "lease_epoch": lease_epoch,
-                        "lease_ms": lease_ms,
+        return (
+            await _gen.coordination.send_analytics_job(
+                self._client,
+                {
+                    "op": {
+                        "WorkerRenew": {
+                            "job_id": job_id,
+                            "worker_instance": worker_instance,
+                            "lease_epoch": lease_epoch,
+                            "lease_ms": lease_ms,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
     async def worker_checkpoint(
         self,
@@ -12888,21 +13405,23 @@ class JobsClient:
         state_ref: str | None = None,
     ) -> dict[str, Any]:
         """Persist a bounded, opaque checkpoint under the current lease epoch."""
-        return await self._client._send(
-            "AnalyticsJob",
-            {
-                "op": {
-                    "WorkerCheckpoint": {
-                        "job_id": job_id,
-                        "worker_instance": worker_instance,
-                        "lease_epoch": lease_epoch,
-                        "progress": progress,
-                        "stage": stage,
-                        "state_ref": state_ref,
+        return (
+            await _gen.coordination.send_analytics_job(
+                self._client,
+                {
+                    "op": {
+                        "WorkerCheckpoint": {
+                            "job_id": job_id,
+                            "worker_instance": worker_instance,
+                            "lease_epoch": lease_epoch,
+                            "progress": progress,
+                            "stage": stage,
+                            "state_ref": state_ref,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
     async def worker_stage(
         self,
@@ -12912,36 +13431,40 @@ class JobsClient:
         result: dict[str, Any],
     ) -> dict[str, Any]:
         """Durably stage a complete typed KnowledgeBatch-shaped result."""
-        return await self._client._send(
-            "AnalyticsJob",
-            {
-                "op": {
-                    "WorkerStage": {
-                        "job_id": job_id,
-                        "worker_instance": worker_instance,
-                        "lease_epoch": lease_epoch,
-                        "result": result,
+        return (
+            await _gen.coordination.send_analytics_job(
+                self._client,
+                {
+                    "op": {
+                        "WorkerStage": {
+                            "job_id": job_id,
+                            "worker_instance": worker_instance,
+                            "lease_epoch": lease_epoch,
+                            "result": result,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
     async def worker_publish(
         self, job_id: str, worker_instance: str, lease_epoch: int
     ) -> dict[str, Any]:
         """Publish a staged result through the authoritative graph gateway."""
-        return await self._client._send(
-            "AnalyticsJob",
-            {
-                "op": {
-                    "WorkerPublish": {
-                        "job_id": job_id,
-                        "worker_instance": worker_instance,
-                        "lease_epoch": lease_epoch,
+        return (
+            await _gen.coordination.send_analytics_job(
+                self._client,
+                {
+                    "op": {
+                        "WorkerPublish": {
+                            "job_id": job_id,
+                            "worker_instance": worker_instance,
+                            "lease_epoch": lease_epoch,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
     async def worker_fail(
         self,
@@ -12951,36 +13474,40 @@ class JobsClient:
         reason_code: str,
     ) -> dict[str, Any]:
         """Release a failed attempt using a bounded server-governed reason code."""
-        return await self._client._send(
-            "AnalyticsJob",
-            {
-                "op": {
-                    "WorkerFail": {
-                        "job_id": job_id,
-                        "worker_instance": worker_instance,
-                        "lease_epoch": lease_epoch,
-                        "reason_code": reason_code,
+        return (
+            await _gen.coordination.send_analytics_job(
+                self._client,
+                {
+                    "op": {
+                        "WorkerFail": {
+                            "job_id": job_id,
+                            "worker_instance": worker_instance,
+                            "lease_epoch": lease_epoch,
+                            "reason_code": reason_code,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
     async def worker_cancel(
         self, job_id: str, worker_instance: str, lease_epoch: int
     ) -> dict[str, Any]:
         """Confirm cooperative cancellation for the exact fenced lease."""
-        return await self._client._send(
-            "AnalyticsJob",
-            {
-                "op": {
-                    "WorkerCancel": {
-                        "job_id": job_id,
-                        "worker_instance": worker_instance,
-                        "lease_epoch": lease_epoch,
+        return (
+            await _gen.coordination.send_analytics_job(
+                self._client,
+                {
+                    "op": {
+                        "WorkerCancel": {
+                            "job_id": job_id,
+                            "worker_instance": worker_instance,
+                            "lease_epoch": lease_epoch,
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        ).payload
 
 
 class KnowledgeStreamClient:
@@ -13021,7 +13548,9 @@ class KnowledgeStreamClient:
             ):
                 raise ValueError("cursor family and batch size must match the request")
             request["cursor"] = current_cursor
-        result = await self._client._send("KnowledgeStream", {"request": request})
+        result = (
+            await _gen.query.send_knowledge_stream(self._client, {"request": request})
+        ).payload
         return _knowledge_batch(result, family=family, batch_size=current_batch_size)
 
 
@@ -13039,9 +13568,11 @@ class ServedModalityClient:
     async def authority(self) -> ModalityAuthority:
         """Return the opaque policy references required to certify a bundle."""
 
-        result = await self._client._send(
-            "ServedModality", {"op": {"operation": "authority"}}
-        )
+        result = (
+            await _gen.ingestion.send_served_modality(
+                self._client, {"op": {"operation": "authority"}}
+            )
+        ).payload
         return _modality_authority(result)
 
     async def ingest(
@@ -13075,7 +13606,9 @@ class ServedModalityClient:
             ),
             "source_bytes": _bytes("source_bytes", source_bytes, allow_empty=False),
         }
-        result = await self._client._send("ServedModality", {"op": operation})
+        result = (
+            await _gen.ingestion.send_served_modality(self._client, {"op": operation})
+        ).payload
         return _modality_outcome(result)
 
     async def ingest_stream(
@@ -13133,7 +13666,9 @@ class ServedModalityClient:
             "modality": _served_modality("modality", modality),
             "items": encoded,
         }
-        result = await self._client._send("ServedModality", {"op": operation})
+        result = (
+            await _gen.ingestion.send_served_modality(self._client, {"op": operation})
+        ).payload
         return _modality_outcomes(result, len(encoded))
 
     async def query(
@@ -13165,7 +13700,9 @@ class ServedModalityClient:
             "limit": _integer("limit", limit, minimum=1, maximum=1_000),
             "include_cold": _boolean("include_cold", include_cold),
         }
-        result = await self._client._send("ServedModality", {"op": operation})
+        result = (
+            await _gen.ingestion.send_served_modality(self._client, {"op": operation})
+        ).payload
         return _modality_page(result)
 
     async def _native_query(
@@ -13189,7 +13726,9 @@ class ServedModalityClient:
             "limit": _integer("limit", limit, minimum=1, maximum=1_000),
             "include_cold": _boolean("include_cold", include_cold),
         }
-        result = await self._client._send("ServedModality", {"op": operation})
+        result = (
+            await _gen.ingestion.send_served_modality(self._client, {"op": operation})
+        ).payload
         return _modality_page(result)
 
     async def search_documents(
@@ -13348,7 +13887,9 @@ class ServedModalityClient:
                 "expected_version", expected_version, minimum=1
             ),
         }
-        result = await self._client._send("ServedModality", {"op": operation})
+        result = (
+            await _gen.ingestion.send_served_modality(self._client, {"op": operation})
+        ).payload
         return _modality_outcome(result)
 
     async def move_to_cold(
@@ -13363,7 +13904,9 @@ class ServedModalityClient:
                 "occurrence_id", occurrence_id, namespace="occurrence"
             ),
         }
-        result = await self._client._send("ServedModality", {"op": operation})
+        result = (
+            await _gen.ingestion.send_served_modality(self._client, {"op": operation})
+        ).payload
         return _modality_outcome(result)
 
     async def restore(
@@ -13378,7 +13921,9 @@ class ServedModalityClient:
                 "occurrence_id", occurrence_id, namespace="occurrence"
             ),
         }
-        result = await self._client._send("ServedModality", {"op": operation})
+        result = (
+            await _gen.ingestion.send_served_modality(self._client, {"op": operation})
+        ).payload
         return _modality_outcome(result)
 
     async def events(
@@ -13396,7 +13941,9 @@ class ServedModalityClient:
             "after_sequence": _integer("after_sequence", after_sequence),
             "limit": _integer("limit", limit, minimum=1, maximum=10_000),
         }
-        result = await self._client._send("ServedModality", {"op": operation})
+        result = (
+            await _gen.ingestion.send_served_modality(self._client, {"op": operation})
+        ).payload
         return _modality_events(result)
 
     async def stats(self, modality: str) -> ServedModalityStats:
@@ -13406,7 +13953,9 @@ class ServedModalityClient:
             "operation": "stats",
             "modality": _served_modality("modality", modality),
         }
-        result = await self._client._send("ServedModality", {"op": operation})
+        result = (
+            await _gen.ingestion.send_served_modality(self._client, {"op": operation})
+        ).payload
         return _modality_stats(result)
 
     async def collect_tombstones(
@@ -13421,7 +13970,9 @@ class ServedModalityClient:
                 "through_event_sequence", through_event_sequence, minimum=1
             ),
         }
-        result = await self._client._send("ServedModality", {"op": operation})
+        result = (
+            await _gen.ingestion.send_served_modality(self._client, {"op": operation})
+        ).payload
         value = _exact_mapping(
             "served modality collection", result, frozenset({"collected"})
         )
@@ -13434,7 +13985,9 @@ class ServedModalityClient:
             "operation": "capabilities",
             "modality": _served_modality("modality", modality),
         }
-        result = await self._client._send("ServedModality", {"op": operation})
+        result = (
+            await _gen.ingestion.send_served_modality(self._client, {"op": operation})
+        ).payload
         return _modality_capabilities(result)
 
 
@@ -13467,23 +14020,27 @@ class AdminClient:
         """Take an online consistent backup named ``destination`` under the configured
         private backup root, tagged with ``label`` (EG-090). Returns aggregate counts;
         no local path or raw label is returned or persisted."""
-        return await self._client._send(
-            "Backup", {"destination": destination, "label": label}
-        )
+        return (
+            await _gen.storage.send_backup(
+                self._client, {"destination": destination, "label": label}
+            )
+        ).payload
 
     async def restore(self, source: str, *, target_shards: int) -> dict[str, Any]:
         """Restore the logical bundle name ``source`` from the configured private root
         (EG-090). Stages an engine-owned copy for an offline swap-in and returns only an
         opaque stage reference plus aggregate counts."""
-        return await self._client._send(
-            "Restore",
-            {
-                "source": source,
-                "target_shards": _integer(
-                    "target_shards", target_shards, minimum=1, maximum=64
-                ),
-            },
-        )
+        return (
+            await _gen.storage.send_restore(
+                self._client,
+                {
+                    "source": source,
+                    "target_shards": _integer(
+                        "target_shards", target_shards, minimum=1, maximum=64
+                    ),
+                },
+            )
+        ).payload
 
     async def audit_verify(self) -> dict[str, Any]:
         """Walk this graph's durable, hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security)
@@ -13492,7 +14049,7 @@ class AdminClient:
         "first_broken_seq", "detail"}`` — ``ok`` is ``False`` and ``first_broken_seq``
         names the offending audit-chain seq the moment ANY entry's hash link breaks
         (tampering or corruption), never before that point."""
-        return await self._client._send("AuditVerify")
+        return (await _gen.security.send_audit_verify(self._client)).payload
 
     async def audit_prove_inclusion(
         self, node_id: str, *, anchor_seq: int | None = None
@@ -13511,10 +14068,11 @@ class AdminClient:
         ``verified=False`` means the node's durable bytes changed after anchoring,
         whether by tampering or an ordinary later overwrite. Raises if the graph has
         no anchor yet or ``anchor_seq`` names an entry that is not one."""
-        return await self._client._send(
-            "AuditProveInclusion",
-            {"node_id": node_id, "anchor_seq": anchor_seq},
-        )
+        return (
+            await _gen.security.send_audit_prove_inclusion(
+                self._client, {"node_id": node_id, "anchor_seq": anchor_seq}
+            )
+        ).payload
 
 
 class _TlsDecision(NamedTuple):
@@ -14165,7 +14723,7 @@ class EpistemicGraphClient:
         # ADR-4 decision 5: the optional OIDC bearer/assertion. Deliberately NOT
         # folded into the canonical MAC bytes (no tag-3 trailer) -- it rides as
         # a SIBLING top-level envelope field, matching the Rust decode shape
-        # (`EnvelopeV2.oidc_token`) and its own documented rationale: the
+        # (`Envelope.oidc_token`) and its own documented rationale: the
         # token's own RSA/JWKS signature is the trust anchor, and the engine's
         # `bind_verified_identity` independently cross-checks its subject/
         # tenant against this SAME `context`, so MAC coverage would add no
@@ -14453,7 +15011,7 @@ class EpistemicGraphClient:
 
         if resp.get("error") is not None:
             _raise_send_error(resp)
-        return _decode_send_result(resp.get("result"))
+        return _decode_send_result(method, resp.get("result"))
 
     # ── Connection Management ─────────────────────────────────────────────
 
@@ -14523,10 +15081,10 @@ class EpistemicGraphClient:
     # ── Service-Level ─────────────────────────────────────────────────────
 
     async def ping(self) -> str:
-        return await self._send("Ping")
+        return await _gen.cluster.send_ping(self)
 
     async def health(self) -> dict[str, Any]:
-        return await self._send("Health")
+        return (await _gen.cluster.send_health(self)).payload
 
     async def cancel_request(self, target_req_id: int) -> bool:
         """Cooperatively cancel an IN-FLIGHT request by its ``target_req_id`` (L36) —
@@ -14542,7 +15100,9 @@ class EpistemicGraphClient:
         :meth:`JobsClient.cancel`, which cancels a DURABLE ``AnalyticsJob`` (a
         server-orchestrated background job, not an in-flight RPC on this
         connection)."""
-        return await self._send("CancelRequest", {"target_req_id": target_req_id})
+        return await _gen.cluster.send_cancel_request(
+            self, {"target_req_id": target_req_id}
+        )
 
     @staticmethod
     def _validate_resource_stats_response(
@@ -14571,8 +15131,8 @@ class EpistemicGraphClient:
         consumes in ONE round-trip: per-graph + per-tenant resident memory, node/edge
         counts, in-flight admission depth, hibernated-vs-resident counts, effective
         cgroup capacity, coalescer queue gauges, and cumulative budget totals, plus a
-        process aggregate.  The legacy no-argument call is intentionally preserved,
-        but now receives the same finite default page as ``ResourceStatsPage``.
+        process aggregate. Every call uses the one bounded
+        ``ResourceStatsPage`` request shape.
 
         ``cursor`` is the exclusive ``next_cursor`` from a prior page.  ``summary``
         suppresses both detail arrays while retaining aggregate signals; it cannot be
@@ -14582,15 +15142,11 @@ class EpistemicGraphClient:
         """
         _validate_resource_stats_page(cursor, limit=limit, summary=summary)
 
-        # Keep the exact legacy unit request/MAC shape for the default call.  A
-        # caller asking for any non-default behavior uses the typed page variant.
-        if cursor is None and not summary and limit == _DEFAULT_RESOURCE_STATS_LIMIT:
-            result = await self._send("ResourceStats")
-        else:
-            result = await self._send(
-                "ResourceStatsPage",
-                {"cursor": cursor, "limit": limit, "summary": summary},
+        result = (
+            await _gen.coordination.send_resource_stats_page(
+                self, {"cursor": cursor, "limit": limit, "summary": summary}
             )
+        ).payload
         return self._validate_resource_stats_response(
             result, limit=limit, summary=summary
         )
@@ -14617,17 +15173,26 @@ class EpistemicGraphClient:
             self._server_ops = ops
         return op in ops
 
-    async def reconcile(self, graph_name: str, json_str: str) -> str:
-        return await self._send(
-            "Reconcile", {"graph_name": graph_name, "json_str": json_str}
+    async def reconcile(self, graph_name: str, msgpack_image: bytes) -> str:
+        """Replace ``graph_name``'s image with the MessagePack graph in ``msgpack_image``.
+
+        The parameter was ``json_str`` and was sent as a ``json_str`` field until the
+        generated request models exposed the mismatch: `Method::Reconcile` declares
+        ``{graph_name, msgpack: Vec<u8>}`` with ``deny_unknown_fields``, so every call
+        this wrapper ever made was rejected by the engine's deserializer. The old
+        parameter name and payload were never a working contract; no caller in this
+        repo or in agent-utilities used them.
+        """
+        return await _gen.graph.send_reconcile(
+            self, {"graph_name": graph_name, "msgpack": msgpack_image}
         )
 
     async def shutdown(self) -> str:
-        return await self._send("Shutdown")
+        return await _gen.cluster.send_shutdown(self)
 
     async def apply_mutation(self, event_type: str, query: str) -> str:
-        return await self._send(
-            "ApplyMutation", {"event_type": event_type, "query": query}
+        return await _gen.graph.send_apply_mutation(
+            self, {"event_type": event_type, "query": query}
         )
 
 
@@ -14701,7 +15266,7 @@ class SyncEpistemicGraphClient:
     def clear(self) -> None:
         """Synchronously clear the graph (used primarily by the test suite teardown)."""
         future = asyncio.run_coroutine_threadsafe(
-            self._client._send("ClearGraph"), self._loop
+            _gen.graph.send_clear_graph(self._client), self._loop
         )
         return future.result()
 

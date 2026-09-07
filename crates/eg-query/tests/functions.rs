@@ -191,7 +191,13 @@ fn function_persists_in_catalog_across_reopen_eg118() {
     );
     drop(store);
     // Re-open the durable store: the function is still there and still expands.
-    let store2 = TableStore::open(&path).unwrap();
+    let store2 = TableStore::open(
+        &path,
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .unwrap();
     assert_eq!(store2.list_functions().unwrap().len(), 1);
     let res = exec_sql_typed_with_tables(&view, &store2, "SELECT triple(7) AS v").unwrap();
     assert_eq!(res.rows[0][0], json!(21));

@@ -1,8 +1,8 @@
 # Epistemic Graph -- Generated Capability Ledger
 
 > **This file is GENERATED and is the AUTHORITATIVE machine-checked capability
-> truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities --bin
-> gen_ledger`. It is derived directly from the eleven current domain `ROWS`
+> truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities
+> --features contract --bin gen_contract`. It is derived directly from the eleven current domain `ROWS`
 > declarations under `crates/eg-capabilities/src/domains/`. Inventory gates keep
 > them exact for every `Method` variant. `docs/capabilities.md` describes surface-level feature
 > parity; this generated table is authoritative for per-method policy.
@@ -28,8 +28,7 @@
 | `RaftAddLearner` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | leader-only openraft add_learner; attaches a non-voting replica without changing the voter set |
 | `RaftChangeMembership` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | leader-only openraft change_membership; sets the group's exact voter set (the usual way to promote a learner added via RaftAddLearner) |
 | `ClusterMembers` | false | None | `cluster:topology-read` | true | false | false | Snapshot | ADR-1/W1.1 engine-authoritative client topology; deliberately NOT admin:cluster-read -- ordinary service roles need it to re-resolve after a failover; answered from any node, not just the leader |
-| `NodeInfoUpsert` | true | ControlRedb | `admin:cluster` | true | false | false | Saga | ADR-1/W1.1 per-node self-report into the durable cluster-topology store (server::persistence::node_info_store); issued only by the node's own Raft startup path, like CatalogAssign above -- NOT graph nodes (placement's O(N) lesson) |
-| `RegisterServer` | true | GraphRedb | `registry:write` | true | true | true | Atomic | W2.5 fleet server push-registration/heartbeat: self-translates into Method::AddNode against __commons__ (dispatch.rs), writing a REAL :Server graph node -- unlike NodeInfoUpsert above, this one IS a KG entity the fleet queries |
+| `RegisterServer` | true | GraphRedb | `registry:write` | true | true | true | Atomic | W2.5 fleet server push-registration/heartbeat: self-translates into Method::AddNode against __commons__ (dispatch.rs), writing a REAL :Server graph node, unlike the internal non-graph topology rows |
 | `PlacementAdmin` | true | ControlRedb | `admin:cluster` | false | false | false | Saga | raft-replicated placement-catalog admin op (Assign/Move/AbortMove, the placement DECISION + PLAN->EXECUTE->CATALOG-UPDATE legs): MultiRaft::placement_assign / TenantManager::move_partition / abort_move commit through the DEFAULT group's own client_write / commit_placement, not this gateway's per-graph MutationBatch |
 | `Ping` | false | None | `service:control` | true | false | false | None |  |
 | `Health` | false | None | `service:control` | true | false | false | None |  |
@@ -208,7 +207,6 @@
 | `QueryDevelopmentLane` | false | None | `lane:read` | true | false | false | Snapshot | linearizable exact lane hold/tombstone read |
 | `DevelopmentLaneStatus` | false | None | `lane:read` | true | false | false | Snapshot | bounded tenant-scoped status with maintained counters |
 | `UpdateDevelopmentLaneQuota` | true | GraphRedb | `lane:quota` | true | true | false | Atomic | controller/admin-only monotonic server-owned quota policy with numeric expected_policy_revision CAS; now_ms is authority-normalized |
-| `ResourceStats` | false | None | `service:control` | true | false | false | None |  |
 | `ResourceStatsPage` | false | None | `service:control` | true | false | false | None | bounded ACL-filtered keyset page; summary suppresses detail arrays |
 | `AnalyticsJob` | ~true | JobsRedb | `jobs:write` | false | false | false | Atomic | runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway |
 | `Statechart` | ~true | StatechartRedb | `statechart:write` | false | false | false | Atomic | runtime-conditional: GetState/List are reads; Define/Instantiate/SendEvent commit to the native statecharts.redb store (CONCEPT:INT-P2-2) |
@@ -287,7 +285,6 @@
 | `Quantum` | false | None | `quantum:run` | true | false | false | None | self-routes before dispatch_graph_op like AnalyticsJob/Statechart, never reaches the graph tamper-evident audit chain; R5 override audit instead rides the response's PlannerDecision.audit trail into the agent-utilities :ToolCall/:QuantumJob provenance |
 | `Asr` | false | None | `asr:transcribe` | false | false | false | None | self-routes before dispatch_graph_op like Quantum/Viz; direct non-durable whisper-rs transcription, commits no asr.result.v1 (that governed commit is future worker/AU-orchestration work, W03/W06) |
 | `Viz` | false | None | `viz:render` | true | false | false | None | pure compute: resolves a fresh per-request ColumnStore and returns rendered bytes, no durable write (D-VZ-1 lanes V4/V6) |
-| `TtsSynthesize` | false | None | `tts:synthesize` | false | true | false | None | pure compute: native Piper-ONNX synthesis runs inline and returns audio, no durable graph write (GOC-34, no CAS/rendition publication exists yet) |
 | `DeclareExchange` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
 | `DeleteExchange` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
 | `BindQueue` | true | Outbox | `broker:admin` | true | true | false | Atomic |  |
@@ -375,7 +372,6 @@
 | `RegisterIdentity` | true | ControlRedb | `security:admin` | true | false | false | Atomic | RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX |
 | `RbacAdmin` | ~true | ControlRedb | `security:admin` | true | false | false | Atomic | runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata |
 | `GetIdentity` | false | None | `security:admin` | true | false | false | Snapshot | identity read-back closing the RegisterIdentity blind-upsert gap: None means unregistered/unknown, Some(identity) with empty roles means registered-and-confirmed-empty -- gated security:admin like RegisterIdentity/RbacAdmin so it grants no caller new privilege |
-| `PolicyExport` | false | None | `policy:export` | true | false | false | Snapshot | CA-16: renders the live M1 row-visibility predicate set over the authenticated caller's engine-resolved visible graph catalog plus the marking bridge; graph/tenant authority is never accepted from the method body. |
 | `ToMsgpack` | false | None | `graph:read` | true | false | false | Snapshot |  |
 | `FromMsgpack` | true | GraphRedb | `graph:admin` | false | true | true | Atomic | state-backed MutationBatch commits the imported authoritative image |
 | `ClearLedger` | true | GraphRedb | `ledger:admin` | true | true | true | Atomic | state-backed MutationBatch |

@@ -220,7 +220,7 @@ gates 2/4/6:**
   per-row confidence, evidence/source/proof/contradiction refs, uncertainty,
   calibration, and a `ReproducibilityManifest` (input dataset/content
   digest/version, algorithm ref, params digest, implementation/environment
-  version, policy fingerprint) — this is the lane doc's `AnalyticalResultV1`.
+  version, policy fingerprint) — this is the lane doc's `AnalyticalResult`.
 - Cross-group publication saga, per-tenant active/CPU quotas, deadline/CPU-budget
   enforcement, cooperative cancellation checked inside kernel recursion, and an
   exact closed result schema for the shipped `mining.association` kernel are all
@@ -247,14 +247,14 @@ gates 2/4/6:**
 work around the block by inventing a parallel shape:**
 
 - **GOC-03 tie-in.** `AnalyticsJob`/`TypedJobResult` register no
-  `CommitDescriptorV1` participant under `CommitParticipantDomain::AnalyticsOutcome`
+  `CommitDescriptor` participant under `CommitParticipantDomain::AnalyticsOutcome`
   (`crates/eg-types/src/commit_descriptor.rs`, branch `goc/goc-03-commit-currency`,
   not on `main`, unverified to compile). Wiring this needs GOC-03's descriptor type
   merged first; `AnalyticsJob` has no `commit_seq`/`fencing_token`/
   `participant_digests` fields today.
 - **GOC-10 tie-in.** `InputSnapshotHandle` (`model.rs`) pins a single
   `(graph, version)` plus an opaque `dataset_ref`/`content_digest` — it has no
-  shape for pinning a GOC-10 `LakeSnapshotV1` (`crates/eg-types/src/lake_catalog.rs`,
+  shape for pinning a GOC-10 `LakeSnapshot` (`crates/eg-types/src/lake_catalog.rs`,
   branch `goc/goc-10-lake-authority`, not on `main`) or multiple simultaneous
   cross-domain snapshots (lake/table, trace/series, vector-index namespace) for a
   job that reads across domains. Blocked the same way.

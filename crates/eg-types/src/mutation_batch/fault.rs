@@ -8,7 +8,7 @@ struct CertificationFaultSpec {
     schema_version: u8,
     nonce: String,
     request_id: u64,
-    domain: MutationDomain,
+    domain: DurabilityDomain,
     phase: MutationCommitPhase,
 }
 

@@ -1115,8 +1115,8 @@ fn verification_refusal_result() -> WorkItemClaimCapabilityResult {
 mod tests {
     use super::*;
     use crate::mutation_batch::{
-        IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
-        MutationRequestContext, MutationScopeIdentity, MutationSurface, TenantId,
+        IncarnationId, LogicalName, MutationBatch, DurabilityDomain, MutationOperation,
+        MutationRequestContext, MutationScopeIdentity, MutationSurface, ScopeTenantId,
         VersionExpectation, MUTATION_BATCH_VERSION,
     };
     use crate::protocol::Method;
@@ -1178,7 +1178,7 @@ mod tests {
                 verified_capabilities: Default::default(),
             },
             identity: MutationScopeIdentity::graph(
-                TenantId::new("tenant-a").expect("static tenant id is valid"),
+                ScopeTenantId::new("tenant-a").expect("static tenant id is valid"),
                 LogicalName::new("graph-a").expect("static graph name is valid"),
                 IncarnationId::new("incarnation:test:work-item-capability")
                     .expect("static incarnation id is valid"),
@@ -1191,7 +1191,7 @@ mod tests {
             operations: vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::ControlPlane,
+                domain: DurabilityDomain::ControlPlane,
                 method: Method::ClaimWorkItem {
                     request: crate::epistemic_operations::ClaimWorkItemRequest {
                         schema_version:
@@ -1337,7 +1337,7 @@ mod tests {
                 verified_capabilities: Default::default(),
             },
             identity: MutationScopeIdentity::graph(
-                TenantId::new("tenant-a").expect("static tenant id is valid"),
+                ScopeTenantId::new("tenant-a").expect("static tenant id is valid"),
                 LogicalName::new("graph-a").expect("static graph name is valid"),
                 IncarnationId::new("incarnation:test:work-item-capability")
                     .expect("static incarnation id is valid"),
@@ -1350,7 +1350,7 @@ mod tests {
             operations: vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::ControlPlane,
+                domain: DurabilityDomain::ControlPlane,
                 method: Method::CommitWorkItemResult {
                     tenant: "tenant-a".to_string(),
                     work_item_id: item.to_string(),

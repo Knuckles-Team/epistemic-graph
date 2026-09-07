@@ -35,14 +35,14 @@ use eg_compute::graph_algos::{
     a_star, all_pairs_similarity, article_rank, betweenness_centrality, closeness_centrality,
     degree_centrality, dijkstra, eigenvector_centrality, harmonic_centrality, haversine_km,
     k1_coloring, k_core, knn_similarity, knn_similarity_approx, label_propagation, leiden,
-    KnnSimilarityApproxConfig,
     local_clustering_coefficient, louvain, pagerank, random_walk, steiner_tree,
     strongly_connected_components, triangle_count, weakly_connected_components,
     yen_k_shortest_paths, AdjacencyGraph, ArticleRankConfig, ClosenessConfig, DegreeKind,
-    Direction, EigenvectorConfig, LabelPropagationConfig, LeidenConfig, LouvainConfig, Metric,
-    PageRankConfig, RandomWalkConfig,
+    Direction, EigenvectorConfig, KnnSimilarityApproxConfig, LabelPropagationConfig, LeidenConfig,
+    LouvainConfig, Metric, PageRankConfig, RandomWalkConfig,
 };
 
+use super::number_value;
 use super::proc::{CypherProcedure, ProcRow, YieldValue};
 
 /// Every GDS procedure, ready to fold into the procedure registry
@@ -248,23 +248,11 @@ impl<'a> Config<'a> {
     }
 }
 
-/// A finite `f64` as a JSON number (an integer when integral, mirroring the
-/// executor's numeric coercion), else null (CONCEPT:EG-KG.query.gds-call-procedures).
-fn num(x: f64) -> Value {
-    if x.fract() == 0.0 && x.abs() < 9.007e15 {
-        Value::Number((x as i64).into())
-    } else {
-        serde_json::Number::from_f64(x)
-            .map(Value::Number)
-            .unwrap_or(Value::Null)
-    }
-}
-
 /// One `(nodeId, <score-col>)` result row (CONCEPT:EG-KG.query.gds-call-procedures).
 fn scored_row(id: String, col: &str, score: f64) -> ProcRow {
     vec![
         ("nodeId".to_string(), YieldValue::Node(id)),
-        (col.to_string(), YieldValue::Scalar(num(score))),
+        (col.to_string(), YieldValue::Scalar(number_value(score))),
     ]
 }
 
@@ -918,7 +906,7 @@ impl CypherProcedure for Yens {
                             p.nodes.into_iter().map(Value::String).collect(),
                         )),
                     ),
-                    ("cost".to_string(), YieldValue::Scalar(num(p.cost))),
+                    ("cost".to_string(), YieldValue::Scalar(number_value(p.cost))),
                 ]
             })
             .collect())
@@ -972,7 +960,7 @@ impl CypherProcedure for SteinerTree {
                     ),
                     (
                         "weight".to_string(),
-                        YieldValue::Scalar(weight.map(num).unwrap_or(Value::Null)),
+                        YieldValue::Scalar(weight.map(number_value).unwrap_or(Value::Null)),
                     ),
                 ]
             })
@@ -1072,7 +1060,10 @@ impl CypherProcedure for NodeSimilarity {
                 vec![
                     ("node1".to_string(), YieldValue::Node(p.a)),
                     ("node2".to_string(), YieldValue::Node(p.b)),
-                    ("similarity".to_string(), YieldValue::Scalar(num(p.score))),
+                    (
+                        "similarity".to_string(),
+                        YieldValue::Scalar(number_value(p.score)),
+                    ),
                 ]
             })
             .collect())
@@ -1148,7 +1139,10 @@ impl CypherProcedure for Knn {
                 vec![
                     ("node1".to_string(), YieldValue::Node(p.a)),
                     ("node2".to_string(), YieldValue::Node(p.b)),
-                    ("similarity".to_string(), YieldValue::Scalar(num(p.score))),
+                    (
+                        "similarity".to_string(),
+                        YieldValue::Scalar(number_value(p.score)),
+                    ),
                 ]
             })
             .collect())
@@ -1291,7 +1285,10 @@ impl CypherProcedure for LinkPrediction {
                 vec![
                     ("node1".to_string(), YieldValue::Node(g.node_at(a).clone())),
                     ("node2".to_string(), YieldValue::Node(g.node_at(b).clone())),
-                    ("probability".to_string(), YieldValue::Scalar(num(prob))),
+                    (
+                        "probability".to_string(),
+                        YieldValue::Scalar(number_value(prob)),
+                    ),
                 ]
             })
             .collect())
@@ -1315,7 +1312,7 @@ fn embedding_rows(g: &AdjacencyGraph<String>, rows: Vec<Vec<f32>>) -> Vec<ProcRo
         .cloned()
         .zip(rows)
         .map(|(id, row)| {
-            let arr = Value::Array(row.into_iter().map(|x| num(x as f64)).collect());
+            let arr = Value::Array(row.into_iter().map(|x| number_value(x as f64)).collect());
             vec![
                 ("nodeId".to_string(), YieldValue::Node(id)),
                 ("embedding".to_string(), YieldValue::Scalar(arr)),

@@ -1008,7 +1008,7 @@ impl TableSchema {
     }
 
     /// SHA-256 hex digest over the canonical `(name, columns)` shape (GOC-10:
-    /// `eg_types::lake_catalog::TableSchemaVersionV1::schema_digest`). Two schemas
+    /// `eg_types::lake_catalog::TableSchemaVersion::schema_digest`). Two schemas
     /// that would `assert_eq!` via [`PartialEq`] always produce the SAME digest;
     /// any observable difference (a renamed/reordered/retyped/reconstrained
     /// column, or a renamed table) always produces a DIFFERENT one. Digests over
@@ -1155,7 +1155,7 @@ mod table_schema_tests {
 
         // Known-bad-if-unchanged inputs: each of these must NOT collide with the
         // base digest, or two distinguishable schemas would be indistinguishable
-        // to a `TableSchemaVersionV1` consumer.
+        // to a `TableSchemaVersion` consumer.
         let renamed_table = TableSchema::new("other_events", vec![column("id"), column("payload")]);
         assert_ne!(renamed_table.schema_digest().unwrap(), base_digest);
 

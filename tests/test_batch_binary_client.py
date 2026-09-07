@@ -24,12 +24,22 @@ from epistemic_graph.client import (
     TxnClient,
     WorkItemClient,
     _canonical_method_body,
+    _decode_send_result,
 )
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
+
+
+def test_result_decoder_preserves_only_declared_opaque_binary_methods() -> None:
+    opaque = b"\xc1not-inner-msgpack"
+    assert _decode_send_result("RunUdf", opaque) is opaque
+    assert _decode_send_result("KvGet", opaque) is opaque
+
+    structured = msgpack.packb({"rows": [1, 2]}, use_bin_type=True)
+    assert _decode_send_result("Sql", structured) == {"rows": [1, 2]}
 
 
 class _CaptureClient:

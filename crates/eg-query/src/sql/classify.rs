@@ -9,9 +9,10 @@
 //! (a pure function over the parsed AST) so it is unit-testable without a graph,
 //! a runtime, or a socket.
 //!
-//! It reuses the SAME parser the rest of the SQL surface uses — `sqlparser`
-//! re-exported by `datafusion::sql` — so there is no second SQL grammar in the
-//! tree and a statement that parses here parses identically downstream.
+//! Ordinary SQL reuses the SAME parser the rest of the SQL surface uses —
+//! `sqlparser` re-exported by `datafusion::sql`. The bounded SQL/PGQ extension
+//! is recognized before that parser, then either routed to catalog admission or
+//! lowered back to ordinary relational SQL for the same DataFusion path.
 //!
 //! ## DML shapes supported (CONCEPT:EG-KG.query.follow-up)
 //! Over the `nodes` table only (the graph's node store):
@@ -43,8 +44,8 @@ use datafusion::sql::sqlparser::ast::{
     TableConstraint as SqlTableConstraint, TableFactor, TableObject, TableWithJoins, UnaryOperator,
     UpdateTableFromKind, Value as SqlValue, Values,
 };
-// CONCEPT:EG-KG.query.postgres-family-extension-plan/116/117 — the Postgres-family extension plan shapes classify routes to.
-use super::pgfamily::{AnnIndexPlan, ContinuousAggPlan, CypherCallPlan, HypertablePlan};
+// The Postgres-family extension plan shapes classify routes to.
+use super::pgfamily::{AnnIndexPlan, ContinuousAggPlan, HypertablePlan};
 // CONCEPT:EG-KG.compute.json-deep-indexing — the wire predicate the JSON operators lower onto. Surfaced by
 // `eg-types/query`, which the `sql` feature (this module's gate) always enables.
 use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
@@ -52,11 +53,33 @@ use datafusion::sql::sqlparser::parser::Parser;
 use eg_types::wire::{JsonPathOp, Pred};
 use serde_json::{Map, Value};
 
+use super::pgq::GraphTableQuery;
+use crate::tables::property_graph::{PropertyGraphStatement, SqlName};
 use crate::tables::schema::{
     CheckExpr, CmpOp, ColCheck, ColumnType, FunctionArg as CatalogArg, FunctionLanguage,
     FunctionReturns, RefAction, StoredFunction, TableConstraint, MAX_TABLE_COLUMNS,
     MAX_TABLE_CONSTRAINTS,
 };
+
+/// Catalog mutation requested by a parsed SQL/PGQ DDL statement. Classification
+/// intentionally carries no tenant, ACL decision, or executable SQL: the
+/// authoritative catalog-admission layer must reparse with its verified tenant
+/// scope and either persist the definition or reject it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropertyGraphDdlOperation {
+    Create,
+    Alter,
+    Drop,
+}
+
+/// The bounded, non-authoritative portion of a property-graph DDL request that
+/// the pure classifier can safely expose. Names are structured SQL identifiers,
+/// never raw fragments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyGraphCatalogAdmission {
+    pub operation: PropertyGraphDdlOperation,
+    pub names: Vec<SqlName>,
+}
 
 /// How a single parsed SQL statement should be routed by the wire shim.
 #[derive(Debug, Clone, PartialEq)]
@@ -116,6 +139,16 @@ pub enum StatementKind {
     /// `DELETE FROM <user_table> WHERE <col> = <literal>` — typed delete from a user table.
     DeleteTable(DeleteTable),
 
+    // ── SQL:2023 SQL/PGQ ────────────────────────────────────────────────────
+    /// A syntactically valid `CREATE`/`ALTER`/`DROP PROPERTY GRAPH` request.
+    /// This is a typed stop at the authority boundary, not an executable DDL
+    /// plan: catalog tenant resolution and ACL admission are still required.
+    PropertyGraphDdlRequiresCatalogAdmission(PropertyGraphCatalogAdmission),
+    /// A bounded fixed-pattern `GRAPH_TABLE` read whose catalog definition must
+    /// be resolved by the authority layer before the existing executor can lower
+    /// and run it.
+    GraphTableReadRequiresCatalogAdmission(GraphTableQuery),
+
     // ── transactions + bulk ingest (CONCEPT:EG-KG.query.register-each-user-table) ────────────────────────────
     /// `BEGIN` / `START TRANSACTION` — open a multi-statement transaction.
     Begin,
@@ -130,17 +163,13 @@ pub enum StatementKind {
     // ── extensions (CONCEPT:EG-KG.query.create-drop-extension-over) ────────────────────────────────────────────
     /// `CREATE EXTENSION [IF NOT EXISTS] name [WITH SCHEMA …]` — record `name` in the
     /// durable extension catalog so a client's setup script proceeds. The concrete
-    /// surface each extension unlocks (pgvector types/ops, AGE, TimescaleDB, pg_search)
+    /// surface each extension unlocks (pgvector types/ops, TimescaleDB, pg_search)
     /// lands in its own later item; this accepts + records the enablement.
     CreateExtension { name: String, if_not_exists: bool },
     /// `DROP EXTENSION [IF EXISTS] name [CASCADE|RESTRICT]` — remove a catalog entry.
     DropExtension { name: String, if_exists: bool },
 
     // ── Postgres-family extension parity (wave 19) ─────────────────────────────
-    /// `SELECT <proj> FROM cypher('graph', $$ <cypher> $$) AS (cols…)` (CONCEPT:EG-KG.query.postgres-family-extension-plan)
-    /// — an Apache-AGE set-returning function. The inner Cypher runs on the named
-    /// graph; its agtype (JSON) result is projected onto the `AS` columns.
-    CypherCall(CypherCallPlan),
     /// `CREATE INDEX … USING hnsw|ivfflat (col opclass)` (CONCEPT:EG-KG.query.real-ann-top-k) — register a
     /// pgvector ANN index so a `ORDER BY col <-> $1 LIMIT k` query pushes down to eg-ann.
     CreateAnnIndex(AnnIndexPlan),
@@ -578,7 +607,7 @@ fn classify_copy_stmt(
 
 /// [`classify`]'s textual pre-parse checks: shapes `sqlparser` cannot parse
 /// cleanly (a dollar-quoted `CREATE FUNCTION` body, `DROP EXTENSION` with no AST
-/// node, AGE `cypher()`, a pgvector ANN index opclass, a TimescaleDB continuous
+/// node, a pgvector ANN index opclass, a TimescaleDB continuous
 /// aggregate) are recognized textually BEFORE the parser runs — same posture as
 /// the `COPY … FROM STDIN` pre-check just below. Returns `Some(result)` when one
 /// of those textual shapes matched (successfully or as a precise `Err`, never
@@ -587,26 +616,24 @@ fn classify_copy_stmt(
 fn classify_textual_precheck(sql: &str) -> Option<Result<StatementKind, String>> {
     // CONCEPT:EG-KG.query.create-drop-extension-over — `DROP EXTENSION` has no `sqlparser` AST node (no
     // `ObjectType::Extension`), so recognize it textually and route it to the extension
-    // catalog.
-    if let Some((name, if_exists)) = parse_drop_extension(sql) {
-        return Some(Ok(StatementKind::DropExtension { name, if_exists }));
+    // catalog. SQL/PGQ shares this existing first precheck branch, preserving the
+    // dispatcher's measured complexity.
+    if let Some(result) = classify_pgq_precheck(sql).or_else(|| {
+        parse_drop_extension(sql)
+            .map(|(name, if_exists)| Ok(StatementKind::DropExtension { name, if_exists }))
+    }) {
+        return Some(result);
     }
     // CONCEPT:EG-KG.query.create-drop-function — `CREATE [OR REPLACE] FUNCTION … LANGUAGE sql` and `DROP FUNCTION`.
     // The dollar-quoted `$$ … $$` body + the typed argument/`RETURNS TABLE(...)` lists do
     // not round-trip through `sqlparser` 0.51's `CreateFunction` AST cleanly, so — exactly
-    // like AGE `cypher()` / `DROP EXTENSION` — the shape is recognized TEXTUALLY before the
+    // like `DROP EXTENSION` — the shape is recognized TEXTUALLY before the
     // parser.
     if is_create_function(sql) {
         return Some(parse_create_function(sql).map(StatementKind::CreateFunction));
     }
     if is_drop_function(sql) {
         return Some(parse_drop_function(sql).map(StatementKind::DropFunction));
-    }
-    // CONCEPT:EG-KG.query.postgres-family-extension-plan — Apache AGE `cypher('g', $$ … $$) AS (cols…)`. `sqlparser` 0.51
-    // cannot parse the typed `AS` column list on a table function, so recognize it
-    // textually (like `DROP EXTENSION`) and route to the Cypher engine.
-    if let Some(plan) = super::pgfamily::parse_cypher_call(sql) {
-        return Some(Ok(StatementKind::CypherCall(plan)));
     }
     // CONCEPT:EG-KG.query.real-ann-top-k — pgvector `CREATE INDEX … USING hnsw|ivfflat (col opclass)`. The
     // opclass (and `IF NOT EXISTS` on an index) does not parse in `sqlparser` 0.51, so
@@ -618,10 +645,53 @@ fn classify_textual_precheck(sql: &str) -> Option<Result<StatementKind, String>>
     // `WITH (timescaledb.continuous)` option does not parse, so recognize it textually;
     // a plain `CREATE MATERIALIZED VIEW` returns `None` and the parser rejects it (a
     // documented follow-up in `classify_create_view`).
-    if let Some(plan) = super::pgfamily::parse_continuous_aggregate(sql) {
-        return Some(Ok(StatementKind::CreateContinuousAggregate(plan)));
+    super::pgfamily::parse_continuous_aggregate(sql)
+        .map(StatementKind::CreateContinuousAggregate)
+        .map(Ok)
+}
+
+fn classify_pgq_precheck(sql: &str) -> Option<Result<StatementKind, String>> {
+    // SQL:2023 SQL/PGQ property-graph DDL is parsed here because sqlparser 0.51
+    // has no property-graph AST. Classification deliberately stops at a typed
+    // catalog-admission outcome; it never executes or persists the statement.
+    if super::pgq::is_property_graph_ddl(sql) {
+        return Some(classify_property_graph_ddl(sql));
+    }
+    // GRAPH_TABLE likewise has no sqlparser 0.51 AST. Parse the intentionally
+    // bounded `SELECT * FROM GRAPH_TABLE (...)` (or direct composition form),
+    // then require an authoritative definition lookup before lowering.
+    if super::pgq::is_graph_table_sql(sql) {
+        return Some(
+            super::pgq::parse_graph_table_sql(sql)
+                .map(StatementKind::GraphTableReadRequiresCatalogAdmission),
+        );
     }
     None
+}
+
+fn classify_property_graph_ddl(sql: &str) -> Result<StatementKind, String> {
+    // The pure classifier has no authenticated tenant. This parser scope is a
+    // throwaway validation input and is not returned or persisted; catalog
+    // admission must reparse using the verified request scope.
+    const CLASSIFICATION_SCOPE: &str = "__property_graph_classification_only__";
+    let statement = super::pgq::parse_property_graph_ddl(sql, CLASSIFICATION_SCOPE)?;
+    let admission = match statement {
+        PropertyGraphStatement::Create(definition) => PropertyGraphCatalogAdmission {
+            operation: PropertyGraphDdlOperation::Create,
+            names: vec![definition.name],
+        },
+        PropertyGraphStatement::Alter { name, .. } => PropertyGraphCatalogAdmission {
+            operation: PropertyGraphDdlOperation::Alter,
+            names: vec![name],
+        },
+        PropertyGraphStatement::Drop { names, .. } => PropertyGraphCatalogAdmission {
+            operation: PropertyGraphDdlOperation::Drop,
+            names,
+        },
+    };
+    Ok(StatementKind::PropertyGraphDdlRequiresCatalogAdmission(
+        admission,
+    ))
 }
 
 /// [`classify`]'s `Statement::Update` arm: resolve the (at most one) `FROM`
@@ -2141,12 +2211,12 @@ fn classify_create_view(
 
 /// The extension names the engine recognizes (CONCEPT:EG-KG.query.create-drop-extension-over). `CREATE EXTENSION` on
 /// one of these is accepted + recorded so a client's setup script proceeds; each
-/// extension's concrete surface (pgvector types/ops EG-115, AGE, TimescaleDB,
+/// extension's concrete surface (pgvector types/ops EG-115, TimescaleDB,
 /// pg_search) lands in its own later item.
 fn is_recognized_extension(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "vector" | "pg_age" | "age" | "timescaledb" | "pg_search"
+        "vector" | "timescaledb" | "pg_search"
     )
 }
 
@@ -2157,7 +2227,7 @@ fn classify_create_extension(name: &str, if_not_exists: bool) -> Result<Statemen
     if !is_recognized_extension(name) {
         return Err(format!(
             "CREATE EXTENSION `{name}` is not recognized (supported: \
-             vector, pg_age/age, timescaledb, pg_search)"
+             vector, timescaledb, pg_search)"
         ));
     }
     Ok(StatementKind::CreateExtension {
@@ -4354,7 +4424,7 @@ mod tests {
         assert!(if_not_exists);
 
         // The other recognized names are accepted so a client's setup script proceeds.
-        for ext in ["age", "pg_age", "timescaledb", "pg_search"] {
+        for ext in ["timescaledb", "pg_search"] {
             assert!(
                 matches!(
                     classify(&format!("CREATE EXTENSION IF NOT EXISTS {ext}")).unwrap(),
@@ -4368,6 +4438,16 @@ mod tests {
     #[test]
     fn create_extension_rejects_unknown() {
         assert!(classify("CREATE EXTENSION nonesuch").is_err());
+    }
+
+    #[test]
+    fn create_extension_rejects_retired_graph_compatibility_names() {
+        for extension in ["age", "pg_age"] {
+            assert!(
+                classify(&format!("CREATE EXTENSION {extension}")).is_err(),
+                "retired compatibility extension `{extension}` must not be recognized"
+            );
+        }
     }
 
     #[test]
@@ -4389,17 +4469,20 @@ mod tests {
         assert!(!if_exists);
     }
 
-    // ── Postgres-family extension parity routing (EG-114/116/117/119) ─────────
+    // ── Postgres-family extension parity routing (EG-116/117/119) ─────────────
 
     #[test]
-    fn eg114_classify_routes_cypher_call() {
-        let k = classify("SELECT * FROM cypher('g', $$ MATCH (n) RETURN n.id $$) AS (id agtype)")
-            .unwrap();
-        let StatementKind::CypherCall(p) = k else {
-            panic!("expected CypherCall, got {k:?}");
-        };
-        assert_eq!(p.graph, "g");
-        assert_eq!(p.columns[0].name, "id");
+    fn graph_compatibility_table_function_is_not_sql() {
+        for sql in [
+            "SELECT * FROM cypher('g', $$ MATCH (n) RETURN n.id $$) AS (id agtype)",
+            "select * from CYPHER('g', $body$ MATCH (n) RETURN n $body$) as (n text)",
+            " SELECT name FROM cypher ( 'g', $$ MATCH (n) RETURN n.name $$ ) AS (name text); ",
+        ] {
+            assert!(
+                classify(sql).is_err(),
+                "retired graph compatibility syntax must be rejected: {sql}"
+            );
+        }
     }
 
     #[test]

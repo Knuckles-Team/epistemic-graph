@@ -254,6 +254,59 @@ EOF
   exit "$constrained_rc"
 fi
 
+# Exercise both synchronous Kafka publishing paths through their injected
+# local-enqueue seam. The assertions deterministically prove that neither path
+# crosses the broker-delivery wait boundary. A separate, materially short
+# watchdog contains an arbitrary hang regression without turning a 14-minute
+# wait into a false pass; compilation/listing still uses the normal build bound.
+KAFKA_TESTS=(
+  "sink::tests::raw_kafka_producer_publish_only_enqueues_locally"
+  "sink::tests::kafka_cdc_sink_emit_only_enqueues_locally"
+)
+KAFKA_SUITE_TIMEOUT_SECS=30
+KAFKA_TEST_TIMEOUT_SECS=10
+KAFKA_TERM_GRACE_SECS=5
+KAFKA_KILL_GRACE_SECS=2
+bounded_kafka_test() {
+  local suite_name="$1"
+  shift
+  python3 scripts/bounded_test_runner.py \
+    --suite-name "$suite_name" \
+    --suite-timeout "$KAFKA_SUITE_TIMEOUT_SECS" \
+    --test-timeout "$KAFKA_TEST_TIMEOUT_SECS" \
+    --term-grace "$KAFKA_TERM_GRACE_SECS" \
+    --kill-grace "$KAFKA_KILL_GRACE_SECS" \
+    -- "$@"
+}
+
+echo "-- Kafka non-blocking contract: unconstrained build + exact selection proof --"
+if kafka_test_list=$(bounded_test "constrained-eg-stream-kafka-list" cargo test -p eg-stream --features cdc-kafka -- --list --format terse); then
+  printf '%s\n' "$kafka_test_list"
+else
+  kafka_rc=$?
+  printf '%s\n' "$kafka_test_list"
+  exit "$kafka_rc"
+fi
+for kafka_test in "${KAFKA_TESTS[@]}"; do
+  kafka_test_count=$(printf '%s\n' "$kafka_test_list" | awk -v expected="$kafka_test: test" '$0 == expected { count += 1 } END { print count + 0 }')
+  if [ "$kafka_test_count" -ne 1 ]; then
+    echo "FAIL: expected exactly one '$kafka_test' test, found $kafka_test_count." >&2
+    exit 1
+  fi
+done
+echo "-- Kafka non-blocking contract: deterministic enqueue-only proofs under taskset -c $CORES (test watchdog ${KAFKA_TEST_TIMEOUT_SECS}s) --"
+for kafka_test in "${KAFKA_TESTS[@]}"; do
+  if bounded_kafka_test "constrained-eg-stream-kafka" taskset -c "$CORES" cargo test -p eg-stream --features cdc-kafka "$kafka_test" -- --exact; then
+    kafka_rc=0
+  else
+    kafka_rc=$?
+  fi
+  if [ "$kafka_rc" -ne 0 ]; then
+    echo "FAIL: eg-stream Kafka non-blocking contract failed or timed out: $kafka_test" >&2
+    exit "$kafka_rc"
+  fi
+done
+
 # Default ON (see the header comment: this used to be an opt-in
 # `EG_CONSTRAINED_EXTRA_TESTS=1` "periodic/CI-only" sweep, which is exactly why
 # a real ambient-process-state defect in one of these binaries

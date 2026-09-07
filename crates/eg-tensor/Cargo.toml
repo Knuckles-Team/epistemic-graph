@@ -17,11 +17,6 @@ name = "eg_tensor"
 # `tensor` serving tiers (node/full), kept OUT of `pi`.
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-# CONCEPT:EG-098 — the fusion module's time-alignment half (multi-rate resample onto a
-# common grid + EG-067 tumbling windows) lives in eg-tsdb. Pulled with default-features
-# (NO redb/Arrow), so it stays pure-Rust/Pi-lean; eg-tensor supplies the tensor-frame
-# half. eg-tsdb does NOT depend on eg-tensor, so there is no cycle.
-eg-tsdb = { path = "../eg-tsdb", default-features = false }
 # GPU-accelerated tensor ops (CONCEPT:EG-327). OPTIONAL, only under `gpu-cuda`.
 # `dynamic-loading` → builds with NO CUDA toolkit; a default/pi build links none of it.
 cudarc = { version = "0.17", optional = true, default-features = false, features = ["driver", "nvrtc", "dynamic-loading", "cuda-12060"] }

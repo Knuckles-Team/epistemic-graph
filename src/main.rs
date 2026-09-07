@@ -196,15 +196,15 @@ struct Args {
 ///
 /// - **Unix:** `$XDG_RUNTIME_DIR/epistemic-graph.sock` (when the dir exists),
 ///   else `/tmp/epistemic-graph.sock`.
-/// - **Windows:** `%LOCALAPPDATA%\epistemic-graph\engine.sock` (created lazily by
-///   the listener), else `%TEMP%\epistemic-graph.sock`, else
+/// - **Windows:** `%LOCALAPPDATA%\epistemic-graph\engine.sock` (its parent is
+///   prepared during validated startup), else `%TEMP%\epistemic-graph.sock`, else
 ///   `C:\Windows\Temp\epistemic-graph.sock`. NOTE: Tokio has no `UnixListener` on
 ///   Windows, so this path is only a stable *identifier* / lock anchor — the
 ///   actual default transport on Windows is TCP loopback (see the transport
 ///   section). Keeping the value defined preserves parity for config/logging.
-fn resolve_socket_path(explicit: Option<String>) -> String {
+fn resolve_socket_path(explicit: Option<String>) -> (String, Option<std::path::PathBuf>) {
     if let Some(p) = explicit {
-        return p;
+        return (p, None);
     }
     #[cfg(unix)]
     {
@@ -212,34 +212,70 @@ fn resolve_socket_path(explicit: Option<String>) -> String {
             let xdg_sock = format!("{}/epistemic-graph.sock", xdg);
             // Prefer XDG if the directory exists
             if std::path::Path::new(&xdg).exists() {
-                return xdg_sock;
+                return (xdg_sock, None);
             }
         }
-        "/tmp/epistemic-graph.sock".to_string()
+        ("/tmp/epistemic-graph.sock".to_string(), None)
     }
     #[cfg(windows)]
     {
-        if let Ok(local) = std::env::var("LOCALAPPDATA") {
-            let dir = std::path::Path::new(&local).join("epistemic-graph");
-            // Best-effort: ensure the dir exists so the path is usable as an anchor.
-            let _ = std::fs::create_dir_all(&dir);
-            return dir.join("engine.sock").to_string_lossy().into_owned();
-        }
-        if let Ok(tmp) = std::env::var("TEMP").or_else(|_| std::env::var("TMP")) {
-            return std::path::Path::new(&tmp)
-                .join("epistemic-graph.sock")
-                .to_string_lossy()
-                .into_owned();
-        }
-        r"C:\Windows\Temp\epistemic-graph.sock".to_string()
+        resolve_windows_socket_path(
+            std::env::var_os("LOCALAPPDATA"),
+            std::env::var_os("TEMP").or_else(|| std::env::var_os("TMP")),
+        )
     }
     #[cfg(not(any(unix, windows)))]
     {
-        std::env::temp_dir()
-            .join("epistemic-graph.sock")
-            .to_string_lossy()
-            .into_owned()
+        (
+            std::env::temp_dir()
+                .join("epistemic-graph.sock")
+                .to_string_lossy()
+                .into_owned(),
+            None,
+        )
     }
+}
+
+#[cfg(any(windows, test))]
+fn resolve_windows_socket_path(
+    local_app_data: Option<std::ffi::OsString>,
+    temp: Option<std::ffi::OsString>,
+) -> (String, Option<std::path::PathBuf>) {
+    if let Some(local) = local_app_data {
+        let parent = std::path::PathBuf::from(local).join("epistemic-graph");
+        return (
+            parent.join("engine.sock").to_string_lossy().into_owned(),
+            Some(parent),
+        );
+    }
+    if let Some(temp) = temp {
+        return (
+            std::path::PathBuf::from(temp)
+                .join("epistemic-graph.sock")
+                .to_string_lossy()
+                .into_owned(),
+            None,
+        );
+    }
+    (r"C:\Windows\Temp\epistemic-graph.sock".to_string(), None)
+}
+
+#[cfg(any(windows, test))]
+async fn prepare_socket_directory(parent: Option<std::path::PathBuf>) -> std::io::Result<()> {
+    let Some(parent) = parent else {
+        return Ok(());
+    };
+    ::tokio::task::spawn_blocking(move || std::fs::create_dir_all(&parent))
+        .await
+        .map_err(|error| {
+            std::io::Error::other(format!("socket-directory startup task failed: {error}"))
+        })?
+        .map_err(|error| {
+            std::io::Error::new(
+                error.kind(),
+                format!("could not create socket directory: {error}"),
+            )
+        })
 }
 
 fn native_tcp_addr_is_loopback(addr: &str) -> bool {
@@ -380,7 +416,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // exporter is layered on top. Off/unset ⇒ byte-for-byte the prior behavior.
     epistemic_graph::otel::init_tracing()?;
 
-    let socket_path = resolve_socket_path(args.socket_path);
+    let (socket_path, socket_parent) = resolve_socket_path(args.socket_path);
     let socket_mode = match server::parse_unix_socket_mode(&args.socket_mode) {
         Ok(mode) => mode,
         Err(reason) => {
@@ -426,9 +462,10 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(2);
         }
     }
-    if let Some(ref tls) = tcp_tls {
-        server::validate_tcp_tls_config(tls)?;
-    }
+    let tcp_tls = match tcp_tls {
+        Some(tls) => Some(server::prepare_tcp_tls(tls).await?),
+        None => None,
+    };
 
     info!("Starting epistemic-graph-server");
     info!("  UDS: private local socket configured");
@@ -609,7 +646,12 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
             Some(dir) => std::path::Path::new(dir).join("series.redb"),
             None => std::env::temp_dir().join(format!("eg-tsdb-{}.redb", std::process::id())),
         };
-        match eg_tsdb::store::SeriesStore::open(&path) {
+        match eg_tsdb::store::SeriesStore::open(
+            &path,
+            epistemic_graph::store_authority::process_verifier(),
+            epistemic_graph::store_authority::process_authority().principal(),
+            &epistemic_graph::store_authority::process_authority().proof(),
+        ) {
             Ok(s) => {
                 info!("Time-series store (tsdb): durable store ready");
                 Some(Arc::new(s))
@@ -695,7 +737,12 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     let isolation = {
         info!("RLS default-deny ACTIVE: rows require explicit public visibility or an owner grant");
         let isolation = match args.persist_dir.as_deref() {
-            Some(dir) => match IsolationLayer::with_persist_dir(dir) {
+            Some(dir) => match IsolationLayer::with_persist_dir(
+                dir,
+                epistemic_graph::store_authority::process_authority().as_ref(),
+                epistemic_graph::store_authority::process_authority().principal(),
+                &epistemic_graph::store_authority::process_authority().proof(),
+            ) {
                 Ok(layer) => layer,
                 Err(error) => {
                     eprintln!("error: could not open durable identity/RBAC policy: {error}");
@@ -723,6 +770,15 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
         }
         isolation
     };
+
+    // Keep resolution side-effect-free: transport and complete verified-context
+    // validation must succeed before startup creates the Windows LOCALAPPDATA
+    // anchor directory. The sole directory effect is awaited off-reactor before
+    // state construction or any listener can open.
+    #[cfg(windows)]
+    prepare_socket_directory(socket_parent).await?;
+    #[cfg(not(windows))]
+    debug_assert!(socket_parent.is_none());
 
     // Keep the complete feature-gated field composition in the canonical state
     // constructor. Startup overrides only the values sized or opened above;
@@ -1187,7 +1243,8 @@ async fn spawn_obs_listener(
             .and_then(|v| v.parse().ok())
             .filter(|&n| n > 0)
             .unwrap_or(DEFAULT_FLUSH_RECORDS);
-        match ObsState::open(state.read().await.persist_dir.clone().as_deref(), flush) {
+        let persist_dir = state.read().await.persist_dir.clone();
+        match ObsState::open(persist_dir.as_deref(), flush).await {
             Ok(obs_state) => {
                 let listener = tokio::net::TcpListener::bind(obs_addr).await?;
                 info!(
@@ -1230,7 +1287,7 @@ async fn wait_for_periodic_tick(ticker: &mut tokio::time::Interval) {
 async fn persist_traces_tick(
     traces_obs_state: std::sync::Arc<epistemic_graph::server::obs::ObsState>,
 ) {
-    if let Err(error) = traces_obs_state.persist_traces() {
+    if let Err(error) = traces_obs_state.persist_traces().await {
         tracing::warn!(
             %error,
             "trace snapshot sweep: persist_traces failed, will retry next tick"
@@ -1504,17 +1561,17 @@ async fn spawn_pgwire_listener(
         let pg_auth_secret = state.read().await.auth_secret.clone();
         let pg_auth_mode =
             epistemic_graph::server::pgwire::PgWireAuthMode::resolve(&pg_auth_secret)?;
-        epistemic_graph::server::pgwire::validate_startup_policy(
+        let prepared_pgwire = epistemic_graph::server::pgwire::prepare_startup_policy(
             &addr,
-            &pg_auth_secret,
+            pg_auth_secret,
             pg_auth_mode,
-        )?;
+        )
+        .await?;
         let pg_state = state.clone();
         info!("pgwire: enabling the configured listener (TLS policy applies)");
         tokio::spawn(async move {
             if let Err(e) =
-                epistemic_graph::server::pgwire::serve_with_auth(&addr, pg_state, pg_auth_mode)
-                    .await
+                epistemic_graph::server::pgwire::serve_prepared(pg_state, prepared_pgwire).await
             {
                 tracing::error!("pgwire server error: {}", e);
             }
@@ -1998,10 +2055,17 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
     // ~168k vectors) INLINE while holding the per-graph lock — minutes pegged on one
     // core, never finishing within the request timeout, so the graph never self-
     // warmed. Here, after recovery, a background task builds the index for every
-    // large graph (or REOPENS a persisted one with no rebuild) so the first query is
-    // served by the index, or by an exact brute-force fallback while it warms — never
-    // by an inline build. The built index is persisted so subsequent restarts reopen
-    // it in milliseconds. Feature-gated: a non-`ann` build is byte-for-byte unchanged.
+    // large graph (or REOPENS the live durable generation with no rebuild) so the
+    // first query is served by the index, or by an exact brute-force fallback while
+    // it warms — never by an inline build. The built index is activated as a new
+    // durable generation so subsequent restarts reopen it in milliseconds.
+    // Feature-gated: a non-`ann` build is byte-for-byte unchanged.
+    //
+    // This is trigger 1 of the three in `server::semantic_activation`, and it runs
+    // that module's `activate_one` rather than its own copy of the body: the boot
+    // task, the dispatch write-path tail and the periodic sweep below must reopen,
+    // build and activate identically or a graph's index depends on which trigger
+    // happened to fire.
     #[cfg(feature = "ann")]
     {
         let warm_state = state.clone();
@@ -2018,52 +2082,14 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
                     .collect()
             };
             let _ = tokio::task::spawn_blocking(move || {
-                use epistemic_graph::compute::semantic_ann::ANN_BUILD_THRESHOLD;
                 let mut warmed = 0usize;
                 for (name, core) in cores {
-                    let store = core.semantic_store.read();
-                    if store.len() < ANN_BUILD_THRESHOLD {
-                        continue; // brute force is exact + fast below the threshold
-                    }
-                    let idx_dir = warm_dir
-                        .as_ref()
-                        .map(|d| epistemic_graph::persist::annidx_dir(d, &name));
-                    // 1. Try the no-rebuild reopen of a persisted index.
-                    if let Some(dir) = &idx_dir {
-                        if dir.exists()
-                            && store.load_index(dir).is_ok()
-                            && store.index_matches_len()
-                        {
-                            info!(
-                                "semantic ANN index reopened (no rebuild) for graph '{}' ({} vectors)",
-                                name,
-                                store.len()
-                            );
-                            warmed += 1;
-                            continue;
-                        }
-                    }
-                    // 2. One-time build off the query path (logs build_ms, span).
-                    let t = std::time::Instant::now();
-                    store.warm(&name);
-                    if store.is_ready() {
+                    if epistemic_graph::server::semantic_activation::activate_one(
+                        &name,
+                        &core,
+                        warm_dir.as_deref(),
+                    ) {
                         warmed += 1;
-                        info!(
-                            "semantic ANN index warmed for graph '{}' ({} vectors) in {:.1}s",
-                            name,
-                            store.len(),
-                            t.elapsed().as_secs_f64()
-                        );
-                        // 3. Persist so the next restart REOPENS it (never rebuilds).
-                        if let Some(dir) = &idx_dir {
-                            if let Err(e) = store.save_index(dir) {
-                                tracing::warn!(
-                                    "semantic ANN index persist failed for graph '{}': {}",
-                                    name,
-                                    e
-                                );
-                            }
-                        }
                     }
                 }
                 if warmed > 0 {
@@ -2094,8 +2120,10 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
             loop {
                 ticker.tick().await;
                 let __loop_tick_started = std::time::Instant::now();
-                let n =
-                    epistemic_graph::server::ann_warm::sweep_resident_graphs(&sweep_state).await;
+                let n = epistemic_graph::server::semantic_activation::sweep_resident_graphs(
+                    &sweep_state,
+                )
+                .await;
                 if n > 0 {
                     tracing::info!(
                         "Semantic ANN warm re-check: spawned {} warm(s) for resident graph(s)",
@@ -2541,7 +2569,62 @@ async fn start_raft_and_matview_reload(
 
 #[cfg(test)]
 mod listener_policy_tests {
-    use super::resolve_listener_addr;
+    use super::{
+        prepare_socket_directory, resolve_listener_addr, resolve_socket_path,
+        resolve_windows_socket_path,
+    };
+
+    #[test]
+    fn explicit_socket_resolution_is_pure_on_every_platform() {
+        assert_eq!(
+            resolve_socket_path(Some("operator-selected.sock".to_string())),
+            ("operator-selected.sock".to_string(), None)
+        );
+    }
+
+    #[test]
+    fn windows_default_requests_only_the_local_appdata_parent() {
+        let local = std::path::PathBuf::from("operator-local-data");
+        let resolved = resolve_windows_socket_path(
+            Some(local.clone().into_os_string()),
+            Some(std::ffi::OsString::from("operator-temp")),
+        );
+        let expected_parent = local.join("epistemic-graph");
+        assert_eq!(
+            resolved,
+            (
+                expected_parent
+                    .join("engine.sock")
+                    .to_string_lossy()
+                    .into_owned(),
+                Some(expected_parent),
+            )
+        );
+
+        let temp =
+            resolve_windows_socket_path(None, Some(std::ffi::OsString::from("operator-temp")));
+        assert_eq!(temp.1, None);
+        assert!(temp.0.ends_with("epistemic-graph.sock"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn socket_directory_preparation_is_awaited_and_propagates_io_errors() {
+        let root = tempfile::tempdir().expect("create socket-directory fixture root");
+        let parent = root.path().join("nested").join("epistemic-graph");
+        prepare_socket_directory(Some(parent.clone()))
+            .await
+            .expect("prepare socket directory");
+        assert!(parent.is_dir());
+
+        let blocker = root.path().join("not-a-directory");
+        std::fs::write(&blocker, b"file").expect("write socket-directory blocker");
+        let error = prepare_socket_directory(Some(blocker.join("child")))
+            .await
+            .expect_err("a file cannot contain the socket directory");
+        assert!(error
+            .to_string()
+            .starts_with("could not create socket directory"));
+    }
 
     #[test]
     fn listener_resolution_stays_loopback_by_default() {

@@ -25,9 +25,9 @@ use eg_jobs::{
     ReproducibilityManifest, ResultColumn, SubmitSpec, TenantJobQuota, TypedJobResult,
 };
 use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
-    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface,
-    TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
+    DurabilityDomain, MutationBatch, MutationOperation, MutationOutboxIntent,
+    MutationRequestContext, MutationScopeIdentity, MutationSurface, VersionExpectation,
+    MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
 use proptest::prelude::*;
@@ -37,8 +37,11 @@ use std::collections::BTreeMap;
 /// `principal:sha256:<64 lowercase hex>` SHAPE, not that it is a real digest of
 /// anything, so a constant satisfies it without pulling `sha2` into this test
 /// crate's dev-dependencies.
-const TEST_PRINCIPAL: &str =
-    "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+/// RF-RULING-004: one physical file serves one bound scope and ONE principal,
+/// and the mutation kernel refuses any batch naming another -- so a batch this
+/// test compiles for a dev store must name the principal that store's serving
+/// scope was authenticated for.
+const TEST_PRINCIPAL: &str = eg_jobs::dev_scope_grant::DEV_PRINCIPAL;
 
 fn spec() -> SubmitSpec {
     SubmitSpec {
@@ -70,7 +73,7 @@ fn spec() -> SubmitSpec {
 
 /// The fixed native scope every `JOBS` row transition binds to.
 ///
-/// Taken from the crate itself rather than re-declared here. An earlier copy
+/// Taken from the crate itself rather than redeclared here. An earlier copy
 /// duplicated all three scope constants verbatim because they were private, and
 /// noted that the values "MUST match exactly" -- a correctness requirement kept
 /// only by a comment. `internal_job_batch`'s executor-driven transitions
@@ -97,7 +100,7 @@ fn submit_batch(batch_id: &str, committed_at_ms: u64, native_version: u64) -> Mu
     let operation = MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Job,
-        domain: MutationDomain::AnalyticsJob,
+        domain: DurabilityDomain::AnalyticsJob,
         method: Method::ApplyMutation {
             event_type: "analytics_job_submit".to_string(),
             query: batch_id.to_string(),
@@ -201,11 +204,16 @@ fn run_steps(
             // `submit_batch` calls (steps `0..n`) are the ONLY commits against the
             // shared `analytics-jobs` native scope so far -- every executor-driven
             // transition (`internal_job_batch`) is confined to steps `n..5n` below
-            // -- so the loop index IS the scope's current version count.
+            // -- so the loop index is the scope's version count SINCE the store
+            // opened. Opening now costs exactly one committed batch of its own:
+            // under RF-RULING-005 the scheduler-index bootstrap is a ledgered
+            // maintenance mutation, not an un-ledgered owner write, and it runs
+            // once per freshly created file. Every replica pays the same one, so
+            // the sequence stays identical across them.
             let batch = submit_batch(
                 &format!("crash-replay-submit:{i}"),
                 1_000 + i as u64 * 100,
-                i as u64,
+                i as u64 + 1,
             );
             store
                 .submit_batch(spec(), &batch, 1_000 + i as u64 * 100)
@@ -299,7 +307,7 @@ proptest! {
 
         // Uninterrupted baseline.
         let clean_dir = tempfile::tempdir().unwrap();
-        let clean_store = eg_jobs::JobStore::open_in_dir(clean_dir.path()).unwrap();
+        let clean_store = eg_jobs::dev_scope_grant::open_dev_store_in_dir(clean_dir.path()).unwrap();
         let mut clean_state = ScriptState::default();
         run_steps(&clean_store, n, &mut clean_state, 0..total);
         let clean_snapshot = snapshot(&clean_store);
@@ -318,11 +326,11 @@ proptest! {
         let crash_dir = tempfile::tempdir().unwrap();
         let mut crash_state = ScriptState::default();
         {
-            let store = eg_jobs::JobStore::open_in_dir(crash_dir.path()).unwrap();
+            let store = eg_jobs::dev_scope_grant::open_dev_store_in_dir(crash_dir.path()).unwrap();
             run_steps(&store, n, &mut crash_state, 0..crash_at);
             // `store` drops here — simulated crash: no close/shutdown call.
         }
-        let reopened = eg_jobs::JobStore::open_in_dir(crash_dir.path()).unwrap();
+        let reopened = eg_jobs::dev_scope_grant::open_dev_store_in_dir(crash_dir.path()).unwrap();
         run_steps(&reopened, n, &mut crash_state, crash_at..total);
         let crash_snapshot = snapshot(&reopened);
 

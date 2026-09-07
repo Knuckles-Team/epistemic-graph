@@ -864,6 +864,32 @@ pub struct GraphTxn<'a> {
     ledger_dropped_total: &'a std::sync::atomic::AtomicU64,
 }
 
+/// Whether any property blob recorded on edge `source_id -> target_id` declares
+/// `relationship`. The crate's one answer to that question: both the write transaction
+/// and the store read through it, so a change to the edge-property encoding has one site.
+fn edge_declares_relationship(
+    edge_properties: &DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
+    source_id: &str,
+    target_id: &str,
+    relationship: &str,
+) -> bool {
+    edge_properties
+        .get(&(source_id.to_string(), target_id.to_string()))
+        .is_some_and(|blobs| {
+            blobs.iter().any(|b| {
+                decode_property_value(b)
+                    .ok()
+                    .and_then(|v| {
+                        v.as_object()
+                            .and_then(|o| o.get("relationship"))
+                            .and_then(|r| r.as_str())
+                            .map(|s| s == relationship)
+                    })
+                    .unwrap_or(false)
+            })
+        })
+}
+
 /// Result of an owner-fenced delivery-tag nack transition.
 #[cfg(feature = "broker")]
 #[derive(Debug, Clone, PartialEq)]
@@ -1723,21 +1749,7 @@ impl<'a> GraphTxn<'a> {
     /// the held guard? Used to keep provenance-edge creation idempotent so a
     /// re-run of `create_summary_node` / `consolidate` does not add parallel edges.
     fn has_relationship_edge(&self, source_id: &str, target_id: &str, relationship: &str) -> bool {
-        self.edge_properties
-            .get(&(source_id.to_string(), target_id.to_string()))
-            .is_some_and(|blobs| {
-                blobs.iter().any(|b| {
-                    decode_property_value(b)
-                        .ok()
-                        .and_then(|v| {
-                            v.as_object()
-                                .and_then(|o| o.get("relationship"))
-                                .and_then(|r| r.as_str())
-                                .map(|s| s == relationship)
-                        })
-                        .unwrap_or(false)
-                })
-            })
+        edge_declares_relationship(self.edge_properties, source_id, target_id, relationship)
     }
 
     /// Deterministic id for a summary node over `(level, sorted child ids)`
@@ -5894,6 +5906,31 @@ impl GraphCore {
 
     /// In-degree count for a specific node.
     pub fn in_degree(&self, node_id: &str) -> Result<usize, String> {
+        self.directed_degree(node_id, petgraph::Direction::Incoming)
+    }
+
+    /// How many of `node_id`'s edges run in `direction`. `Err` when the node is unknown.
+    fn directed_degree(
+        &self,
+        node_id: &str,
+        direction: petgraph::Direction,
+    ) -> Result<usize, String> {
+        let topo = self.topo.read();
+        let idx = topo
+            .node_map
+            .get(node_id)
+            .ok_or_else(|| format!("Node '{}' not found", node_id))?;
+        Ok(topo.graph.edges_directed(*idx, direction).count())
+    }
+
+    /// The ids at the far end of `node_id`'s edges in `direction`, in edge order and with
+    /// duplicates kept (a parallel edge yields its neighbour twice, as it always has).
+    /// `Err` when the node is unknown.
+    fn directed_neighbors(
+        &self,
+        node_id: &str,
+        direction: petgraph::Direction,
+    ) -> Result<Vec<String>, String> {
         let topo = self.topo.read();
         let idx = topo
             .node_map
@@ -5901,53 +5938,32 @@ impl GraphCore {
             .ok_or_else(|| format!("Node '{}' not found", node_id))?;
         Ok(topo
             .graph
-            .edges_directed(*idx, petgraph::Direction::Incoming)
-            .count())
+            .edges_directed(*idx, direction)
+            .map(|e| {
+                let far = match direction {
+                    petgraph::Direction::Incoming => e.source(),
+                    petgraph::Direction::Outgoing => e.target(),
+                };
+                topo.graph[far].clone()
+            })
+            .collect())
     }
 
     /// Out-degree count for a specific node.
     pub fn out_degree(&self, node_id: &str) -> Result<usize, String> {
-        let topo = self.topo.read();
-        let idx = topo
-            .node_map
-            .get(node_id)
-            .ok_or_else(|| format!("Node '{}' not found", node_id))?;
-        Ok(topo
-            .graph
-            .edges_directed(*idx, petgraph::Direction::Outgoing)
-            .count())
+        self.directed_degree(node_id, petgraph::Direction::Outgoing)
     }
 
     // ── Neighbor Queries ─────────────────────────────────────────────────
 
     /// Incoming neighbors (predecessors).
     pub fn get_predecessors(&self, node_id: &str) -> Result<Vec<String>, String> {
-        let topo = self.topo.read();
-        let idx = topo
-            .node_map
-            .get(node_id)
-            .ok_or_else(|| format!("Node '{}' not found", node_id))?;
-        let preds: Vec<String> = topo
-            .graph
-            .edges_directed(*idx, petgraph::Direction::Incoming)
-            .map(|e| topo.graph[e.source()].clone())
-            .collect();
-        Ok(preds)
+        self.directed_neighbors(node_id, petgraph::Direction::Incoming)
     }
 
     /// Outgoing neighbors (successors).
     pub fn get_successors(&self, node_id: &str) -> Result<Vec<String>, String> {
-        let topo = self.topo.read();
-        let idx = topo
-            .node_map
-            .get(node_id)
-            .ok_or_else(|| format!("Node '{}' not found", node_id))?;
-        let succs: Vec<String> = topo
-            .graph
-            .edges_directed(*idx, petgraph::Direction::Outgoing)
-            .map(|e| topo.graph[e.target()].clone())
-            .collect();
-        Ok(succs)
+        self.directed_neighbors(node_id, petgraph::Direction::Outgoing)
     }
 
     /// All neighbors (both directions, deduplicated).
@@ -7147,27 +7163,12 @@ impl GraphCore {
     /// the summary/consolidation queries — CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg.) Matches on the edge
     /// blob's canonical `relationship` field.
     fn edge_has_relationship(&self, source_id: &str, target_id: &str, relationship: &str) -> bool {
-        self.edge_properties
-            .get(&(source_id.to_string(), target_id.to_string()))
-            .is_some_and(|blobs| {
-                blobs.iter().any(|b| {
-                    decode_property_value(b)
-                        .ok()
-                        .and_then(|v| {
-                            v.as_object()
-                                .and_then(|o| o.get("relationship"))
-                                .and_then(|r| r.as_str())
-                                .map(|s| s == relationship)
-                        })
-                        .unwrap_or(false)
-                })
-            })
+        edge_declares_relationship(&self.edge_properties, source_id, target_id, relationship)
     }
 
-    /// CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg — the direct children of summary node `id`: the targets of its
-    /// outgoing `SUMMARIZES` edges. Returns ids sorted + deduped. Empty if the node
-    /// is absent or has no summary children.
-    pub fn summary_children(&self, id: &str) -> Vec<String> {
+    /// The sorted, deduplicated targets of `id`'s outgoing edges that declare
+    /// `relationship`. Empty when the node is absent or has no such edge.
+    fn related_targets(&self, id: &str, relationship: &str) -> Vec<String> {
         let targets: Vec<String> = {
             let topo = self.topo.read();
             let Some(&idx) = topo.node_map.get(id) else {
@@ -7180,11 +7181,18 @@ impl GraphCore {
         };
         let mut out: Vec<String> = targets
             .into_iter()
-            .filter(|t| self.edge_has_relationship(id, t, "SUMMARIZES"))
+            .filter(|t| self.edge_has_relationship(id, t, relationship))
             .collect();
         out.sort();
         out.dedup();
         out
+    }
+
+    /// CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg — the direct children of summary node `id`: the targets of its
+    /// outgoing `SUMMARIZES` edges. Returns ids sorted + deduped. Empty if the node
+    /// is absent or has no summary children.
+    pub fn summary_children(&self, id: &str) -> Vec<String> {
+        self.related_targets(id, "SUMMARIZES")
     }
 
     /// CONCEPT:EG-KG.compute.hierarchical-summary-tier-eg — all summary node ids at abstraction `level` (nodes typed
@@ -7395,23 +7403,7 @@ impl GraphCore {
     /// targets of its outgoing `HAS_CHILD` edges. Sorted + deduped; empty if absent /
     /// no children.
     pub fn scene_children(&self, id: &str) -> Vec<String> {
-        let targets: Vec<String> = {
-            let topo = self.topo.read();
-            let Some(&idx) = topo.node_map.get(id) else {
-                return Vec::new();
-            };
-            topo.graph
-                .edges_directed(idx, petgraph::Direction::Outgoing)
-                .map(|e| topo.graph[e.target()].clone())
-                .collect()
-        };
-        let mut out: Vec<String> = targets
-            .into_iter()
-            .filter(|t| self.edge_has_relationship(id, t, "HAS_CHILD"))
-            .collect();
-        out.sort();
-        out.dedup();
-        out
+        self.related_targets(id, "HAS_CHILD")
     }
 
     /// CONCEPT:EG-KG.compute.scene-graph-primitives — all transitive transform descendants of scene object `id`
@@ -7852,60 +7844,63 @@ fn check_match(
         return false;
     };
 
-    check_in_edges(host, pattern, p_idx, p_node, t_node, current_mapping)
-        && check_out_edges(host, pattern, p_idx, p_node, t_node, current_mapping)
+    check_directed_edges(
+        host,
+        pattern,
+        p_idx,
+        p_node,
+        t_node,
+        current_mapping,
+        petgraph::Direction::Incoming,
+    ) && check_directed_edges(
+        host,
+        pattern,
+        p_idx,
+        p_node,
+        t_node,
+        current_mapping,
+        petgraph::Direction::Outgoing,
+    )
 }
 
-/// Every ALREADY-MAPPED pattern in-edge into `p_node` must have a counterpart
-/// in-edge into `t_node` in the host, with compatible edge properties. A pattern
-/// neighbour that is not yet mapped constrains nothing at this depth.
-fn check_in_edges(
+/// Every already-mapped pattern edge at `p_idx` running in `direction` must exist in the
+/// host between the mapped endpoints, with matching edge properties. Pattern edges whose
+/// far endpoint is not mapped yet are skipped — a later step checks them.
+fn check_directed_edges(
     host: &GraphView,
     pattern: &GraphView,
     p_idx: NodeIndex,
     p_node: &str,
     t_node: &str,
     current_mapping: &HashMap<String, String>,
+    direction: petgraph::Direction,
 ) -> bool {
-    for in_edge in pattern
-        .graph
-        .edges_directed(p_idx, petgraph::Direction::Incoming)
-    {
-        let p_src = &pattern.graph[in_edge.source()];
-        let Some(t_src) = current_mapping.get(p_src) else {
+    let incoming = direction == petgraph::Direction::Incoming;
+    for edge in pattern.graph.edges_directed(p_idx, direction) {
+        let far = if incoming {
+            edge.source()
+        } else {
+            edge.target()
+        };
+        let p_far = &pattern.graph[far];
+        let Some(t_far) = current_mapping.get(p_far) else {
             continue;
         };
-        if !host.has_edge(t_src, t_node) {
-            return false;
-        }
-        if !check_edge_props(host, pattern, p_src, p_node, t_src, t_node) {
-            return false;
-        }
-    }
-    true
-}
-
-/// The out-edge counterpart of [`check_in_edges`].
-fn check_out_edges(
-    host: &GraphView,
-    pattern: &GraphView,
-    p_idx: NodeIndex,
-    p_node: &str,
-    t_node: &str,
-    current_mapping: &HashMap<String, String>,
-) -> bool {
-    for out_edge in pattern
-        .graph
-        .edges_directed(p_idx, petgraph::Direction::Outgoing)
-    {
-        let p_tgt = &pattern.graph[out_edge.target()];
-        let Some(t_tgt) = current_mapping.get(p_tgt) else {
-            continue;
+        // Orient the pair so the edge always reads source -> target.
+        let (p_src, p_tgt) = if incoming {
+            (p_far.as_str(), p_node)
+        } else {
+            (p_node, p_far.as_str())
         };
-        if !host.has_edge(t_node, t_tgt) {
+        let (t_src, t_tgt) = if incoming {
+            (t_far.as_str(), t_node)
+        } else {
+            (t_node, t_far.as_str())
+        };
+        if !host.has_edge(t_src, t_tgt) {
             return false;
         }
-        if !check_edge_props(host, pattern, p_node, p_tgt, t_node, t_tgt) {
+        if !check_edge_props(host, pattern, p_src, p_tgt, t_src, t_tgt) {
             return false;
         }
     }

@@ -34,13 +34,14 @@ enforces the absence of PyO3 in source and built wheels.
 - The engine can be restarted, replaced, or scaled independently of the Python
   process; many clients (MCP server, CLI, UIs, ingestion) share one engine,
   eliminating embedded-DB file-lock contention.
-- Because there is no PyO3/codegen, the Python client hand-mirrors the `Method`
-  enum by sending variant names as strings — a silent-drift risk. A CI gate
-  (`tests/test_protocol_parity.py`, run in `rust-ci.yml`) closes it: it parses
-  the `Method` enum and the client's `_send(...)` calls and asserts the two stay
-  in lockstep (no client method without a Rust variant; unbound variants ratcheted
-  against a committed baseline). This is the FFI-free equivalent of a generated
-  binding's compile-time check.
+- There is still no PyO3/FFI, but the Python client no longer hand-mirrors the
+  `Method` enum: RF-RULING-003 made `crates/eg-capabilities` the single contract
+  registry and `gen_contract` emits `epistemic_graph/generated/*.py` from it, so a
+  method id is spelled in generated code only. `gen_contract --check` (run in
+  `release.yml` and on pre-push) byte-diffs the regenerated artifacts against the
+  tree, and the eg-capabilities bijection test proves every wire variant has exactly
+  one descriptor. This is the FFI-free equivalent of a generated binding's
+  compile-time check, with no ratchet file in the loop.
 
 ## Durability reality (correcting a stale assumption)
 

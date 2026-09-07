@@ -5,13 +5,11 @@
 //!
 //! ## Two physical layouts, both opaque
 //!
-//! * **Legacy per-(tenant, agent) layout** ([`user_table_store`]) — a served SQL
+//! * **Principal-isolated layout** ([`user_table_store`]) — a served SQL
 //!   table is subordinate to the verified tenant+principal that created it. Every
 //!   owner receives a distinct redb database below the configured engine
-//!   persistence directory. This is UNCHANGED by NE-003: every existing caller of
-//!   `user_table_store` keeps its exact current behavior (strict physical
-//!   isolation per actor, zero intra-tenant sharing), so nothing regresses for a
-//!   code path this track does not also update to call the new API below.
+//!   persistence directory. Callers that require shared tenant access use the
+//!   authority-gated layout below instead.
 //! * **Tenant-scoped shared layout** ([`tenant_table_store`] /
 //!   [`tenant_acl_table_store`]) — ONE physical redb database per TENANT, shared
 //!   by every actor in that tenant. [`crate::server::sql_catalog_acl`] is the ONLY
@@ -19,17 +17,17 @@
 //!   and an optional row-level predicate before handing back rows. Opening the raw
 //!   tenant store directly (bypassing that module) reintroduces the exact
 //!   ungated-intra-tenant-access hazard NE-003 exists to close — don't do it
-//!   outside a migration/admin path that itself performs the equivalent checks.
+//!   outside an authority/admin path that itself performs the equivalent checks.
 //!
 //! In both layouts the filename is a one-way digest; tenant, principal, graph, and
 //! local filesystem details never appear in filenames or errors. There is no
-//! shared-store fallback for the legacy layout, and no ambient/global fallback for
-//! the tenant layout either — every resolution requires a verified
+//! shared-store fallback for the principal layout, and no ambient/global fallback
+//! for the tenant layout either — every resolution requires a verified
 //! [`CarrierAuthority`] and the configured persistence directory.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use eg_query::TableStore;
 use sha2::{Digest, Sha256};
@@ -80,8 +78,8 @@ fn tenant_table_path(tenant_scope: &str, persist_dir: &Path) -> PathBuf {
         .join(tenant_filename(tenant_scope, "tables"))
 }
 
-/// Physical path of the tenant-shared ACL catalog (ownership, grants, RLS
-/// declarations, migration markers — see [`crate::server::sql_catalog_acl`]).
+/// Physical path of the tenant-shared ACL catalog (ownership, grants, and RLS
+/// declarations — see [`crate::server::sql_catalog_acl`]).
 fn tenant_acl_path(tenant_scope: &str, persist_dir: &Path) -> PathBuf {
     persist_dir
         .join(SQL_CATALOG_DIR)
@@ -108,7 +106,7 @@ pub(crate) fn validate_served_configuration(persist_dir: Option<&Path>) -> std::
 
 /// Open (or fetch the cached handle for) the redb-backed [`TableStore`] at `path`,
 /// creating its parent directory and locking down filesystem permissions first.
-/// Shared by every physical-catalog resolver in this module (legacy per-actor,
+/// Shared by every physical-catalog resolver in this module (principal-isolated,
 /// tenant-shared data, tenant-shared ACL) so redb's process-local single-open rule
 /// is satisfied by construction: this registry is the ONE place in the whole
 /// process that ever calls [`TableStore::open`] for a given path.
@@ -142,8 +140,19 @@ fn open_or_get(path: &Path) -> Result<TableStore, String> {
     if let Some(store) = stores.get(&key) {
         return Ok(store.clone());
     }
-    let store = TableStore::open(path)
-        .map_err(|_| "owner-scoped SQL catalog could not be opened".to_string())?;
+    // RF-RULING-004: the storage kernel never interprets proof bytes; the
+    // composition root decides which principal may serve this file's scopes.
+    // This binary is that root, so the SQL catalog authenticates against the
+    // SAME `EngineScopeAuthority` every other kernel-owned store here uses --
+    // there is exactly one grant authority per process, not one per store.
+    let authority = crate::store_authority::process_authority();
+    let store = TableStore::open(
+        path,
+        crate::store_authority::process_verifier(),
+        authority.principal(),
+        &authority.proof(),
+    )
+    .map_err(|_| "owner-scoped SQL catalog could not be opened".to_string())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -160,14 +169,8 @@ fn open_or_get(path: &Path) -> Result<TableStore, String> {
 /// The registry keeps exactly one redb handle per owner file, which satisfies
 /// redb's process-local single-open rule while retaining strict owner isolation.
 ///
-/// UNCHANGED by NE-003 — every existing caller (native `Method::Sql`, pgwire,
-/// mysql-wire, mssql-wire, sqlite-wire, the sqlite-file import path, the RDF/OBDA
-/// mapping path) keeps today's strict per-(tenant, agent_id) physical isolation
-/// with no code changes on their side. See the module doc for why: gating
-/// intra-tenant sharing per table/action needs the parsed statement's target
-/// table + verb, which this call site does not have and this track's file
-/// ownership does not extend to supplying (that lives in
-/// `src/server/handlers/query.rs` and siblings, outside NE-003's owned files).
+/// Callers choose this principal-isolated store explicitly. Tenant-shared access
+/// must instead use [`tenant_table_store`] behind SQL source authorization.
 pub(crate) fn user_table_store(
     authority: &CarrierAuthority,
     persist_dir: Option<&Path>,
@@ -175,27 +178,6 @@ pub(crate) fn user_table_store(
     let persist_dir = persist_dir.ok_or_else(|| {
         "owner-scoped SQL catalog requires the configured persistence directory".to_string()
     })?;
-    open_or_get(&store_path(authority, persist_dir))
-}
-
-/// Whether `authority`'s LEGACY per-(tenant, agent) catalog file already exists on
-/// disk (CONCEPT:NE-003) — a cheap `stat`, no redb open. Used by
-/// [`crate::server::sql_catalog_acl`]'s lazy per-actor migration to decide whether
-/// there is anything to migrate before paying for a full open + scan.
-pub(crate) fn legacy_store_exists(authority: &CarrierAuthority, persist_dir: &Path) -> bool {
-    std::fs::symlink_metadata(store_path(authority, persist_dir))
-        .map(|metadata| metadata.is_file())
-        .unwrap_or(false)
-}
-
-/// Open `authority`'s LEGACY per-(tenant, agent) catalog (CONCEPT:NE-003) — the
-/// exact same physical file/registry entry [`user_table_store`] resolves, exposed
-/// under a migration-oriented name for [`crate::server::sql_catalog_acl`]'s
-/// one-time-per-actor absorb into the tenant-shared catalog.
-pub(crate) fn legacy_table_store(
-    authority: &CarrierAuthority,
-    persist_dir: &Path,
-) -> Result<TableStore, String> {
     open_or_get(&store_path(authority, persist_dir))
 }
 
@@ -212,7 +194,7 @@ pub(crate) fn tenant_table_store(
     open_or_get(&tenant_table_path(tenant_scope, persist_dir))
 }
 
-/// Resolve the tenant-shared ACL catalog (ownership/grants/RLS/migration markers)
+/// Resolve the tenant-shared ACL catalog (ownership, grants, and RLS declarations)
 /// for `tenant_scope` (CONCEPT:NE-003). A SEPARATE physical file from
 /// [`tenant_table_store`] so the user-data catalog's schema/row tables never
 /// intermix with access-control metadata.
@@ -221,6 +203,19 @@ pub(crate) fn tenant_acl_table_store(
     persist_dir: &Path,
 ) -> Result<TableStore, String> {
     open_or_get(&tenant_acl_path(tenant_scope, persist_dir))
+}
+
+/// The process-local coordination seam owned by the cached tenant ACL handle.
+/// Every clone of that handle shares this exact lock; there is no parallel lock
+/// registry that could drift from the redb handle registry.
+///
+/// This does not claim cluster ordering. A caller that requires replicated
+/// serialization must reject the ACL snapshot's `LocalOnly` capability.
+pub(crate) fn tenant_source_authority_lock(
+    tenant_scope: &str,
+    persist_dir: &Path,
+) -> Result<Arc<RwLock<()>>, String> {
+    Ok(tenant_acl_table_store(tenant_scope, persist_dir)?.source_authority_lock())
 }
 
 /// Test-only: drop a physical catalog's cached handle from the process registry so
@@ -373,6 +368,25 @@ mod tests {
         .unwrap();
         assert_ne!(pg.owner_scope(), mysql.owner_scope());
         assert_eq!(owner_filename(&pg), owner_filename(&mysql));
+    }
+
+    #[test]
+    fn cached_tenant_acl_handle_owns_exactly_one_shared_source_lock() {
+        let base = test_persist_dir();
+        let first = tenant_acl_table_store("tenant-a", &base).unwrap();
+        let second = tenant_acl_table_store("tenant-a", &base).unwrap();
+        let exposed = tenant_source_authority_lock("tenant-a", &base).unwrap();
+        let other = tenant_acl_table_store("tenant-b", &base).unwrap();
+
+        assert!(Arc::ptr_eq(
+            &first.source_authority_lock(),
+            &second.source_authority_lock()
+        ));
+        assert!(Arc::ptr_eq(&first.source_authority_lock(), &exposed));
+        assert!(!Arc::ptr_eq(
+            &first.source_authority_lock(),
+            &other.source_authority_lock()
+        ));
     }
 
     #[cfg(unix)]

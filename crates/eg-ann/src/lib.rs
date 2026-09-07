@@ -4,9 +4,11 @@
 //! A pure-Rust, Pi-lean vector index for persisted and in-memory ANN search.
 //! The headline properties:
 //!
-//!   * **Persistent / no-rebuild load** — `persist::save` → `persist::open`
-//!     reopens via mmap + an O(N) integer posting-list pass; no k-means, no graph
-//!     reconstruction, no f32 touch (the spike's headline win, productionised).
+//!   * **No-rebuild load** — `durable_codes::encode` → `durable_codes::decode`
+//!     restores an index through an O(N) integer posting-list pass; no k-means, no
+//!     graph reconstruction, no f32 touch (the spike's headline win,
+//!     productionised). The buffers are stored by whoever holds the durable
+//!     authority; this crate stores nothing.
 //!   * **Production recall** — an OPQ rotation + well-trained codebooks make raw
 //!     ADC candidates good, and an SQ8 (1 byte/dim) **refine tier** re-ranks the
 //!     over-fetched candidates to recover recall@10 ≥ 0.95 vs brute force.
@@ -38,8 +40,11 @@ pub mod recall;
 pub mod scatter;
 pub mod version;
 
-#[cfg(feature = "redb")]
-pub mod redb_store;
+/// In-memory durable-code artifact (`meta`/`codes`/`refine`) for a trained
+/// index. Pure encode/decode: this crate opens no store of its own, so the
+/// artifact is handed to whatever durable authority the consumer serves under
+/// (RF-RULING-004 / RF-RULING-007). See `src/durable_codes.rs`.
+pub mod durable_codes;
 
 /// Embedding-set drift detection (PSI over the norm / per-dimension value
 /// distributions, CONCEPT:EG-KG.sharding.semantic-embedding-store-backed depth). Behind the crate's own opt-in
@@ -63,7 +68,7 @@ pub use ivfpq::{
 pub use kmeans_gpu::{
     active_backend_name as kmeans_active_backend_name, batch_assign_dispatch, AssignBackend,
 };
-pub use persist::{compact, open, save};
+pub use persist::compact;
 pub use recall::{
     average_precision, evaluate_recall, mean_average_precision, precision_at_k, recall_at_k,
     RecallReport,
@@ -179,29 +184,6 @@ mod tests {
             !res.iter().any(|r| r.id == 77),
             "deleted id must not appear"
         );
-    }
-
-    #[test]
-    fn persist_reopen_no_rebuild_matches() {
-        let dim = 64;
-        let data = clustered_vecs(4000, dim, 40, 7);
-        let idx = build(&data, dim, 64);
-        let sp = SearchParams::default();
-        let q = &data[321];
-        let before = idx.search(q, 10, sp);
-
-        let tmp = tempfile::tempdir().unwrap();
-        save(&idx, tmp.path()).unwrap();
-        let reopened = open(tmp.path()).unwrap();
-        let after = reopened.search(q, 10, sp);
-        assert_eq!(
-            before.iter().map(|r| r.id).collect::<Vec<_>>(),
-            after.iter().map(|r| r.id).collect::<Vec<_>>(),
-            "reopened (no-rebuild) results must match exactly"
-        );
-        // Reopen must NOT have repopulated raw f32: the index carries only codes.
-        assert_eq!(reopened.codes.len(), idx.codes.len());
-        assert_eq!(reopened.sq_codes.len(), idx.sq_codes.len());
     }
 
     #[test]

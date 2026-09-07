@@ -28,18 +28,27 @@ def _contract_source() -> str:
 
 
 def _store_source() -> str:
+    # crates/eg-mutation-store is deleted. Its `_v1` table definitions and
+    # MUTATION_STORE_SCHEMA_VERSION const (formerly lib.rs +
+    # store/identity.rs) now live in eg-storage/src/tables.rs and
+    # eg-storage/src/physical/incarnation.rs (renamed STORAGE_KERNEL_SCHEMA_
+    # VERSION, bumped 1 -> 2 by b90e42a7); the `_v3` retired-prototype
+    # candidate family (formerly store/identity.rs's RETIRED_PROTOTYPE_TABLES)
+    # now lives in eg-storage/src/physical/root.rs.
     return "\n".join(
         _read(path)
         for path in (
-            "crates/eg-mutation-store/src/lib.rs",
-            "crates/eg-mutation-store/src/store/identity.rs",
+            "crates/eg-storage/src/tables.rs",
+            "crates/eg-storage/src/physical/incarnation.rs",
+            "crates/eg-storage/src/physical/root.rs",
         )
     )
 
 
 def _validate(document: str, contract: str, store: str) -> None:
     assert "pub const MUTATION_BATCH_VERSION: u16 = 1;" in contract
-    assert "pub const MUTATION_STORE_SCHEMA_VERSION: u16 = 1;" in store
+    # Renamed STORAGE_KERNEL_SCHEMA_VERSION and bumped 1 -> 2 by b90e42a7.
+    assert "pub const STORAGE_KERNEL_SCHEMA_VERSION: u16 = 2;" in store
     for marker in (
         "pub struct MutationScopeIdentity",
         "pub enum MutationScope",

@@ -19,6 +19,13 @@ name = "eg_kvcache"
 # and the durable tier reuses the engine's existing KG-2.195 redb durability tier.
 [dependencies]
 redb = { version = "4.1", optional = true }
+# RF-RULING-004: the durable cold tier is a kernel-owned store -- `eg-storage` is
+# its sole physical owner (declared `OwnerLayout::Kv`) and `eg-transaction` its
+# sole writer -- so both enter behind the SAME `durable` feature redb is behind.
+# A default / Pi build links none of them and stays dependency-free.
+eg-storage = { path = "../eg-storage", optional = true }
+eg-transaction = { path = "../eg-transaction", optional = true }
+eg-types = { path = "../eg-types", optional = true }
 # CONCEPT:EG-315 — the real WARM-tier codec. `zstd` gives production-grade compression
 # ratios on KV pages (far above the built-in RLE) at the cost of one dependency, so it
 # is OFF by default (`compression` feature) to keep the base/pi build dependency-free.
@@ -41,7 +48,7 @@ default = []
 # Durable COLD tier (CONCEPT:EG-185): a crash-safe, single-writer redb-backed blob
 # store the cache demotes cold bytes into, so the KV cache SURVIVES an OOM / process
 # restart. OFF by default (the RAM-only build needs no redb).
-durable = ["dep:redb"]
+durable = ["dep:redb", "dep:eg-storage", "dep:eg-transaction", "dep:eg-types"]
 # Real WARM-tier compression codec (CONCEPT:EG-315): enables `Codec::Zstd`, selectable
 # via `TieredCache::with_warm_codec`. Pulls `zstd`. OFF by default so the base/pi build
 # stays dependency-free (the hand-rolled RLE remains the default codec either way).

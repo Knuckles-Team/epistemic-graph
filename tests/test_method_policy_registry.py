@@ -122,7 +122,7 @@ def test_missing_domain_declaration_fails_closed() -> None:
         line for line in source.splitlines() if '("ParseFiles", make_policy' not in line
     )
 
-    with pytest.raises(MethodPolicyInventoryError, match="411 rows instead of 412"):
+    with pytest.raises(MethodPolicyInventoryError, match="407 rows instead of 408"):
         parse_method_policy_table(missing)
 
 

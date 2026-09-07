@@ -26,9 +26,12 @@ broker = ["eg-types/broker"]
 # the all-core parallel brute-force fallback — the path EVERY semantic_search hits
 # until the ANN index warms (and after every restart).
 ann = ["dep:rayon"]
-# Additionally persist the ANN codes into the engine's redb durable tier
-# (CONCEPT:KG-2.195) rather than only the mmap files.
-ann-redb = ["ann", "eg-ann/redb"]
+# Additionally persist the ANN codes into the engine's durable tier
+# (CONCEPT:KG-2.195) rather than only the mmap files. The codes live in the
+# `eg_ann` owner table of `OwnerLayout::SemanticIndex`, written through the
+# mutation kernel (RF-RULING-007) -- so this pulls the two kernels, not a raw
+# `redb` handle for eg-ann, which declares no storage dependency at all.
+ann-redb = ["ann", "dep:redb", "dep:sha2", "dep:eg-storage", "dep:eg-transaction"]
 # GPU distance dispatch seam (CONCEPT:EG-326) / real CUDA backend (CONCEPT:EG-327) for
 # the eg-ann index. `ann-gpu` opts into the seam; `ann-gpu-cuda` pulls the real cudarc
 # backend (dynamic-loading — no CUDA toolkit to build). OUT of pi/full (facade folds it
@@ -41,7 +44,7 @@ ann-gpu-cuda = ["ann-gpu", "eg-ann/gpu-cuda"]
 # evaluators are pure-Rust; EG-303 links `redb` (same 4.1 as the durable tiers) to
 # persist the RbacPolicy + registered AgentIdentities across restarts. Gated so a
 # non-security build links neither. redb is Pi-safe; `pi` does NOT enable security.
-security = ["dep:redb", "dep:eg-mutation-store", "dep:sha2", "dep:hmac"]
+security = ["dep:redb", "dep:sha2", "dep:hmac", "dep:eg-storage", "dep:eg-transaction"]
 # Version-keyed query-RESULT cache (CONCEPT:KG-2.233) on `GraphCore`. Pure-Rust
 # bounded LRU + 128-bit query hash — no new dep — so the facade folds it into the
 # lean Pi tier as well as node/cluster/full.
@@ -53,7 +56,7 @@ result-cache = []
 # skipping the full node rescan on the first JSON filter after a cold start. Links
 # `redb` (the SAME 4.1 the durable tiers + EG-303 link); OFF by default so a bare /
 # Pi eg-core build stays fully in-memory (the seam + in-memory default are dep-free).
-path-persist = ["dep:redb"]
+path-persist = ["dep:redb", "dep:eg-storage", "dep:eg-transaction"]
 # Cold object-store tier seam (CONCEPT:KG-2.233): a `ColdTier` trait (RAM→redb→
 # object-store) + an in-memory default impl, for offloading a cold graph's whole
 # serialized state and rehydrating on access. The trait + default are dep-free
@@ -96,10 +99,17 @@ fs4 = "0.8"
 # identities survive a restart. Same redb 4.1 the durable tiers link; only pulled in
 # under `security` (Pi builds do not enable eg-core/security).
 redb = { version = "4.1", optional = true }
-eg-mutation-store = { path = "../eg-mutation-store", optional = true }
+# CONCEPT:EG-303 durable RBAC persistence goes through the two kernels
+# (RF-RULING-004): `eg-storage` is the sole physical authority that opens
+# `rbac.redb` under the declared `OwnerLayout::Rbac`, and `eg-transaction` is the
+# sole mutation owner that admits and commits every write-through. Both are
+# gated behind the SAME `security` feature `eg-mutation-store` was gated behind,
+# so a default / Pi build links neither them nor redb.
+eg-storage = { path = "../eg-storage", optional = true }
+eg-transaction = { path = "../eg-transaction", optional = true }
 sha2 = { version = "0.10", optional = true }
 # `MintAuthorization` (isolation.rs): the constant-time HMAC verification gate in
-# front of `IsolationLayer::mint_graph_policy_lease` (GRAPH-POLICY-LEASE-CONTRACT.md
+# front of `IsolationLayer::mint_policy_decision_lease` (GRAPH-POLICY-LEASE-CONTRACT.md
 # §3 hardening). Same version pin already locked in the workspace (root
 # `Cargo.toml`, linked unconditionally by `eg-plan` and optionally by
 # `src/server/handlers/knowledge_stream/mod.rs`'s `keyed_ref`/`keyed_bytes`) — no

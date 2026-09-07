@@ -9,7 +9,7 @@ spike, with **production-real recall** (the spike deliberately under-delivered i
 
 ```
 eg-types → eg-ann → eg-core → eg-compute → epistemic-graph
-                ↘ (leaf: serde + memmap2 + rayon + rand; redb optional)
+                ↘ (leaf: serde + rayon + rand -- no storage engine, no mmap)
 ```
 
 `eg-ann` is a leaf crate (no workspace deps); `eg-core` depends on it under the
@@ -58,13 +58,21 @@ cheap CPU integer-table lookups.
 
 ## Persistence — no-rebuild reopen
 
-`persist::save` writes a directory: `meta.bin` (rotation, centroids, codebooks,
-ids, `list_of`, tombstones, SQ8 min/scale), `codes.bin` (PQ codes), `refine.bin`
-(SQ8 codes). `persist::open` mmaps the two code files and rebuilds posting lists
-with **one O(N) integer pass** — no k-means, no SVD, no f32 reconstruction.
-`tests::persist_reopen_no_rebuild_matches` proves identical results after reopen.
-With the `redb` feature, `redb_store::{save_redb,open_redb}` persist into the
-engine's redb durable tier (CONCEPT:AU-KG.backend.backend-modes) instead.
+`durable_codes::encode` produces the index's three buffers as owned bytes —
+`meta` (rotation, centroids, codebooks, ids, `list_of`, tombstones, SQ8
+min/scale), `codes` (PQ codes) and `refine` (SQ8 codes) — and
+`durable_codes::decode` restores the index from them with **one O(N) integer
+pass**: no k-means, no SVD, no f32 reconstruction.
+`durable_codes::tests::artifact_round_trips_without_rebuild` proves identical
+results after a restore.
+
+This crate stores nothing. The buffers are written by whoever holds the durable
+authority — the `eg_ann` owner table of `OwnerLayout::SemanticIndex`, keyed
+`(tenant, binding, generation, part)`, through the mutation kernel. The retired
+`redb_store` created its own `redb::Database`, which made a leaf crate a second
+physical authority and could hold only one generation; the retired three-file
+`meta.bin`/`codes.bin`/`refine.bin` directory format had no reader left at all
+(RF-ADR-002).
 
 ## Updates
 
@@ -83,7 +91,7 @@ backend keeps the **identical public API** (`add_embedding` / `semantic_search` 
 so snapshots are interchangeable). It uses brute-force cosine below
 `ANN_BUILD_THRESHOLD` and the eg-ann index above it; cosine is realised as
 squared-L2 over L2-normalised vectors (`cos = 1 − d/2`). A persisted eg-ann index
-reopens via `load_index` WITHOUT rebuilding from raw vectors. The facade folds
+reopens via `adopt_generation` WITHOUT rebuilding from raw vectors. The facade folds
 `ann` into the durable serving tiers (`pi`/`node`/`cluster`/`full`).
 
 ## Deferred (later increments)

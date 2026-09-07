@@ -25,7 +25,7 @@ const MAX_RAFT_PEER_ADDRESS_BYTES: usize = 1_024;
 const RAFT_FAILURE_DOMAINS_ENV: &str = "EPISTEMIC_GRAPH_RAFT_FAILURE_DOMAINS";
 const MAX_RAFT_FAILURE_DOMAIN_BYTES: usize = 256;
 /// ADR-1 / W1.1 — this node's client-reachable address, self-reported into the
-/// durable cluster-topology store (`NodeInfoUpsert`) and handed back by
+/// durable cluster-topology store (typed Raft node self-report) and handed back by
 /// `Method::ClusterMembers`/`PlacementRoute.endpoints`. Required once Raft peers
 /// are configured (config-contract style, like the transport secret below):
 /// without it, a discovering client would have no address to learn for THIS

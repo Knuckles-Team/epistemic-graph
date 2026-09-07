@@ -397,18 +397,15 @@ fn optimize_tsne(y: &mut [Vec<f64>], pj: &[Vec<f64>], epochs: usize, lr: f64, di
         let exaggeration = if epoch < 100 { 4.0 } else { 1.0 };
         let momentum = if epoch < 100 { 0.5 } else { 0.8 };
         let (num, qsum) = student_t_affinities(y);
-        update_tsne_velocity(
+        let inputs = TsneEpoch {
             y,
             pj,
-            &num,
+            num: &num,
             qsum,
             exaggeration,
-            momentum,
-            lr,
-            &mut vel,
-            &mut gains,
             dims,
-        );
+        };
+        update_tsne_velocity(&inputs, momentum, lr, &mut vel, &mut gains);
         for i in 0..n {
             for d in 0..dims {
                 y[i][d] += vel[i][d];
@@ -435,22 +432,31 @@ fn student_t_affinities(y: &[Vec<f64>]) -> (Vec<Vec<f64>>, f64) {
     (num, qsum.max(1e-12))
 }
 
-/// Apply one gradient step to all low-dimensional coordinates' velocities.
-fn update_tsne_velocity(
-    y: &[Vec<f64>],
-    pj: &[Vec<f64>],
-    num: &[Vec<f64>],
+/// One t-SNE epoch's fixed inputs: the current embedding, the symmetrized
+/// high-dimensional affinities, this epoch's Student-t low-dimensional affinities
+/// and their sum, and the exaggeration schedule. The velocity update and the
+/// gradient read exactly this set unchanged; only the mutable optimizer state
+/// (`vel`/`gains`) and the learning schedule differ between them.
+struct TsneEpoch<'a> {
+    y: &'a [Vec<f64>],
+    pj: &'a [Vec<f64>],
+    num: &'a [Vec<f64>],
     qsum: f64,
     exaggeration: f64,
+    dims: usize,
+}
+
+/// Apply one gradient step to all low-dimensional coordinates' velocities.
+fn update_tsne_velocity(
+    epoch: &TsneEpoch<'_>,
     momentum: f64,
     lr: f64,
     vel: &mut [Vec<f64>],
     gains: &mut [Vec<f64>],
-    dims: usize,
 ) {
-    let n = y.len();
-    for i in 0..n {
-        let grad = tsne_gradient(y, pj, num, qsum, exaggeration, i, dims);
+    let dims = epoch.dims;
+    for i in 0..epoch.y.len() {
+        let grad = tsne_gradient(epoch, i);
         for d in 0..dims {
             if grad[d].signum() != vel[i][d].signum() {
                 gains[i][d] += 0.2;
@@ -464,18 +470,17 @@ fn update_tsne_velocity(
 }
 
 /// Compute one t-SNE gradient row from the symmetric affinity matrices.
-fn tsne_gradient(
-    y: &[Vec<f64>],
-    pj: &[Vec<f64>],
-    num: &[Vec<f64>],
-    qsum: f64,
-    exaggeration: f64,
-    i: usize,
-    dims: usize,
-) -> Vec<f64> {
-    let n = y.len();
+fn tsne_gradient(epoch: &TsneEpoch<'_>, i: usize) -> Vec<f64> {
+    let TsneEpoch {
+        y,
+        pj,
+        num,
+        qsum,
+        exaggeration,
+        dims,
+    } = *epoch;
     let mut grad = vec![0.0f64; dims];
-    for j in 0..n {
+    for j in 0..y.len() {
         if i == j {
             continue;
         }

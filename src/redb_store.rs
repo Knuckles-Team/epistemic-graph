@@ -53,9 +53,9 @@ use crate::epistemic_operations::{
 };
 use crate::mutation_batch::{
     CommittedVersion, LogicalName, MutationBatch, MutationBatchCommit, MutationBatchRecord,
-    MutationBatchStatus, MutationDomain, MutationOperation, MutationOutboxIntent,
-    MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor, MutationSurface,
-    VersionExpectation, MUTATION_BATCH_VERSION,
+    MutationBatchStatus, DurabilityDomain, MutationOperation, MutationOutboxIntent,
+    MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor, MutationScope,
+    MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use crate::protocol::{GraphType, Method};
 
@@ -370,10 +370,41 @@ fn decode_durable<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, Str
         .map_err(|_| "durable value is invalid or exceeds resource limits".to_string())
 }
 
-fn decode_mutation_batch_record(bytes: &[u8]) -> Result<MutationBatchRecord, String> {
+fn decode_mutation_batch_record(
+    bytes: &[u8],
+    expected_graph_fname: &str,
+    expected_batch_id: &str,
+) -> Result<MutationBatchRecord, String> {
     let record: MutationBatchRecord = decode_durable(bytes)?;
-    record.batch.validate()?;
+    record.validate()?;
+    validate_graph_mutation_record_binding(&record, expected_graph_fname, expected_batch_id)?;
     Ok(record)
+}
+
+fn validate_graph_mutation_record_binding(
+    record: &MutationBatchRecord,
+    expected_graph_fname: &str,
+    expected_batch_id: &str,
+) -> Result<(), String> {
+    let graph_name = match (
+        record.status,
+        record.identity.scope(),
+        record.committed_version,
+    ) {
+        (
+            MutationBatchStatus::Committed,
+            MutationScope::Graph { graph, .. },
+            CommittedVersion::Graph { .. },
+        ) => graph.as_str(),
+        _ => return Err("graph mutation store contains a non-graph committed record".to_string()),
+    };
+    if sanitize(graph_name) != expected_graph_fname {
+        return Err("graph mutation record does not match its requested graph route".to_string());
+    }
+    if record.batch.batch_id != expected_batch_id {
+        return Err("graph mutation record does not match its physical lookup key".to_string());
+    }
+    Ok(())
 }
 
 fn decode_mutation_outbox_record(bytes: &[u8]) -> Result<MutationOutboxRecord, String> {
@@ -392,6 +423,16 @@ fn decode_mutation_projection_cursor(bytes: &[u8]) -> Result<MutationProjectionC
         return Err("graph mutation store contains a non-graph projection cursor".to_string());
     }
     Ok(cursor)
+}
+
+fn validate_graph_mutation_record_sizes(plaintext: &[u8], stored: &[u8]) -> Result<(), String> {
+    if plaintext.len() > MAX_DURABLE_MSGPACK_BYTES {
+        return Err("graph mutation record exceeds durable resource limits".to_string());
+    }
+    if stored.len() > MAX_DURABLE_STORED_BYTES {
+        return Err("sealed graph mutation record exceeds durable resource limits".to_string());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -623,7 +664,6 @@ pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::n
 // tamper-evident AUDIT entry at that seq -- so tampering this side table cannot
 // forge a passing inclusion proof; it can only make an otherwise-valid proof fail
 // closed (see `crate::redb_store::prove_inclusion`).
-#[cfg(feature = "security")]
 pub(crate) const PROVENANCE_ANCHOR_MEMBERS: TableDefinition<(&str, u64), &[u8]> =
     TableDefinition::new("provenance_anchor_members");
 pub(crate) const GRAPH_META: TableDefinition<&str, &[u8]> = TableDefinition::new("graph_meta");
@@ -741,7 +781,6 @@ pub(crate) const XSHARD_DECISION: TableDefinition<&str, u8> =
 // current result rows). Durable so a matview survives restart; the handler reloads the
 // in-RAM `MatViewStore` from this table on boot and refreshes incrementally on a delta.
 // Lives in the authoritative shard for the same-file reason as the Raft log + xshard rows.
-#[cfg(feature = "compute-dist")]
 pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("matviews");
 
 // Named PLAN-BACKED materialized views (CONCEPT:EG-KG.storage.plan-backed-matview). One
@@ -751,7 +790,6 @@ pub(crate) const MATVIEWS: TableDefinition<&str, &[u8]> = TableDefinition::new("
 // `matviews` table above (and from Lane D's secondary-index tables): a distinct redb
 // table name, so the two matview families and the index rows never collide. Reloaded into
 // the in-RAM plan-matview manager on boot.
-#[cfg(feature = "matview")]
 pub(crate) const PLAN_MATVIEWS: TableDefinition<&str, &[u8]> =
     TableDefinition::new("plan_matviews");
 
@@ -761,7 +799,6 @@ pub(crate) const PLAN_MATVIEWS: TableDefinition<&str, &[u8]> =
 // direct analogue of turso's `dbsp_state` btree, scoped down to redb. DISJOINT from
 // `plan_matviews` (that table holds the DEFINITION; this holds the maintained STATE).
 // Written when an incremental view is defined and dropped with it.
-#[cfg(feature = "matview")]
 pub(crate) const MATVIEW_OPERATOR_STATE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("matview_operator_state");
 
@@ -859,6 +896,19 @@ fn init_canonical_change_tables(wtx: &redb::WriteTransaction) -> Result<(), Stri
     Ok(())
 }
 
+/// The shard's file-wide tables.
+///
+/// Every one is materialized unconditionally, with no `cfg` gate, even though
+/// `audit_chain`/`provenance_anchor_members` are only written under `security`,
+/// `matviews` under `compute-dist`, and `plan_matviews`/`matview_operator_state`
+/// under `matview`. The durable table set is the FILE'S FORMAT IDENTITY, not a
+/// property of the binary that opened it: `OwnerLayout::GraphShard` declares all
+/// 53 tables and `eg_storage`'s census check is exact equality, so a
+/// feature-dependent bootstrap would make one shard file valid or invalid
+/// depending on which build read it. `matview_operator_state` was never
+/// pre-warmed at all (redb creates a table lazily on first write), which under
+/// the exact census would have failed every open of a shard that had never
+/// defined an incremental view.
 fn init_canonical_misc_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
     wtx.open_table(RAFT_LOG)
         .map_err(|error| error.to_string())?;
@@ -866,15 +916,13 @@ fn init_canonical_misc_tables(wtx: &redb::WriteTransaction) -> Result<(), String
         .map_err(|error| error.to_string())?;
     wtx.open_table(XSHARD_DECISION)
         .map_err(|error| error.to_string())?;
-    #[cfg(feature = "compute-dist")]
     wtx.open_table(MATVIEWS)
         .map_err(|error| error.to_string())?;
-    #[cfg(feature = "matview")]
     wtx.open_table(PLAN_MATVIEWS)
         .map_err(|error| error.to_string())?;
-    #[cfg(feature = "security")]
+    wtx.open_table(MATVIEW_OPERATOR_STATE)
+        .map_err(|error| error.to_string())?;
     wtx.open_table(AUDIT).map_err(|error| error.to_string())?;
-    #[cfg(feature = "security")]
     wtx.open_table(PROVENANCE_ANCHOR_MEMBERS)
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -970,6 +1018,50 @@ impl<'a> DurableCrypto<'a> {
         }
         Ok(stored.to_vec())
     }
+}
+
+#[cfg(test)]
+mod shard_control_tests;
+
+/// The shard file's own control scope.
+///
+/// `OwnerLayout::GraphShard` declares `DurabilityDomain::GraphRows`, which may
+/// never own a native scope (`may_own_native_scope() == false`), so EVERY scope
+/// bound to a shard file is a graph scope -- including the one the file's own
+/// file-wide rows are written under. RF-RULING-008's group admission needs
+/// exactly one such control scope per shard write transaction: it is the member
+/// that may reach the Raft log/metadata, the cross-shard prepare/decision rows,
+/// the materialized views, the encryption canary and the cross-modal series
+/// rows, none of which belong to any one graph.
+///
+/// The literal has ONE owner, `eg_storage::GRAPH_SHARD_CONTROL_GRAPH`: the
+/// storage kernel refuses the name on any layout that does not reserve it and
+/// reads the group's control class off the identity, so the kernel guard and the
+/// durable chokepoints below cannot disagree about which name it is.
+///
+/// It is therefore a REAL graph name that no user may ever hold. The name is
+/// bracketed like `__commons__` (a real, user-visible graph) but is refused at
+/// every durable chokepoint below, so a tenant cannot create it, write to it,
+/// register its identity, or purge it -- and a shard that already carries a user
+/// graph under this name cannot exist, because no path could have created one.
+pub const SHARD_CONTROL_GRAPH: &str = eg_storage::GRAPH_SHARD_CONTROL_GRAPH;
+
+/// Refuse a durable operation that names the shard's own control scope.
+///
+/// Enforced at the CHOKEPOINTS rather than at the entrypoints: the durable
+/// identity writer ([`write_graph_meta_with_incarnation`]), the coalesced write
+/// path ([`commit_ops`]), the cross-modal commit's implicit identity backfill
+/// ([`backfill_crossmodal_graph_meta`]) and the whole-graph teardown
+/// ([`purge_graph_rows`]). Every server, embedded, Raft-apply and checkpoint
+/// entrypoint reaches the durable tier through one of those four, so guarding
+/// them covers paths this module does not own.
+pub fn reject_reserved_graph(graph: &str) -> Result<(), String> {
+    if graph == SHARD_CONTROL_GRAPH || sanitize(graph) == SHARD_CONTROL_GRAPH {
+        return Err(format!(
+            "'{SHARD_CONTROL_GRAPH}' is the shard's reserved control scope and cannot be used as a graph"
+        ));
+    }
+    Ok(())
 }
 
 /// Map a logical graph name to the bounded durable key used by the served and
@@ -1178,6 +1270,9 @@ pub(crate) fn commit_ops(
 ) -> Result<(), String> {
     if ops.is_empty() && raft_log_ops.is_empty() {
         return Ok(());
+    }
+    for (graph, _) in ops.iter() {
+        reject_reserved_graph(graph)?;
     }
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(durability).map_err(|e| e.to_string())?;
@@ -1835,18 +1930,20 @@ fn apply_mutation_batch_in_wtx(
     // `wtx.commit()` / audit-tail writeback / AfterCommitBeforeAck) is owned by the
     // caller so the shared-transaction batch path can commit MANY applied envelopes
     // with ONE fsync. This function only stages rows into `wtx`.
-    Ok(MutationBatchCommit {
+    let commit = MutationBatchCommit {
         record,
         identity: batch.identity.clone(),
         replayed: false,
-    })
+    };
+    commit.validate()?;
+    Ok(commit)
 }
 
 fn compute_native_terminal_work_item_cas(batch: &MutationBatch) -> bool {
     batch.authoritative_state.is_none()
         && match batch.operations.first() {
             Some(first)
-                if first.domain == MutationDomain::ControlPlane
+                if first.domain == DurabilityDomain::ControlPlane
                     && first.surface == MutationSurface::Job
                     && matches!(&first.method, Method::CommitWorkItemResult { .. }) =>
             {
@@ -1856,7 +1953,7 @@ fn compute_native_terminal_work_item_cas(batch: &MutationBatch) -> bool {
             }
             Some(first) => {
                 batch.operations.len() == 1
-                    && first.domain == MutationDomain::ControlPlane
+                    && first.domain == DurabilityDomain::ControlPlane
                     && first.surface == MutationSurface::Job
                     && matches!(
                         &first.method,
@@ -2201,7 +2298,7 @@ fn check_idempotency_replay(
             )
         })?;
     let bytes = crypto.unseal(stored.value())?;
-    let record = decode_mutation_batch_record(&bytes)?;
+    let record = decode_mutation_batch_record(&bytes, graph_fname, &existing_id)?;
     if !mutation_batch_replay_matches(
         &record.batch,
         batch,
@@ -2224,11 +2321,13 @@ fn check_idempotency_replay(
     if let Some(change) = change {
         check_replay_envelope_matches(wtx, graph_fname, change, mutation_batch_graph_name(batch)?, crypto)?;
     }
-    Ok(Some(MutationBatchCommit {
+    let commit = MutationBatchCommit {
         record,
         identity: batch.identity.clone(),
         replayed: true,
-    }))
+    };
+    commit.validate()?;
+    Ok(Some(commit))
 }
 
 fn check_batch_id_uniqueness(wtx: &redb::WriteTransaction, batch_id: &str) -> Result<(), String> {
@@ -2922,7 +3021,7 @@ fn apply_native_submit_work_item_operation(
                 .to_string(),
         );
     }
-    let payload = crate::protocol::ResultPayload::raw(&result);
+    let payload = crate::protocol::ResultPayload::raw(&result)?;
     *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
     Ok(())
 }
@@ -2959,7 +3058,7 @@ fn apply_native_submit_work_items_operation(
                 .to_string(),
         );
     }
-    let payload = crate::protocol::ResultPayload::raw(&result);
+    let payload = crate::protocol::ResultPayload::raw(&result)?;
     *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
     Ok(())
 }
@@ -3497,7 +3596,7 @@ fn prepare_and_validate_mutation_batch(
     crossmodal_present: bool,
     crypto: DurableCrypto<'_>,
 ) -> Result<MutationBatchPrepareOutcome, String> {
-    batch.validate()?;
+    batch.validate_write_budget()?;
     let native_terminal_work_item_cas = compute_native_terminal_work_item_cas(batch);
     let staged_state = resolve_mutation_authoritative_state(batch, authoritative_state_msgpack)?;
     let integrity_policy_update = resolve_integrity_policy_update(staged_state.as_ref());
@@ -4387,8 +4486,10 @@ fn write_mutation_batch_commit_rows(
         result_msgpack: generated_result.or_else(|| result_msgpack.map(ToOwned::to_owned)),
         committed_at_ms,
     };
+    record.validate_write_budget()?;
     let record_bytes = rmp_serde::to_vec_named(&record).map_err(|e| e.to_string())?;
     let sealed_record = crypto.seal(&record_bytes);
+    validate_graph_mutation_record_sizes(&record_bytes, sealed_record.as_ref())?;
 
     let next_graph_version = mutation_batch_next_graph_version(batch, current_graph_version)?;
 
@@ -4796,7 +4897,7 @@ fn resource_result_payload(
     host: Option<&DurableResourceHost>,
     fairness_debt: u64,
     changed: Vec<String>,
-) -> crate::protocol::ResultPayload {
+) -> Result<crate::protocol::ResultPayload, String> {
     let (state, lifecycle_revision, tombstone, held) = match record.as_ref() {
         Some(record) => {
             let held = if record.state == ResourceReservationRecordState::Reserved {
@@ -4870,22 +4971,20 @@ fn resource_host_result(
     let host_snapshot = host
         .map(|host| resource_host_update_snapshot(host, policies))
         .transpose()?;
-    Ok(crate::protocol::ResultPayload::raw(
-        &ResourceHostUpdateResult {
-            schema_version: ResourceHostUpdateResultSchemaVersion::V1,
-            accepted,
-            reason,
-            host_ref: request.host_ref.clone(),
-            host_snapshot,
-            revision: host.map_or(request.revision, |host| host.revision),
-            held_cpu_weight: host.map_or(0, |host| host.held_cpu_weight),
-            held_memory_mib: host.map_or(0, |host| host.held_memory_mib),
-            held_disk_mib: host.map_or(0, |host| host.held_disk_mib),
-            held_process_slots: host.map_or(0, |host| host.held_process_slots),
-            draining: host.is_some_and(|host| host.draining),
-            quarantined: host.is_some_and(|host| host.quarantined),
-        },
-    ))
+    crate::protocol::ResultPayload::raw(&ResourceHostUpdateResult {
+        schema_version: ResourceHostUpdateResultSchemaVersion::V1,
+        accepted,
+        reason,
+        host_ref: request.host_ref.clone(),
+        host_snapshot,
+        revision: host.map_or(request.revision, |host| host.revision),
+        held_cpu_weight: host.map_or(0, |host| host.held_cpu_weight),
+        held_memory_mib: host.map_or(0, |host| host.held_memory_mib),
+        held_disk_mib: host.map_or(0, |host| host.held_disk_mib),
+        held_process_slots: host.map_or(0, |host| host.held_process_slots),
+        draining: host.is_some_and(|host| host.draining),
+        quarantined: host.is_some_and(|host| host.quarantined),
+    })
 }
 
 fn resource_b64_urlsafe(value: &str) -> String {
@@ -6676,7 +6775,7 @@ fn resource_commit_release_or_reclaim_or_reserve_gate(
             None,
             0,
             vec![],
-        )));
+        )?));
     }
     Ok(None)
 }
@@ -6724,31 +6823,31 @@ fn resource_admit_reserve_host_with_winner_check(
 /// must also contain `now`.
 fn resource_reserve_window_precheck(
     request: &ResourceReservationRequest,
-) -> Option<crate::protocol::ResultPayload> {
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
     if request
         .expected_lifecycle_revision
         .is_some_and(|revision| revision != 0)
     {
-        return Some(resource_result_payload(
+        return Ok(Some(resource_result_payload(
             ResourceReservationResultDecision::InputConflict,
             request,
             None,
             None,
             0,
             vec![],
-        ));
+        )?));
     }
     if request.now_ms < request.reserved_at_ms || request.now_ms >= request.expires_at_ms {
-        return Some(resource_result_payload(
+        return Ok(Some(resource_result_payload(
             ResourceReservationResultDecision::Policy,
             request,
             None,
             None,
             0,
             vec![],
-        ));
+        )?));
     }
-    None
+    Ok(None)
 }
 
 /// The `expected_lifecycle_revision` precondition of a release/reclaim.
@@ -6761,7 +6860,7 @@ fn resource_reserve_window_precheck(
 fn resource_lifecycle_revision_precheck(
     request: &ResourceReservationRequest,
     stored: &DurableResourceReservation,
-) -> Option<crate::protocol::ResultPayload> {
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let reserved = stored.record.state == ResourceReservationRecordState::Reserved;
     let lifecycle_matches = if reserved {
         request.expected_lifecycle_revision == Some(stored.record.lifecycle_revision)
@@ -6769,9 +6868,9 @@ fn resource_lifecycle_revision_precheck(
         request.expected_lifecycle_revision == stored.record.expected_lifecycle_revision
     };
     if lifecycle_matches {
-        return None;
+        return Ok(None);
     }
-    Some(resource_result_payload(
+    Ok(Some(resource_result_payload(
         if reserved {
             ResourceReservationResultDecision::Stale
         } else {
@@ -6782,7 +6881,7 @@ fn resource_lifecycle_revision_precheck(
         None,
         stored.fairness_debt,
         vec![],
-    ))
+    )?))
 }
 
 /// The idempotency-precondition pass over an existing reservation row: tenant
@@ -6805,7 +6904,7 @@ fn resource_existing_reservation_precheck(
             None,
             0,
             vec![],
-        )));
+        )?));
     }
     if !resource_request_matches_record(request, &stored.record) {
         return Ok(Some(resource_result_payload(
@@ -6815,10 +6914,10 @@ fn resource_existing_reservation_precheck(
             None,
             stored.fairness_debt,
             vec![],
-        )));
+        )?));
     }
     if !is_reserve {
-        if let Some(payload) = resource_lifecycle_revision_precheck(request, stored) {
+        if let Some(payload) = resource_lifecycle_revision_precheck(request, stored)? {
             return Ok(Some(payload));
         }
     }
@@ -6831,7 +6930,7 @@ fn resource_existing_reservation_precheck(
             host.as_ref(),
             stored.fairness_debt,
             vec![],
-        )));
+        )?));
     }
     Ok(None)
 }
@@ -6858,7 +6957,7 @@ fn resource_lifecycle_precheck(
     let is_reserve = matches!(method, Method::ReserveWorkItemResources { .. });
     let is_reclaim = matches!(method, Method::ReclaimWorkItemResources { .. });
     if is_reserve {
-        if let Some(payload) = resource_reserve_window_precheck(request) {
+        if let Some(payload) = resource_reserve_window_precheck(request)? {
             return Ok(ReservationLifecycleStep::Return(payload));
         }
     }
@@ -6912,7 +7011,7 @@ fn resource_load_and_validate_work_item(
             None,
             0,
             vec![],
-        )));
+        )?));
     };
     let props: serde_json::Map<String, serde_json::Value> = decode_durable(&item_bytes)?;
     let work_item_fence = match resource_validate_work_item(&props, request, is_reclaim) {
@@ -6925,7 +7024,7 @@ fn resource_load_and_validate_work_item(
                 None,
                 0,
                 vec![],
-            )));
+            )?));
         }
     };
     Ok(ReservationLifecycleStep::Continue((props, work_item_fence)))
@@ -6954,7 +7053,7 @@ fn resource_validate_work_item_status_and_extension<'p>(
                 None,
                 0,
                 vec![],
-            )));
+            )?));
         }
     } else if (!is_reclaim || !work_item_fence.superseded)
         && !matches!(
@@ -6975,7 +7074,7 @@ fn resource_validate_work_item_status_and_extension<'p>(
             None,
             0,
             vec![],
-        )));
+        )?));
     }
     let (_repository, extension) = resource_metadata_maps(props)
         .map_err(|_| "WorkItem resource admission extension is invalid".to_string())?;
@@ -6989,7 +7088,7 @@ fn resource_validate_work_item_status_and_extension<'p>(
                 None,
                 0,
                 vec![],
-            )));
+            )?));
         }
     }
     Ok(ReservationLifecycleStep::Continue(extension))
@@ -7014,7 +7113,7 @@ fn resource_release_row_precheck(
             None,
             0,
             vec![],
-        )));
+        )?));
     }
     if !resource_request_matches_record(request, &stored.record) {
         return Ok(Some(resource_result_payload(
@@ -7024,7 +7123,7 @@ fn resource_release_row_precheck(
             None,
             stored.fairness_debt,
             vec![],
-        )));
+        )?));
     }
     if stored.record.state != ResourceReservationRecordState::Reserved || is_reserve {
         let host = resource_load_host(hosts, graph, &stored.record.host_ref, crypto)?;
@@ -7035,7 +7134,7 @@ fn resource_release_row_precheck(
             host.as_ref(),
             stored.fairness_debt,
             vec![],
-        )));
+        )?));
     }
     Ok(None)
 }
@@ -7046,16 +7145,17 @@ fn resource_reclaim_policy_precheck(
     request: &ResourceReservationRequest,
     stored: &DurableResourceReservation,
     props: &serde_json::Map<String, serde_json::Value>,
-) -> Option<crate::protocol::ResultPayload> {
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let refuse = || {
-        Some(resource_result_payload(
+        resource_result_payload(
             ResourceReservationResultDecision::Policy,
             request,
             Some(stored.record.clone()),
             None,
             stored.fairness_debt,
             vec![],
-        ))
+        )
+        .map(Some)
     };
     if request.now_ms < stored.record.expires_at_ms {
         return refuse();
@@ -7065,7 +7165,7 @@ fn resource_reclaim_policy_precheck(
     if matches!(status, "leased" | "running") && lease_expires_at_ms > request.now_ms {
         return refuse();
     }
-    None
+    Ok(None)
 }
 
 /// Give the reservation's held capacity back to its host.  Any underflow is a
@@ -7211,7 +7311,7 @@ fn resource_commit_release_or_reclaim(
         return Ok(Some(payload));
     }
     if is_reclaim {
-        if let Some(payload) = resource_reclaim_policy_precheck(request, stored, props) {
+        if let Some(payload) = resource_reclaim_policy_precheck(request, stored, props)? {
             return Ok(Some(payload));
         }
     }
@@ -7223,7 +7323,7 @@ fn resource_commit_release_or_reclaim(
             None,
             stored.fairness_debt,
             vec![],
-        )));
+        )?));
     };
     resource_release_host_capacity(&mut host, stored)?;
     resource_put_host(hosts, graph, &host, crypto)?;
@@ -7257,7 +7357,7 @@ fn resource_commit_release_or_reclaim(
         Some(&host),
         debt,
         vec![request.work_item_id.clone()],
-    )))
+    )?))
 }
 
 /// Phase 5 (reserve-only path): the attempt-index winner check. Literal relocation.
@@ -7288,7 +7388,7 @@ fn resource_check_attempt_winner_conflict(
                 None,
                 0,
                 vec![],
-            )));
+            )?));
         }
     }
     Ok(None)
@@ -7298,7 +7398,7 @@ fn resource_admission_refusal(
     decision: ResourceReservationResultDecision,
     request: &ResourceReservationRequest,
     host: &DurableResourceHost,
-) -> crate::protocol::ResultPayload {
+) -> Result<crate::protocol::ResultPayload, String> {
     resource_result_payload(decision, request, None, Some(host), 0, vec![])
 }
 
@@ -7322,12 +7422,12 @@ fn resource_admit_check_host_eligibility(
                 ResourceReservationResultDecision::StaleHost,
                 request,
                 host,
-            )));
+            )?));
         }
     }
     let host_state = resource_validate_host_freshness(host, request.now_ms);
     if host_state != ResourceReservationResultDecision::Accepted {
-        return Ok(Some(resource_admission_refusal(host_state, request, host)));
+        return Ok(Some(resource_admission_refusal(host_state, request, host)?));
     }
     if !request
         .required_labels
@@ -7338,21 +7438,21 @@ fn resource_admit_check_host_eligibility(
             ResourceReservationResultDecision::Labels,
             request,
             host,
-        )));
+        )?));
     }
     if !resource_target_selection_matches(extension, host)? {
         return Ok(Some(resource_admission_refusal(
             ResourceReservationResultDecision::Policy,
             request,
             host,
-        )));
+        )?));
     }
     if !resource_selected_target_matches_request(request, host) {
         return Ok(Some(resource_admission_refusal(
             ResourceReservationResultDecision::Policy,
             request,
             host,
-        )));
+        )?));
     }
     Ok(None)
 }
@@ -7378,7 +7478,7 @@ fn resource_admit_check_index_gates(
                 ResourceReservationResultDecision::AntiAffinity,
                 request,
                 host,
-            )));
+            )?));
         }
     }
     let concurrency_key = resource_concurrency_scope_key(&request.concurrency_key);
@@ -7395,7 +7495,7 @@ fn resource_admit_check_index_gates(
             ResourceReservationResultDecision::Concurrency,
             request,
             host,
-        )));
+        )?));
     }
     for key in resource_exclusivity_keys(request) {
         if exclusivity
@@ -7407,7 +7507,7 @@ fn resource_admit_check_index_gates(
                 ResourceReservationResultDecision::Exclusivity,
                 request,
                 host,
-            )));
+            )?));
         }
     }
     if !resource_capacity_sum(host, &request.requirement) {
@@ -7415,7 +7515,7 @@ fn resource_admit_check_index_gates(
             ResourceReservationResultDecision::Capacity,
             request,
             host,
-        )));
+        )?));
     }
     Ok(None)
 }
@@ -7428,23 +7528,23 @@ fn resource_admit_check_disk(
     host: &DurableResourceHost,
     existing_policy: Option<&DurableResourceDiskPolicy>,
     policy_row_count: usize,
-) -> Option<crate::protocol::ResultPayload> {
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
     if existing_policy.is_none() && policy_row_count >= MAX_RESOURCE_HOST_DISK_POLICIES {
-        return Some(resource_admission_refusal(
+        return Ok(Some(resource_admission_refusal(
             ResourceReservationResultDecision::Policy,
             request,
             host,
-        ));
+        )?));
     }
     if let Some(policy) = existing_policy {
         if policy.low_watermark_mib != request.disk_low_watermark_mib
             || policy.high_watermark_mib != request.disk_high_watermark_mib
         {
-            return Some(resource_admission_refusal(
+            return Ok(Some(resource_admission_refusal(
                 ResourceReservationResultDecision::Policy,
                 request,
                 host,
-            ));
+            )?));
         }
     }
     let available_disk = host
@@ -7453,13 +7553,13 @@ fn resource_admit_check_disk(
         .and_then(|value| value.checked_sub(host.held_disk_mib))
         .unwrap_or(0);
     if request.requirement.disk_mib > available_disk {
-        return Some(resource_admission_refusal(
+        return Ok(Some(resource_admission_refusal(
             ResourceReservationResultDecision::Disk,
             request,
             host,
-        ));
+        )?));
     }
-    None
+    Ok(None)
 }
 
 /// Persist one disk-policy row for `disk_key`.
@@ -7518,7 +7618,7 @@ fn resource_admit_apply_disk_policy(
             ResourceReservationResultDecision::Disk,
             request,
             host,
-        )));
+        )?));
     }
     if existing_policy.is_some_and(|policy| policy.blocked != blocked) {
         resource_put_disk_policy(
@@ -7573,7 +7673,7 @@ fn resource_admit_reserve_host(
             None,
             0,
             vec![],
-        )));
+        )?));
     };
     // Admission and host snapshots share the schema's 128-policy
     // bound.  Enumerating this exact host prefix is part of the same
@@ -7601,7 +7701,7 @@ fn resource_admit_reserve_host(
         .map(|value| resource_decode::<DurableResourceDiskPolicy>(value.value(), crypto))
         .transpose()?;
     if let Some(payload) =
-        resource_admit_check_disk(request, &host, existing_policy.as_ref(), policy_rows.len())
+        resource_admit_check_disk(request, &host, existing_policy.as_ref(), policy_rows.len())?
     {
         return Ok(ReservationLifecycleStep::Return(payload));
     }
@@ -7718,7 +7818,7 @@ fn resource_commit_reserve_admission(
         Some(&host),
         debt,
         vec![request.work_item_id.clone()],
-    )))
+    )?))
 }
 
 fn resource_request_from_record(
@@ -7774,7 +7874,7 @@ fn resource_request_from_record(
 fn resource_no_reservation_query_result(
     request: &ResourceReservationStatusRequest,
     decision: ResourceReservationResultDecision,
-) -> crate::protocol::ResultPayload {
+) -> Result<crate::protocol::ResultPayload, String> {
     let work_item_id = request.work_item_id.clone().unwrap_or_default();
     crate::protocol::ResultPayload::raw(&ResourceReservationResult {
         schema_version: ResourceReservationResultSchemaVersion::V1,
@@ -7886,8 +7986,7 @@ fn resource_decode_result_payload(
     payload: crate::protocol::ResultPayload,
 ) -> Result<ResourceReservationResult, String> {
     let bytes = match payload {
-        crate::protocol::ResultPayload::Raw(bytes)
-        | crate::protocol::ResultPayload::PropertiesMsgpack(bytes) => bytes,
+        crate::protocol::ResultPayload::Raw(bytes) => bytes,
         _ => return Err("resource query result encoding failed".into()),
     };
     eg_types::msgpack::decode_bounded(
@@ -8000,7 +8099,7 @@ fn read_resource_reservation_current_work_item_query(
         return resource_decode_result_payload(resource_no_reservation_query_result(
             request,
             ResourceReservationResultDecision::NotFound,
-        ));
+        )?);
     };
     let props: serde_json::Map<String, serde_json::Value> = decode_durable(&bytes)?;
     let current = current_work_item_query_matches(
@@ -8017,7 +8116,7 @@ fn read_resource_reservation_current_work_item_query(
     } else {
         ResourceReservationResultDecision::Stale
     };
-    resource_decode_result_payload(resource_no_reservation_query_result(request, decision))
+    resource_decode_result_payload(resource_no_reservation_query_result(request, decision)?)
 }
 
 // RM's mirrorless retry query intentionally omits the fingerprint: the
@@ -8105,7 +8204,7 @@ fn build_resource_reservation_query_result(
         host.as_ref(),
         stored.fairness_debt,
         Vec::new(),
-    );
+    )?;
     resource_decode_result_payload(bytes)
 }
 
@@ -8132,7 +8231,7 @@ fn read_resource_reservation_by_id(
         return resource_decode_result_payload(resource_no_reservation_query_result(
             request,
             ResourceReservationResultDecision::NotFound,
-        ));
+        )?);
     };
     let stored: DurableResourceReservation = resource_decode(row.value(), crypto)?;
     if stored.record.tenant_ref != request.tenant_ref {
@@ -8142,7 +8241,7 @@ fn read_resource_reservation_by_id(
         return resource_decode_result_payload(resource_no_reservation_query_result(
             request,
             ResourceReservationResultDecision::NotFound,
-        ));
+        )?);
     }
     if !resource_reservation_query_correlates(request, &stored.record) {
         return Err("resource reservation correlation does not match".into());
@@ -9676,7 +9775,7 @@ fn claim_not_claimed_payload(
     reason: ClaimWorkItemResultReason,
     inflight: u32,
     changed_work_item_ids: Vec<String>,
-) -> crate::protocol::ResultPayload {
+) -> Result<crate::protocol::ResultPayload, String> {
     crate::protocol::ResultPayload::raw(&ClaimWorkItemResult {
         schema_version: ClaimWorkItemResultSchemaVersion::V1,
         claimed: false,
@@ -9772,7 +9871,7 @@ fn apply_claim_work_item_row(
             ClaimWorkItemResultReason::TenantQuota,
             inflight,
             changed_work_item_ids,
-        )));
+        )?));
     }
     candidates.sort_by(|left, right| {
         (&left.0, &left.1, &left.2, &left.3).cmp(&(&right.0, &right.1, &right.2, &right.3))
@@ -9782,7 +9881,7 @@ fn apply_claim_work_item_row(
             ClaimWorkItemResultReason::Empty,
             inflight,
             changed_work_item_ids,
-        )));
+        )?));
     };
     let (epoch, attempt) = claim_grant_lease(&mut props, worker_id, now_s, lease_until_s);
     let kind = property_string(&props, "kind").to_string();
@@ -9829,7 +9928,7 @@ fn apply_claim_work_item_row(
                 changed_work_item_ids
             },
         },
-    )))
+    )?))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -10051,7 +10150,7 @@ fn apply_cas_work_item_metadata_row(
                 work_item_id: work_item_id.clone(),
                 changed_work_item_ids: changed,
             },
-        )))
+        )?))
     };
 
     let current = nodes
@@ -10648,20 +10747,37 @@ where
         .transpose()
 }
 
-/// Read one durable batch record from a snapshot.  Used by retry/recovery and by
-/// tests that close/reopen the database to model process death.
+/// Read one durable batch record from a requested graph snapshot. The decoded
+/// receipt must bind to that physical graph route before it is returned.
+pub(crate) fn read_mutation_batch_for_graph(
+    db: &Database,
+    graph_fname: &str,
+    batch_id: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<MutationBatchRecord>, String> {
+    read_typed_durable_row(db, MUTATION_BATCHES, batch_id, crypto, |bytes| {
+        decode_mutation_batch_record(bytes, graph_fname, batch_id)
+    })
+}
+
+/// Test-only fixture reader for typed-row tests that have no server route.
+#[cfg(test)]
 pub(crate) fn read_mutation_batch(
     db: &Database,
     batch_id: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<MutationBatchRecord>, String> {
-    read_typed_durable_row(
-        db,
-        MUTATION_BATCHES,
-        batch_id,
-        crypto,
-        decode_mutation_batch_record,
-    )
+    read_typed_durable_row(db, MUTATION_BATCHES, batch_id, crypto, |bytes| {
+        let record: MutationBatchRecord = decode_durable(bytes)?;
+        let graph_fname = record
+            .identity
+            .scope()
+            .graph_name()
+            .map(LogicalName::as_str)
+            .map(sanitize)
+            .ok_or_else(|| "graph mutation record is not graph-scoped".to_string())?;
+        decode_mutation_batch_record(bytes, &graph_fname, batch_id)
+    })
 }
 
 pub(crate) fn read_change_envelope(
@@ -10937,7 +11053,16 @@ fn load_ack_source_batch(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "outbox event has no committed mutation batch".to_string())?;
     let bytes = crypto.unseal(row.value())?;
-    let batch = decode_mutation_batch_record(&bytes)?;
+    let expected_graph_fname = lease
+        .record
+        .identity
+        .scope()
+        .graph_name()
+        .map(LogicalName::as_str)
+        .map(sanitize)
+        .ok_or_else(|| "outbox event is not graph-scoped".to_string())?;
+    let batch =
+        decode_mutation_batch_record(&bytes, &expected_graph_fname, &lease.record.batch_id)?;
     if !ack_source_batch_is_bound(&batch, lease) {
         return Err("outbox event is not bound to its committed mutation batch".to_string());
     }
@@ -11936,6 +12061,7 @@ fn apply_crossmodal_measurements(
 
 /// Backfill a graph_meta identity row so authoritative load_all recovers it.
 fn backfill_crossmodal_graph_meta(wtx: &redb::WriteTransaction, graph: &str) -> Result<(), String> {
+    reject_reserved_graph(graph)?;
     let mut meta = wtx.open_table(GRAPH_META).map_err(|e| e.to_string())?;
     if meta.get(graph).map_err(|e| e.to_string())?.is_none() {
         let incarnation_id = new_incarnation_id(graph);
@@ -12101,6 +12227,7 @@ pub(crate) fn write_graph_meta_with_incarnation(
     graph_type: GraphType,
     incarnation_id: &str,
 ) -> Result<(), String> {
+    reject_reserved_graph(graph)?;
     if incarnation_id.trim().is_empty() {
         return Err("graph incarnation id must not be empty".to_string());
     }
@@ -14060,6 +14187,7 @@ pub(crate) fn purge_graph_rows(
     graph: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    reject_reserved_graph(graph)?;
     let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
     wtx.set_durability(Durability::Immediate)
         .map_err(|e| e.to_string())?;
@@ -16896,8 +17024,8 @@ mod mutation_batch_tests {
         PolicyRecord, PrivacyAttestation, CHANGE_ENVELOPE_VERSION,
     };
     use crate::mutation_batch::{
-        IncarnationId, MutationDomain, MutationOperation, MutationOutboxIntent,
-        MutationRequestContext, MutationScopeIdentity, MutationSurface, TenantId,
+        IncarnationId, DurabilityDomain, MutationOperation, MutationOutboxIntent,
+        MutationRequestContext, MutationScopeIdentity, MutationSurface, ScopeTenantId,
         MUTATION_BATCH_VERSION,
     };
 
@@ -16964,7 +17092,7 @@ mod mutation_batch_tests {
                 verified_capabilities: Default::default(),
             },
             identity: MutationScopeIdentity::graph(
-                TenantId::new("tenant-a").unwrap(),
+                ScopeTenantId::new("tenant-a").unwrap(),
                 LogicalName::new("graph-a").unwrap(),
                 IncarnationId::new("incarnation:test:redb-store").unwrap(),
             ),
@@ -16977,13 +17105,13 @@ mod mutation_batch_tests {
                 MutationOperation {
                     ordinal: 0,
                     surface: MutationSurface::Transaction,
-                    domain: MutationDomain::GraphRows,
+                    domain: DurabilityDomain::GraphRows,
                     method: node("a", 1),
                 },
                 MutationOperation {
                     ordinal: 1,
                     surface: MutationSurface::Transaction,
-                    domain: MutationDomain::GraphRows,
+                    domain: DurabilityDomain::GraphRows,
                     method: node("b", 2),
                 },
             ],
@@ -16995,6 +17123,58 @@ mod mutation_batch_tests {
             }],
             created_at_ms: 100,
         }
+    }
+
+    #[test]
+    fn graph_record_decoder_validates_the_complete_receipt() {
+        let batch = batch("decode-record", "decode-record-key");
+        let mut record = MutationBatchRecord {
+            identity: batch.identity.clone(),
+            batch,
+            status: MutationBatchStatus::Committed,
+            committed_version: CommittedVersion::Graph {
+                source: 3,
+                target: 4,
+            },
+            result_msgpack: None,
+            committed_at_ms: 101,
+        };
+        let encoded = rmp_serde::to_vec_named(&record).unwrap();
+        decode_mutation_batch_record(&encoded, "graph-a", "decode-record").unwrap();
+        assert!(decode_mutation_batch_record(&encoded, "graph-b", "decode-record").is_err());
+        assert!(decode_mutation_batch_record(&encoded, "graph-a", "moved-record").is_err());
+
+        for status in [MutationBatchStatus::Prepared, MutationBatchStatus::Aborted] {
+            record.status = status;
+            record.committed_version = CommittedVersion::None;
+            record.validate().unwrap();
+            let non_terminal = rmp_serde::to_vec_named(&record).unwrap();
+            assert!(
+                decode_mutation_batch_record(&non_terminal, "graph-a", "decode-record").is_err()
+            );
+        }
+
+        let native_identity = MutationScopeIdentity::native(
+            ScopeTenantId::new("tenant-a").unwrap(),
+            DurabilityDomain::SqlCatalog,
+            LogicalName::new("graph-a").unwrap(),
+            IncarnationId::new("incarnation:test:redb-store").unwrap(),
+        )
+        .unwrap();
+        record.batch.identity = native_identity.clone();
+        record.identity = native_identity;
+        record.batch.version_expectation = VersionExpectation::Native(3);
+        for operation in &mut record.batch.operations {
+            operation.domain = DurabilityDomain::SqlCatalog;
+        }
+        record.status = MutationBatchStatus::Committed;
+        record.committed_version = CommittedVersion::Native {
+            source: 3,
+            target: 4,
+        };
+        record.validate().unwrap();
+        let wrong_store = rmp_serde::to_vec_named(&record).unwrap();
+        assert!(decode_mutation_batch_record(&wrong_store, "graph-a", "decode-record").is_err());
     }
 
     fn ready_work_item_method(work_item_id: &str, max_attempts: u64) -> Method {
@@ -17028,7 +17208,7 @@ mod mutation_batch_tests {
         claim.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::ClaimWorkItem {
                 request: crate::epistemic_operations::ClaimWorkItemRequest {
                     schema_version:
@@ -17086,8 +17266,7 @@ mod mutation_batch_tests {
         )
         .unwrap();
         let bytes = match payload {
-            crate::protocol::ResultPayload::Raw(inner)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            crate::protocol::ResultPayload::Raw(inner) => inner,
             other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
         };
         decode_durable(&bytes).unwrap()
@@ -17120,6 +17299,25 @@ mod mutation_batch_tests {
             &mut audit,
             true,
             point,
+        )
+    }
+
+    fn commit_with_result(
+        db: &Database,
+        batch: &MutationBatch,
+        result: &[u8],
+    ) -> Result<MutationBatchCommit, String> {
+        #[cfg(feature = "security")]
+        let mut audit = AuditTailCache::new();
+        commit_mutation_batch(
+            db,
+            "graph-a",
+            batch,
+            Some(result),
+            101,
+            DurableCrypto::none(),
+            #[cfg(feature = "security")]
+            &mut audit,
         )
     }
 
@@ -17196,6 +17394,37 @@ mod mutation_batch_tests {
             assert_absent_after_reopen(&path, "batch-pre");
             let _ = std::fs::remove_file(path);
         }
+    }
+
+    #[test]
+    fn mutation_batch_write_budgets_leave_no_graph_or_receipt_effects() {
+        let oversized_path = temp_path("oversized-result");
+        {
+            let db = open(&oversized_path);
+            let mutation = batch("batch-oversized-result", "idem-oversized-result");
+            let result = vec![0; (64 * 1024 * 1024) + 1];
+            assert!(commit_with_result(&db, &mutation, &result).is_err());
+            assert_eq!(
+                read_mutation_graph_version(&db, "graph-a").unwrap(),
+                Some(3)
+            );
+        }
+        assert_absent_after_reopen(&oversized_path, "batch-oversized-result");
+        let _ = std::fs::remove_file(oversized_path);
+
+        let collection_path = temp_path("excessive-collection");
+        {
+            let db = open(&collection_path);
+            let mut mutation = batch("batch-excessive-collection", "idem-excessive-collection");
+            mutation.outbox = vec![mutation.outbox[0].clone(); 100_001];
+            assert!(commit_at(&db, &mutation, None).is_err());
+            assert_eq!(
+                read_mutation_graph_version(&db, "graph-a").unwrap(),
+                Some(3)
+            );
+        }
+        assert_absent_after_reopen(&collection_path, "batch-excessive-collection");
+        let _ = std::fs::remove_file(collection_path);
     }
 
     #[test]
@@ -17277,7 +17506,7 @@ mod mutation_batch_tests {
         initial.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: public_batch_method(operations),
         }];
         {
@@ -17311,7 +17540,7 @@ mod mutation_batch_tests {
         removal.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: public_batch_method(serde_json::json!([
                 {"op": "remove_node", "id": "a"}
             ])),
@@ -17688,7 +17917,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: public_batch_method(serde_json::json!([{
                 "op": "add_node",
                 "id": "existing",
@@ -17704,7 +17933,7 @@ mod mutation_batch_tests {
         upsert.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: public_batch_method(serde_json::json!([
                 {
                     "op": "upsert_node",
@@ -17771,7 +18000,7 @@ mod mutation_batch_tests {
             mutation.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Graph,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method,
             }];
             {
@@ -17804,7 +18033,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-1", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -17855,7 +18084,7 @@ mod mutation_batch_tests {
         terminal.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
-            domain: MutationDomain::ControlPlane,
+            domain: DurabilityDomain::ControlPlane,
             method: terminal_method,
         }];
         terminal.outbox[0].key = terminal.batch_id.clone();
@@ -17921,7 +18150,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-bundle-1", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -17962,19 +18191,19 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::ControlPlane,
+                domain: DurabilityDomain::ControlPlane,
                 method: terminal_method,
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::GraphSnapshot,
+                domain: DurabilityDomain::GraphSnapshot,
                 method: node("trace:bundle-1", 11),
             },
             MutationOperation {
                 ordinal: 2,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::GraphSnapshot,
+                domain: DurabilityDomain::GraphSnapshot,
                 method: node("outcome:bundle-1", 22),
             },
         ];
@@ -18021,7 +18250,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-disallowed-1", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -18063,14 +18292,14 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::ControlPlane,
+                domain: DurabilityDomain::ControlPlane,
                 method: terminal_method,
             },
             // Disallowed: only AddNode may ride alongside CommitWorkItemResult.
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::GraphSnapshot,
+                domain: DurabilityDomain::GraphSnapshot,
                 method: Method::RemoveNode {
                     node_id: "work-disallowed-1".into(),
                 },
@@ -18107,13 +18336,13 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("work-double-1", 3),
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("work-double-2", 3),
             },
         ];
@@ -18156,7 +18385,7 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::ControlPlane,
+                domain: DurabilityDomain::ControlPlane,
                 method: Method::CommitWorkItemResult {
                     tenant: "tenant-a".into(),
                     work_item_id: "work-double-1".into(),
@@ -18174,7 +18403,7 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::ControlPlane,
+                domain: DurabilityDomain::ControlPlane,
                 method: Method::CommitWorkItemResult {
                     tenant: "tenant-a".into(),
                     work_item_id: "work-double-2".into(),
@@ -18219,13 +18448,13 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("leased", 3),
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("ready", 3),
             },
         ];
@@ -18248,7 +18477,7 @@ mod mutation_batch_tests {
         claim.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::ClaimWorkItem {
                 request: crate::epistemic_operations::ClaimWorkItemRequest {
                     schema_version:
@@ -18274,16 +18503,9 @@ mod mutation_batch_tests {
                 .expect("claim result"),
         )
         .unwrap();
-        // `ResultPayload` is `#[serde(untagged)]` with `PropertiesMsgpack` declared BEFORE
-        // `Raw` (both are `serde_bytes` bins), so a round-tripped bin decodes as the FIRST
-        // matching bin variant (`PropertiesMsgpack`) — the enum's own doc notes this is by
-        // design (the client re-`unpackb`s any top-level bin regardless of variant name).
-        // The claim result is therefore the inner bytes under whichever bin variant serde
-        // picked; accept either. (Pre-W2.2 rot: this assertion named only `Raw`, which the
-        // untagged decoder can never yield for a bin.)
+        // `Raw` is the one canonical MessagePack-bin result representation.
         let bytes = match payload {
-            crate::protocol::ResultPayload::Raw(inner)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            crate::protocol::ResultPayload::Raw(inner) => inner,
             other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
         };
         let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
@@ -18310,13 +18532,13 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("live", 3),
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("ready", 3),
             },
         ];
@@ -18342,7 +18564,7 @@ mod mutation_batch_tests {
         claim.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::ClaimWorkItem {
                 request: ClaimWorkItemRequest {
                     schema_version: ClaimWorkItemRequestSchemaVersion::V1,
@@ -18368,8 +18590,7 @@ mod mutation_batch_tests {
         )
         .unwrap();
         let bytes = match payload {
-            crate::protocol::ResultPayload::Raw(inner)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            crate::protocol::ResultPayload::Raw(inner) => inner,
             other => panic!("ClaimWorkItem must return a bin-encoded typed result, got {other:?}"),
         };
         let result: ClaimWorkItemResult = decode_durable(&bytes).unwrap();
@@ -18394,7 +18615,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("exhausted", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -18483,13 +18704,13 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("exhausted", 3),
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("runnable", 3),
             },
         ];
@@ -18591,7 +18812,7 @@ mod mutation_batch_tests {
         renew.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::RenewWorkItemLease {
                 tenant: "tenant-a".into(),
                 work_item_id: "does-not-exist".into(),
@@ -18645,7 +18866,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("leased", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -18669,7 +18890,7 @@ mod mutation_batch_tests {
         renew.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::RenewWorkItemLease {
                 tenant: "tenant-a".into(),
                 work_item_id: "leased".into(),
@@ -18717,7 +18938,7 @@ mod mutation_batch_tests {
             seed.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("boundary", 3),
             }];
             commit_at(&db, &seed, None).unwrap();
@@ -18812,7 +19033,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("cas-a", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -18846,7 +19067,7 @@ mod mutation_batch_tests {
             op.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::CasWorkItemMetadata {
                     request: CasWorkItemMetadataRequest {
                         schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
@@ -18877,8 +19098,7 @@ mod mutation_batch_tests {
             )
             .unwrap();
             let bytes = match payload {
-                crate::protocol::ResultPayload::Raw(inner)
-                | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+                crate::protocol::ResultPayload::Raw(inner) => inner,
                 other => {
                     panic!(
                         "CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}"
@@ -18947,7 +19167,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("cas-race", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -18988,7 +19208,7 @@ mod mutation_batch_tests {
             op.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::CasWorkItemMetadata {
                     request: CasWorkItemMetadataRequest {
                         schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
@@ -19035,8 +19255,7 @@ mod mutation_batch_tests {
             )
             .unwrap();
             let bytes = match payload {
-                crate::protocol::ResultPayload::Raw(inner)
-                | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+                crate::protocol::ResultPayload::Raw(inner) => inner,
                 other => {
                     panic!(
                         "CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}"
@@ -19109,7 +19328,7 @@ mod mutation_batch_tests {
         op.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::CasWorkItemMetadata {
                 request: CasWorkItemMetadataRequest {
                     schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
@@ -19137,8 +19356,7 @@ mod mutation_batch_tests {
         )
         .unwrap();
         let bytes = match payload {
-            crate::protocol::ResultPayload::Raw(inner)
-            | crate::protocol::ResultPayload::PropertiesMsgpack(inner) => inner,
+            crate::protocol::ResultPayload::Raw(inner) => inner,
             other => {
                 panic!("CasWorkItemMetadata must return a bin-encoded typed result, got {other:?}")
             }
@@ -19172,7 +19390,7 @@ mod mutation_batch_tests {
             seed.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("cas-restart", 3),
             }];
             commit_at(&db, &seed, None).unwrap();
@@ -19198,7 +19416,7 @@ mod mutation_batch_tests {
             apply.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::CasWorkItemMetadata {
                     request: CasWorkItemMetadataRequest {
                         schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
@@ -19255,7 +19473,7 @@ mod mutation_batch_tests {
             seed.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::AddNode {
                     node_id: "wi".into(),
                     properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -19275,7 +19493,7 @@ mod mutation_batch_tests {
             claim.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::ClaimWorkItem {
                     request: ClaimWorkItemRequest {
                         schema_version: ClaimWorkItemRequestSchemaVersion::V1,
@@ -19433,7 +19651,7 @@ mod mutation_batch_tests {
         mutation.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::CrossModal,
+            domain: DurabilityDomain::CrossModal,
             method: Method::ApplyMutation {
                 event_type: "crossmodal_operation".to_string(),
                 query: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
@@ -19671,7 +19889,7 @@ mod mutation_batch_tests {
         mutation.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Query,
-            domain: MutationDomain::GraphSnapshot,
+            domain: DurabilityDomain::GraphSnapshot,
             method: Method::ApplyMutation {
                 event_type: "authoritative_state_operation".to_string(),
                 query: "sha256:opaque".to_string(),
@@ -19783,7 +20001,7 @@ mod mutation_batch_tests {
         mutation.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Query,
-            domain: MutationDomain::GraphSnapshot,
+            domain: DurabilityDomain::GraphSnapshot,
             method: Method::ApplyMutation {
                 event_type: "authoritative_state_operation".to_string(),
                 query: "sha256-row-delta-v2:opaque".to_string(),
@@ -19866,7 +20084,7 @@ mod mutation_batch_tests {
         mutation.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphSnapshot,
+            domain: DurabilityDomain::GraphSnapshot,
             method: Method::IcvConfigure {
                 graph: Some("graph-a".to_string()),
                 mode: "enforce".to_string(),
@@ -19954,7 +20172,7 @@ mod mutation_batch_tests {
         create.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::CreateGraph {
                 graph_name: "graph-a".to_string(),
                 graph_type: GraphType::Agent,
@@ -19982,7 +20200,7 @@ mod mutation_batch_tests {
         delete.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::DeleteGraph {
                 graph_name: "graph-a".to_string(),
             },
@@ -20053,7 +20271,7 @@ mod mutation_batch_tests {
         create.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::CreateGraph {
                 graph_name: "graph-a".to_string(),
                 graph_type: GraphType::Agent,
@@ -20092,7 +20310,7 @@ mod mutation_batch_tests {
         delete.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::DeleteGraph {
                 graph_name: "graph-a".to_string(),
             },
@@ -20139,7 +20357,7 @@ mod mutation_batch_tests {
         recreate.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::CreateGraph {
                 graph_name: "graph-a".to_string(),
                 graph_type: GraphType::Agent,
@@ -20181,7 +20399,7 @@ mod mutation_batch_tests {
         create.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::CreateGraph {
                 graph_name: "graph-a".to_string(),
                 graph_type: GraphType::Agent,
@@ -20650,7 +20868,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-defer", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -20679,7 +20897,7 @@ mod mutation_batch_tests {
         defer.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
-            domain: MutationDomain::ControlPlane,
+            domain: DurabilityDomain::ControlPlane,
             method: Method::DeferWorkItem {
                 tenant: "tenant-a".into(),
                 work_item_id: "work-defer".into(),
@@ -20732,7 +20950,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-cancel", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -20751,7 +20969,7 @@ mod mutation_batch_tests {
         cancel.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
-            domain: MutationDomain::ControlPlane,
+            domain: DurabilityDomain::ControlPlane,
             method: Method::CancelWorkItem {
                 tenant: "tenant-a".into(),
                 work_item_id: "work-cancel".into(),

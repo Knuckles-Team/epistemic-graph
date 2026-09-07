@@ -24,7 +24,7 @@ wire-neutral `classify → dispatch → exec` core). Full `SELECT` (joins, aggre
 GROUP BY/HAVING, window frames, CTE, subquery, UNION), `INSERT`/`UPDATE`/`DELETE` (with
 compound WHERE, `RETURNING`, `INSERT … SELECT`, `ON CONFLICT` upsert), `CREATE/ALTER/DROP`
 DDL on arbitrary durable user tables, views, and SQL/plpgsql functions — plus Postgres
-extension drop-ins (pgvector `<->`/`<=>`, Apache AGE `cypher()`, TimescaleDB, ParadeDB BM25).
+extension drop-ins (pgvector `<->`/`<=>`, TimescaleDB, ParadeDB BM25).
 `pg_catalog`/`information_schema` are synthesized so `psql \d`, ORMs and BI tools introspect.
 See `docs/capabilities.md` → *SQL* and *Postgres wire*.
 

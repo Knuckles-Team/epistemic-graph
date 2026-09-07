@@ -269,63 +269,108 @@ impl<'a> ShapesGraph<'a> {
 
     /// Parse a shape node into the [`Shape`] model.
     pub fn parse_shape(&self, id: &Term) -> Shape {
-        let path = self.parse_path(id);
-        let mut targets = Vec::new();
-        for c in self.objects(id, vocab::TARGET_CLASS) {
-            if let Term::NamedNode(n) = c {
-                targets.push(Target::Class(n));
-            }
+        let mut constraints = Vec::new();
+        self.collect_value_type_constraints(id, &mut constraints);
+        self.collect_range_and_string_constraints(id, &mut constraints);
+        self.collect_logical_and_shape_constraints(id, &mut constraints);
+        Shape {
+            id: id.clone(),
+            path: self.parse_path(id),
+            targets: self.parse_targets(id),
+            constraints,
+            message: self.string_object(id, vocab::MESSAGE),
+            severity: self.parse_severity(id),
+            deactivated: self.flag_is_true(id, vocab::DEACTIVATED),
+            closed: self.flag_is_true(id, vocab::CLOSED),
+            ignored_properties: self.parse_ignored_properties(id),
         }
+    }
+
+    /// The shape's target declarations (W3C SHACL Core §2.1), in this exact order:
+    /// `sh:targetClass`, `sh:targetNode`, `sh:targetSubjectsOf`, `sh:targetObjectsOf`.
+    ///
+    /// The ORDER IS OBSERVABLE and must not be rearranged: [`crate::validate`] walks
+    /// `Shape::targets` in sequence and de-duplicates first-wins, so this fixes the focus-node
+    /// order and therefore the order of `sh:ValidationResult`s in the report.
+    fn parse_targets(&self, id: &Term) -> Vec<Target> {
+        let mut targets = Vec::new();
+        self.push_iri_targets(id, vocab::TARGET_CLASS, Target::Class, &mut targets);
+        // `sh:targetNode` is the one target whose object need not be an IRI.
         for c in self.objects(id, vocab::TARGET_NODE) {
             targets.push(Target::Node(c));
         }
-        for c in self.objects(id, vocab::TARGET_SUBJECTS_OF) {
-            if let Term::NamedNode(n) = c {
-                targets.push(Target::SubjectsOf(n));
-            }
-        }
-        for c in self.objects(id, vocab::TARGET_OBJECTS_OF) {
-            if let Term::NamedNode(n) = c {
-                targets.push(Target::ObjectsOf(n));
-            }
-        }
+        self.push_iri_targets(
+            id,
+            vocab::TARGET_SUBJECTS_OF,
+            Target::SubjectsOf,
+            &mut targets,
+        );
+        self.push_iri_targets(
+            id,
+            vocab::TARGET_OBJECTS_OF,
+            Target::ObjectsOf,
+            &mut targets,
+        );
+        targets
+    }
 
-        let mut constraints = Vec::new();
+    /// Append every IRI object of `predicate` as a target, in object order. A non-IRI object
+    /// of an IRI-valued target predicate is simply not a target.
+    fn push_iri_targets(
+        &self,
+        id: &Term,
+        predicate: &str,
+        as_target: fn(NamedNode) -> Target,
+        out: &mut Vec<Target>,
+    ) {
+        for c in self.objects(id, predicate) {
+            if let Term::NamedNode(n) = c {
+                out.push(as_target(n));
+            }
+        }
+    }
+
+    /// Cardinality and value-type constraints (W3C SHACL Core §4.1, §4.2).
+    fn collect_value_type_constraints(&self, id: &Term, out: &mut Vec<Constraint>) {
         if let Some(v) = self.usize_object(id, vocab::MIN_COUNT) {
-            constraints.push(Constraint::MinCount(v));
+            out.push(Constraint::MinCount(v));
         }
         if let Some(v) = self.usize_object(id, vocab::MAX_COUNT) {
-            constraints.push(Constraint::MaxCount(v));
+            out.push(Constraint::MaxCount(v));
         }
         if let Some(Term::NamedNode(n)) = self.object(id, vocab::DATATYPE) {
-            constraints.push(Constraint::Datatype(n));
+            out.push(Constraint::Datatype(n));
         }
         if let Some(Term::NamedNode(n)) = self.object(id, vocab::CLASS) {
-            constraints.push(Constraint::Class(n));
+            out.push(Constraint::Class(n));
         }
         if let Some(Term::NamedNode(n)) = self.object(id, vocab::NODE_KIND) {
             if let Some(k) = NodeKind::from_iri(n.as_str()) {
-                constraints.push(Constraint::NodeKind(k));
+                out.push(Constraint::NodeKind(k));
             }
         }
-        for (pred, kind) in [
+    }
+
+    /// Value-range and string-based constraints (W3C SHACL Core §4.3, §4.4).
+    fn collect_range_and_string_constraints(&self, id: &Term, out: &mut Vec<Constraint>) {
+        for (predicate, kind) in [
             (vocab::MIN_INCLUSIVE, RangeKind::MinInclusive),
             (vocab::MAX_INCLUSIVE, RangeKind::MaxInclusive),
             (vocab::MIN_EXCLUSIVE, RangeKind::MinExclusive),
             (vocab::MAX_EXCLUSIVE, RangeKind::MaxExclusive),
         ] {
-            if let Some(v) = self.object(id, pred) {
-                constraints.push(Constraint::Range(kind, v));
+            if let Some(v) = self.object(id, predicate) {
+                out.push(Constraint::Range(kind, v));
             }
         }
         if let Some(v) = self.usize_object(id, vocab::MIN_LENGTH) {
-            constraints.push(Constraint::MinLength(v));
+            out.push(Constraint::MinLength(v));
         }
         if let Some(v) = self.usize_object(id, vocab::MAX_LENGTH) {
-            constraints.push(Constraint::MaxLength(v));
+            out.push(Constraint::MaxLength(v));
         }
         if let Some(p) = self.string_object(id, vocab::PATTERN) {
-            constraints.push(Constraint::Pattern {
+            out.push(Constraint::Pattern {
                 pattern: p,
                 flags: self.string_object(id, vocab::FLAGS),
             });
@@ -339,50 +384,65 @@ impl<'a> ShapesGraph<'a> {
                     _ => None,
                 })
                 .collect();
-            constraints.push(Constraint::LanguageIn(langs));
+            out.push(Constraint::LanguageIn(langs));
         }
+    }
+
+    /// Logical, shape-based and other constraints (W3C SHACL Core §4.6, §4.7, §4.8, plus
+    /// SHACL-SPARQL `sh:sparql`).
+    fn collect_logical_and_shape_constraints(&self, id: &Term, out: &mut Vec<Constraint>) {
         if let Some(head) = self.object(id, vocab::IN) {
-            constraints.push(Constraint::In(self.rdf_list(&head)));
+            out.push(Constraint::In(self.rdf_list(&head)));
         }
         if let Some(v) = self.object(id, vocab::HAS_VALUE) {
-            constraints.push(Constraint::HasValue(v));
+            out.push(Constraint::HasValue(v));
         }
-        if let Some(head) = self.object(id, vocab::AND) {
-            constraints.push(Constraint::And(self.rdf_list(&head)));
-        }
-        if let Some(head) = self.object(id, vocab::OR) {
-            constraints.push(Constraint::Or(self.rdf_list(&head)));
-        }
-        if let Some(head) = self.object(id, vocab::XONE) {
-            constraints.push(Constraint::Xone(self.rdf_list(&head)));
+        let lists: [(&str, fn(Vec<Term>) -> Constraint); 3] = [
+            (vocab::AND, Constraint::And),
+            (vocab::OR, Constraint::Or),
+            (vocab::XONE, Constraint::Xone),
+        ];
+        for (predicate, as_constraint) in lists {
+            if let Some(head) = self.object(id, predicate) {
+                out.push(as_constraint(self.rdf_list(&head)));
+            }
         }
         if let Some(v) = self.object(id, vocab::NOT) {
-            constraints.push(Constraint::Not(v));
+            out.push(Constraint::Not(v));
         }
-        for v in self.objects(id, vocab::NODE) {
-            constraints.push(Constraint::Node(v));
+        let repeated: [(&str, fn(Term) -> Constraint); 3] = [
+            (vocab::NODE, Constraint::Node),
+            (vocab::PROPERTY, Constraint::Property),
+            (vocab::SPARQL, Constraint::Sparql),
+        ];
+        for (predicate, as_constraint) in repeated {
+            for v in self.objects(id, predicate) {
+                out.push(as_constraint(v));
+            }
         }
-        for v in self.objects(id, vocab::PROPERTY) {
-            constraints.push(Constraint::Property(v));
-        }
-        for v in self.objects(id, vocab::SPARQL) {
-            constraints.push(Constraint::Sparql(v));
-        }
+    }
 
-        let severity = match self.object(id, vocab::SEVERITY) {
+    /// `sh:severity`, defaulting to `Violation` for an absent or unrecognised value.
+    fn parse_severity(&self, id: &Term) -> Severity {
+        match self.object(id, vocab::SEVERITY) {
             Some(Term::NamedNode(n)) if n.as_str() == vocab::WARNING => Severity::Warning,
             Some(Term::NamedNode(n)) if n.as_str() == vocab::INFO => Severity::Info,
             _ => Severity::Violation,
-        };
-        let deactivated = matches!(
-            self.object(id, vocab::DEACTIVATED),
+        }
+    }
+
+    /// A boolean shape flag such as `sh:deactivated` or `sh:closed`: true only when the
+    /// object is the literal `true`.
+    fn flag_is_true(&self, id: &Term, predicate: &str) -> bool {
+        matches!(
+            self.object(id, predicate),
             Some(Term::Literal(ref l)) if l.value() == "true"
-        );
-        let closed = matches!(
-            self.object(id, vocab::CLOSED),
-            Some(Term::Literal(ref l)) if l.value() == "true"
-        );
-        let ignored_properties = match self.object(id, vocab::IGNORED_PROPERTIES) {
+        )
+    }
+
+    /// `sh:ignoredProperties` — the IRIs in the list, empty when absent.
+    fn parse_ignored_properties(&self, id: &Term) -> Vec<NamedNode> {
+        match self.object(id, vocab::IGNORED_PROPERTIES) {
             Some(head) => self
                 .rdf_list(&head)
                 .into_iter()
@@ -392,18 +452,6 @@ impl<'a> ShapesGraph<'a> {
                 })
                 .collect(),
             None => Vec::new(),
-        };
-
-        Shape {
-            id: id.clone(),
-            path,
-            targets,
-            constraints,
-            message: self.string_object(id, vocab::MESSAGE),
-            severity,
-            deactivated,
-            closed,
-            ignored_properties,
         }
     }
 

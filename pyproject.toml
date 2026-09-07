@@ -16,6 +16,12 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "msgpack>=1.2.1",
+    # RF-RULING-003: `epistemic_graph/generated/*` (imported at module scope by
+    # `client.py`, which `__init__.py` imports) declares its request models with
+    # pydantic v2. It is a HARD runtime dependency of the wheel, not an extra --
+    # `import epistemic_graph` fails without it. v2 is what agent-utilities already
+    # standardises on, so a consumer resolves one model layer, not two.
+    "pydantic>=2,<3",
     # numeric is a NATIVE core primitive, NOT an extra (CONCEPT:EG-346): the compiled
     # pure-Rust faer/ndarray kernel ships as always-bundled package data
     # (`epistemic_graph/numeric.abi3.so`). It has no Python package dependency; the
@@ -162,6 +168,7 @@ jscpd_mode = "mild"
 dependency_cruiser_version = "18.2.0"
 import_linter_version = "2.13"
 arch_lint_version = "0.5.0"
+cargo_deny_version = "0.20.2"
 
 # jscpd is intentionally the wide-net sensor.  It sees Rust/Python/JS/TS
 # blocks as well as the config/template formats dupehound cannot parse.
@@ -198,6 +205,10 @@ strip = true
 # Never carry interpreter caches from a reused checkout into a wheel or sdist.
 # These are source-level Maturin globs, so the checkout itself remains untouched.
 exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
+# The shipped engine-contract receipt (RF-RULING-003): the digest agent-utilities pins.
+# `python-source` already copies the package tree, but this makes the data file an
+# explicit, reviewable part of the wheel contract rather than an implicit glob.
+include = ["epistemic_graph/contract/receipt.json"]
 # THE ONE PUBLISHED WHEEL = the main full-featured build (CONCEPT:EG-371 — tiers
 # collapsed). `full` = every MAIN feature that builds without an external GPU/robotics
 # toolchain: durable redb-authoritative store + cypher + SQL (query/DataFusion) + graphql

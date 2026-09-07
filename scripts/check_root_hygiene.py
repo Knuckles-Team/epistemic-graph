@@ -57,8 +57,11 @@ from __future__ import annotations
 
 import subprocess
 import sys
-import tomllib
+from collections.abc import Container, Iterable
+from dataclasses import dataclass
 from pathlib import Path
+
+import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _git_subprocess_env import (  # noqa: E402
@@ -101,6 +104,7 @@ ALLOWED_DOTFILES: frozenset[str] = frozenset(
         ".importlinter",  # import-linter contract config (import-linter-architecture hook)
         ".mergequeue.yaml",  # merge-queue config
         ".pre-commit-config.yaml",  # pre-commit hook config
+        ".python-version",  # exact Python patch used by local tooling and CI
         ".vulture_ignore",  # vulture dead-code false-positive whitelist
     }
 )
@@ -190,90 +194,112 @@ def load_manifest() -> tuple[dict[str, str], dict[str, str]]:
     return dict(dirs), dict(files)
 
 
-def main() -> int:
-    try:
-        declared_dirs, declared_files = load_manifest()
-    except ManifestError as exc:
-        print(f"FAIL: {exc}")
-        return 1
+@dataclass(frozen=True)
+class RootHygiene:
+    """How the tracked repository root differs from its declared layout."""
 
-    paths = _tracked_paths()
-    root_files, root_dirs = tracked_root_entries(paths)
+    root_files: list[str]
+    root_dirs: list[str]
+    declared_dirs: dict[str, str]
+    declared_files: dict[str, str]
+    forbidden_hits: list[str]
+    undeclared_dirs: list[str]
+    stale_dirs: list[str]
+    undeclared_dotfiles: list[str]
+    undeclared_files: list[str]
+    misfiled_dotfiles: list[str]
+    stale_files: list[str]
 
-    # FORBIDDEN_ANYWHERE: scan the WHOLE tracked tree, not just the root --
-    # these ratchets install themselves wherever the tool that writes them is
-    # run, and being nested somewhere plausible-looking is not a defense.
-    forbidden_hits = sorted(
-        p for p in paths if Path(p).name in FORBIDDEN_ANYWHERE
-    )
-
-    undeclared_dirs = sorted(d for d in root_dirs if d not in declared_dirs)
-    stale_dirs = sorted(d for d in declared_dirs if d not in root_dirs)
-
-    undeclared_dotfiles = sorted(
-        f
-        for f in root_files
-        if f.startswith(".") and f not in ALLOWED_DOTFILES and f not in declared_files
-    )
-    undeclared_files = sorted(
-        f for f in root_files if not f.startswith(".") and f not in declared_files
-    )
-    # A manifest [files] entry only ever justifies a NON-dot file (dot-files
-    # go through ALLOWED_DOTFILES instead) -- a dot-file accidentally declared
-    # in the manifest would be silently ignored by the check above, which
-    # would hide a class mismatch rather than report it.
-    misfiled_dotfiles = sorted(f for f in declared_files if f.startswith("."))
-    stale_files = sorted(
-        f
-        for f in declared_files
-        if f not in root_files and f not in misfiled_dotfiles
-    )
-
-    ok = not (
-        forbidden_hits
-        or undeclared_dirs
-        or stale_dirs
-        or undeclared_dotfiles
-        or undeclared_files
-        or misfiled_dotfiles
-        or stale_files
-    )
-
-    if ok:
-        print(
-            f"root hygiene: clean ({len(root_files)} root files, "
-            f"{len(root_dirs)} root dirs, {len(declared_dirs)} declared dirs, "
-            f"{len(declared_files)} declared files)"
+    def clean(self) -> bool:
+        return not (
+            self.forbidden_hits
+            or self.undeclared_dirs
+            or self.stale_dirs
+            or self.undeclared_dotfiles
+            or self.undeclared_files
+            or self.misfiled_dotfiles
+            or self.stale_files
         )
-        return 0
+
+
+def _sorted_absent(names: Iterable[str], present: Container[str]) -> list[str]:
+    """The names not present in `present`, sorted."""
+
+    return sorted(name for name in names if name not in present)
+
+
+def inspect_root(
+    paths: list[str], declared_dirs: dict[str, str], declared_files: dict[str, str]
+) -> RootHygiene:
+    """Compare the tracked root against the manifest without reporting anything."""
+
+    root_files, root_dirs = tracked_root_entries(paths)
+    root_dotfiles = {f for f in root_files if f.startswith(".")}
+    # A manifest [files] entry only ever justifies a NON-dot file (dot-files go
+    # through ALLOWED_DOTFILES instead) -- a dot-file accidentally declared in the
+    # manifest would be silently ignored by the undeclared-file check below, which
+    # would hide a class mismatch rather than report it.
+    declared_dotfiles = {f for f in declared_files if f.startswith(".")}
+    return RootHygiene(
+        root_files=sorted(root_files),
+        root_dirs=sorted(root_dirs),
+        declared_dirs=declared_dirs,
+        declared_files=declared_files,
+        # FORBIDDEN_ANYWHERE: scan the WHOLE tracked tree, not just the root --
+        # these ratchets install themselves wherever the tool that writes them
+        # is run, and being nested somewhere plausible-looking is not a defense.
+        forbidden_hits=sorted(p for p in paths if Path(p).name in FORBIDDEN_ANYWHERE),
+        undeclared_dirs=_sorted_absent(root_dirs, declared_dirs),
+        stale_dirs=_sorted_absent(declared_dirs, root_dirs),
+        undeclared_dotfiles=_sorted_absent(
+            root_dotfiles, set(ALLOWED_DOTFILES) | set(declared_files)
+        ),
+        undeclared_files=_sorted_absent(
+            set(root_files) - root_dotfiles, declared_files
+        ),
+        misfiled_dotfiles=sorted(declared_dotfiles),
+        stale_files=_sorted_absent(set(declared_files) - declared_dotfiles, root_files),
+    )
+
+
+_VIOLATION_LINES = (
+    ("undeclared_dirs", "  DIR   {}/  (undeclared)"),
+    ("undeclared_files", "  FILE  {}  (undeclared)"),
+    ("undeclared_dotfiles", "  DOTFILE  {}  (not in ALLOWED_DOTFILES or the manifest)"),
+    (
+        "misfiled_dotfiles",
+        "  FILE  {}  (a dot-file was declared in [files]; add it to\n"
+        "           ALLOWED_DOTFILES in check_root_hygiene.py instead)",
+    ),
+    ("stale_dirs", "  DIR   {}/  (declared in {manifest} but no longer tracked)"),
+    ("stale_files", "  FILE  {}  (declared in {manifest} but no longer tracked)"),
+)
+
+
+def report_violations(hygiene: RootHygiene) -> None:
+    """Print every violation with the remedy that applies to it."""
 
     print("FAIL: repository-root hygiene violations.\n")
 
-    if forbidden_hits:
+    if hygiene.forbidden_hits:
         print("  Self-installing ratchet config tracked anywhere in the tree:")
-        for p in forbidden_hits:
-            print(f"    FORBIDDEN  {p}")
+        for path in hygiene.forbidden_hits:
+            print(f"    FORBIDDEN  {path}")
         print(
             "    -> delete it and stop tracking it; add its name to .gitignore\n"
             "       if it is not already there (check_gitignore_convergence.py\n"
             "       enforces that for the shared REQUIRED set).\n"
         )
 
-    for d in undeclared_dirs:
-        print(f"  DIR   {d}/  (undeclared)")
-    for f in undeclared_files:
-        print(f"  FILE  {f}  (undeclared)")
-    for f in undeclared_dotfiles:
-        print(f"  DOTFILE  {f}  (not in ALLOWED_DOTFILES or the manifest)")
-    for f in misfiled_dotfiles:
-        print(f"  FILE  {f}  (a dot-file was declared in [files]; add it to")
-        print("           ALLOWED_DOTFILES in check_root_hygiene.py instead)")
-    for d in stale_dirs:
-        print(f"  DIR   {d}/  (declared in {MANIFEST_PATH.name} but no longer tracked)")
-    for f in stale_files:
-        print(f"  FILE  {f}  (declared in {MANIFEST_PATH.name} but no longer tracked)")
+    for field, template in _VIOLATION_LINES:
+        for entry in getattr(hygiene, field):
+            print(template.format(entry, manifest=MANIFEST_PATH.name))
 
-    if undeclared_dirs or undeclared_files or undeclared_dotfiles:
+    if (
+        hygiene.undeclared_dirs
+        or hygiene.undeclared_files
+        or hygiene.undeclared_dotfiles
+    ):
         print(
             "\nPick the one that is true for each undeclared entry:\n"
             "  * it is scratch/proof output   -> delete it (it should never have been committed)\n"
@@ -283,14 +309,31 @@ def main() -> int:
             "    (dirs/files) or, for a conventional self-describing dot-file, to\n"
             "    ALLOWED_DOTFILES in scripts/check_root_hygiene.py\n"
         )
-    if stale_dirs or stale_files:
+    if hygiene.stale_dirs or hygiene.stale_files:
         print(
             "\nA declared .repo-layout.toml entry no longer exists in the tracked tree.\n"
             "Remove it from the manifest -- a stale entry is exactly the fiction this\n"
             "manifest exists to prevent (see its own header).\n"
         )
 
-    return 1
+
+def main() -> int:
+    try:
+        declared_dirs, declared_files = load_manifest()
+    except ManifestError as exc:
+        print(f"FAIL: {exc}")
+        return 1
+
+    hygiene = inspect_root(_tracked_paths(), declared_dirs, declared_files)
+    if not hygiene.clean():
+        report_violations(hygiene)
+        return 1
+    print(
+        f"root hygiene: clean ({len(hygiene.root_files)} root files, "
+        f"{len(hygiene.root_dirs)} root dirs, {len(declared_dirs)} declared dirs, "
+        f"{len(declared_files)} declared files)"
+    )
+    return 0
 
 
 if __name__ == "__main__":

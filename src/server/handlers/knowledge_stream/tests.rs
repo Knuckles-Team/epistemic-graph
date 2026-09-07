@@ -14,6 +14,8 @@ mod tests {
             policy_lease: None,
             #[cfg(feature = "security")]
             policy_store: None,
+            #[cfg(feature = "security")]
+            originating_actor_scope: None,
         }
     }
 
@@ -109,7 +111,7 @@ mod tests {
                 &authority,
                 4,
                 Some(9),
-                KnowledgeStreamRequestV1 {
+                KnowledgeStreamRequest {
                     schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                     query: query(family),
                     batch_size: 2,
@@ -133,7 +135,7 @@ mod tests {
                 &authority,
                 4,
                 Some(9),
-                KnowledgeStreamRequestV1 {
+                KnowledgeStreamRequest {
                     schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                     query: query(family),
                     batch_size: 2,
@@ -156,7 +158,7 @@ mod tests {
             &original_authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -172,7 +174,7 @@ mod tests {
                 authority,
                 epoch,
                 Some(9),
-                KnowledgeStreamRequestV1 {
+                KnowledgeStreamRequest {
                     schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                     query: query(KnowledgeResultFamily::Graph),
                     batch_size: 2,
@@ -194,7 +196,7 @@ mod tests {
             &original_authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -214,7 +216,7 @@ mod tests {
             &authority,
             0,
             None,
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Sql),
                 batch_size: 2,
@@ -237,7 +239,7 @@ mod tests {
             &base_authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -256,7 +258,7 @@ mod tests {
             &base_authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -271,7 +273,7 @@ mod tests {
             &base_authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -293,7 +295,7 @@ mod tests {
             &aba,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -313,7 +315,7 @@ mod tests {
             &replacement,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -369,7 +371,14 @@ mod tests {
         // `IsolationLayer::with_persist_dir` below — `redb::Database` does not
         // support two concurrently-open handles onto the same file.
         {
-            let store = RbacStore::open(&directory).expect("open durable policy store");
+            let authority = crate::store_authority::process_authority();
+            let store = RbacStore::open(
+                &directory,
+                authority.as_ref(),
+                authority.principal(),
+                &authority.proof(),
+            )
+            .expect("open durable policy store");
             store
                 .save(&policy, &identities, IdentityBootstrapState::Consumed)
                 .expect("save authorized policy");
@@ -380,22 +389,23 @@ mod tests {
         // dependency runs `isolation` → `rbac_persist`, never the reverse, so
         // a store-side mint could not reach `check_access` without
         // duplicating the authorization decision. Mint through
-        // `IsolationLayer::mint_graph_policy_lease` instead, over an
+        // `IsolationLayer::mint_policy_decision_lease` instead, over an
         // `IsolationLayer` reopened from the SAME durable directory.
-        let isolation = IsolationLayer::with_persist_dir(&directory)
-            .expect("reopen isolation layer over durable store");
-        let claims = RequestContextClaims {
-            principal: "alice-principal".to_string(),
-            tenant: "tenant".to_string(),
-            audience: "engine".to_string(),
-            agent_id: "alice".to_string(),
-            roles: vec!["reader".to_string()],
-            scopes: vec!["query:stream".to_string()],
-            policy_version: "caller-display-version-is-not-authority".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
+        let authority = crate::store_authority::process_authority();
+        let isolation = IsolationLayer::with_persist_dir(
+            &directory,
+            authority.as_ref(),
+            authority.principal(),
+            &authority.proof(),
+        )
+        .expect("reopen isolation layer over durable store");
+        let verified_context =
+            crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                "alice", "tenant",
+            );
+        let claims = verified_context.claims().clone();
+        let carrier = CarrierAuthority::from_verified(&verified_context)
+            .expect("derive carrier from verified context");
         // GRAPH-POLICY-LEASE-CONTRACT.md §3 hardening: minting now requires a
         // `MintAuthorization`, obtained only by presenting the server secret plus
         // an HMAC over the exact claims (same secret `from_verified_with_lease`
@@ -406,29 +416,65 @@ mod tests {
             crate::isolation::MintAuthorization::new("server-secret", &claims, &mint_mac)
                 .expect("construct mint authorization");
         let lease = isolation
-            .mint_graph_policy_lease(
+            .mint_policy_decision_lease(
                 &mint_auth,
                 "tenant-graph",
                 crate::isolation::AccessLevel::Read,
             )
-            .expect("mint graph policy lease");
+            .expect("mint policy decision lease");
+        let lease = Arc::new(lease);
         let policy_store = isolation
             .policy_store()
             .expect("durable policy store bound");
+
+        let mut wrong_principal = claims.clone();
+        wrong_principal.principal = "different-originating-principal".to_string();
+        assert!(KnowledgeStreamAuthority::from_verified_with_lease(
+            "server-secret",
+            &wrong_principal,
+            "tenant-graph",
+            &carrier,
+            lease.clone(),
+            policy_store.clone(),
+        )
+        .is_err());
+
+        let mut wrong_effective_actor = claims.clone();
+        wrong_effective_actor.agent_id = "different-effective-actor".to_string();
+        assert!(KnowledgeStreamAuthority::from_verified_with_lease(
+            "server-secret",
+            &wrong_effective_actor,
+            "tenant-graph",
+            &carrier,
+            lease.clone(),
+            policy_store.clone(),
+        )
+        .is_err());
+
         let authority = KnowledgeStreamAuthority::from_verified_with_lease(
             "server-secret",
             &claims,
             "tenant-graph",
-            Arc::new(lease),
+            &carrier,
+            lease,
             policy_store.clone(),
         )
         .expect("bind exact durable lease");
+        let foreign_carrier = CarrierAuthority::from_verified(
+            &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                "bob", "tenant",
+            ),
+        )
+        .expect("derive mismatched carrier");
+        assert!(authority
+            .validate_request_binding("tenant-graph", &foreign_carrier)
+            .is_err());
         let first = serve_execution(
             "tenant-graph",
             &authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -449,7 +495,7 @@ mod tests {
             &authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -459,7 +505,7 @@ mod tests {
             execution(&authority, KnowledgeResultFamily::Graph, 3),
         )
         .expect_err("revoked lease must not publish a resumed page");
-        assert_eq!(error, "KnowledgeStream graph policy lease is stale");
+        assert_eq!(error, "KnowledgeStream policy decision lease is stale");
 
         drop(authority);
         drop(policy_store);
@@ -471,8 +517,15 @@ mod tests {
     #[test]
     fn claims_only_authority_cannot_enter_the_served_path() {
         let authority = authority(2);
+        let carrier = CarrierAuthority::from_verified(
+            &crate::server::auth::VerifiedRequestContext::verified_for_test_in_tenant(
+                "verified-agent",
+                "tenant",
+            ),
+        )
+        .expect("derive verified carrier");
         assert!(authority
-            .validate_request_binding("verified-agent", "tenant-graph")
+            .validate_request_binding("tenant-graph", &carrier)
             .is_err());
         assert!(authority.validate_before().is_err());
         assert!(authority.validate_after().is_err());

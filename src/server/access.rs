@@ -824,6 +824,12 @@ pub(crate) fn sql_is_write(query: &str) -> bool {
     !matches!(
         eg_query::classify(query),
         Ok(StatementKind::Read)
+            // SQL:2023 `GRAPH_TABLE` is a read over base relations. It is a
+            // separate classification only because it needs an authoritative
+            // catalog resolution before it can lower; the ACCESS LEVEL it needs
+            // is a read's, on every route -- this function is what
+            // `requires_write` and the read-only KnowledgeStream gate consult.
+            | Ok(StatementKind::GraphTableReadRequiresCatalogAdmission(_))
             | Ok(StatementKind::Begin)
             | Ok(StatementKind::Commit)
             | Ok(StatementKind::Rollback)
@@ -2216,8 +2222,6 @@ const REASON_ASR_PURE_COMPUTE: &str =
     "src/server/handlers/asr.rs::handle/transcribe_file only verifies a caller-resolved model artifact and transcribes caller-supplied audio -- it never reads GraphCore or a tenant-owned row, so cross-tenant row RLS is not applicable";
 const REASON_QUANTUM_PURE_COMPUTE: &str =
     "src/server/handlers/quantum.rs::handle builds and executes a bounded circuit from caller-supplied candidates/programs -- it never reads GraphCore or a tenant-owned row, so ranking is not a graph-row read and cannot bypass RLS";
-const REASON_TTS_PURE_COMPUTE: &str =
-    "src/server/handlers/tts.rs::synthesize validates and authorizes the caller-supplied carrier/input, then runs bounded Piper inference inline -- it never reads GraphCore or a tenant-owned row, so no graph-row RLS projection is required";
 const REASON_VIZ_CARRIER_SCOPED: &str =
     "src/server/handlers/viz.rs never reads GraphCore: its persistent ColumnStore/provenance side-store is an owner-scoped non-row surface, and verified CarrierAuthority namespaces dataset handles plus result references before lookup, cache, ingestion, or shaping";
 const REASON_SANDBOXED_UDF: &str =
@@ -2270,8 +2274,7 @@ const REASON_NATIVE_RESERVATION_READ: &str =
 const REASON_NATIVE_CAPABILITY_LEDGER: &str =
     "dispatch.rs's dedicated WorkItem-claim-capability block routes VerifyWorkItemClaimCapability to redb_store::work_item_capability::verify_work_item_claim_capability against its own private ledger, keyed by an AuthenticatedAuthority derived from the verified request context -- never enters MutationBatch/result/outbox/CDC projections or a GraphView, same posture as MintWorkItemClaimCapability's write-side native ledger";
 // RMDD-28 dispatch wiring (fix/eg-devlane-dispatch): `DevelopmentLaneStatus`/
-// `QueryDevelopmentLane` now route through dispatch.rs's dedicated development-lane block
-// (`is_development_lane_method`, sitting beside the WorkItem-claim-capability block above) to
+// `QueryDevelopmentLane` now route through `handlers::development_lane::try_handle` to
 // `PersistenceBackend::read_development_lane[_status]`, which call
 // `redb_store::development_lane::read_development_lane[_status]` directly against the native
 // `development_lane_*` redb tables -- never a `GraphView`/`core.analysis_snapshot()`. Gated by
@@ -2280,28 +2283,14 @@ const REASON_NATIVE_CAPABILITY_LEDGER: &str =
 // redacts `worktree_locator`/`host_ref`/`host_target_alias` on every row returned, so no
 // additional per-caller redaction is needed here the way `ResourceReservationStatus` needs one.
 const REASON_NATIVE_DEVELOPMENT_LANE_READ: &str =
-    "dispatch.rs's is_development_lane_method block routes DevelopmentLaneStatus/QueryDevelopmentLane directly to PersistenceBackend::read_development_lane/read_development_lane_status, which call redb_store::development_lane::read_development_lane/read_development_lane_status against the native development_lane_* redb tables (redb_store/development_lane.rs), gated by the current placement leader under raft -- never a GraphView/core.analysis_snapshot() row read; the kernel's own public_hold projection already redacts worktree_locator/host_ref/host_target_alias on every row, so no dispatch-layer redaction is needed";
-
-// CA-16 (DEC-CA-04): the policy-bundle export reads the caller-supplied marking/
-// principal input plus IsolationLayer's own configuration surface (never one
-// resolved graph's `_owner`/`_visibility`/`_grants` rows) and returns a policy
-// DESCRIPTION, not row data -- so per-row RLS categorically does not apply to its
-// own response. Gated by its own `policy:export` authz_action (`eg_capabilities::
-// policy`), deliberately NOT `security:admin` -- see that policy table entry's own
-// doc for why (avoiding the `rbac.redb`/M7 coupling DEC-CA-04 A2 flags).
-const REASON_POLICY_EXPORT_ADMIN_SCOPED: &str =
-    "src/server/policy_export/mod.rs's generate_bundle reads caller-supplied marking-registry/principal input plus IsolationLayer's own row-visibility predicate SHAPE (never one resolved graph's rows) and returns a policy description -- never constructs a GraphView/GraphCore, so per-row RLS is not applicable. Gated by its own policy:export authz_action (kg:admin also clears it via allows_method's unconditional fallback), deliberately NOT security:admin/an admin:-prefixed action -- see eg_capabilities::policy's Method::PolicyExport entry for why that would have wrongly coupled this to rbac.redb/M7 instead of the effective request-time role set (DEC-CA-04 A2)";
+    "handlers::development_lane::try_handle routes DevelopmentLaneStatus/QueryDevelopmentLane directly to PersistenceBackend::read_development_lane/read_development_lane_status, which call redb_store::development_lane::read_development_lane/read_development_lane_status against the native development_lane_* redb tables (redb_store/development_lane.rs), gated by the current placement leader under raft -- never a GraphView/core.analysis_snapshot() row read; the kernel's own public_hold projection already redacts worktree_locator/host_ref/host_target_alias on every row, so no dispatch-layer redaction is needed";
 
 const NON_ROW_SCOPED: &[(&str, &str)] = &[
-    // REASON_POLICY_EXPORT_ADMIN_SCOPED
-    #[cfg(feature = "policy_export")]
-    ("PolicyExport", REASON_POLICY_EXPORT_ADMIN_SCOPED),
     // REASON_SERVER_LIFECYCLE
     ("CancelRequest", REASON_SERVER_LIFECYCLE),
     ("Health", REASON_SERVER_LIFECYCLE),
     ("Metrics", REASON_SERVER_LIFECYCLE),
     ("Ping", REASON_SERVER_LIFECYCLE),
-    ("ResourceStats", REASON_SERVER_LIFECYCLE),
     ("ResourceStatsPage", REASON_SERVER_LIFECYCLE),
     // REASON_AUDIT_CHAIN_ADMIN_GATED
     ("AuditVerify", REASON_AUDIT_CHAIN_ADMIN_GATED),
@@ -2331,7 +2320,6 @@ const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_PURE_COMPUTE
     ("Asr", REASON_ASR_PURE_COMPUTE),
     ("Quantum", REASON_QUANTUM_PURE_COMPUTE),
-    ("TtsSynthesize", REASON_TTS_PURE_COMPUTE),
     ("DsAdamStep", REASON_PURE_COMPUTE),
     ("DsComputeStats", REASON_PURE_COMPUTE),
     ("DsCrossEntropy", REASON_PURE_COMPUTE),
@@ -2657,11 +2645,6 @@ mod read_rls_coverage_tests {
     }
 
     #[test]
-    fn tts_is_non_row_scoped_and_foreign_tenant_control_is_denied() {
-        assert_self_routed_cross_tenant_control("TtsSynthesize", REASON_TTS_PURE_COMPUTE);
-    }
-
-    #[test]
     fn viz_is_owner_scoped_non_row_and_foreign_tenant_control_is_denied() {
         let non_row: HashMap<&'static str, &'static str> = NON_ROW_SCOPED.iter().copied().collect();
         assert_eq!(
@@ -2778,5 +2761,30 @@ mod read_rls_coverage_tests {
         let not_audited: HashMap<&'static str, &'static str> =
             NOT_YET_AUDITED.iter().copied().collect();
         assert!(!not_audited.contains_key("RankByProvenance"));
+    }
+
+    /// Cross-route parity: `sql_is_write` is the single chokepoint that
+    /// `requires_write`, the read-only KnowledgeStream gate and the wire's own
+    /// access check all resolve a `Method::Sql` statement through. A
+    /// `GRAPH_TABLE` read must be a READ at every one of them; classifying it
+    /// as a write denied a Read-only caller a pure read and made
+    /// KnowledgeStream reject it outright.
+    #[cfg(feature = "query")]
+    #[test]
+    fn graph_table_is_a_read_at_the_shared_write_classification_chokepoint() {
+        let graph_table = "SELECT * FROM GRAPH_TABLE (shop MATCH (c:customer) COLUMNS (c.name))";
+        assert!(matches!(
+            eg_query::classify(graph_table),
+            Ok(eg_query::StatementKind::GraphTableReadRequiresCatalogAdmission(_))
+        ));
+        assert!(!sql_is_write(graph_table));
+        assert!(!requires_write(&crate::protocol::Method::Sql {
+            query: graph_table.to_string(),
+            params_msgpack: Vec::new(),
+        }));
+
+        // Property-graph DDL stays a write on every route.
+        let ddl = "CREATE PROPERTY GRAPH shop VERTEX TABLES (customers KEY (customer_id))";
+        assert!(sql_is_write(ddl));
     }
 }

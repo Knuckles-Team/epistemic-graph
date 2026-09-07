@@ -1,0 +1,23 @@
+fn startup() {
+    let _ = std::fs::read("configuration.json");
+}
+
+async fn served() {
+    let _ = ::tokio::task::spawn_blocking(|| {
+        std::fs::read("snapshot.redb")
+    }).await;
+}
+
+#[tokio::test]
+async fn integration_fixture() {
+    let _ = std::fs::read("test-data.json");
+}
+
+struct VirtualPath;
+impl VirtualPath {
+    fn exists(&self) -> bool { true }
+}
+
+async fn unresolved_receiver(value: VirtualPath) {
+    let _ = value.exists();
+}

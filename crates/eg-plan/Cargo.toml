@@ -402,6 +402,11 @@ arrow = { version = "58.3", optional = true }
 # The oracle/algebra tests build a fixture GraphCore + SemanticStore and run the
 # DataFusion FILTER leg, so the test target needs the `query` feature on.
 eg-query = { path = "../eg-query", features = ["sql"] }
+# `tsdb_scan_tests` opens a real `SeriesStore`, which under RF-RULING-004 needs the
+# composition root's `ScopeGrantVerifier`. eg-tsdb ships one for exactly this behind
+# its off-by-default `dev-scope-grant` feature; naming it here turns it on for the
+# TEST build only, so eg-plan's own build still links no development authority.
+eg-tsdb = { path = "../eg-tsdb", features = ["dev-scope-grant"] }
 # The query-surface INTEGRATION test harness (`tests/*.rs`, CONCEPT:EG-400..405) is an
 # EXTERNAL crate against eg-plan's public API, so it must name the fixture/currency
 # crates directly (integration tests see only the crate-under-test + its dev-deps, NOT

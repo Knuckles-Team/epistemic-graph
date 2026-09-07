@@ -5,9 +5,9 @@ pub(super) fn serve_execution(
     authority: &KnowledgeStreamAuthority,
     placement_epoch: u64,
     fencing_token: Option<u64>,
-    request: KnowledgeStreamRequestV1,
+    request: KnowledgeStreamRequest,
     execution: FamilyExecution,
-) -> Result<KnowledgeStreamBatchV1, String> {
+) -> Result<KnowledgeStreamBatch, String> {
     // `try_handle` requires a bound lease for the served path.  The
     // conditional helper is intentionally also used here so the page adapter
     // itself brackets cursor resume, source snapshotting, and publication;
@@ -91,7 +91,7 @@ pub(super) fn serve_execution(
     // The caller therefore receives a typed denial, never a stale batch or
     // even its cursor metadata.
     authority.validate_if_bound(false)?;
-    Ok(KnowledgeStreamBatchV1 {
+    Ok(KnowledgeStreamBatch {
         schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
         family,
         projection: request.projection,
@@ -196,7 +196,7 @@ pub(super) fn raw_payload<'a>(
     family: &str,
 ) -> Result<&'a [u8], String> {
     match payload {
-        ResultPayload::Raw(bytes) | ResultPayload::PropertiesMsgpack(bytes) => Ok(bytes),
+        ResultPayload::Raw(bytes) => Ok(bytes),
         _ => Err(format!("invalid {family} result encoding")),
     }
 }
@@ -235,8 +235,8 @@ pub(super) fn filtered_snapshot(
 
 pub(super) fn native_cursor(
     authority: &KnowledgeStreamAuthority,
-    cursor: &KnowledgeStreamCursorV1,
-) -> Result<KnowledgeStreamCursor, String> {
+    cursor: &KnowledgeStreamCursor,
+) -> Result<ResultStreamCursor, String> {
     if cursor.schema_version != KNOWLEDGE_STREAM_SCHEMA_VERSION {
         return Err("unsupported KnowledgeStream cursor version".to_string());
     }
@@ -248,7 +248,7 @@ pub(super) fn native_cursor(
     if supplied_integrity != cursor_integrity(authority, cursor)? {
         return Err("KnowledgeStream cursor integrity mismatch".to_string());
     }
-    Ok(KnowledgeStreamCursor {
+    Ok(ResultStreamCursor {
         family: served_family(cursor.family),
         tenant_ref: OpaqueRef::new(cursor.tenant_ref.clone()).map_err(|e| e.to_string())?,
         access_policy_ref: OpaqueRef::new(cursor.access_policy_ref.clone())
@@ -268,14 +268,14 @@ pub(super) fn native_cursor(
 
 pub(super) fn wire_cursor(
     authority: &KnowledgeStreamAuthority,
-    cursor: &KnowledgeStreamCursor,
-) -> Result<KnowledgeStreamCursorV1, String> {
+    cursor: &ResultStreamCursor,
+) -> Result<KnowledgeStreamCursor, String> {
     if cursor.tenant_ref != authority.tenant_ref
         || cursor.access_policy_ref != authority.access_policy_ref
     {
         return Err("KnowledgeStream cursor authority mismatch".to_string());
     }
-    let mut wire = KnowledgeStreamCursorV1 {
+    let mut wire = KnowledgeStreamCursor {
         schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
         family: wire_family(cursor.family),
         integrity_ref: String::new(),
@@ -297,7 +297,7 @@ pub(super) fn wire_cursor(
 
 fn cursor_identity_matches_authority(
     authority: &KnowledgeStreamAuthority,
-    cursor: &KnowledgeStreamCursorV1,
+    cursor: &KnowledgeStreamCursor,
 ) -> bool {
     cursor.tenant_ref == authority.tenant_ref.as_str()
         && cursor.access_policy_ref == authority.access_policy_ref.as_str()
@@ -305,7 +305,7 @@ fn cursor_identity_matches_authority(
 
 pub(super) fn cursor_integrity(
     authority: &KnowledgeStreamAuthority,
-    cursor: &KnowledgeStreamCursorV1,
+    cursor: &KnowledgeStreamCursor,
 ) -> Result<OpaqueRef, String> {
     let bytes = rmp_serde::to_vec_named(&(
         cursor.schema_version,

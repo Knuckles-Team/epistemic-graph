@@ -27,7 +27,43 @@
 use eg_statechart::{
     Context, EventInput, MachineInstance, State, StatechartDef, StatechartStore, Transition,
 };
+use eg_storage::{OwnerLayout, PhysicalStoreIdentity, ScopeGrantVerifier};
+use eg_types::MutationScopeIdentity;
 use proptest::prelude::*;
+
+/// Stand-in composition root (RF-RULING-004): the storage kernel owns the file
+/// and only the root may authorize a principal to serve its scope. This one
+/// still checks every field the kernel hands it, so a store opened with the
+/// wrong layout, scope or principal fails closed here too.
+const TEST_PRINCIPAL: &str =
+    "principal:sha256:5f2b41b1e0dc61f2b6a4c0a1ee4b9a53d3d2fbb4a45c2d6c7ecb0a7fbb6d0c1e";
+const TEST_PROOF: &[u8] = b"eg-statechart-test-scope-grant";
+
+struct TestScopeVerifier;
+
+impl ScopeGrantVerifier for TestScopeVerifier {
+    fn verify(
+        &self,
+        _physical: &PhysicalStoreIdentity,
+        layout: OwnerLayout,
+        identity: &MutationScopeIdentity,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<(), String> {
+        if layout != OwnerLayout::Statechart
+            || identity.tenant().as_str() != "native"
+            || principal != TEST_PRINCIPAL
+            || proof != TEST_PROOF
+        {
+            return Err("test scope authority rejected".to_string());
+        }
+        Ok(())
+    }
+}
+
+fn open_test_store(dir: &std::path::Path) -> StatechartStore {
+    StatechartStore::open_in_dir(dir, &TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF).unwrap()
+}
 
 /// A flat two-state machine (`locked` --coin--> `unlocked` --push--> `locked`),
 /// the same shape `store.rs`'s own private `turnstile()` test fixture uses.
@@ -105,7 +141,7 @@ proptest! {
 
         // Uninterrupted baseline.
         let clean_dir = tempfile::tempdir().unwrap();
-        let clean_store = StatechartStore::open_in_dir(clean_dir.path()).unwrap();
+        let clean_store = open_test_store(clean_dir.path());
         let def_id = clean_store.define(&turnstile()).unwrap();
         let clean_instance = instantiate_deterministic(&clean_store, &def_id);
         run_steps(&clean_store, &clean_instance.instance_id, 0..n);
@@ -125,14 +161,14 @@ proptest! {
         let crash_dir = tempfile::tempdir().unwrap();
         let instance_id;
         {
-            let store = StatechartStore::open_in_dir(crash_dir.path()).unwrap();
+            let store = open_test_store(crash_dir.path());
             let def_id = store.define(&turnstile()).unwrap();
             let instance = instantiate_deterministic(&store, &def_id);
             instance_id = instance.instance_id.clone();
             run_steps(&store, &instance_id, 0..crash_at);
             // `store` drops here — simulated crash: no close/shutdown call.
         }
-        let reopened = StatechartStore::open_in_dir(crash_dir.path()).unwrap();
+        let reopened = open_test_store(crash_dir.path());
         run_steps(&reopened, &instance_id, crash_at..n);
         let crash_snapshot = snapshot(&reopened, &instance_id);
 

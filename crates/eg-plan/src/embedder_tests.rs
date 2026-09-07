@@ -8,7 +8,7 @@
 //!  * `rank_embed_without_embedder_is_typed_error` — with NO embedder bound, `Op::RankEmbed`
 //!    is a clean typed error (never a panic), naming the missing binding.
 //!  * `hash_embedder_is_deterministic` — the fallback `HashEmbedder` maps a text to a
-//!    stable unit-norm vector (same text ⇒ same vector; a bound one makes the seam run).
+//!    stable unit-norm vector and a wrong-width result fails closed at the shared rank guard.
 
 use crate::exec::{execute, HashEmbedder, PlanCtx, TextEmbedder};
 use eg_core::compute::semantic::SemanticStore;
@@ -132,8 +132,8 @@ fn rank_embed_embedder_error_propagates() {
 }
 
 /// CONCEPT:EG-KG.compute.no-embedder-bound-op — the deterministic `HashEmbedder` fallback maps a text to a STABLE
-/// unit-norm vector (same text ⇒ same vector), and a bound one makes the seam run without
-/// erroring (its ranking is deterministic but semantically arbitrary, by design).
+/// unit-norm vector (same text ⇒ same vector). It still cannot query a store with another
+/// vector width: `RankEmbed` shares `Rank`'s fail-closed dimensionality guard.
 #[test]
 fn hash_embedder_is_deterministic() {
     let e = HashEmbedder::new(8);
@@ -149,7 +149,8 @@ fn hash_embedder_is_deterministic() {
     let norm = v1.iter().map(|x| x * x).sum::<f32>().sqrt();
     assert!((norm - 1.0).abs() < 1e-5, "unit-norm, got {norm}");
 
-    // Bound onto a ctx, an Op::RankEmbed runs (no error), producing a deterministic order.
+    // The fixture's stored embeddings are 2-D. Binding this 8-D fallback must fail before
+    // scoring instead of silently truncating vectors or returning a false empty result.
     let (view, semantic) = fixture();
     let plan = Plan::new(vec![
         Op::Scan {
@@ -160,10 +161,9 @@ fn hash_embedder_is_deterministic() {
         },
     ]);
     let ctx = PlanCtx::new(&view, &semantic).with_embedder(&e);
-    let ids = execute(&plan, &ctx).unwrap().ids();
-    assert_eq!(
-        ids.len(),
-        3,
-        "the hash-embedded rank still ranks all candidates"
+    let err = execute(&plan, &ctx).unwrap_err();
+    assert!(
+        err.contains("query vector dimension mismatch"),
+        "wrong-width text embedding must be a typed rank error, got: {err}"
     );
 }

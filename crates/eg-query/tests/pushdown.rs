@@ -229,7 +229,14 @@ fn secondary_index_catalog_and_scalar_lookup_contract() {
             .unwrap()
             .as_nanos()
     ));
-    let store = TableStore::open_scoped(&path, "tenant-a").unwrap();
+    let store = TableStore::open_scoped(
+        &path,
+        "tenant-a",
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .unwrap();
     let schema = TableSchema::new(
         "events",
         vec![
@@ -372,7 +379,14 @@ fn secondary_index_catalog_and_scalar_lookup_contract() {
         .is_none());
 
     drop(store);
-    let reopened = TableStore::open_scoped(&path, "tenant-a").unwrap();
+    let reopened = TableStore::open_scoped(
+        &path,
+        "tenant-a",
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .unwrap();
     assert_eq!(
         reopened
             .list_secondary_indexes(Some("events"))

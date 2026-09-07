@@ -12,7 +12,7 @@ use eg_modality::{
 
 use crate::tensor::{Buffer, Tensor};
 
-const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+const TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &str)] = &[
     (
         TckPoint::CdcDeleteRetentionGc,
         "content-addressed immutable CAS value — no in-place mutation to capture; delete/GC is a store-layer refcount concern, not a modality-value capability",

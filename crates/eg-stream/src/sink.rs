@@ -292,6 +292,74 @@ fn client_config_from(config: &KafkaConfig) -> ClientConfig {
     client_config
 }
 
+/// The only producer operation permitted on either synchronous publishing path:
+/// admit one record to the bounded local librdkafka queue. Broker delivery is
+/// intentionally a separate method so tests can prove `emit`/`publish` never
+/// cross that boundary.
+#[cfg(feature = "cdc-kafka")]
+trait LocalKafkaQueue: Send + Sync {
+    fn enqueue(
+        &self,
+        topic: &str,
+        key: &[u8],
+        payload: &[u8],
+        partition: Option<i32>,
+    ) -> Result<(), SinkError>;
+
+    fn in_flight_count(&self) -> i32;
+
+    /// This is the broker-delivery wait boundary. It is reserved for the
+    /// explicit graceful-shutdown/test `flush` APIs and must never be called
+    /// by `CdcSink::emit` or `RawKafkaProducer::publish`.
+    fn wait_for_delivery(&self, timeout: std::time::Duration) -> Result<(), SinkError>;
+}
+
+#[cfg(feature = "cdc-kafka")]
+impl LocalKafkaQueue for BaseProducer<DeliveryTracker> {
+    fn enqueue(
+        &self,
+        topic: &str,
+        key: &[u8],
+        payload: &[u8],
+        partition: Option<i32>,
+    ) -> Result<(), SinkError> {
+        let record = BaseRecord::to(topic).key(key).payload(payload);
+        let result = match partition {
+            Some(partition) => self.send(record.partition(partition)),
+            None => self.send(record),
+        };
+        match result {
+            Ok(()) => Ok(()),
+            Err((KafkaError::MessageProduction(code), _)) => {
+                if format!("{code:?}").contains("QueueFull") {
+                    Err(SinkError::QueueFull)
+                } else {
+                    Err(SinkError::Kafka(format!("{code:?}")))
+                }
+            }
+            Err((error, _)) => Err(SinkError::Kafka(error.to_string())),
+        }
+    }
+
+    fn in_flight_count(&self) -> i32 {
+        Producer::in_flight_count(self)
+    }
+
+    fn wait_for_delivery(&self, timeout: std::time::Duration) -> Result<(), SinkError> {
+        Producer::flush(self, timeout).map_err(|error| SinkError::Kafka(error.to_string()))
+    }
+}
+
+/// Convert librdkafka's signed C queue count into the public unsigned lag
+/// metric. `rd_kafka_outq_len` is documented as a count of queued messages,
+/// reports, callbacks, and events, so every valid result is non-negative. A
+/// defensive zero for an invalid negative result avoids both a panic and the
+/// enormous wrapped value that a direct cast would expose as real backlog.
+#[cfg(feature = "cdc-kafka")]
+fn queue_lag(queue: &dyn LocalKafkaQueue) -> u64 {
+    u64::try_from(queue.in_flight_count()).unwrap_or_default()
+}
+
 /// Create the delivery-tracked producer + spawn its dedicated poll thread —
 /// the other half of the shared construction path (see
 /// [`client_config_from`]'s doc). Returns the producer plus the two
@@ -302,14 +370,7 @@ fn client_config_from(config: &KafkaConfig) -> ClientConfig {
 #[allow(clippy::type_complexity)]
 fn spawn_delivery_tracked_producer(
     client_config: ClientConfig,
-) -> Result<
-    (
-        Arc<BaseProducer<DeliveryTracker>>,
-        Arc<AtomicU64>,
-        Arc<AtomicU64>,
-    ),
-    SinkError,
-> {
+) -> Result<(Arc<dyn LocalKafkaQueue>, Arc<AtomicU64>, Arc<AtomicU64>), SinkError> {
     let delivered = Arc::new(AtomicU64::new(0));
     let delivery_failed = Arc::new(AtomicU64::new(0));
     let context = DeliveryTracker {
@@ -338,7 +399,7 @@ fn spawn_delivery_tracked_producer(
 
 #[cfg(feature = "cdc-kafka")]
 pub struct KafkaCdcSink {
-    producer: Arc<BaseProducer<DeliveryTracker>>,
+    producer: Arc<dyn LocalKafkaQueue>,
     topic_prefix: String,
     /// Locally enqueued (`BaseProducer::send` returned `Ok`) -- NOT proof of
     /// broker delivery. See `delivered`/`delivery_failed` for that.
@@ -415,38 +476,26 @@ impl CdcSink for KafkaCdcSink {
         };
         let payload = serde_json::to_vec(&envelope).map_err(|e| SinkError::Kafka(e.to_string()))?;
         let key = event.graph.as_bytes();
-        let record = BaseRecord::to(&topic)
-            .key(key)
-            .payload(&payload)
-            .partition(0);
-        match self.producer.send(record) {
+        match self.producer.enqueue(&topic, key, &payload, Some(0)) {
             Ok(()) => {
                 self.sent.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }
-            Err((KafkaError::MessageProduction(code), _)) => {
+            Err(error) => {
                 self.failed.fetch_add(1, Ordering::Relaxed);
-                if format!("{code:?}").contains("QueueFull") {
-                    Err(SinkError::QueueFull)
-                } else {
-                    Err(SinkError::Kafka(format!("{code:?}")))
-                }
-            }
-            Err((e, _)) => {
-                self.failed.fetch_add(1, Ordering::Relaxed);
-                Err(SinkError::Kafka(e.to_string()))
+                Err(error)
             }
         }
     }
 
     fn lag(&self) -> u64 {
-        self.producer.in_flight_count() as u64
+        queue_lag(self.producer.as_ref())
     }
 
     fn flush(&self, timeout_ms: u64) {
         if let Err(e) = self
             .producer
-            .flush(std::time::Duration::from_millis(timeout_ms))
+            .wait_for_delivery(std::time::Duration::from_millis(timeout_ms))
         {
             eprintln!("cdc-kafka sink: flush error: {e}");
         }
@@ -466,7 +515,7 @@ impl CdcSink for KafkaCdcSink {
 /// is not read here — the topic is named per [`Self::publish`] call.
 #[cfg(feature = "cdc-kafka")]
 pub struct RawKafkaProducer {
-    producer: Arc<BaseProducer<DeliveryTracker>>,
+    producer: Arc<dyn LocalKafkaQueue>,
     sent: AtomicU64,
     failed: AtomicU64,
     delivered: Arc<AtomicU64>,
@@ -499,23 +548,14 @@ impl RawKafkaProducer {
     /// run id"), so librdkafka's default key-hash routing is exactly what's
     /// wanted here.
     pub fn publish(&self, topic: &str, key: &[u8], payload: &[u8]) -> Result<(), SinkError> {
-        let record = BaseRecord::to(topic).key(key).payload(payload);
-        match self.producer.send(record) {
+        match self.producer.enqueue(topic, key, payload, None) {
             Ok(()) => {
                 self.sent.fetch_add(1, Ordering::Relaxed);
                 Ok(())
             }
-            Err((KafkaError::MessageProduction(code), _)) => {
+            Err(error) => {
                 self.failed.fetch_add(1, Ordering::Relaxed);
-                if format!("{code:?}").contains("QueueFull") {
-                    Err(SinkError::QueueFull)
-                } else {
-                    Err(SinkError::Kafka(format!("{code:?}")))
-                }
-            }
-            Err((e, _)) => {
-                self.failed.fetch_add(1, Ordering::Relaxed);
-                Err(SinkError::Kafka(e.to_string()))
+                Err(error)
             }
         }
     }
@@ -542,7 +582,7 @@ impl RawKafkaProducer {
     /// Best-effort count of events queued locally but not yet
     /// broker-acknowledged.
     pub fn lag(&self) -> u64 {
-        self.producer.in_flight_count() as u64
+        queue_lag(self.producer.as_ref())
     }
 
     /// Block up to `timeout_ms` waiting for every queued event to reach the
@@ -551,7 +591,7 @@ impl RawKafkaProducer {
     pub fn flush(&self, timeout_ms: u64) {
         if let Err(e) = self
             .producer
-            .flush(std::time::Duration::from_millis(timeout_ms))
+            .wait_for_delivery(std::time::Duration::from_millis(timeout_ms))
         {
             eprintln!("raw kafka producer: flush error: {e}");
         }
@@ -593,6 +633,77 @@ fn rfc3339_utc_now() -> String {
 #[cfg(all(test, feature = "cdc-kafka"))]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct EnqueuedRecord {
+        topic: String,
+        key: Vec<u8>,
+        payload: Vec<u8>,
+        partition: Option<i32>,
+    }
+
+    #[derive(Default)]
+    struct LocalQueueProbe {
+        enqueue_calls: AtomicU64,
+        delivery_wait_calls: AtomicU64,
+        record: Mutex<Option<EnqueuedRecord>>,
+        reject_enqueue: bool,
+        in_flight_count: i32,
+    }
+
+    impl LocalKafkaQueue for LocalQueueProbe {
+        fn enqueue(
+            &self,
+            topic: &str,
+            key: &[u8],
+            payload: &[u8],
+            partition: Option<i32>,
+        ) -> Result<(), SinkError> {
+            self.enqueue_calls.fetch_add(1, Ordering::Relaxed);
+            *self.record.lock().expect("probe record lock") = Some(EnqueuedRecord {
+                topic: topic.to_string(),
+                key: key.to_vec(),
+                payload: payload.to_vec(),
+                partition,
+            });
+            if self.reject_enqueue {
+                Err(SinkError::QueueFull)
+            } else {
+                Ok(())
+            }
+        }
+
+        fn in_flight_count(&self) -> i32 {
+            self.in_flight_count
+        }
+
+        fn wait_for_delivery(&self, _timeout: std::time::Duration) -> Result<(), SinkError> {
+            self.delivery_wait_calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
+    fn raw_producer_with(queue: Arc<dyn LocalKafkaQueue>) -> RawKafkaProducer {
+        RawKafkaProducer {
+            producer: queue,
+            sent: AtomicU64::new(0),
+            failed: AtomicU64::new(0),
+            delivered: Arc::new(AtomicU64::new(0)),
+            delivery_failed: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    fn cdc_sink_with(queue: Arc<dyn LocalKafkaQueue>) -> KafkaCdcSink {
+        KafkaCdcSink {
+            producer: queue,
+            topic_prefix: "eg.cdc.".to_string(),
+            sent: AtomicU64::new(0),
+            failed: AtomicU64::new(0),
+            delivered: Arc::new(AtomicU64::new(0)),
+            delivery_failed: Arc::new(AtomicU64::new(0)),
+        }
+    }
 
     #[test]
     fn rfc3339_now_is_well_formed() {
@@ -658,51 +769,117 @@ mod tests {
         assert!(v.get("lsn").is_none());
     }
 
-    /// CA-15 (lineage transport) reuses this construction path — proves it
-    /// builds a working producer against an unroutable broker string
-    /// without blocking (librdkafka connects lazily; `create_with_context`
-    /// itself never dials out) and that `publish` returns promptly (the
-    /// same non-blocking-send contract [`CdcSink::emit`] documents),
-    /// bounded so a CI run never hangs even without a real cluster.
+    /// CA-15's lineage hot path is allowed to enqueue locally and return; it
+    /// must never cross the separate broker-delivery wait boundary. The
+    /// injected probe makes this deterministic: one enqueue is observed with
+    /// the exact record, and a delivery wait would increment the independent
+    /// counter and fail the assertion. The gate also gives this already-fast
+    /// proof a short process watchdog, solely to contain arbitrary regressions.
     #[test]
-    fn raw_kafka_producer_construction_and_publish_never_block() {
-        let config = KafkaConfig {
-            brokers: "127.0.0.1:1".to_string(),
-            topic_prefix: String::new(),
-            ..Default::default()
-        };
-        let started = std::time::Instant::now();
-        let producer =
-            RawKafkaProducer::new(&config).expect("construction does not require connectivity");
-        let result = producer.publish("openlineage.events", b"run-1", b"{}");
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(5),
-            "construct+publish against an unroutable broker took {:?} -- should be non-blocking",
-            started.elapsed()
+    fn raw_kafka_producer_publish_only_enqueues_locally() {
+        let probe = Arc::new(LocalQueueProbe::default());
+        let producer = raw_producer_with(Arc::clone(&probe) as Arc<dyn LocalKafkaQueue>);
+
+        producer
+            .publish("openlineage.events", b"run-1", b"{}")
+            .expect("the local queue accepted the record");
+
+        assert_eq!(probe.enqueue_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(probe.delivery_wait_calls.load(Ordering::Relaxed), 0);
+        assert_eq!((producer.sent_count(), producer.failed_count()), (1, 0));
+        assert_eq!(
+            *probe.record.lock().expect("probe record lock"),
+            Some(EnqueuedRecord {
+                topic: "openlineage.events".to_string(),
+                key: b"run-1".to_vec(),
+                payload: b"{}".to_vec(),
+                partition: None,
+            })
         );
-        // The local enqueue itself may succeed (librdkafka buffers first,
-        // dials lazily) or fail fast depending on timing -- either is fine;
-        // what matters is it returned at all, promptly, and never panicked.
-        let _ = result;
     }
 
     #[test]
-    fn raw_kafka_producer_topic_and_key_are_per_call_not_baked_into_config() {
-        // `KafkaConfig::topic_prefix` is documented as unread by
-        // `RawKafkaProducer` -- unlike `KafkaCdcSink`, the topic is named at
-        // `publish()` time (DEC-CA-03's fixed `openlineage.events`, not a
-        // per-graph template). This is a compile-time/API shape assertion:
-        // publish() takes topic + key explicitly.
-        let config = KafkaConfig {
-            brokers: "127.0.0.1:1".to_string(),
-            topic_prefix: "ignored-by-raw-producer".to_string(),
-            ..Default::default()
+    fn kafka_cdc_sink_emit_only_enqueues_locally() {
+        let probe = Arc::new(LocalQueueProbe::default());
+        let sink = cdc_sink_with(Arc::clone(&probe) as Arc<dyn LocalKafkaQueue>);
+        let event = SinkEvent {
+            seq: 7,
+            graph: "g1".to_string(),
+            op: SinkOp::Upsert,
+            node_id: "n1".to_string(),
+            edge_id: None,
+            before: None,
+            after: Some(serde_json::json!({"a": 1})),
         };
-        let producer = RawKafkaProducer::new(&config).expect("construction never blocks");
-        let _ = producer.publish(
-            "openlineage.events",
-            b"run-id-key",
-            b"{\"eventType\":\"COMPLETE\"}",
-        );
+
+        sink.emit(&event)
+            .expect("the local queue accepted the record");
+
+        assert_eq!(probe.enqueue_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(probe.delivery_wait_calls.load(Ordering::Relaxed), 0);
+        assert_eq!((sink.sent_count(), sink.failed_count()), (1, 0));
+        let record = probe.record.lock().expect("probe record lock");
+        let record = record.as_ref().expect("one local record");
+        assert_eq!(record.topic, "eg.cdc.g1");
+        assert_eq!(record.key, b"g1");
+        assert_eq!(record.partition, Some(0));
+    }
+
+    #[test]
+    fn raw_kafka_producer_preserves_bounded_queue_rejection() {
+        let probe = Arc::new(LocalQueueProbe {
+            reject_enqueue: true,
+            ..Default::default()
+        });
+        let producer = raw_producer_with(Arc::clone(&probe) as Arc<dyn LocalKafkaQueue>);
+
+        assert!(matches!(
+            producer.publish("openlineage.events", b"run-1", b"{}"),
+            Err(SinkError::QueueFull)
+        ));
+
+        assert_eq!(probe.enqueue_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(probe.delivery_wait_calls.load(Ordering::Relaxed), 0);
+        assert_eq!((producer.sent_count(), producer.failed_count()), (0, 1));
+    }
+
+    #[test]
+    fn kafka_lag_preserves_valid_bounds_and_rejects_negative_ffi_values() {
+        let negative = Arc::new(LocalQueueProbe {
+            in_flight_count: -1,
+            ..Default::default()
+        });
+        let negative_producer =
+            raw_producer_with(Arc::clone(&negative) as Arc<dyn LocalKafkaQueue>);
+        assert_eq!(negative_producer.lag(), 0);
+
+        let maximum = Arc::new(LocalQueueProbe {
+            in_flight_count: i32::MAX,
+            ..Default::default()
+        });
+        let maximum_producer = raw_producer_with(Arc::clone(&maximum) as Arc<dyn LocalKafkaQueue>);
+        assert_eq!(maximum_producer.lag(), 2_147_483_647);
+    }
+
+    #[test]
+    fn raw_kafka_producer_flush_uses_explicit_delivery_wait_boundary() {
+        let probe = Arc::new(LocalQueueProbe::default());
+        let producer = raw_producer_with(Arc::clone(&probe) as Arc<dyn LocalKafkaQueue>);
+
+        producer.flush(0);
+
+        assert_eq!(probe.enqueue_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(probe.delivery_wait_calls.load(Ordering::Relaxed), 1);
+    }
+
+    /// The exact `RawKafkaProducer::publish` shape the test below pins: producer,
+    /// topic, key, payload -- topic and key supplied per call rather than baked
+    /// into the producer.
+    type RawKafkaPublish = fn(&RawKafkaProducer, &str, &[u8], &[u8]) -> Result<(), SinkError>;
+
+    #[test]
+    fn raw_kafka_producer_publish_takes_topic_and_key_per_call() {
+        let publish: RawKafkaPublish = RawKafkaProducer::publish;
+        let _ = publish;
     }
 }

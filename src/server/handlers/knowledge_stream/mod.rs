@@ -13,7 +13,7 @@ use eg_modality::{OpaqueRef, ProtocolError};
 use eg_plan::{
     cross_modal_result_stream, graph_result_stream, job_result_stream, rdf_result_stream,
     sql_result_stream, time_series_result_stream, vector_result_stream, KnowledgeBatch,
-    KnowledgeBatchRow, KnowledgeStreamContext, KnowledgeStreamCursor, ServedResultFamily,
+    KnowledgeBatchRow, KnowledgeStreamContext, ResultStreamCursor, ServedResultFamily,
 };
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -23,8 +23,8 @@ use crate::graph::GraphCore;
 #[cfg(test)]
 use crate::knowledge_stream::KnowledgeStreamProjection;
 use crate::knowledge_stream::{
-    KnowledgeResultFamily, KnowledgeStreamBatchV1, KnowledgeStreamCursorV1, KnowledgeStreamQuery,
-    KnowledgeStreamRequestV1, KNOWLEDGE_STREAM_SCHEMA_VERSION,
+    KnowledgeResultFamily, KnowledgeStreamBatch, KnowledgeStreamCursor, KnowledgeStreamQuery,
+    KnowledgeStreamRequest, KNOWLEDGE_STREAM_SCHEMA_VERSION,
 };
 use crate::protocol::{Method, Response, ResultPayload};
 use eg_types::acl::RequestContextClaims;
@@ -45,19 +45,20 @@ type HmacSha256 = Hmac<Sha256>;
 /// Raw claims never enter the stream cursor or a result row.
 ///
 /// A KnowledgeStream authority is usable for serving only when it carries the
-/// opaque [`crate::isolation::GraphPolicyLease`] minted by the durable RBAC
-/// authority.  The legacy claims-derived references are retained only so the
-/// transport can reject an unbound authority cleanly while the caller is being
-/// migrated; they are never accepted as authorization proof by [`try_handle`].
+/// opaque [`crate::isolation::PolicyDecisionLease`] minted by the durable RBAC
+/// authority. Claims-derived references are cursor material only and are never
+/// accepted as authorization proof by [`try_handle`].
 #[derive(Clone)]
 pub(crate) struct KnowledgeStreamAuthority {
     tenant_ref: OpaqueRef,
     access_policy_ref: OpaqueRef,
     reference_key: [u8; 32],
     #[cfg(feature = "security")]
-    policy_lease: Option<Arc<crate::isolation::GraphPolicyLease>>,
+    policy_lease: Option<Arc<crate::isolation::PolicyDecisionLease>>,
     #[cfg(feature = "security")]
     policy_store: Option<Arc<dyn RbacPolicyStore>>,
+    #[cfg(feature = "security")]
+    originating_actor_scope: Option<String>,
 }
 
 impl KnowledgeStreamAuthority {
@@ -111,12 +112,14 @@ impl KnowledgeStreamAuthority {
             policy_lease: None,
             #[cfg(feature = "security")]
             policy_store: None,
+            #[cfg(feature = "security")]
+            originating_actor_scope: None,
         })
     }
 
     /// Bind the stream to one exact durable graph-policy image.
     ///
-    /// `GraphPolicyLease` is deliberately non-constructible and non-Clone;
+    /// `PolicyDecisionLease` is deliberately non-constructible and non-Clone;
     /// storing it behind an `Arc` keeps the existing authority routing shape
     /// cloneable without turning a wire cursor into a durable permission.  The
     /// policy reference and reference-key domain are re-derived from the lease,
@@ -126,62 +129,54 @@ impl KnowledgeStreamAuthority {
         server_secret: &str,
         claims: &RequestContextClaims,
         graph_name: &str,
-        lease: Arc<crate::isolation::GraphPolicyLease>,
+        carrier: &CarrierAuthority,
+        lease: Arc<crate::isolation::PolicyDecisionLease>,
         policy_store: Arc<dyn RbacPolicyStore>,
     ) -> Result<Self, String> {
         let mut authority = Self::from_verified(server_secret, claims)?;
-        if graph_name.is_empty()
-            || lease.access() != crate::isolation::AccessLevel::Read
-            || lease.actor() != claims.agent_id.as_str()
-            || lease.tenant() != claims.tenant.as_str()
-            || lease.graph() != graph_name
-        {
-            return Err("KnowledgeStream graph policy lease binding mismatch".to_string());
+        let actor_scope = carrier.actor_scope();
+        if !lease_matches_verified_context(lease.as_ref(), claims, graph_name, carrier) {
+            return Err("KnowledgeStream policy decision lease binding mismatch".to_string());
         }
         lease
             .policy_snapshot()
             .validate()
-            .map_err(|_| "KnowledgeStream graph policy lease identity is invalid".to_string())?;
+            .map_err(|_| "KnowledgeStream policy decision lease identity is invalid".to_string())?;
         lease
             .validate_before(policy_store.as_ref())
-            .map_err(|_| "KnowledgeStream graph policy lease is stale".to_string())?;
+            .map_err(|_| "KnowledgeStream policy decision lease is stale".to_string())?;
 
-        let version = lease.policy_snapshot().version.to_string();
-        let coarse_acl = match lease.coarse_acl() {
-            crate::isolation::GraphPolicyCoarseAcl::System => "system",
-            crate::isolation::GraphPolicyCoarseAcl::RbacAllow => "rbac_allow",
-        };
-        let mut binding = vec![
-            ("tenant", lease.tenant()),
-            ("actor", lease.actor()),
-            ("graph", lease.graph()),
-            ("policy-version", version.as_str()),
-            ("policy-digest", lease.policy_snapshot().digest.as_str()),
-            ("row-policy-digest", lease.row_policy_identity_digest()),
-            ("coarse-acl", coarse_acl),
-            ("audience", claims.audience.as_str()),
-            ("principal", claims.principal.as_str()),
-            ("agent", claims.agent_id.as_str()),
-        ];
-        let mut roles = claims.roles.iter().map(String::as_str).collect::<Vec<_>>();
-        roles.sort_unstable();
-        binding.extend(roles.into_iter().map(|value| ("role", value)));
-        let mut scopes = claims.scopes.iter().map(String::as_str).collect::<Vec<_>>();
-        scopes.sort_unstable();
-        binding.extend(scopes.into_iter().map(|value| ("scope", value)));
-        binding.extend(
-            claims
-                .delegation
-                .iter()
-                .map(String::as_str)
-                .map(|value| ("delegation", value)),
+        let originating_scope_ref = keyed_ref(
+            server_secret,
+            "policy-originating-principal",
+            &[
+                ("principal", lease.originating_principal()),
+                ("actor-scope", actor_scope),
+            ],
+        )?;
+        let effective_actor_ref = keyed_ref(
+            server_secret,
+            "policy-effective-actor",
+            &[("agent", lease.effective_actor())],
+        )?;
+        let binding = policy_decision_binding(
+            claims,
+            lease.as_ref(),
+            &originating_scope_ref,
+            &effective_actor_ref,
         );
+        let binding_refs = binding
+            .iter()
+            .map(|(field, value)| (field.as_str(), value.as_str()))
+            .collect::<Vec<_>>();
 
         authority.tenant_ref = keyed_ref(server_secret, "tenant", &[("tenant", lease.tenant())])?;
-        authority.access_policy_ref = keyed_ref(server_secret, "access-policy", &binding)?;
-        authority.reference_key = keyed_bytes(server_secret, "stream-reference-key", &binding)?;
+        authority.access_policy_ref = keyed_ref(server_secret, "access-policy", &binding_refs)?;
+        authority.reference_key =
+            keyed_bytes(server_secret, "stream-reference-key", &binding_refs)?;
         authority.policy_lease = Some(lease);
         authority.policy_store = Some(policy_store);
+        authority.originating_actor_scope = Some(actor_scope.to_string());
         Ok(authority)
     }
 
@@ -189,7 +184,7 @@ impl KnowledgeStreamAuthority {
     /// this handle to policy-aware delegated readers; they must not mint,
     /// clone, or reconstruct a second graph capability.
     #[cfg(feature = "security")]
-    pub(super) fn policy_lease(&self) -> Option<&Arc<crate::isolation::GraphPolicyLease>> {
+    pub(super) fn policy_lease(&self) -> Option<&Arc<crate::isolation::PolicyDecisionLease>> {
         self.policy_lease.as_ref()
     }
 
@@ -200,7 +195,7 @@ impl KnowledgeStreamAuthority {
         #[cfg(feature = "security")]
         {
             let lease = self.policy_lease.as_ref().ok_or_else(|| {
-                "KnowledgeStream requires a durable graph policy lease".to_string()
+                "KnowledgeStream requires a durable policy decision lease".to_string()
             })?;
             let store = self
                 .policy_store
@@ -208,7 +203,7 @@ impl KnowledgeStreamAuthority {
                 .ok_or_else(|| "KnowledgeStream policy authority is unavailable".to_string())?;
             return lease
                 .filter_view(store.as_ref(), view)
-                .map_err(|_| "KnowledgeStream graph policy lease is stale".to_string());
+                .map_err(|_| "KnowledgeStream policy decision lease is stale".to_string());
         }
         #[cfg(not(feature = "security"))]
         {
@@ -217,32 +212,36 @@ impl KnowledgeStreamAuthority {
         }
     }
 
-    /// Return the durable policy lease's exact actor/tenant/graph binding.
+    /// Validate the durable lease's originating-principal, effective-actor,
+    /// tenant, and resource binding.
     ///
     /// This is intentionally a closed check with a generic error.  Policy
     /// versions/digests are never included in a response error or log field
     /// sourced from a caller-controlled cursor.
     pub(super) fn validate_request_binding(
         &self,
-        caller: &str,
         graph_name: &str,
+        carrier: &CarrierAuthority,
     ) -> Result<(), String> {
         #[cfg(feature = "security")]
         {
             let lease = self.policy_lease.as_ref().ok_or_else(|| {
-                "KnowledgeStream requires a durable graph policy lease".to_string()
+                "KnowledgeStream requires a durable policy decision lease".to_string()
             })?;
-            if lease.actor() != caller
-                || lease.graph() != graph_name
-                || lease.access() != crate::isolation::AccessLevel::Read
-            {
-                return Err("KnowledgeStream graph policy lease binding mismatch".to_string());
+            if !lease_matches_request(
+                lease,
+                graph_name,
+                carrier.agent_id(),
+                self.originating_actor_scope.as_deref(),
+                carrier.actor_scope(),
+            ) {
+                return Err("KnowledgeStream policy decision lease binding mismatch".to_string());
             }
             return Ok(());
         }
         #[cfg(not(feature = "security"))]
         {
-            let _ = (caller, graph_name);
+            let _ = (graph_name, carrier);
             Err("KnowledgeStream requires the security policy lease feature".to_string())
         }
     }
@@ -261,7 +260,7 @@ impl KnowledgeStreamAuthority {
         #[cfg(feature = "security")]
         {
             let lease = self.policy_lease.as_ref().ok_or_else(|| {
-                "KnowledgeStream requires a durable graph policy lease".to_string()
+                "KnowledgeStream requires a durable policy decision lease".to_string()
             })?;
             let store = self
                 .policy_store
@@ -272,7 +271,7 @@ impl KnowledgeStreamAuthority {
             } else {
                 lease.validate_after(store.as_ref())
             };
-            result.map_err(|_| "KnowledgeStream graph policy lease is stale".to_string())
+            result.map_err(|_| "KnowledgeStream policy decision lease is stale".to_string())
         }
         #[cfg(not(feature = "security"))]
         {
@@ -300,6 +299,90 @@ impl KnowledgeStreamAuthority {
             Ok(())
         }
     }
+}
+
+#[cfg(feature = "security")]
+fn lease_matches_verified_context(
+    lease: &crate::isolation::PolicyDecisionLease,
+    claims: &RequestContextClaims,
+    graph_name: &str,
+    carrier: &CarrierAuthority,
+) -> bool {
+    !graph_name.is_empty()
+        && !carrier.actor_scope().is_empty()
+        && carrier.agent_id() == claims.agent_id.as_str()
+        && lease.access() == crate::isolation::AccessLevel::Read
+        && lease.originating_principal() == claims.principal.as_str()
+        && lease.effective_actor() == claims.agent_id.as_str()
+        && lease.tenant() == claims.tenant.as_str()
+        && lease.resource() == graph_name
+}
+
+#[cfg(feature = "security")]
+fn lease_matches_request(
+    lease: &crate::isolation::PolicyDecisionLease,
+    graph_name: &str,
+    effective_actor: &str,
+    bound_actor_scope: Option<&str>,
+    originating_actor_scope: &str,
+) -> bool {
+    lease.effective_actor() == effective_actor
+        && lease.resource() == graph_name
+        && bound_actor_scope == Some(originating_actor_scope)
+        && lease.access() == crate::isolation::AccessLevel::Read
+}
+
+#[cfg(feature = "security")]
+fn policy_decision_binding(
+    claims: &RequestContextClaims,
+    lease: &crate::isolation::PolicyDecisionLease,
+    originating_scope_ref: &OpaqueRef,
+    effective_actor_ref: &OpaqueRef,
+) -> Vec<(String, String)> {
+    let decision_basis = match lease.decision_basis() {
+        crate::isolation::PolicyDecisionBasis::System => "system",
+        crate::isolation::PolicyDecisionBasis::RbacAllow => "rbac_allow",
+    };
+    let mut binding = vec![
+        ("tenant".to_string(), lease.tenant().to_string()),
+        (
+            "originating-principal-scope".to_string(),
+            originating_scope_ref.as_str().to_string(),
+        ),
+        (
+            "effective-actor-scope".to_string(),
+            effective_actor_ref.as_str().to_string(),
+        ),
+        ("resource".to_string(), lease.resource().to_string()),
+        (
+            "policy-version".to_string(),
+            lease.policy_snapshot().version.to_string(),
+        ),
+        (
+            "policy-digest".to_string(),
+            lease.policy_snapshot().digest.clone(),
+        ),
+        (
+            "row-policy-digest".to_string(),
+            lease.row_policy_identity_digest().to_string(),
+        ),
+        ("decision-basis".to_string(), decision_basis.to_string()),
+        ("audience".to_string(), claims.audience.clone()),
+    ];
+    let mut roles = claims.roles.clone();
+    roles.sort_unstable();
+    binding.extend(roles.into_iter().map(|value| ("role".to_string(), value)));
+    let mut scopes = claims.scopes.clone();
+    scopes.sort_unstable();
+    binding.extend(scopes.into_iter().map(|value| ("scope".to_string(), value)));
+    binding.extend(
+        claims
+            .delegation
+            .iter()
+            .cloned()
+            .map(|value| ("delegation".to_string(), value)),
+    );
+    binding
 }
 
 fn keyed_bytes(secret: &str, domain: &str, values: &[(&str, &str)]) -> Result<[u8; 32], String> {
@@ -357,6 +440,34 @@ pub(crate) struct KnowledgeStreamHandlerCtx<'a> {
     pub(crate) rls: &'a Arc<crate::isolation::IsolationLayer>,
 }
 
+fn validate_stream_preflight(
+    authority: &KnowledgeStreamAuthority,
+    caller: &str,
+    graph_name: &str,
+    carrier: &CarrierAuthority,
+    request: &KnowledgeStreamRequest,
+) -> Result<(), String> {
+    if caller != carrier.agent_id() {
+        crate::metrics::access_denied();
+        return Err("KnowledgeStream policy decision lease binding mismatch".to_string());
+    }
+    if let Err(error) = authority.validate_request_binding(graph_name, carrier) {
+        crate::metrics::access_denied();
+        return Err(error);
+    }
+    if request.schema_version != KNOWLEDGE_STREAM_SCHEMA_VERSION {
+        return Err("unsupported KnowledgeStream schema version".to_string());
+    }
+    if request.batch_size == 0 {
+        return Err("KnowledgeStream batch_size must be non-zero".to_string());
+    }
+    if let Err(error) = authority.validate_before() {
+        crate::metrics::access_denied();
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// Route the one native stream method. A non-stream method is returned unchanged.
 pub(crate) async fn try_handle(
     ctx: KnowledgeStreamHandlerCtx<'_>,
@@ -379,24 +490,8 @@ pub(crate) async fn try_handle(
     let Method::KnowledgeStream { request } = method else {
         return Err(method);
     };
-    if let Err(error) = authority.validate_request_binding(caller, graph_name) {
-        crate::metrics::access_denied();
-        return Ok(Response::err(req_id, error));
-    }
-    if request.schema_version != KNOWLEDGE_STREAM_SCHEMA_VERSION {
-        return Ok(Response::err(
-            req_id,
-            "unsupported KnowledgeStream schema version",
-        ));
-    }
-    if request.batch_size == 0 {
-        return Ok(Response::err(
-            req_id,
-            "KnowledgeStream batch_size must be non-zero",
-        ));
-    }
-    if let Err(error) = authority.validate_before() {
-        crate::metrics::access_denied();
+    if let Err(error) = validate_stream_preflight(authority, caller, graph_name, carrier, &request)
+    {
         return Ok(Response::err(req_id, error));
     }
 
@@ -469,4 +564,4 @@ mod stream;
 #[cfg(test)]
 mod tests;
 
-pub(super) use stream::*;
+use stream::*;

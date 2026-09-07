@@ -282,15 +282,7 @@ repos:
     stages: [pre-commit, pre-push, manual]
   - id: rust-arch-lint
     name: Rust architecture — arch-lint
-    entry: |-
-      bash -c '
-      set -euo pipefail
-      command -v arch-lint >/dev/null 2>&1 || { echo "arch-lint: binary is not installed; install the pinned tool before running hooks" >&2; exit 2; }
-      expected="$(PYTHONPATH=scripts python3 -c "from scanner_contract import load_contract; print(load_contract().arch_lint_version)")" || { echo "arch-lint: invalid scanner contract" >&2; exit 2; }
-      got="$(arch-lint --version 2>&1)" || { echo "arch-lint: arch-lint --version failed" >&2; exit 2; }
-      case "$got" in "$expected"|"arch-lint $expected") ;; *) echo "arch-lint: expected $expected, got $got" >&2; exit 2 ;; esac
-      exec arch-lint check --format json
-      '
+    entry: python3 scripts/check_rust_arch_lint.py
     language: system
     pass_filenames: false
     always_run: true
@@ -304,6 +296,15 @@ repos:
   - id: epistemic-operations-protocol
     name: Epistemic Operations manifest ⇄ Rust DTO parity
     entry: python3 scripts/check_epistemic_operations_protocol.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  # RF-ADR-006: component, crate, type, trait, function, module and table names
+  # carry no V<n>/_v<n> suffix. Pure stdlib, no cargo, no wheel; always_run so a
+  # `--files`-scoped commit cannot skip it (the whole point is a tree-wide sweep).
+  - id: no-version-suffixes
+    name: RF-ADR-006 — no version-suffixed component names
+    entry: python3 tests/test_no_version_suffixes.py
     language: system
     pass_filenames: false
     always_run: true
@@ -389,13 +390,13 @@ repos:
     pass_filenames: false
     always_run: true
   # GRAPH-POLICY-LEASE-CONTRACT.md §3 hardening (`MintAuthorization`,
-  # crates/eg-core/src/isolation.rs): keeps `mint_graph_policy_lease` to its one
+  # crates/eg-core/src/isolation.rs): keeps `mint_policy_decision_lease` to its one
   # traced production call site (src/server/dispatch.rs) so a second caller can
   # never silently appear without an audit. Pure stdlib text scan, no cargo/build,
   # safe for the commit stage; catch/no-false-positive proof against a planted
   # second call site is in the W6-MINT lane report.
   - id: mint-lease-call-sites
-    name: mint_graph_policy_lease has one production call site
+    name: mint_policy_decision_lease has one production call site
     entry: python3 scripts/check_mint_lease_call_sites.py
     language: system
     pass_filenames: false
@@ -480,16 +481,27 @@ repos:
     always_run: true
     require_serial: true
     stages: [pre-push, manual]
-  # perf/gate-dedup (2026-08-15): the standalone `protocol-parity` hook that used
-  # to live here ran `python3 -m pytest tests/test_protocol_parity.py --noconftest
-  # -q` on every push — byte-for-byte the SAME command release.yml's `gates` job
-  # runs as its "Protocol parity (Python client ⇄ Rust Method enum)" step, which
-  # `ci-gate-replica` (above) executes verbatim by parsing release.yml at run
-  # time. Verified via `scripts/ci_gate_replica.py --dry-run`. Removed from the
-  # automatic pre-push stage so the check runs once per push, not twice; the
-  # commit-stage `protocol-parity`-equivalent coverage is unaffected (this hook
-  # was pre-push/manual only, never commit-stage). To run it standalone:
-  #   python3 -m pytest tests/test_protocol_parity.py --noconftest -q
+  # RF-RULING-003: the engine contract replaced the `protocol-parity` pytest gate
+  # and its `tests/protocol_unbound_baseline.txt` ratchet. `gen_contract --check`
+  # regenerates every committed artifact (`contract/methods.json`,
+  # `contract/schemas/*.json`, `contract/receipt.json`,
+  # `docs/capabilities.generated.md`, `epistemic_graph/generated/*.py`) in memory and
+  # byte-diffs the tree, so "is this method bound in the Python client" is answered by
+  # the descriptor's `consumer_profiles` rather than by a regex over two files and a
+  # baseline nobody re-reviews. It runs on the SAME pre-push/manual stage the old
+  # standalone hook did, and release.yml runs the identical command so
+  # `ci-gate-replica` stays a verbatim replica. `--locked` on BOTH commands is load
+  # bearing, not decoration: an unlocked `cargo run` REWRITES Cargo.lock on disk and a
+  # later `--locked` step then validates cargo's own repair -- exactly how this lane's
+  # missing schemars/serde_json/sha2/hex entries survived two green gates.
+  - id: engine-contract-check
+    name: Engine contract (registry ⇄ Method enum ⇄ generated client) — gen_contract --check
+    entry: bash -c 'cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check && cargo test -q --locked -p eg-capabilities --features contract'
+    language: system
+    pass_filenames: false
+    always_run: true
+    require_serial: true
+    stages: [pre-push, manual]
   # rust-ci gate 1 — scoped, pinned, check-only format guard. Never invoke
   # `cargo fmt --all` from a developer or merge track: an auto-applying
   # workspace formatter rewrites unrelated files in another lane's worktree.
@@ -637,17 +649,19 @@ repos:
   # NOT behind an opt-in flag: that opt-in is exactly why the
   # EPISTEMIC_GRAPH_ENCRYPTION_KEY ambient-env defect in
   # advanced_crossmodal_roundtrip.rs reached CI instead of failing here), the
-  # same mechanism that broke 2.25.0 in CI, reproducible locally before a push
-  # rather than discovered after one. Coordinate with `rm_gates(stage=heavy)`
-  # (feat/rm-gates, in-flight) -- this belongs in that tier, not as a second
-  # enforcement mechanism.
+  # same mechanism that broke 2.25.0 in CI. The blocking release-workflow step
+  # is executed once by `ci-gate-replica` on pre-push; this direct hook remains
+  # manual-only for focused invocation so the full pre-push plan cannot run the
+  # same gate twice. Coordinate with `rm_gates(stage=heavy)` (feat/rm-gates,
+  # in-flight) -- this belongs in that tier, not as a second enforcement
+  # mechanism.
   - id: constrained-parallelism
-    name: cargo test --lib + integration binaries under 2-core CPU affinity (GOC-70, HEAVY — pre-push/manual)
+    name: cargo test --lib + integration binaries under 2-core CPU affinity (GOC-70, HEAVY — manual-only)
     entry: bash -c 'if [ -f "Cargo.toml" ]; then bash scripts/constrained_parallelism_gate.sh; fi'
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-push, manual]
+    stages: [manual]
   # DE7 (durable-execution-native.md, lane w6-de7-replay-determinism): replay-
   # determinism proofs for the fenced-lease job-lifecycle state machine
   # (`crates/eg-jobs/tests/replay_determinism.rs`, a proptest crash-and-reopen
@@ -677,13 +691,15 @@ repos:
   # `[advisories].ignore` list against the justified, <=90-day-expiring
   # `.cargo-audit-allow.txt` ledger before running the real check, and fails
   # closed (with install instructions) if cargo-deny itself isn't installed —
-  # never a silent pass. Not yet mirrored into rust-ci.yml (pre-commit-only per
-  # the W0.12 spec); scoped to when the dependency surface actually changes.
+  # never a silent pass. The blocking release `scanner-quality` job provisions
+  # the exact contract-pinned binary and invokes this same wrapper. The local
+  # hook also runs when its version authority or verifier changes, not only
+  # when the dependency surface changes.
   - id: cargo-deny-advisories
     name: cargo deny check advisories (Rust dependency CVE gate)
     entry: scripts/check_cargo_advisories.sh
     language: system
-    files: ^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|deny\.toml|\.cargo-audit-allow\.txt)$
+    files: ^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|deny\.toml|\.cargo-audit-allow\.txt|pyproject\.toml|scripts/scanner_contract\.py|scripts/check_cargo_advisories\.sh)$
     pass_filenames: false
   # crates.io-only dependency edict (AGENTS.md, "crates.io-only Rust dependency
   # edict"): fails if any Cargo.toml adds a `git = ` source or an

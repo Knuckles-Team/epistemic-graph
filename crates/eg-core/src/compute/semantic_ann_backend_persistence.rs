@@ -1,31 +1,47 @@
-//! Persisted IVF-PQ artifacts and their bounded identifier sidecar.
+//! The IVF-PQ index's durable image and its bounded identifier sidecar.
+//!
+//! RF-RULING-007: an index generation becomes durable as an **admitted
+//! mutation** on `Native(SemanticIndex)`, not as a directory of files this
+//! crate writes for itself. So this module produces and consumes an owned
+//! in-memory image and opens nothing: no `File`, no directory, no store. The
+//! durable authority is the storage kernel, reached by the holder of a
+//! mutation capability (`compute::semantic_ann_codes`).
 
 use super::*;
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
+
+/// The complete durable image of one `AnnIndex`: eg-ann's three code buffers
+/// plus this crate's bounded row-id sidecar (eg-ann is integer-keyed, the
+/// sidecar carries the node ids). Owned bytes and nothing else.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnnIndexImage {
+    /// eg-ann's `meta`/`codes`/`refine` buffers.
+    pub codes: eg_ann::durable_codes::AnnCodeArtifact,
+    /// The versioned row-id sidecar (`encode_ids`).
+    pub ids: Vec<u8>,
+}
 
 impl AnnIndex {
-    /// Persist the index (codes + meta) to `dir`. Reopen is `load` — NO rebuild.
-    pub fn save(&self, dir: &Path) -> std::io::Result<()> {
+    /// This index's durable image. Restoring it is `from_image` — NO rebuild.
+    pub fn to_image(&self) -> std::io::Result<AnnIndexImage> {
         if self.dim == 0 || self.dim > MAX_MAINTAINED_DIMENSION {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "ANN dimension exceeds the maintained artifact ceiling",
             ));
         }
-        eg_ann::save(&self.index, dir)?;
-        let map_bytes = encode_ids(&self.row_to_id)?;
-        write_atomic(&dir.join("ids.bin"), &map_bytes)
+        Ok(AnnIndexImage {
+            codes: eg_ann::durable_codes::encode(&self.index)?,
+            ids: encode_ids(&self.row_to_id)?,
+        })
     }
 
-    /// Reopen a persisted index WITHOUT rebuilding from raw vectors.
-    pub fn load(dir: &Path) -> std::io::Result<Self> {
-        let index = eg_ann::open(dir)?;
+    /// Rebuild an index from its durable image WITHOUT retraining from raw
+    /// vectors. Every bound the file reader checked is checked here.
+    pub fn from_image(image: &AnnIndexImage) -> std::io::Result<Self> {
+        let index = eg_ann::durable_codes::decode(&image.codes)?;
         let dim = index.dim;
         validate_loaded_dimension(dim)?;
-        let id_path = dir.join("ids.bin");
-        let row_to_id = read_identifier_map(&id_path)?;
+        let row_to_id = decode_identifier_map(&image.ids)?;
         validate_row_count(&row_to_id, index.len())?;
         let id_to_row = map_live_identifiers(&row_to_id)?;
         Ok(Self {
@@ -47,11 +63,11 @@ fn validate_loaded_dimension(dim: usize) -> std::io::Result<()> {
     Ok(())
 }
 
-fn read_identifier_map(path: &Path) -> std::io::Result<Vec<String>> {
-    if std::fs::metadata(path)?.len() > MAX_ID_MAP_BYTES {
+fn decode_identifier_map(bytes: &[u8]) -> std::io::Result<Vec<String>> {
+    if bytes.len() as u64 > MAX_ID_MAP_BYTES {
         return Err(invalid_id_map());
     }
-    decode_ids(&std::fs::read(path)?)
+    decode_ids(bytes)
 }
 
 fn validate_row_count(ids: &[String], expected: usize) -> std::io::Result<()> {
@@ -159,16 +175,6 @@ fn read_fixed<const SIZE: usize>(bytes: &[u8], offset: &mut usize) -> std::io::R
     let value = bytes.get(*offset..end).ok_or_else(invalid_id_map)?;
     *offset = end;
     value.try_into().map_err(|_| invalid_id_map())
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let temporary = path.with_extension("tmp");
-    {
-        let mut file = File::create(&temporary)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-    }
-    std::fs::rename(temporary, path)
 }
 
 fn invalid_id_map() -> std::io::Error {

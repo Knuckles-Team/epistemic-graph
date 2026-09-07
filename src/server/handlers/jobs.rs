@@ -65,7 +65,7 @@ use eg_modality::{Classification, OpaqueRef, PolicyEnvelope};
 use eg_program::{NativeCompiler, OptimizationRequest, ProgramModality};
 
 use crate::isolation::AccessLevel;
-use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
+use crate::mutation_batch::{MutationBatch, DurabilityDomain, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::{check_graph_access, CarrierAuthority};
 use crate::server::state::ServerState;
@@ -142,9 +142,14 @@ fn job_store(persist_dir: Option<&str>) -> Result<Arc<JobStore>, String> {
         })?;
     STORE
         .get_or_init(|| {
-            JobStore::open_in_dir(Path::new(persist_dir))
-                .map(Arc::new)
-                .map_err(|_| "analytics job projection is unavailable".to_string())
+            JobStore::open_in_dir(
+                Path::new(persist_dir),
+                crate::store_authority::process_authority().as_ref(),
+                crate::store_authority::process_authority().principal(),
+                &crate::store_authority::process_authority().proof(),
+            )
+            .map(Arc::new)
+            .map_err(|_| "analytics job projection is unavailable".to_string())
         })
         .clone()
 }
@@ -586,7 +591,7 @@ fn compile_job_batch(
         },
         method,
         MutationSurface::Job,
-        MutationDomain::AnalyticsJob,
+        DurabilityDomain::AnalyticsJob,
         "analytics_job_operation",
     )?;
     Ok((batch, now))

@@ -31,8 +31,8 @@ def _hooks() -> dict[str, dict]:
     }
 
 
-def _workflow() -> dict:
-    return yaml.safe_load((REPO / ".github/workflows/release.yml").read_text())
+def _workflow(filename: str = "release.yml") -> dict:
+    return yaml.safe_load((REPO / ".github/workflows" / filename).read_text())
 
 
 def _ci_replica():
@@ -58,6 +58,7 @@ def test_scanner_contract_versions_and_native_policy_files_exist():
             "dependency_cruiser_version",
             "import_linter_version",
             "arch_lint_version",
+            "cargo_deny_version",
         )
     } == {
         "cccc_version": "1.6.0",
@@ -67,6 +68,7 @@ def test_scanner_contract_versions_and_native_policy_files_exist():
         "dependency_cruiser_version": "18.2.0",
         "import_linter_version": "2.13",
         "arch_lint_version": "0.5.0",
+        "cargo_deny_version": "0.20.2",
     }
     assert (REPO / ".importlinter").is_file()
     assert (REPO / "arch-lint.toml").is_file()
@@ -92,6 +94,7 @@ def test_precommit_has_staged_differential_census_and_architecture_profiles():
         "rust-arch-lint",
     ):
         assert hooks[hook_id]["stages"] == ["pre-commit", "pre-push", "manual"]
+    assert hooks["rust-arch-lint"]["entry"] == "python3 scripts/check_rust_arch_lint.py"
 
     # Distribution is deliberately separated from hooks: a hook may resolve a
     # binary, but it must not invoke a package manager or network installer.
@@ -100,6 +103,26 @@ def test_precommit_has_staged_differential_census_and_architecture_profiles():
     assert "pip install" not in hook_text
     assert "npm install" not in hook_text
     assert "npx " not in hook_text
+
+
+def test_goc70_complete_plan_has_one_pre_push_execution_and_manual_hook():
+    hooks = _hooks()
+    lint_steps = _workflow()["jobs"]["lint-and-architecture"]["steps"]
+    constrained = [
+        step
+        for step in lint_steps
+        if step.get("run") == "bash scripts/constrained_parallelism_gate.sh"
+    ]
+    assert len(constrained) == 1
+    assert "env" not in constrained[0]
+    direct_hooks = [
+        hook
+        for hook in hooks.values()
+        if "scripts/constrained_parallelism_gate.sh" in hook.get("entry", "")
+    ]
+    assert direct_hooks == [hooks["constrained-parallelism"]]
+    assert hooks["ci-gate-replica"]["stages"] == ["pre-push", "manual"]
+    assert hooks["constrained-parallelism"]["stages"] == ["manual"]
 
 
 def test_release_scanner_job_is_full_history_blocking_and_pinned():
@@ -117,11 +140,16 @@ def test_release_scanner_job_is_full_history_blocking_and_pinned():
     assert "scanner-quality" in jobs["build"]["needs"]
 
     all_runs = "\n".join(str(step["run"]) for step in scanner["steps"] if "run" in step)
+    workflow_source = (REPO / ".github/workflows/release.yml").read_text(
+        encoding="utf-8"
+    )
     for command in (
         "cccc-cli",
         "kiss-ai",
         "dupehound",
         "arch-lint-cli",
+        'cargo install --locked --version "$cargo_deny_version" --root "$scanner_root/cargo-deny" cargo-deny',
+        'test "$(cargo-deny --version)" = "cargo-deny $cargo_deny_version"',
         "import-linter==2.13",
         "jscpd@5.0.16",
         "dependency-cruiser@18.2.0",
@@ -132,9 +160,24 @@ def test_release_scanner_job_is_full_history_blocking_and_pinned():
         "kiss check --config .kiss/kiss.toml --lang rust",
         "lint-imports --config .importlinter --no-cache",
         "depcruise --validate --config .dependency-cruiser.cjs",
-        "arch-lint check --format json",
+        "python3 scripts/check_rust_arch_lint.py",
     ):
         assert command in all_runs, f"scanner-quality is missing {command!r}"
+    assert "arch-lint check" not in all_runs
+    assert (
+        _hooks()["rust-arch-lint"]["entry"] == "python3 scripts/check_rust_arch_lint.py"
+    )
+    assert "cargo-deny 0.20.2" not in all_runs
+    assert all_runs.count("load_contract().cargo_deny_version") == 2
+    assert "disclosed as non-hermetic" in workflow_source
+
+    advisory_steps = [
+        step
+        for step in scanner["steps"]
+        if step.get("run") == "bash scripts/check_cargo_advisories.sh"
+    ]
+    assert len(advisory_steps) == 1
+    assert "continue-on-error" not in advisory_steps[0]
 
     base_step = next(
         step
@@ -146,12 +189,57 @@ def test_release_scanner_job_is_full_history_blocking_and_pinned():
     assert checkout["with"]["fetch-depth"] == 0
 
 
+def test_ci_uses_central_exact_python_version():
+    assert (REPO / ".python-version").read_text(encoding="utf-8") == "3.12.13\n"
+    registered = _ci_replica().WORKFLOW_REGISTRY
+    setup_steps = [
+        (filename, step)
+        for filename in registered
+        for job in _workflow(filename)["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("uses", "").startswith("actions/setup-python@")
+    ]
+    assert len(setup_steps) == 6
+    assert {filename for filename, _ in setup_steps} == set(registered)
+    assert all(
+        step.get("with", {}).get("python-version-file") == ".python-version"
+        and "python-version" not in step.get("with", {})
+        for _, step in setup_steps
+    )
+
+    root_hygiene = (REPO / "scripts/check_root_hygiene.py").read_text(encoding="utf-8")
+    assert '".python-version"' in root_hygiene
+
+
+def test_advisory_gate_wires_exact_cargo_deny_version_check():
+    advisory_hook = _hooks()["cargo-deny-advisories"]
+    assert advisory_hook["files"] == (
+        r"^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|deny\.toml|"
+        r"\.cargo-audit-allow\.txt|pyproject\.toml|scripts/scanner_contract\.py|"
+        r"scripts/check_cargo_advisories\.sh)$"
+    )
+    precommit_source = (REPO / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    assert "Not yet mirrored into rust-ci.yml" not in precommit_source
+    assert "pre-commit-only per" not in precommit_source
+    assert "blocking release `scanner-quality` job" in precommit_source
+
+    gate = (REPO / "scripts/check_cargo_advisories.sh").read_text(encoding="utf-8")
+    assert "load_contract().cargo_deny_version" in gate
+    assert '!= "cargo-deny $EXPECTED_CARGO_DENY_VERSION"' in gate
+    assert '"$CARGO_DENY_BIN" check advisories' in gate
+    assert (
+        "cargo install --locked --version $EXPECTED_CARGO_DENY_VERSION cargo-deny"
+        in gate
+    )
+
+
 def test_ci_replica_classifies_scanner_job_and_scanner_files_as_build_affecting():
     module = _ci_replica()
     spec = module.WORKFLOW_REGISTRY["release.yml"]
     assert "scanner-quality" in spec.job_skip_reasons
     for path in (
         "pyproject.toml",
+        ".python-version",
         ".kiss/kiss.toml",
         ".importlinter",
         "arch-lint.toml",
@@ -176,11 +264,28 @@ def test_native_architecture_configs_are_explicit_and_scoped():
     assert all(import_linter[section]["type"] == "forbidden" for section in contracts)
 
     arch = tomllib.loads((REPO / "arch-lint.toml").read_text(encoding="utf-8"))
-    assert arch["preset"] == "minimal"
+    assert "preset" not in arch
     assert arch["fail_on"] == "error"
     assert arch["analyzer"]["root"] == "."
-    assert "**/target/**" in arch["analyzer"]["exclude"]
+    assert arch["analyzer"]["exclude"] == ["**/target/**", "**/target-*/**"]
     assert arch["rules"]["no-unwrap-expect"]["enabled"] is False
+    assert {
+        name for name, settings in arch["rules"].items() if settings["enabled"]
+    } == {
+        "no-sync-io",
+        "no-error-swallowing",
+        "handler-complexity",
+        "require-thiserror",
+        "require-tracing",
+        "tracing-env-init",
+        "no-silent-result-drop",
+    }
+    assert arch["rules"]["no-sync-io"]["severity"] == "error"
+    assert all(
+        settings["severity"] == "warning"
+        for name, settings in arch["rules"].items()
+        if name not in {"no-unwrap-expect", "no-sync-io"}
+    )
     dependency_cruiser = (REPO / "clients/js/.dependency-cruiser.cjs").read_text()
     assert 'name: "no-circular"' in dependency_cruiser
     assert 'name: "no-unresolved"' in dependency_cruiser

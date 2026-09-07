@@ -288,7 +288,7 @@ pub struct GraphSlice {
     /// validate_consensus_participant_placement`] already checks for the separate
     /// consensus-transaction path, reused here rather than inventing a second
     /// fencing vocabulary). `0` is the sentinel "no placement authority was
-    /// consulted" (the same 0-means-absent convention `CommitDescriptorV1::
+    /// consulted" (the same 0-means-absent convention `CommitDescriptor::
     /// source_graph_version` uses) — a caller that never routed through
     /// [`super::multi::MultiRaft::route_graph`] (an in-process/non-clustered
     /// harness, or a pre-fencing durable prepare record from an older binary)
@@ -836,17 +836,10 @@ impl CrossShardCoordinator {
             if !retain_for_parent {
                 continue;
             }
-            // The cluster-admin scope identity, exactly as the four
-            // `handlers/admin.rs` call sites resolve it. MutationBatch v1's
-            // `read_record` is scope-addressed, so a batch id alone no longer
-            // identifies a record.
-            let admin_identity =
-                crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
-            let parent = eg_mutation_store::read_record(
-                redb.admin_mutation_store(),
-                &admin_identity,
-                &parent_id,
-            )?;
+            // The read is issued against the admin store's ONE bound serving
+            // scope, so the ledger read is scope-addressed by construction: a
+            // batch id alone never identifies a record.
+            let parent = eg_transaction::read_ledger(&redb.admin_mutations_read()?, &parent_id)?;
             if let Some(record) = parent.as_ref().filter(|record| {
                 record.status == crate::mutation_batch::MutationBatchStatus::Committed
             }) {

@@ -33,6 +33,24 @@ mod plan;
 mod plan_cache;
 mod proc;
 
+/// A finite `f64` as a Cypher numeric `Value`: an integer when the float is
+/// integral (and inside the exactly-representable i64 range), else a float, else
+/// null.
+///
+/// Every producer of a number on this surface — the parser's numeric literal, the
+/// executor's aggregates, and the GDS/APOC procedure results — must agree on when
+/// a float is reported as an integer, so the coercion lives here once rather than
+/// as a copy per module that each claims to "mirror the executor".
+fn number_value(x: f64) -> serde_json::Value {
+    if x.fract() == 0.0 && x.abs() < 9.007e15 {
+        serde_json::Value::Number((x as i64).into())
+    } else {
+        serde_json::Number::from_f64(x)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null)
+    }
+}
+
 pub use exec::{
     exec_cypher, exec_cypher_params, exec_cypher_write, exec_cypher_write_params, Params,
 };

@@ -1,41 +1,46 @@
 //! Content-addressed chunk store (CAS) — CONCEPT:EG-KG.storage.bounded-blob-memory.
 //!
-//! The bytes tier under the `:Media`/`:Blob` graph shape. A media file is split
-//! into fixed-size chunks; each chunk is stored ONCE keyed by its sha256
-//! (intrinsic dedup), and a blob is a *manifest* (the ordered chunk digests + the
-//! total length) keyed by the manifest's own sha256 — so identical content yields
-//! an identical blob digest. A graph node references a blob purely by that digest
-//! (`content_ref`); the chunk bytes NEVER touch the inline node/edge KV.
+//! The bytes tier under the `:Media`/`:Blob` graph shape. A media file is split into
+//! chunks; each chunk is stored ONCE keyed by its sha256 (intrinsic dedup), and a blob
+//! is a *manifest* (the ordered chunk digests + the total length) keyed by the
+//! manifest's own sha256 — so identical content yields an identical blob digest. A
+//! graph node references a blob purely by that digest (`content_ref`); the chunk bytes
+//! NEVER touch the inline node/edge KV.
 //!
-//! This is the DAG-low storage core. It is a self-contained redb database
-//! (`{persist_dir}/blob.redb`) SEPARATE from the authoritative graph shards —
-//! redb takes an exclusive per-process file lock, so the CAS cannot share the
-//! graph DB; a separate file is the clean seam and keeps the manifest/chunk/
-//! refcount tables off the hot graph store.
+//! This is the DAG-low storage core: ONE physical owner file
+//! (`{persist_dir}/blob.redb`, `eg_storage::OwnerLayout::Blob`) SEPARATE from the
+//! authoritative graph shards, which keeps the manifest/chunk/refcount tables off
+//! the hot graph store. Every write is an admitted transaction of the mutation
+//! kernel, so durability is the kernel's — commit-before-ack, never a local
+//! `Durability` this module sets.
 //!
 //! ## The [`ChunkStore`] seam
 //!
-//! Native redb-CAS is the default backend on the Pi/standard build (no object
-//! store SDK). The SAME trait fronts an S3/MinIO backend behind a SEPARATE
-//! `blob-s3` feature, so the lean build links no object-store SDK. Native-redb vs
-//! S3 changes only the body of the trait methods; the protocol frames, cursors,
-//! manifest shape and graph linkage are identical.
+//! Native redb-CAS is the default backend on the Pi/standard build. The SAME trait
+//! fronts an S3/MinIO backend behind a SEPARATE `blob-s3` feature, so the lean build
+//! links no object-store SDK; native vs S3 changes only the trait method bodies —
+//! protocol frames, cursors, manifest shape and graph linkage are identical.
 //!
 //! ## Refcount GC (the flagged correctness risk)
 //!
-//! Content addressing + dedup means one blob can be referenced by N `:Media`
-//! nodes across graphs. So a blob carries a refcount: referencing a blob
-//! [`incref`]s it, removing a reference [`decref`]s it, and a [`sweep`] reclaims
-//! every blob whose refcount has fallen to zero — deleting its manifest AND every
-//! chunk that no *surviving* blob still lists. Deleting one `:Media` therefore
-//! never unlinks chunks another blob shares (proven by the GC tests). The chunk
-//! liveness set is recomputed from the surviving manifests at sweep time
-//! (mark-and-sweep), so a chunk shared by a live blob is always kept.
+//! Content addressing + dedup means one blob can be referenced by N `:Media` nodes
+//! across graphs. So a blob carries a refcount: referencing a blob [`incref`]s it,
+//! removing a reference [`decref`]s it, and a [`sweep`] reclaims every blob whose
+//! refcount has fallen to zero — deleting its manifest AND every chunk that no
+//! *surviving* blob still lists. Deleting one `:Media` therefore never unlinks chunks
+//! another blob shares (proven by the GC tests). The chunk liveness set is recomputed
+//! from the surviving manifests at sweep time, so a chunk shared by a live blob is kept.
 
-use crate::mutation_batch::MutationBatch;
-use serde::{Deserialize, Serialize};
+use crate::mutation_batch::{
+    DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationScopeIdentity,
+    ScopeTenantId,
+};
+use eg_storage::{BlobOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopedRead, StorageKernel};
+use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 /// Default chunk size: 2 MiB (in the 1–4 MB band the streaming protocol targets;
 /// matches the spike). The pre-EG-071 FIXED stride; content-defined chunking
@@ -65,6 +70,14 @@ fn track_gc_digest(set: &mut HashSet<String>, digest: String) -> Result<(), Stri
     }
 }
 
+/// Bound one chunk body and return its content address.
+fn chunk_digest(bytes: &[u8]) -> Result<String, String> {
+    if bytes.len() > MAX_BLOB_CHUNK_BYTES {
+        return Err("blob chunk exceeds resource limits".to_string());
+    }
+    Ok(hex_digest(bytes))
+}
+
 fn blob_msgpack_limits() -> eg_types::msgpack::MsgpackLimits {
     eg_types::msgpack::MsgpackLimits::new(
         MAX_BLOB_MANIFEST_BYTES,
@@ -82,6 +95,27 @@ fn decode_manifest(bytes: &[u8]) -> Result<BlobManifest, String> {
     let manifest: BlobManifest = decode_blob_value(bytes)?;
     manifest.validate()?;
     Ok(manifest)
+}
+
+/// Encode + bound-check a manifest and prove `blob_digest` IS its content address.
+fn encode_manifest(blob_digest: &str, manifest: &BlobManifest) -> Result<Vec<u8>, String> {
+    manifest.validate()?;
+    let bytes = rmp_serde::to_vec_named(manifest).map_err(|e| e.to_string())?;
+    eg_types::msgpack::validate_single_value(&bytes, blob_msgpack_limits())
+        .map_err(|_| "blob manifest exceeds resource limits".to_string())?;
+    validate_digest(blob_digest)?;
+    if blob_digest != hex_digest(&bytes) {
+        return Err("blob manifest digest does not match its content".to_string());
+    }
+    Ok(bytes)
+}
+
+/// Saturating signed adjustment of a reference count (plain + `_batch` paths).
+fn apply_delta(current: u64, delta: i64) -> u64 {
+    match u64::try_from(delta) {
+        Ok(up) => current.saturating_add(up),
+        Err(_) => current.saturating_sub(delta.unsigned_abs()),
+    }
 }
 
 /// Current manifest of a content-addressed blob: the ordered chunk digests,
@@ -337,7 +371,7 @@ pub struct SweepStats {
 
 // ── native redb CAS ─────────────────────────────────────────────────────────
 
-use redb::{Durability, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
+use redb::{ReadableTable, ReadableTableMetadata, TableDefinition};
 
 // Three tables, all in `blob.redb`, all OFF the inline node/edge KV:
 //   cas_chunks   : chunk_digest(hex) -> chunk bytes        (DEDUP happens here)
@@ -392,156 +426,152 @@ fn decode_upload(bytes: &[u8]) -> Result<DurableUpload, String> {
 }
 
 /// Chunks to flush per group commit (CONCEPT:EG-KG.storage.bounded-blob-memory — bounded memory). At the
-/// 2 MiB default chunk size this is a ~64 MiB write window: redb buffers at most
-/// this many dirty chunk pages before forcing an `Immediate` commit, so peak RSS is
-/// bounded by the GROUP WINDOW, NOT the blob size. (Committing each chunk
-/// `Durability::None` would make redb buffer EVERY dirty page until a later flush —
-/// RSS would track the whole file; per-chunk `Immediate` bounds RAM but collapses
-/// throughput with an fsync per chunk. Group-commit is the resolution the engine's
-/// `redb_backend.rs` already uses, inherited here.) Tunable via
+/// 2 MiB default chunk size this is a ~64 MiB window: at most this many chunk bodies
+/// are resident before ONE admitted mutation writes the whole group, so peak RSS is
+/// bounded by the GROUP WINDOW, NOT the blob size. (One admitted mutation per chunk
+/// bounds RAM too but collapses throughput with an fsync per chunk; group-commit is
+/// the cadence `redb_backend.rs` already uses.) Tunable via
 /// `EPISTEMIC_GRAPH_BLOB_GROUP_CHUNKS`.
 const DEFAULT_GROUP_CHUNKS: usize = 32;
 
-/// An open chunk-write transaction accumulating up to `group` chunk inserts before
-/// a forced group commit. Holds the redb `WriteTransaction` between puts so N chunk
-/// inserts ride ONE `Immediate` fsync — group-commit, bounding both memory (≤ group
-/// chunks resident) and fsync rate (one per group), exactly like `redb_backend.rs`.
+/// The open chunk group: up to `group` chunk bodies staged in memory, flushed as ONE
+/// admitted maintenance mutation. `AdmittedMutation` borrows the mutation kernel and so
+/// cannot be parked in a field, hence a buffered group rather than a held-open
+/// transaction; N inserts still ride ONE commit, bounding memory (≤ group chunks
+/// resident) and fsync rate (one per group). Digest-keyed, preserving the old
+/// within-transaction dedup.
 struct ChunkBatch {
-    /// `Some` while a group is open (chunks buffered, not yet committed).
-    txn: Option<redb::WriteTransaction>,
-    /// Chunks inserted into the currently-open `txn` (forces a commit at `group`).
-    pending: usize,
-    /// Group window: flush after this many buffered chunk inserts.
+    /// Chunk bodies staged for the current group, keyed by content digest.
+    pending: HashMap<String, Vec<u8>>,
+    /// Group window: flush after this many buffered chunks.
     group: usize,
 }
 
-/// Native redb content-addressed store. One redb `Database` per CAS, reusing the
-/// engine's existing redb infrastructure (`Database` + `TableDefinition` +
-/// off-reactor GROUP-COMMIT, the same cadence as `redb_backend.rs`). Chunk writes
-/// accumulate in one open `WriteTransaction` flushed every [`DEFAULT_GROUP_CHUNKS`]
-/// inserts with `Durability::Immediate`, so an acked group survives a crash AND peak
-/// memory is bounded by the group window (not the file size). Manifest/refcount/
-/// sweep/read operations flush the open chunk batch first (redb permits one writer
-/// at a time), then run their own durable transaction.
+/// A bound serving scope. `OwnedStoreHandle` is not `Clone` (it IS a capability), so
+/// the cache owns one per scope and hands out `Arc` clones.
+type BlobHandle = Arc<OwnedStoreHandle<BlobOwner>>;
+
+/// Operator-facing identity of the ONE physical `blob.redb` owner file — the physical
+/// authority boundary, independent of any logical serving scope.
+pub(crate) const BLOB_PHYSICAL_STORE: &str = "epistemic-graph:blob";
+
+/// Authenticate and bind ONE logical serving scope on `blob.redb`. The proof bytes are
+/// the composition root's; this module supplies only the identity and the layout.
+fn bind_scope(kernel: &StorageKernel, scope: &MutationScopeIdentity) -> Result<BlobHandle, String> {
+    let authority = crate::store_authority::process_authority();
+    let grant = kernel.authenticate_scope::<BlobOwner>(
+        authority.as_ref(),
+        scope.clone(),
+        authority.principal().to_string(),
+        &authority.proof(),
+    )?;
+    kernel.bind_serving_scope(grant, 0).map(Arc::new)
+}
+
+/// The native blob-domain scope identity for one (tenant, resource) pair.
+fn blob_scope_identity(
+    tenant: ScopeTenantId,
+    resource: &str,
+) -> Result<MutationScopeIdentity, String> {
+    MutationScopeIdentity::native(
+        tenant,
+        DurabilityDomain::BlobStore,
+        LogicalName::new(resource.to_string())?,
+        IncarnationId::new(crate::server::mutation_batch::COMPILED_BATCH_INCARNATION)?,
+    )
+}
+
+/// The row set one staged chunk group writes, as it appears in the durable batch id:
+/// the content digest of the group's own chunk digests, in sorted order. Two groups
+/// carrying different chunks are two different maintenance writes.
+fn group_subject(group: &HashMap<String, Vec<u8>>) -> String {
+    let mut digests: Vec<&str> = group.keys().map(String::as_str).collect();
+    digests.sort_unstable();
+    let mut hasher = Sha256::new();
+    for digest in digests {
+        hasher.update(digest.as_bytes());
+        hasher.update([0u8]);
+    }
+    hex::encode(hasher.finalize())
+}
+
+/// Native content-addressed store over ONE physical owner file
+/// (`{persist_dir}/blob.redb`, `eg_storage::OwnerLayout::Blob`) served through the two
+/// kernels. Chunk writes accumulate in memory and flush every [`DEFAULT_GROUP_CHUNKS`]
+/// chunks as ONE admitted maintenance mutation, so an acked group survives a crash AND
+/// peak memory is bounded by the group window (not the file size). Durability is the
+/// KERNEL's — every admitted write is commit-before-ack — so this store neither sets nor
+/// can set a redb `Durability`. Manifest/refcount/sweep/read operations flush the open
+/// chunk group first (one writer at a time), then run their own admitted write.
 pub struct RedbChunkStore {
-    mutation_store: eg_mutation_store::MutationStore,
+    kernel: StorageKernel,
+    mutations: MutationKernel,
+    /// Bootstrap AND serving scope: cross-scope reads and caller-less writes run on it.
+    bootstrap: BlobHandle,
+    /// Serving scopes, keyed by `identity.binding_digest().to_hex()`.
+    scopes: parking_lot::Mutex<HashMap<String, BlobHandle>>,
     batch: parking_lot::Mutex<ChunkBatch>,
 }
 
 impl RedbChunkStore {
-    /// Fixed bootstrap identity used ONLY to stand up the physical `blob.redb`
-    /// mutation ledger at `open()` time. `eg_mutation_store::initialize` requires
-    /// binding one scope as part of creating a `MutationStore`, but a
-    /// `RedbChunkStore` serves MANY tenant/graph scopes discovered later, one per
-    /// call (`commit_native_batch`'s `batch.identity`) -- not one fixed scope
-    /// known at `open()` time. Real per-call scopes (`scope_identity`) are
-    /// separately (and idempotently) bound via `bind_scope` in
-    /// `ensure_scope_bound` the first time each is used; this bootstrap identity
-    /// is never a real caller's scope, hence its own reserved resource name.
-    ///
-    /// Its `IncarnationId` deliberately reuses `mutation_batch::
-    /// COMPILED_BATCH_INCARNATION` rather than a store-local constant: real
-    /// per-call blob batches also reach this store already built by
-    /// `compile_opaque_method`/`compile_opaque_digest`
-    /// (`src/server/mutation_batch.rs`, e.g. this file's own `coordinator_batch`
-    /// test), which stamp that SAME constant into their identity. `bind_scope_in`
-    /// compares the full stored `MutationScopeIdentity` (incarnation included) on
-    /// re-bind and fails closed on any mismatch ("mutation scope rebinding
-    /// mismatch") -- so a second, differently-valued local constant here would
-    /// make every such batch's `commit_native_batch` call fail the very first
-    /// time it raced `scope_identity`'s own bind (e.g. via `mutation_version`)
-    /// for the same (tenant, graph).
-    fn ledger_bootstrap_identity() -> Result<crate::mutation_batch::MutationScopeIdentity, String> {
-        crate::mutation_batch::MutationScopeIdentity::native(
-            crate::mutation_batch::TenantId::system(),
-            crate::mutation_batch::MutationDomain::BlobStore,
-            crate::mutation_batch::LogicalName::new("blob-ledger-root")?,
-            crate::mutation_batch::IncarnationId::new(
-                crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
-            )?,
-        )
+    /// The store's BOOTSTRAP and serving scope: what `open` binds and what every
+    /// cross-scope read and caller-less write runs on. `RedbChunkStore` serves MANY
+    /// tenant/graph scopes discovered later, one per call (`commit_native_batch`'s
+    /// `batch.identity`), each bound lazily by `scope_handle`; this reserved resource
+    /// name is never a real caller's scope. Its `IncarnationId` reuses
+    /// `COMPILED_BATCH_INCARNATION` rather than a store-local constant because real
+    /// per-call batches arrive stamped with that SAME constant, and the kernel compares
+    /// the full identity (incarnation included) when re-binding, failing closed on any
+    /// mismatch.
+    fn ledger_bootstrap_identity() -> Result<MutationScopeIdentity, String> {
+        blob_scope_identity(ScopeTenantId::system(), "blob-ledger-root")
     }
 
-    /// Idempotently bind `identity`'s scope to this store's ledger so
-    /// `eg_mutation_store::version`/`begin`/`finish` accept it -- both fail closed
-    /// on an unbound scope (`binding_for_read`/`binding_for_write`). Safe to call
-    /// on every use: `bind_scope`/`bind_scope_in` re-entry with the SAME identity
-    /// and `initial_version` is a verified no-op (`ScopeBinding` equality check),
-    /// which is why `initial_version` is always 0 here -- a scope's actual current
-    /// version afterward lives in `VERSIONS`, not in this bootstrap constant.
-    fn ensure_scope_bound(
-        &self,
-        identity: &crate::mutation_batch::MutationScopeIdentity,
-    ) -> Result<(), String> {
-        eg_mutation_store::bind_scope(&self.mutation_store, identity, 0, |_wtx| Ok(()))
+    /// The native scope identity for one (tenant, graph) pair's blob rows. `graph` is
+    /// the `resource` name, matching `commit_native_batch`'s callers, which route by
+    /// `(tenant, graph)` (e.g. `mutation_version`).
+    fn scope_identity(&self, tenant: &str, graph: &str) -> Result<MutationScopeIdentity, String> {
+        blob_scope_identity(ScopeTenantId::new(tenant.to_string())?, graph)
     }
 
-    /// The native scope identity for one (tenant, graph) pair's blob-ledger rows.
-    /// `graph` is the `resource` name, matching `commit_native_batch`'s callers,
-    /// which route by `(tenant, graph)` (e.g. `mutation_version`). Uses the same
-    /// shared `COMPILED_BATCH_INCARNATION` as `ledger_bootstrap_identity` and as
-    /// `compile_opaque_method`/`compile_opaque_digest` -- see that function's doc
-    /// comment for why a mismatched incarnation here would break re-binding.
-    fn scope_identity(
-        &self,
-        tenant: &str,
-        graph: &str,
-    ) -> Result<crate::mutation_batch::MutationScopeIdentity, String> {
-        crate::mutation_batch::MutationScopeIdentity::native(
-            crate::mutation_batch::TenantId::new(tenant.to_string())?,
-            crate::mutation_batch::MutationDomain::BlobStore,
-            crate::mutation_batch::LogicalName::new(graph.to_string())?,
-            crate::mutation_batch::IncarnationId::new(
-                crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
-            )?,
-        )
-    }
-
-    /// Open (or create) `{persist_dir}/blob.redb` and ensure the CAS + mutation-
-    /// ledger tables exist. Both live in ONE physical database now: `commit_native_batch`
-    /// needs the CAS row writes and the ledger's idempotency/OCC/outbox rows to land
-    /// in the SAME `WriteTransaction` for atomicity, and redb permits only one
-    /// `Database` handle per file per process (see the file's own top-of-file
-    /// doc comment on why the CAS is a separate file from the graph shards) -- so
-    /// the CAS tables are created via `eg_mutation_store::initialize`'s bootstrap
-    /// closure against the ledger's own `Database`, not a second handle on the
-    /// same path.
+    /// Open (creating if absent) `{persist_dir}/blob.redb` as ONE physical owner file
+    /// under `eg_storage::OwnerLayout::Blob`. `create_owner` materializes the WHOLE
+    /// declared census — `cas_chunks`, `cas_blobs`, `cas_refcount`, `cas_uploads` plus
+    /// the ledger — so the old four-table bootstrap closure is gone, and CAS rows still
+    /// land in the SAME transaction as the ledger's idempotency/OCC/outbox rows, which
+    /// is what `commit_native_batch` needs for atomicity.
     ///
     /// NOTE (flagged, not resolved here): the previous `Database::builder()
-    /// .set_cache_size(EPISTEMIC_GRAPH_BLOB_CACHE_BYTES)` tuning is DROPPED by
-    /// this migration. `eg_mutation_store::initialize`/`MutationStore::
-    /// empty_physical` call plain `Database::create(path)` internally with no way
-    /// to inject a cache size, and `RedbChunkStore` has no other path to the
-    /// `Database` it wraps. This file's own doc comments explain that cap exists
-    /// specifically to bound RSS against this store's multi-MB chunk values; see
-    /// the migration report for the follow-up this needs in `eg-mutation-store`
-    /// (a `Database`/cache-size injection point on `initialize`).
+    /// .set_cache_size(EPISTEMIC_GRAPH_BLOB_CACHE_BYTES)` tuning is DROPPED by this
+    /// migration — `eg_storage::StorageKernel::{create_owner, open_owner}` open the
+    /// file themselves with no cache-size injection point, and this store has no other
+    /// path to the database beneath them. That cap existed to bound RSS against this
+    /// store's multi-MB chunk values; the follow-up belongs in `eg-storage`.
     pub fn open(persist_dir: &str) -> Result<Self, String> {
         std::fs::create_dir_all(persist_dir).map_err(|e| e.to_string())?;
-        let db_path = std::path::Path::new(persist_dir).join("blob.redb");
-        let mutation_store = eg_mutation_store::initialize(
-            &db_path,
-            &Self::ledger_bootstrap_identity()?,
-            0,
-            None,
-            |wtx| {
-                wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
-                wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
-                wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
-                wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
-                Ok(())
-            },
-        )?;
+        let path = std::path::Path::new(persist_dir).join("blob.redb");
+        let physical = PhysicalStoreIdentity::new(BLOB_PHYSICAL_STORE)?;
+        let kernel = if path.exists() {
+            StorageKernel::open_owner::<BlobOwner>(&path, physical, None)
+        } else {
+            StorageKernel::create_owner::<BlobOwner>(&path, physical, None)
+        }?;
+        let (kernel, authority) = kernel.into_read_and_mutation_authority()?;
+        let mutations = MutationKernel::new(authority);
+        let bootstrap = bind_scope(&kernel, &Self::ledger_bootstrap_identity()?)?;
+        mutations.bootstrap_ledger(&bootstrap)?;
         let group = std::env::var("EPISTEMIC_GRAPH_BLOB_GROUP_CHUNKS")
             .ok()
             .and_then(|v| v.parse().ok())
             .filter(|&n| n > 0)
             .unwrap_or(DEFAULT_GROUP_CHUNKS);
         Ok(Self {
-            mutation_store,
+            kernel,
+            mutations,
+            bootstrap,
+            scopes: parking_lot::Mutex::new(HashMap::new()),
             batch: parking_lot::Mutex::new(ChunkBatch {
-                txn: None,
-                pending: 0,
+                pending: HashMap::new(),
                 group,
             }),
         })
@@ -558,61 +588,35 @@ impl RedbChunkStore {
 
 impl ChunkStore for RedbChunkStore {
     fn put_chunk(&self, bytes: &[u8]) -> Result<(String, bool), String> {
-        if bytes.len() > MAX_BLOB_CHUNK_BYTES {
-            return Err("blob chunk exceeds resource limits".to_string());
-        }
-        let digest = hex_digest(bytes);
+        let digest = chunk_digest(bytes)?;
         let mut batch = self.batch.lock();
-        // Open the group's write txn lazily; reuse it across chunks in the window.
-        if batch.txn.is_none() {
-            let mut wtx = self
-                .mutation_store
-                .database()
-                .begin_write()
-                .map_err(|e| e.to_string())?;
-            wtx.set_durability(Durability::Immediate)
-                .map_err(|e| e.to_string())?;
-            batch.txn = Some(wtx);
-            batch.pending = 0;
+        // Dedup: already staged in this window, or already committed to `cas_chunks`.
+        if batch.pending.contains_key(&digest) || self.chunk_present(&digest)? {
+            return Ok((digest, false));
         }
-        let was_new = {
-            let wtx = batch.txn.as_ref().expect("txn just opened");
-            let mut t = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
-            if t.get(digest.as_str()).map_err(|e| e.to_string())?.is_some() {
-                false
-            } else {
-                t.insert(digest.as_str(), bytes)
-                    .map_err(|e| e.to_string())?;
-                true
-            }
-        };
-        if was_new {
-            batch.pending += 1;
+        batch.pending.insert(digest.clone(), bytes.to_vec());
+        // Group-commit boundary: flush every `group` staged chunks so the resident
+        // chunk bodies (peak RAM) never exceed the group window — independent of the
+        // blob size. One admitted mutation amortizes the whole group.
+        if batch.pending.len() >= batch.group {
+            self.commit_group(&mut batch)?;
         }
-        // Group-commit boundary: flush every `group` buffered chunks so redb's
-        // dirty-page set (peak RAM) never exceeds the group window — independent of
-        // the blob size. One `Immediate` fsync amortizes the whole group.
-        if batch.pending >= batch.group {
-            if let Some(wtx) = batch.txn.take() {
-                wtx.commit().map_err(|e| e.to_string())?;
-            }
-            batch.pending = 0;
-        }
-        Ok((digest, was_new))
+        Ok((digest, true))
     }
 
     fn get_chunk(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
         // A read must see all committed chunks: flush the open group first so a
-        // just-uploaded chunk is durable + visible (redb reads don't see an
-        // uncommitted write txn).
+        // just-uploaded chunk is durable + visible (a staged group is not yet a row).
         self.flush_chunks()?;
         validate_digest(digest)?;
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|e| e.to_string())?;
-        let t = rtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
+        // `cas_chunks`/`cas_refcount` are contracted `TableScope::SharedService`, but
+        // `eg-storage`'s `blob_shared.rs` authority for them exposes only a row count
+        // and NO write surface, so it cannot serve this store. Both are in
+        // `owner_table_names(OwnerLayout::Blob)`, so they go through the owner-read/
+        // owner-write path the kernel itself permits; if that confinement is later
+        // enforced this store needs a `BlobSharedWrite` on the same admitted txn.
+        let read = self.read()?;
+        let t = read.open_owner_table(CAS_CHUNKS)?;
         t.get(digest)
             .map_err(|e| e.to_string())?
             .map(|g| {
@@ -628,41 +632,22 @@ impl ChunkStore for RedbChunkStore {
     fn put_manifest(&self, blob_digest: &str, manifest: &BlobManifest) -> Result<(), String> {
         // BlobCommit lands here: flush the upload's final partial chunk group first
         // (the manifest's chunks must all be durable before the manifest references
-        // them), then write the manifest in its own durable txn.
+        // them), then write the manifest as its own admitted maintenance mutation.
         self.flush_chunks()?;
-        manifest.validate()?;
-        let bytes = rmp_serde::to_vec_named(manifest).map_err(|e| e.to_string())?;
-        eg_types::msgpack::validate_single_value(&bytes, blob_msgpack_limits())
-            .map_err(|_| "blob manifest exceeds resource limits".to_string())?;
-        validate_digest(blob_digest)?;
-        if blob_digest != hex_digest(&bytes) {
-            return Err("blob manifest digest does not match its content".to_string());
-        }
-        let mut wtx = self
-            .mutation_store
-            .database()
-            .begin_write()
-            .map_err(|e| e.to_string())?;
-        wtx.set_durability(Durability::Immediate)
-            .map_err(|e| e.to_string())?;
-        {
-            let mut t = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+        let bytes = encode_manifest(blob_digest, manifest)?;
+        self.maintain("blob_put_manifest_v1", blob_digest, |owner_write| {
+            let mut t = owner_write.open_table(CAS_BLOBS)?;
             t.insert(blob_digest, bytes.as_slice())
                 .map_err(|e| e.to_string())?;
-        }
-        wtx.commit().map_err(|e| e.to_string())?;
-        Ok(())
+            Ok(())
+        })
     }
 
     fn get_manifest(&self, blob_digest: &str) -> Result<Option<BlobManifest>, String> {
         self.flush_chunks()?;
         validate_digest(blob_digest)?;
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|e| e.to_string())?;
-        let t = rtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+        let read = self.read()?;
+        let t = read.open_owner_table(CAS_BLOBS)?;
         match t.get(blob_digest).map_err(|e| e.to_string())? {
             Some(g) => Ok(Some(decode_manifest(g.value())?)),
             None => Ok(None),
@@ -680,13 +665,10 @@ impl ChunkStore for RedbChunkStore {
     fn refcount(&self, blob_digest: &str) -> Result<u64, String> {
         self.flush_chunks()?;
         validate_digest(blob_digest)?;
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|e| e.to_string())?;
-        let t = rtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
-        Ok(t.get(blob_digest)
+        let read = self.read()?;
+        Ok(read
+            .open_owner_table(CAS_REFCOUNT)?
+            .get(blob_digest)
             .map_err(|e| e.to_string())?
             .map(|g| g.value())
             .unwrap_or(0))
@@ -694,44 +676,28 @@ impl ChunkStore for RedbChunkStore {
 
     fn sweep(&self) -> Result<SweepStats, String> {
         self.flush_chunks()?;
-        let mut wtx = self
-            .mutation_store
-            .database()
-            .begin_write()
-            .map_err(|e| e.to_string())?;
-        wtx.set_durability(Durability::Immediate)
-            .map_err(|e| e.to_string())?;
-        let stats = sweep_rows(&wtx)?;
-        wtx.commit().map_err(|e| e.to_string())?;
-        Ok(stats)
+        self.maintain("blob_sweep_v1", "all", sweep_rows)
     }
 
     fn chunk_count(&self) -> Result<u64, String> {
         self.flush_chunks()?;
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|e| e.to_string())?;
-        let t = rtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
-        t.len().map_err(|e| e.to_string())
+        let read = self.read()?;
+        read.open_owner_table(CAS_CHUNKS)?
+            .len()
+            .map_err(|e| e.to_string())
     }
 
     fn blob_count(&self) -> Result<u64, String> {
         self.flush_chunks()?;
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|e| e.to_string())?;
-        let t = rtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
-        t.len().map_err(|e| e.to_string())
+        let read = self.read()?;
+        read.open_owner_table(CAS_BLOBS)?
+            .len()
+            .map_err(|e| e.to_string())
     }
 
     fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {
-        let identity = self.scope_identity(tenant, graph)?;
-        self.ensure_scope_bound(&identity)?;
-        eg_mutation_store::version(&self.mutation_store, &identity)
+        let owner = self.scope_handle(&self.scope_identity(tenant, graph)?)?;
+        eg_transaction::version(&self.kernel.read_scope(&owner)?)
     }
 
     fn commit_cursor_batch(
@@ -750,21 +716,9 @@ impl ChunkStore for RedbChunkStore {
         committed_at_ms: u64,
     ) -> Result<(String, bool), String> {
         self.flush_chunks()?;
-        if bytes.len() > MAX_BLOB_CHUNK_BYTES {
-            return Err("blob chunk exceeds resource limits".to_string());
-        }
-        let digest = hex_digest(bytes);
+        let digest = chunk_digest(bytes)?;
         self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            let mut table = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
-            let was_new = table
-                .get(digest.as_str())
-                .map_err(|e| e.to_string())?
-                .is_none();
-            if was_new {
-                table
-                    .insert(digest.as_str(), bytes)
-                    .map_err(|e| e.to_string())?;
-            }
+            let was_new = insert_chunk_row(wtx, &digest, bytes)?;
             Ok((digest.clone(), was_new))
         })
     }
@@ -776,38 +730,14 @@ impl ChunkStore for RedbChunkStore {
         committed_at_ms: u64,
     ) -> Result<(String, bool, u64), String> {
         self.flush_chunks()?;
-        if bytes.len() > MAX_BLOB_CHUNK_BYTES {
-            return Err("blob chunk exceeds resource limits".to_string());
-        }
-        let digest = hex_digest(bytes);
+        let digest = chunk_digest(bytes)?;
         self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            let was_new = {
-                let mut chunks = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
-                let absent = chunks
-                    .get(digest.as_str())
-                    .map_err(|e| e.to_string())?
-                    .is_none();
-                if absent {
-                    chunks
-                        .insert(digest.as_str(), bytes)
-                        .map_err(|e| e.to_string())?;
-                }
-                absent
-            };
-            let refcount = {
-                let mut refs = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
-                let current = refs
-                    .get(digest.as_str())
-                    .map_err(|e| e.to_string())?
-                    .map(|value| value.value())
-                    .unwrap_or(0);
-                let next = current
+            let was_new = insert_chunk_row(wtx, &digest, bytes)?;
+            let refcount = update_refcount(wtx, &digest, |current| {
+                current
                     .checked_add(1)
-                    .ok_or_else(|| "blob reference count overflow".to_string())?;
-                refs.insert(digest.as_str(), next)
-                    .map_err(|e| e.to_string())?;
-                next
-            };
+                    .ok_or_else(|| "blob reference count overflow".to_string())
+            })?;
             Ok((digest.clone(), was_new, refcount))
         })
     }
@@ -820,16 +750,9 @@ impl ChunkStore for RedbChunkStore {
         committed_at_ms: u64,
     ) -> Result<String, String> {
         self.flush_chunks()?;
-        manifest.validate()?;
-        let bytes = rmp_serde::to_vec_named(manifest).map_err(|e| e.to_string())?;
-        eg_types::msgpack::validate_single_value(&bytes, blob_msgpack_limits())
-            .map_err(|_| "blob manifest exceeds resource limits".to_string())?;
-        validate_digest(blob_digest)?;
-        if blob_digest != hex_digest(&bytes) {
-            return Err("blob manifest digest does not match its content".to_string());
-        }
+        let bytes = encode_manifest(blob_digest, manifest)?;
         self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            let mut table = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+            let mut table = wtx.open_table(CAS_BLOBS)?;
             table
                 .insert(blob_digest, bytes.as_slice())
                 .map_err(|e| e.to_string())?;
@@ -847,19 +770,7 @@ impl ChunkStore for RedbChunkStore {
         self.flush_chunks()?;
         validate_digest(blob_digest)?;
         self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            let mut table = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
-            let current = table
-                .get(blob_digest)
-                .map_err(|e| e.to_string())?
-                .map(|value| value.value())
-                .unwrap_or(0);
-            let next = if delta >= 0 {
-                current.saturating_add(delta as u64)
-            } else {
-                current.saturating_sub((-delta) as u64)
-            };
-            table.insert(blob_digest, next).map_err(|e| e.to_string())?;
-            Ok(next)
+            update_refcount(wtx, blob_digest, |current| Ok(apply_delta(current, delta)))
         })
     }
 
@@ -885,7 +796,7 @@ impl ChunkStore for RedbChunkStore {
             return Err("blob chunk size exceeds resource limits".to_string());
         }
         self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            let mut uploads = wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
+            let mut uploads = wtx.open_table(CAS_UPLOADS)?;
             if uploads.get(cursor).map_err(|e| e.to_string())?.is_none() {
                 let upload = DurableUpload {
                     owner_scope: owner_scope.to_string(),
@@ -915,24 +826,10 @@ impl ChunkStore for RedbChunkStore {
         committed_at_ms: u64,
     ) -> Result<(String, u32), String> {
         self.flush_chunks()?;
-        if bytes.len() > MAX_BLOB_CHUNK_BYTES {
-            return Err("blob chunk exceeds resource limits".to_string());
-        }
-        let digest = hex_digest(bytes);
+        let digest = chunk_digest(bytes)?;
         self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            {
-                let mut chunks = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
-                if chunks
-                    .get(digest.as_str())
-                    .map_err(|e| e.to_string())?
-                    .is_none()
-                {
-                    chunks
-                        .insert(digest.as_str(), bytes)
-                        .map_err(|e| e.to_string())?;
-                }
-            }
-            let mut uploads = wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
+            insert_chunk_row(wtx, &digest, bytes)?;
+            let mut uploads = wtx.open_table(CAS_UPLOADS)?;
             let row = uploads
                 .get(cursor)
                 .map_err(|e| e.to_string())?
@@ -963,12 +860,8 @@ impl ChunkStore for RedbChunkStore {
 
     fn load_upload(&self, cursor: u64) -> Result<Option<BlobManifest>, String> {
         self.flush_chunks()?;
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|e| e.to_string())?;
-        let uploads = rtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
+        let read = self.read()?;
+        let uploads = read.open_owner_table(CAS_UPLOADS)?;
         let manifest = uploads
             .get(cursor)
             .map_err(|e| e.to_string())?
@@ -986,7 +879,7 @@ impl ChunkStore for RedbChunkStore {
         self.flush_chunks()?;
         self.commit_native_batch(batch, committed_at_ms, |wtx| {
             let upload = {
-                let uploads = wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
+                let uploads = wtx.open_table(CAS_UPLOADS)?;
                 let row = uploads
                     .get(cursor)
                     .map_err(|e| e.to_string())?
@@ -1000,13 +893,13 @@ impl ChunkStore for RedbChunkStore {
                 .map_err(|_| "blob manifest exceeds resource limits".to_string())?;
             let digest = hex_digest(&encoded);
             {
-                let mut blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+                let mut blobs = wtx.open_table(CAS_BLOBS)?;
                 blobs
                     .insert(digest.as_str(), encoded.as_slice())
                     .map_err(|e| e.to_string())?;
             }
             {
-                let mut uploads = wtx.open_table(CAS_UPLOADS).map_err(|e| e.to_string())?;
+                let mut uploads = wtx.open_table(CAS_UPLOADS)?;
                 uploads.remove(cursor).map_err(|e| e.to_string())?;
             }
             Ok(digest)
@@ -1014,9 +907,45 @@ impl ChunkStore for RedbChunkStore {
     }
 }
 
-fn sweep_rows(wtx: &redb::WriteTransaction) -> Result<SweepStats, String> {
+/// Insert `bytes` at `digest` in `cas_chunks` unless already there; reports whether it
+/// was new — the dedup answer every chunk write path shares.
+fn insert_chunk_row(
+    owner_write: &AdmittedOwnerWrite<'_, BlobOwner>,
+    digest: &str,
+    bytes: &[u8],
+) -> Result<bool, String> {
+    let mut chunks = owner_write.open_table(CAS_CHUNKS)?;
+    let absent = chunks.get(digest).map_err(|e| e.to_string())?.is_none();
+    if absent {
+        chunks.insert(digest, bytes).map_err(|e| e.to_string())?;
+    }
+    Ok(absent)
+}
+
+/// Read `digest`'s reference count (0 when absent), compute the next value with `next`
+/// and store it, in the same admitted transaction.
+fn update_refcount<F>(
+    owner_write: &AdmittedOwnerWrite<'_, BlobOwner>,
+    digest: &str,
+    next: F,
+) -> Result<u64, String>
+where
+    F: FnOnce(u64) -> Result<u64, String>,
+{
+    let mut refs = owner_write.open_table(CAS_REFCOUNT)?;
+    let current = refs
+        .get(digest)
+        .map_err(|e| e.to_string())?
+        .map(|value| value.value())
+        .unwrap_or(0);
+    let updated = next(current)?;
+    refs.insert(digest, updated).map_err(|e| e.to_string())?;
+    Ok(updated)
+}
+
+fn sweep_rows(wtx: &AdmittedOwnerWrite<'_, BlobOwner>) -> Result<SweepStats, String> {
     let dead: Vec<String> = {
-        let refs = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
+        let refs = wtx.open_table(CAS_REFCOUNT)?;
         let mut dead = Vec::new();
         for row in refs.iter().map_err(|e| e.to_string())? {
             let (key, value) = row.map_err(|e| e.to_string())?;
@@ -1031,8 +960,8 @@ fn sweep_rows(wtx: &redb::WriteTransaction) -> Result<SweepStats, String> {
         dead
     };
     let orphan_manifests: Vec<String> = {
-        let blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
-        let refs = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
+        let blobs = wtx.open_table(CAS_BLOBS)?;
+        let refs = wtx.open_table(CAS_REFCOUNT)?;
         let mut orphans = Vec::new();
         for row in blobs.iter().map_err(|e| e.to_string())? {
             let (key, _) = row.map_err(|e| e.to_string())?;
@@ -1053,7 +982,7 @@ fn sweep_rows(wtx: &redb::WriteTransaction) -> Result<SweepStats, String> {
         return Err("blob garbage collection exceeds resource limits".to_string());
     }
     let live_chunks: HashSet<String> = {
-        let blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+        let blobs = wtx.open_table(CAS_BLOBS)?;
         let mut live = HashSet::new();
         for row in blobs.iter().map_err(|e| e.to_string())? {
             let (key, value) = row.map_err(|e| e.to_string())?;
@@ -1068,7 +997,7 @@ fn sweep_rows(wtx: &redb::WriteTransaction) -> Result<SweepStats, String> {
         live
     };
     let mut orphan_chunks: HashSet<String> = {
-        let blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+        let blobs = wtx.open_table(CAS_BLOBS)?;
         let mut orphans = HashSet::new();
         for digest in &to_delete {
             if let Some(value) = blobs.get(digest.as_str()).map_err(|e| e.to_string())? {
@@ -1082,14 +1011,13 @@ fn sweep_rows(wtx: &redb::WriteTransaction) -> Result<SweepStats, String> {
         }
         orphans
     };
-    // `put_chunk_ref_batch` is the direct-artifact fast path: its refcount key is
-    // the chunk digest itself and deliberately has no manifest row. A zero-ref
-    // direct chunk therefore cannot be discovered by walking dead manifests.
-    // Reclaim it here unless a surviving manifest still names the same chunk.
-    // This keeps compensation + restart replay leak-free without endangering a
-    // deduplicated chunk that remains reachable from another live blob.
+    // `put_chunk_ref_batch` is the direct-artifact fast path: its refcount key is the
+    // chunk digest itself and deliberately has no manifest row, so a zero-ref direct
+    // chunk cannot be found by walking dead manifests. Reclaim it here unless a
+    // surviving manifest still names it — leak-free compensation/restart replay
+    // without endangering a chunk still reachable from a live blob.
     {
-        let chunks = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
+        let chunks = wtx.open_table(CAS_CHUNKS)?;
         for digest in &to_delete {
             if !live_chunks.contains(digest)
                 && chunks
@@ -1103,8 +1031,8 @@ fn sweep_rows(wtx: &redb::WriteTransaction) -> Result<SweepStats, String> {
     }
     let mut stats = SweepStats::default();
     {
-        let mut blobs = wtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
-        let mut refs = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
+        let mut blobs = wtx.open_table(CAS_BLOBS)?;
+        let mut refs = wtx.open_table(CAS_REFCOUNT)?;
         for digest in &to_delete {
             if blobs
                 .remove(digest.as_str())
@@ -1117,7 +1045,7 @@ fn sweep_rows(wtx: &redb::WriteTransaction) -> Result<SweepStats, String> {
         }
     }
     {
-        let mut chunks = wtx.open_table(CAS_CHUNKS).map_err(|e| e.to_string())?;
+        let mut chunks = wtx.open_table(CAS_CHUNKS)?;
         for digest in &orphan_chunks {
             if chunks
                 .remove(digest.as_str())
@@ -1132,28 +1060,104 @@ fn sweep_rows(wtx: &redb::WriteTransaction) -> Result<SweepStats, String> {
 }
 
 impl Drop for RedbChunkStore {
-    /// Flush a half-full chunk group on drop so an in-flight upload's chunks aren't
-    /// rolled back with the open `WriteTransaction` (they'd otherwise be re-uploaded;
-    /// no data loss, but wasteful). Best-effort — a commit error at drop is ignored.
+    /// Flush a half-full chunk group on drop so an in-flight upload's staged chunks
+    /// aren't discarded (they'd otherwise be re-uploaded; no data loss, but wasteful).
+    /// Best-effort — a commit error at drop is ignored.
     fn drop(&mut self) {
         let _ = self.flush_chunks();
     }
 }
 
 impl RedbChunkStore {
-    /// Commit any open chunk-write group durably, closing the txn. Called before any
-    /// other operation (read or a non-chunk write) since redb permits exactly one
-    /// open write txn at a time, and so a reader sees the latest chunks. A `commit`
-    /// failure surfaces here (the group's chunks did NOT land).
-    fn flush_chunks(&self) -> Result<(), String> {
-        let mut batch = self.batch.lock();
-        if let Some(wtx) = batch.txn.take() {
-            wtx.commit().map_err(|e| e.to_string())?;
-        }
-        batch.pending = 0;
-        Ok(())
+    /// The cross-scope snapshot read every getter runs on: a kernel-issued scoped read
+    /// on the bootstrap scope over this layout's four owner tables.
+    fn read(&self) -> Result<ScopedRead<'_, BlobOwner>, String> {
+        self.kernel.read_scope(&self.bootstrap)
     }
 
+    /// One (tenant, graph) serving scope: bound on FIRST use, cached for every later
+    /// call. Replaces `ensure_scope_bound` — the cache, not a re-bind per call, is now
+    /// what makes repeat use idempotent.
+    fn scope_handle(&self, identity: &MutationScopeIdentity) -> Result<BlobHandle, String> {
+        let key = identity.binding_digest().to_hex();
+        if let Some(handle) = self.scopes.lock().get(&key) {
+            return Ok(Arc::clone(handle));
+        }
+        let handle = bind_scope(&self.kernel, identity)?;
+        self.scopes.lock().insert(key, Arc::clone(&handle));
+        Ok(handle)
+    }
+
+    /// Whether `digest` is a committed `cas_chunks` row; with the staged group this is
+    /// exactly the old in-transaction `was_new` answer.
+    fn chunk_present(&self, digest: &str) -> Result<bool, String> {
+        let read = self.read()?;
+        Ok(read
+            .open_owner_table(CAS_CHUNKS)?
+            .get(digest)
+            .map_err(|e| e.to_string())?
+            .is_some())
+    }
+
+    /// Write the whole staged chunk group as ONE admitted maintenance mutation and empty
+    /// it. A commit failure surfaces here (the group's chunks did NOT land).
+    fn commit_group(&self, batch: &mut ChunkBatch) -> Result<(), String> {
+        if batch.pending.is_empty() {
+            return Ok(());
+        }
+        let group = std::mem::take(&mut batch.pending);
+        self.maintain(
+            "blob_chunk_group_v1",
+            &group_subject(&group),
+            |owner_write| {
+                let mut table = owner_write.open_table(CAS_CHUNKS)?;
+                for (digest, bytes) in &group {
+                    table
+                        .insert(digest.as_str(), bytes.as_slice())
+                        .map_err(|e| e.to_string())?;
+                }
+                Ok(())
+            },
+        )
+    }
+
+    /// Commit any staged chunk group. Called before every other operation so exactly one
+    /// writer is live and a reader sees every chunk.
+    fn flush_chunks(&self) -> Result<(), String> {
+        let mut batch = self.batch.lock();
+        self.commit_group(&mut batch)
+    }
+
+    /// One plain (non-`_batch`) blob write as an owner MAINTENANCE mutation
+    /// (RF-RULING-005) on the bootstrap scope: no caller identity, but ledgered, fenced
+    /// and version-bumping — no un-ledgered owner-write path exists any more.
+    ///
+    /// `subject` is the row set the write acts on (a blob digest, a chunk group), and
+    /// the version the batch fences on is resolved INSIDE the write transaction by
+    /// `admit_current`. Reading it from a snapshot first let two concurrent
+    /// `blob_adjust_ref_v1` calls at one observed version build byte-identical batches;
+    /// the second then replayed the first's record, LOSING an increment — and
+    /// `sweep_rows` deletes every chunk at refcount 0, so a lost increment is a
+    /// premature delete of a live chunk.
+    fn maintain<T, F>(&self, event: &str, subject: &str, apply: F) -> Result<T, String>
+    where
+        T: serde::Serialize + DeserializeOwned,
+        F: FnOnce(&AdmittedOwnerWrite<'_, BlobOwner>) -> Result<T, String>,
+    {
+        let write = MaintenanceBatch::new(DurabilityDomain::BlobStore, event, subject);
+        let bootstrap = self.bootstrap.as_ref();
+        let (txn, batch, begun) = self.mutations.admit_current(
+            bootstrap,
+            eg_storage::MutationClass::Maintenance,
+            |version| write.for_scope_version(bootstrap, version),
+        )?;
+        let now = crate::server::dispatch::authoritative_now_ms();
+        self.complete_write(bootstrap, txn, &batch, begun, now, apply)
+    }
+
+    /// One caller-identified `*_batch` write, admitted under the batch's OWN serving
+    /// scope: `batch.identity` is this call's real (tenant, graph) pair, built by the
+    /// caller via `CompileBatch`/`compile_opaque_method`, bound on first use.
     fn commit_native_batch<T, F>(
         &self,
         batch: &MutationBatch,
@@ -1161,46 +1165,62 @@ impl RedbChunkStore {
         apply: F,
     ) -> Result<T, String>
     where
-        T: serde::Serialize + serde::de::DeserializeOwned,
-        F: FnOnce(&redb::WriteTransaction) -> Result<T, String>,
+        T: serde::Serialize + DeserializeOwned,
+        F: FnOnce(&AdmittedOwnerWrite<'_, BlobOwner>) -> Result<T, String>,
     {
-        // `batch.identity` is this specific call's real (tenant, graph) scope
-        // (built by the caller via `CompileBatch`/`compile_opaque_method`, e.g.
-        // `coordinator_batch` in this file's tests) -- bind it before touching the
-        // ledger; `MutationStore::write()` already sets `Durability::Immediate`
-        // (see `identity.rs`), so that no longer needs setting here.
-        self.ensure_scope_bound(&batch.identity)?;
-        let write = self.mutation_store.write()?;
-        match eg_mutation_store::begin(&write, batch)? {
-            eg_mutation_store::Begin::Replay(record) => {
+        let owner = self.scope_handle(&batch.identity)?;
+        let owner = owner.as_ref();
+        let (txn, begun) = self.mutations.admit(owner, batch)?;
+        self.complete_write(owner, txn, batch, begun, committed_at_ms, apply)
+    }
+
+    /// Stage an ALREADY admitted batch's owner rows, persist the exact verdict as the
+    /// replayable result and commit — ONE transaction, so a CAS row and its terminal
+    /// MutationBatch metadata can never disagree. Shared by both admission classes;
+    /// only the admission itself differs, which is why it is the caller's.
+    fn complete_write<T, F>(
+        &self,
+        owner: &OwnedStoreHandle<BlobOwner>,
+        write: eg_transaction::AdmittedMutation<'_, BlobOwner>,
+        batch: &MutationBatch,
+        begun: Begin,
+        at_ms: u64,
+        apply: F,
+    ) -> Result<T, String>
+    where
+        T: serde::Serialize + DeserializeOwned,
+        F: FnOnce(&AdmittedOwnerWrite<'_, BlobOwner>) -> Result<T, String>,
+    {
+        let source_version = match begun {
+            // Terminally committed already: the recorded verdict IS the answer, and
+            // re-applying it would double the effect.
+            Begin::Replay(record) => {
                 let bytes = record
                     .result_msgpack
                     .as_deref()
                     .ok_or_else(|| "committed blob MutationBatch has no result".to_string())?;
-                let result = decode_blob_value(bytes)?;
-                // `MutationWrite::abort` is crate-private to `eg_mutation_store`
-                // (unlike a raw `redb::WriteTransaction::abort`, which v2 called
-                // here). Dropping the write without calling `commit` rolls back
-                // the underlying transaction exactly the same way -- redb aborts
-                // an uncommitted `WriteTransaction` on drop, and `MutationWrite`
-                // has no `Drop` impl of its own that changes that.
-                drop(write);
-                Ok(result)
+                let replayed = decode_blob_value(bytes)?;
+                write.abort()?;
+                return Ok(replayed);
             }
-            eg_mutation_store::Begin::Apply { source_version } => {
-                let result = apply(write.owner_rows())?;
-                let encoded = rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?;
-                eg_mutation_store::finish(
-                    &write,
-                    batch,
-                    Some(encoded),
-                    committed_at_ms,
-                    source_version,
-                )?;
-                eg_mutation_store::commit(write, batch)?;
-                Ok(result)
+            Begin::Apply { source_version } => source_version,
+        };
+        let owner_write = write.owner_rows(owner, batch)?;
+        let staged = apply(&owner_write);
+        // Dropping the owner capability unfinished poisons the write; always close it.
+        owner_write.finish_owner()?;
+        let result = match staged {
+            Ok(value) => value,
+            Err(error) => {
+                write.abort()?;
+                return Err(error);
             }
-        }
+        };
+        let encoded = rmp_serde::to_vec_named(&result).map_err(|e| e.to_string())?;
+        self.mutations
+            .finish(&write, batch, Some(encoded), at_ms, source_version)?;
+        self.mutations.commit(write, batch)?;
+        Ok(result)
     }
 
     #[cfg(feature = "blob-s3")]
@@ -1211,7 +1231,7 @@ impl RedbChunkStore {
         committed_at_ms: u64,
     ) -> Result<T, String>
     where
-        T: serde::Serialize + serde::de::DeserializeOwned,
+        T: serde::Serialize + DeserializeOwned,
     {
         self.commit_native_batch(batch, committed_at_ms, |_| Ok(result))
     }
@@ -1238,13 +1258,9 @@ impl RedbChunkStore {
     #[cfg(feature = "blob-s3")]
     pub(crate) fn orphan_chunks_preview(&self) -> Result<HashSet<String>, String> {
         self.flush_chunks()?;
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|e| e.to_string())?;
-        let blobs = rtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
-        let refs = rtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
+        let read = self.read()?;
+        let blobs = read.open_owner_table(CAS_BLOBS)?;
+        let refs = read.open_owner_table(CAS_REFCOUNT)?;
         let mut to_delete: HashSet<String> = HashSet::new();
         for row in blobs.iter().map_err(|e| e.to_string())? {
             let (k, _) = row.map_err(|e| e.to_string())?;
@@ -1289,12 +1305,8 @@ impl RedbChunkStore {
     #[cfg(feature = "blob-s3")]
     pub(crate) fn distinct_referenced_chunks(&self) -> Result<u64, String> {
         self.flush_chunks()?;
-        let rtx = self
-            .mutation_store
-            .database()
-            .begin_read()
-            .map_err(|e| e.to_string())?;
-        let blobs = rtx.open_table(CAS_BLOBS).map_err(|e| e.to_string())?;
+        let read = self.read()?;
+        let blobs = read.open_owner_table(CAS_BLOBS)?;
         let mut seen: HashSet<String> = HashSet::new();
         for row in blobs.iter().map_err(|e| e.to_string())? {
             let (_, v) = row.map_err(|e| e.to_string())?;
@@ -1306,386 +1318,16 @@ impl RedbChunkStore {
         Ok(seen.len() as u64)
     }
 
-    /// Adjust a blob's refcount by `delta`, saturating at 0. Durable per call.
+    /// Adjust a blob's refcount by `delta`, saturating at 0, as ONE admitted owner
+    /// maintenance mutation (RF-RULING-005 — it carries no caller identity).
     fn adjust_ref(&self, blob_digest: &str, delta: i64) -> Result<u64, String> {
         self.flush_chunks()?;
         validate_digest(blob_digest)?;
-        let mut wtx = self
-            .mutation_store
-            .database()
-            .begin_write()
-            .map_err(|e| e.to_string())?;
-        wtx.set_durability(Durability::Immediate)
-            .map_err(|e| e.to_string())?;
-        let new = {
-            let mut t = wtx.open_table(CAS_REFCOUNT).map_err(|e| e.to_string())?;
-            let cur = t
-                .get(blob_digest)
-                .map_err(|e| e.to_string())?
-                .map(|g| g.value())
-                .unwrap_or(0);
-            let new = if delta >= 0 {
-                cur.saturating_add(delta as u64)
-            } else {
-                cur.saturating_sub((-delta) as u64)
-            };
-            t.insert(blob_digest, new).map_err(|e| e.to_string())?;
-            new
-        };
-        wtx.commit().map_err(|e| e.to_string())?;
-        Ok(new)
+        self.maintain("blob_adjust_ref_v1", blob_digest, |owner_write| {
+            update_refcount(owner_write, blob_digest, |cur| Ok(apply_delta(cur, delta)))
+        })
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn coordinator_batch(
-        id: &str,
-        request_id: u64,
-        expected: u64,
-        event_type: &str,
-    ) -> MutationBatch {
-        crate::server::mutation_batch::compile_opaque_method(
-            crate::server::mutation_batch::CompileBatch {
-                batch_id: id,
-                request_id,
-                principal: Some("system"),
-                tenant: "tenant-opaque",
-                graph: "scope-opaque",
-                placement_epoch: 0,
-                idempotency_key: id,
-                expected_graph_version: Some(expected),
-                fencing_token: None,
-                created_at_ms: request_id,
-                default_surface: crate::mutation_batch::MutationSurface::Other,
-                authoritative_state: None,
-            },
-            &crate::protocol::Method::ApplyMutation {
-                event_type: event_type.to_string(),
-                query: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                    .to_string(),
-            },
-            crate::mutation_batch::MutationSurface::Other,
-            crate::mutation_batch::MutationDomain::BlobStore,
-            "blob_coordinator_test",
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn direct_ref_acquire_compensation_and_gc_are_restart_replay_safe() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().to_string_lossy().to_string();
-        let body = b"opaque-result";
-        let digest = hex_digest(body);
-        {
-            let store = RedbChunkStore::open(&path).unwrap();
-            let acquire = coordinator_batch("acquire", 1, 0, "blob_direct_ref_acquire_v1");
-            assert_eq!(
-                store.put_chunk_ref_batch(body, &acquire, 1).unwrap(),
-                (digest.clone(), true, 1)
-            );
-            assert_eq!(
-                store.put_chunk_ref_batch(body, &acquire, 1).unwrap(),
-                (digest.clone(), true, 1),
-                "acknowledgement-lost acquire must replay without another ref"
-            );
-            let release = coordinator_batch("release", 2, 1, "blob_direct_ref_release_v1");
-            assert_eq!(store.adjust_ref_batch(&digest, -1, &release, 2).unwrap(), 0);
-            assert_eq!(
-                store.adjust_ref_batch(&digest, -1, &release, 2).unwrap(),
-                0,
-                "acknowledgement-lost compensation must not underflow"
-            );
-        }
-        let store = RedbChunkStore::open(&path).unwrap();
-        assert_eq!(store.refcount(&digest).unwrap(), 0);
-        let swept = store.sweep().unwrap();
-        assert_eq!(swept.chunks_reclaimed, 1);
-        assert!(store.get_chunk(&digest).unwrap().is_none());
-    }
-
-    #[test]
-    fn stored_manifest_decoder_rejects_allocation_bombs_and_inconsistent_metadata() {
-        let allocation_bomb = [0xdd, 0xff, 0xff, 0xff, 0xff];
-        assert!(decode_manifest(&allocation_bomb).is_err());
-
-        let inconsistent = BlobManifest {
-            schema_version: BLOB_MANIFEST_VERSION,
-            owner_scope: ENGINE_BLOB_OWNER_SCOPE.to_string(),
-            chunks: vec!["0".repeat(64)],
-            chunk_lens: vec![1],
-            len: 2,
-            chunk_size: 1,
-        };
-        let encoded = rmp_serde::to_vec_named(&inconsistent).unwrap();
-        assert!(decode_manifest(&encoded).is_err());
-    }
-
-    #[test]
-    fn manifest_key_must_match_content_digest() {
-        let store = RedbChunkStore::open_temp().unwrap();
-        let manifest = BlobManifest {
-            schema_version: BLOB_MANIFEST_VERSION,
-            owner_scope: ENGINE_BLOB_OWNER_SCOPE.to_string(),
-            chunks: Vec::new(),
-            chunk_lens: Vec::new(),
-            len: 0,
-            chunk_size: 0,
-        };
-        assert!(store.put_manifest(&"0".repeat(64), &manifest).is_err());
-    }
-
-    fn chunked(store: &dyn ChunkStore, data: &[u8], chunk_size: usize) -> CommittedBlob {
-        // Stream the data through the store one chunk at a time (bounded memory),
-        // exactly as the protocol cursor does.
-        let mut chunks = Vec::new();
-        let mut chunk_lens = Vec::new();
-        for part in data.chunks(chunk_size) {
-            let (digest, _was_new) = store.put_chunk(part).unwrap();
-            chunks.push(digest);
-            chunk_lens.push(part.len() as u32);
-        }
-        let manifest = BlobManifest {
-            schema_version: BLOB_MANIFEST_VERSION,
-            owner_scope: ENGINE_BLOB_OWNER_SCOPE.to_string(),
-            chunks,
-            chunk_lens,
-            len: data.len() as u64,
-            chunk_size: chunk_size as u32,
-        };
-        let bytes = rmp_serde::to_vec_named(&manifest).unwrap();
-        let digest = hex_digest(&bytes);
-        store.put_manifest(&digest, &manifest).unwrap();
-        CommittedBlob { digest, manifest }
-    }
-
-    fn reassemble(store: &dyn ChunkStore, manifest: &BlobManifest) -> Vec<u8> {
-        let mut out = Vec::new();
-        for d in &manifest.chunks {
-            out.extend(store.get_chunk(d).unwrap().unwrap());
-        }
-        out
-    }
-
-    #[test]
-    fn roundtrip_integrity_and_content_address_is_stable() {
-        let store = RedbChunkStore::open_temp().unwrap();
-        let data: Vec<u8> = (0u32..500_000).map(|i| (i % 251) as u8).collect();
-        let blob = chunked(&store, &data, 4096);
-        assert_eq!(reassemble(&store, &blob.manifest), data);
-        // Re-committing identical content yields the SAME blob digest.
-        let blob2 = chunked(&store, &data, 4096);
-        assert_eq!(blob.digest, blob2.digest);
-    }
-
-    #[test]
-    fn identical_content_dedups_chunks() {
-        let store = RedbChunkStore::open_temp().unwrap();
-        let data: Vec<u8> = (0u32..400_000).map(|i| (i % 97) as u8).collect();
-        let b1 = chunked(&store, &data, 8192);
-        let after_first = store.chunk_count().unwrap();
-        let b2 = chunked(&store, &data, 8192);
-        let after_second = store.chunk_count().unwrap();
-        // The second upload of identical content stored ZERO new chunks.
-        assert_eq!(b1.digest, b2.digest);
-        assert_eq!(after_first, after_second);
-        assert!(after_first > 0);
-    }
-
-    #[test]
-    fn gc_reclaims_orphan_keeps_referenced_shared() {
-        let store = RedbChunkStore::open_temp().unwrap();
-        // Two distinct blobs that SHARE a chunk (the first 8KB), plus a chunk
-        // unique to each.
-        let shared: Vec<u8> = vec![0xAB; 8192];
-        let only_a: Vec<u8> = vec![0x11; 8192];
-        let only_b: Vec<u8> = vec![0x22; 8192];
-
-        let mut data_a = shared.clone();
-        data_a.extend(&only_a);
-        let mut data_b = shared.clone();
-        data_b.extend(&only_b);
-
-        let a = chunked(&store, &data_a, 8192);
-        let b = chunked(&store, &data_b, 8192);
-        // 3 distinct chunks: shared, only_a, only_b.
-        assert_eq!(store.chunk_count().unwrap(), 3);
-
-        // Reference both blobs (each from one :Media node).
-        store.incref(&a.digest).unwrap();
-        store.incref(&b.digest).unwrap();
-        assert_eq!(store.refcount(&a.digest).unwrap(), 1);
-
-        // Remove the reference to A only.
-        assert_eq!(store.decref(&a.digest).unwrap(), 0);
-        let stats = store.sweep().unwrap();
-        // A's manifest is reclaimed; the shared chunk is KEPT (B still lists it),
-        // so only A's unique chunk is reclaimed.
-        assert_eq!(stats.blobs_reclaimed, 1);
-        assert_eq!(stats.chunks_reclaimed, 1);
-        assert!(store.get_manifest(&a.digest).unwrap().is_none());
-        assert!(store.get_manifest(&b.digest).unwrap().is_some());
-        // B is still fully reassemblable (shared chunk survived).
-        assert_eq!(reassemble(&store, &b.manifest), data_b);
-        assert_eq!(store.chunk_count().unwrap(), 2); // shared + only_b
-
-        // Now drop B too → everything is reclaimed.
-        assert_eq!(store.decref(&b.digest).unwrap(), 0);
-        let stats = store.sweep().unwrap();
-        assert_eq!(stats.blobs_reclaimed, 1);
-        assert_eq!(stats.chunks_reclaimed, 2); // shared + only_b now orphan
-        assert_eq!(store.chunk_count().unwrap(), 0);
-        assert_eq!(store.blob_count().unwrap(), 0);
-    }
-
-    #[test]
-    fn shared_blob_survives_until_last_reference_drops() {
-        let store = RedbChunkStore::open_temp().unwrap();
-        // Two DISTINCT chunks (so chunk_reclaimed is unambiguous, not deduped to 1).
-        let mut data: Vec<u8> = vec![0x5A; 8192];
-        data.extend(std::iter::repeat_n(0x6B, 8192));
-        let blob = chunked(&store, &data, 8192);
-        // Two :Media nodes reference the SAME blob (dedup at the blob level).
-        store.incref(&blob.digest).unwrap();
-        assert_eq!(store.incref(&blob.digest).unwrap(), 2);
-
-        // First reference removed → still referenced → sweep keeps it.
-        assert_eq!(store.decref(&blob.digest).unwrap(), 1);
-        let stats = store.sweep().unwrap();
-        assert_eq!(stats.blobs_reclaimed, 0);
-        assert!(store.get_manifest(&blob.digest).unwrap().is_some());
-
-        // Last reference removed → sweep reclaims it.
-        assert_eq!(store.decref(&blob.digest).unwrap(), 0);
-        let stats = store.sweep().unwrap();
-        assert_eq!(stats.blobs_reclaimed, 1);
-        assert_eq!(stats.chunks_reclaimed, 2);
-    }
-
-    /// Peak RSS of this process, MB (Linux VmHWM). Used to assert bounded memory.
-    fn peak_rss_mb() -> u64 {
-        let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
-        for line in s.lines() {
-            if let Some(rest) = line.strip_prefix("VmHWM:") {
-                if let Some(kb) = rest
-                    .split_whitespace()
-                    .next()
-                    .and_then(|n| n.parse::<u64>().ok())
-                {
-                    return kb / 1024;
-                }
-            }
-        }
-        0
-    }
-
-    /// Fill a chunk with offset-seeded pseudo-random bytes (xorshift) so chunks are
-    /// DISTINCT (worst case for dedup — proves real storage) without holding the file.
-    fn fill_chunk(buf: &mut [u8], idx: u64) {
-        let mut x = (idx + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-        for b in buf.iter_mut() {
-            x ^= x << 13;
-            x ^= x >> 7;
-            x ^= x << 17;
-            *b = (x & 0xFF) as u8;
-        }
-    }
-
-    /// BOUNDED MEMORY (the flagged correctness risk). Streams a LARGE blob through
-    /// the group-commit CAS one chunk at a time — generated, stored, and dropped —
-    /// then streams it back re-hashing chunk-by-chunk, retaining NEITHER the whole
-    /// blob NOR all chunks. Peak RSS must stay near the group window (≈64 MiB at 32×
-    /// 2 MiB), INDEPENDENT of the blob size: a regression to per-chunk
-    /// `Durability::None` (redb buffering every dirty page) would make RSS track the
-    /// file size and trip the assert. Default 256 MB (4× the window, enough to catch
-    /// the bug per the spike — 64/256 MB passes did NOT trip the None-leak only
-    /// because the assert is window-relative here); `EG_BLOB_RSS_MB` runs 1GB+.
-    // Measures WHOLE-PROCESS RSS, so it is only meaningful run in isolation: under
-    // the parallel test harness a sibling 256MB-blob test inflates the shared RSS and
-    // trips the bound (~347MB observed vs the 320 cap). Ignored by default; the CI
-    // "memory-regression" step runs it serially (`--ignored --test-threads=1`).
-    #[test]
-    #[ignore = "process-global RSS; run isolated via `--ignored --test-threads=1`"]
-    fn bounded_memory_large_blob_group_commit() {
-        let total_mb: u64 = std::env::var("EG_BLOB_RSS_MB")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(256);
-        let chunk_size = 2 * 1024 * 1024usize; // 2 MiB
-        let n_chunks = (total_mb * 1024 * 1024).div_ceil(chunk_size as u64);
-        let store = RedbChunkStore::open_temp().unwrap();
-
-        let rss_before = peak_rss_mb();
-
-        // Upload streaming — one chunk resident at a time.
-        let mut digests = Vec::with_capacity(n_chunks as usize);
-        let mut src_hash = Sha256::new();
-        for i in 0..n_chunks {
-            let mut buf = vec![0u8; chunk_size];
-            fill_chunk(&mut buf, i);
-            src_hash.update(&buf);
-            let (digest, _was_new) = store.put_chunk(&buf).unwrap();
-            digests.push(digest);
-            // buf dropped here — never accumulated.
-        }
-        let chunk_lens = vec![chunk_size as u32; n_chunks as usize];
-        let manifest = BlobManifest {
-            schema_version: BLOB_MANIFEST_VERSION,
-            owner_scope: ENGINE_BLOB_OWNER_SCOPE.to_string(),
-            chunks: digests,
-            chunk_lens,
-            len: n_chunks * chunk_size as u64,
-            chunk_size: chunk_size as u32,
-        };
-        let mbytes = rmp_serde::to_vec_named(&manifest).unwrap();
-        let blob_digest = hex_digest(&mbytes);
-        store.put_manifest(&blob_digest, &manifest).unwrap();
-
-        // Download streaming — re-hash chunk-by-chunk, retain nothing.
-        let got = store.get_manifest(&blob_digest).unwrap().unwrap();
-        let mut dl_hash = Sha256::new();
-        for d in &got.chunks {
-            let bytes = store.get_chunk(d).unwrap().unwrap();
-            dl_hash.update(&bytes);
-        }
-        assert_eq!(
-            hex::encode(src_hash.finalize()),
-            hex::encode(dl_hash.finalize()),
-            "round-trip integrity over the streamed large blob"
-        );
-
-        // Bounded memory: peak RSS GROWTH over the run must be a small multiple of
-        // the group window, NOT the blob size. Window = 32×2MiB = 64MiB; allow a
-        // generous 256MB headroom for redb page cache + the test binary, but a
-        // file-size leak (256MB..1GB+) blows past it.
-        let peak = peak_rss_mb();
-        let growth = peak.saturating_sub(rss_before);
-        // Bound = the capped redb page cache (128 MiB default) + headroom for redb's
-        // mmap working set and transient buffers — NOT the blob size. A regression
-        // that uncaps the cache or buffers per-chunk-None would track the file size
-        // (1GB blob → ~1GB RSS) and blow past this; the cap holds it flat.
-        assert!(
-            growth < 320,
-            "peak RSS growth {growth}MB for a {total_mb}MB blob must be bounded by the \
-             capped page cache (~128MiB), not the file size — an uncapped-cache or \
-             per-chunk-None regression would track the file size"
-        );
-    }
-
-    #[test]
-    fn sweep_reclaims_unreferenced_uploaded_blob() {
-        // A blob that was uploaded+committed but never referenced by a node (an
-        // abandoned upload) is reclaimed on sweep — no refcount entry == dead.
-        let store = RedbChunkStore::open_temp().unwrap();
-        let data: Vec<u8> = vec![0x7F; 4096];
-        let blob = chunked(&store, &data, 4096);
-        assert_eq!(store.blob_count().unwrap(), 1);
-        let stats = store.sweep().unwrap();
-        assert_eq!(stats.blobs_reclaimed, 1);
-        assert_eq!(stats.chunks_reclaimed, 1);
-        assert!(store.get_manifest(&blob.digest).unwrap().is_none());
-    }
-}
+mod tests;

@@ -648,11 +648,6 @@ pub enum ClusterMutationRoute {
     SelfRoutedAdmin,
 }
 
-/// Shared plaintext ceiling for one encrypted native consensus command. Served
-/// coordinators preflight against this exact value before allocating/dispatching
-/// their encoded method, and Raft enforces it again when sealing/opening.
-pub(crate) const MAX_NATIVE_COORDINATOR_PAYLOAD_BYTES: usize = 128 * 1024 * 1024;
-
 /// Public coordinator commands that decompose into independently placed,
 /// typed consensus graph commands before any local mutation executes.
 pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate", "ApplyChangeEnvelopes"];
@@ -665,8 +660,8 @@ pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate", "ApplyC
 ///
 /// This is the deliberate complement of `crate::raft::NATIVE_CONSENSUS_METHODS`:
 /// that list is every mutating method with a *bounded* `NativeMutationCommand`
-/// (`raft::native_domain(method).is_some()`); THIS list is every mutating method
-/// that instead owns a dedicated, self-routing handler (resolves `MultiRaft`,
+/// in the command catalog; THIS list is every mutating method that instead owns
+/// a dedicated, self-routing handler (resolves `MultiRaft`,
 /// performs the leader check, and answers `OPERATION_REDIRECTED` itself — exactly
 /// like `handlers::placement::try_handle` does for the read-only `PlacementRoute`,
 /// just for a method that also mutates). Routing a `SelfRoutedAdmin` method
@@ -1889,9 +1884,11 @@ where
     };
 
     let fname = crate::persist::sanitize(ctx.graph_name);
-    let batch_id = crate::server::mutation_batch::opaque_request_key(
+    let batch_id = crate::server::mutation_batch::opaque_request_key_for_context(
         "rpc",
+        ctx.tenant_scope,
         ctx.graph_name,
+        ctx.caller,
         ctx.req_id,
         method,
     );
@@ -1900,7 +1897,7 @@ where
     // projection from authority and returns the exact stored result. No handler is
     // re-executed and no duplicate outbox row is produced.
     if let Some(response) =
-        commit_mutation_body_replay_check(ctx, persistence, &fname, &batch_id, &prep).await
+        commit_mutation_body_replay_check(ctx, method, persistence, &fname, &batch_id, &prep).await
     {
         return response;
     }
@@ -1951,15 +1948,25 @@ where
 /// to actually apply the mutation.
 async fn commit_mutation_body_replay_check(
     ctx: &MutationCtx<'_>,
+    method: &Method,
     persistence: &Arc<dyn PersistenceBackend>,
     fname: &str,
     batch_id: &str,
     prep: &CommitPrep,
 ) -> Option<Response> {
     match persistence.read_mutation_batch(fname, batch_id).await {
-        Ok(Some(record)) => {
-            Some(commit_mutation_body_replay_response(ctx, persistence, fname, record, prep).await)
-        }
+        Ok(Some(record)) => Some(
+            validated_commit_mutation_body_replay_response(
+                ctx,
+                method,
+                persistence,
+                fname,
+                batch_id,
+                record,
+                prep,
+            )
+            .await,
+        ),
         Ok(None) => None,
         Err(error) => Some(Response::err(
             ctx.req_id,
@@ -1968,9 +1975,82 @@ async fn commit_mutation_body_replay_check(
     }
 }
 
+fn validate_graph_replay_request(
+    ctx: &MutationCtx<'_>,
+    method: &Method,
+    batch_id: &str,
+    default_surface: crate::mutation_batch::MutationSurface,
+    record: &eg_types::mutation_batch::MutationBatchRecord,
+) -> Result<(), String> {
+    record.validate()?;
+    let expected_graph_version = match record.batch.version_expectation {
+        crate::mutation_batch::VersionExpectation::Graph(version) => version,
+        _ => return Err("graph replay has a non-graph version expectation".to_string()),
+    };
+    let expected = crate::server::mutation_batch::compile_methods(
+        crate::server::mutation_batch::CompileBatch {
+            batch_id,
+            request_id: ctx.req_id,
+            principal: ctx.caller,
+            tenant: ctx.tenant_scope,
+            graph: ctx.graph_name,
+            placement_epoch: 0,
+            idempotency_key: batch_id,
+            expected_graph_version: Some(expected_graph_version),
+            fencing_token: None,
+            created_at_ms: record.batch.created_at_ms,
+            default_surface,
+            authoritative_state: record.batch.authoritative_state.clone(),
+        },
+        vec![method.clone()],
+    )?;
+    let stored = rmp_serde::to_vec_named(&record.batch).map_err(|error| error.to_string())?;
+    let expected = rmp_serde::to_vec_named(&expected).map_err(|error| error.to_string())?;
+    if stored != expected {
+        return Err("record does not match the current request envelope".to_string());
+    }
+    Ok(())
+}
+
 /// Reconcile the serving projection to the already-committed `record` and decode
 /// its durable result — the found-a-replay half of
 /// [`commit_mutation_body_replay_check`].
+async fn validated_commit_mutation_body_replay_response(
+    ctx: &MutationCtx<'_>,
+    method: &Method,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    batch_id: &str,
+    record: eg_types::mutation_batch::MutationBatchRecord,
+    prep: &CommitPrep,
+) -> Response {
+    let replay_method = ordinary_replay_method(&record, method);
+    if let Err(error) = validate_graph_replay_request(
+        ctx,
+        &replay_method,
+        batch_id,
+        crate::mutation_batch::MutationSurface::Graph,
+        &record,
+    ) {
+        return Response::err(
+            ctx.req_id,
+            format!("committed MutationBatch replay mismatch: {error}"),
+        );
+    }
+    commit_mutation_body_replay_response(ctx, persistence, fname, record, prep).await
+}
+
+fn ordinary_replay_method(
+    record: &eg_types::mutation_batch::MutationBatchRecord,
+    method: &Method,
+) -> Method {
+    if record.batch.authoritative_state.is_some() {
+        durable_receipt_method(method)
+    } else {
+        method.clone()
+    }
+}
+
 async fn commit_mutation_body_replay_response(
     ctx: &MutationCtx<'_>,
     persistence: &Arc<dyn PersistenceBackend>,
@@ -2011,7 +2091,7 @@ async fn commit_mutation_body_replay_response(
             )
             .map_err(|_| "committed MutationBatch result is corrupt".to_string())
         })
-        .map(|payload| Response::ok(ctx.req_id, payload))
+        .map(|payload: ResultPayload| Response::ok(ctx.req_id, payload))
         .unwrap_or_else(|error| Response::err(ctx.req_id, error));
     if let Some(key) = &prep.dedup_key {
         idempotency_store().insert(key.clone(), response.clone());
@@ -2710,14 +2790,16 @@ where
     };
 
     let fname = crate::persist::sanitize(ctx.graph_name);
-    let batch_id = crate::server::mutation_batch::opaque_request_key(
+    let batch_id = crate::server::mutation_batch::opaque_request_key_for_context(
         "rpc-async",
+        ctx.tenant_scope,
         ctx.graph_name,
+        ctx.caller,
         ctx.req_id,
         method,
     );
     if let Some(response) =
-        commit_conditional_replay_check(ctx, persistence, &fname, &batch_id, &prep).await
+        commit_conditional_replay_check(ctx, method, persistence, &fname, &batch_id, &prep).await
     {
         return response;
     }
@@ -2773,15 +2855,25 @@ where
 /// batch exists.
 async fn commit_conditional_replay_check(
     ctx: &MutationCtx<'_>,
+    method: &Method,
     persistence: &Arc<dyn PersistenceBackend>,
     fname: &str,
     batch_id: &str,
     prep: &CommitPrep,
 ) -> Option<Response> {
     match persistence.read_mutation_batch(fname, batch_id).await {
-        Ok(Some(record)) => {
-            Some(commit_conditional_replay_response(ctx, persistence, fname, record, prep).await)
-        }
+        Ok(Some(record)) => Some(
+            validated_commit_conditional_replay_response(
+                ctx,
+                method,
+                persistence,
+                fname,
+                batch_id,
+                record,
+                prep,
+            )
+            .await,
+        ),
         Ok(None) => None,
         Err(error) => Some(Response::err(
             ctx.req_id,
@@ -2793,6 +2885,31 @@ async fn commit_conditional_replay_check(
 /// Reconcile the serving projection to the already-committed `record` and decode
 /// its durable result — the found-a-replay half of
 /// [`commit_conditional_replay_check`].
+async fn validated_commit_conditional_replay_response(
+    ctx: &MutationCtx<'_>,
+    method: &Method,
+    persistence: &Arc<dyn PersistenceBackend>,
+    fname: &str,
+    batch_id: &str,
+    record: eg_types::mutation_batch::MutationBatchRecord,
+    prep: &CommitPrep,
+) -> Response {
+    let default_surface = if is_rdf_gateway_method(method) {
+        crate::mutation_batch::MutationSurface::Rdf
+    } else {
+        crate::mutation_batch::MutationSurface::Query
+    };
+    if let Err(error) =
+        validate_graph_replay_request(ctx, method, batch_id, default_surface, &record)
+    {
+        return Response::err(
+            ctx.req_id,
+            format!("committed MutationBatch replay mismatch: {error}"),
+        );
+    }
+    commit_conditional_replay_response(ctx, persistence, fname, record, prep).await
+}
+
 async fn commit_conditional_replay_response(
     ctx: &MutationCtx<'_>,
     persistence: &Arc<dyn PersistenceBackend>,
@@ -2826,7 +2943,7 @@ async fn commit_conditional_replay_response(
             )
             .map_err(|_| "committed MutationBatch result is corrupt".to_string())
         })
-        .map(|payload| Response::ok(ctx.req_id, payload))
+        .map(|payload: ResultPayload| Response::ok(ctx.req_id, payload))
         .unwrap_or_else(|error| Response::err(ctx.req_id, error));
     if let Some(key) = &prep.dedup_key {
         idempotency_store().insert(key.clone(), response.clone());
@@ -3100,6 +3217,195 @@ mod tests {
             operations_msgpack: vec![0xc1],
         };
         assert!(prepublish_success(&core, &malformed).is_none());
+    }
+
+    #[test]
+    fn graph_replay_is_bound_to_the_authenticated_request_envelope() {
+        let isolation = isolation_with_system_agent();
+        let core = Arc::new(GraphCore::new());
+        let method = Method::RemoveNode {
+            node_id: "node-a".to_string(),
+        };
+        let batch_id = crate::server::mutation_batch::opaque_request_key_for_context(
+            "rpc",
+            "tenant-a",
+            "graph-a",
+            Some("system-agent"),
+            7,
+            &method,
+        );
+        let batch = crate::server::mutation_batch::compile_methods(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: &batch_id,
+                request_id: 7,
+                principal: Some("system-agent"),
+                tenant: "tenant-a",
+                graph: "graph-a",
+                placement_epoch: 0,
+                idempotency_key: &batch_id,
+                expected_graph_version: Some(3),
+                fencing_token: None,
+                created_at_ms: 11,
+                default_surface: crate::mutation_batch::MutationSurface::Graph,
+                authoritative_state: None,
+            },
+            vec![method.clone()],
+        )
+        .unwrap();
+        let record = eg_types::mutation_batch::MutationBatchRecord {
+            identity: batch.identity.clone(),
+            batch,
+            status: crate::mutation_batch::MutationBatchStatus::Committed,
+            committed_version: crate::mutation_batch::CommittedVersion::Graph {
+                source: 3,
+                target: 4,
+            },
+            result_msgpack: Some(vec![1]),
+            committed_at_ms: 12,
+        };
+        let ctx = MutationCtx {
+            req_id: 7,
+            caller: Some("system-agent"),
+            tenant_scope: "tenant-a",
+            graph_name: "graph-a",
+            graph_type: GraphType::Commons,
+            owner: None,
+            isolation: &isolation,
+            core: &core,
+            persistence: None,
+            #[cfg(feature = "streaming")]
+            cdc: None,
+            materialization_manifest: None,
+            write_coalescer: None,
+        };
+        assert!(validate_graph_replay_request(
+            &ctx,
+            &method,
+            &batch_id,
+            crate::mutation_batch::MutationSurface::Graph,
+            &record,
+        )
+        .is_ok());
+
+        let other_principal_key = crate::server::mutation_batch::opaque_request_key_for_context(
+            "rpc",
+            "tenant-a",
+            "graph-a",
+            Some("other-agent"),
+            7,
+            &method,
+        );
+        assert_ne!(batch_id, other_principal_key);
+        let mut other = ctx;
+        other.caller = Some("other-agent");
+        assert!(validate_graph_replay_request(
+            &other,
+            &method,
+            &batch_id,
+            crate::mutation_batch::MutationSurface::Graph,
+            &record,
+        )
+        .is_err());
+        other.caller = Some("system-agent");
+        other.tenant_scope = "tenant-b";
+        assert!(validate_graph_replay_request(
+            &other,
+            &method,
+            &batch_id,
+            crate::mutation_batch::MutationSurface::Graph,
+            &record,
+        )
+        .is_err());
+    }
+
+    #[cfg(feature = "modality-serving")]
+    #[test]
+    fn ordinary_staged_replay_reuses_the_durable_modality_receipt() {
+        let isolation = isolation_with_system_agent();
+        let core = Arc::new(GraphCore::new());
+        let method = Method::ServedModality {
+            op: eg_types::ServedModalityOp::Delete {
+                modality: eg_types::ServedModalityKind::Document,
+                idempotency_ref: "delete-a".to_string(),
+                occurrence_id: "occurrence-a".to_string(),
+                expected_version: 3,
+            },
+        };
+        let batch_id = crate::server::mutation_batch::opaque_request_key_for_context(
+            "rpc",
+            "tenant-a",
+            "graph-a",
+            Some("system-agent"),
+            7,
+            &method,
+        );
+        let descriptor = crate::mutation_batch::MutationStateDescriptor {
+            algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
+            digest: "0".repeat(64),
+            source_graph_version: 3,
+            target_graph_version: 4,
+        };
+        let batch = crate::server::mutation_batch::compile_methods(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: &batch_id,
+                request_id: 7,
+                principal: Some("system-agent"),
+                tenant: "tenant-a",
+                graph: "graph-a",
+                placement_epoch: 0,
+                idempotency_key: &batch_id,
+                expected_graph_version: Some(3),
+                fencing_token: None,
+                created_at_ms: 11,
+                default_surface: crate::mutation_batch::MutationSurface::Graph,
+                authoritative_state: Some(descriptor),
+            },
+            vec![durable_receipt_method(&method)],
+        )
+        .unwrap();
+        let record = eg_types::mutation_batch::MutationBatchRecord {
+            identity: batch.identity.clone(),
+            batch,
+            status: crate::mutation_batch::MutationBatchStatus::Committed,
+            committed_version: crate::mutation_batch::CommittedVersion::Graph {
+                source: 3,
+                target: 4,
+            },
+            result_msgpack: Some(vec![1]),
+            committed_at_ms: 12,
+        };
+        let ctx = MutationCtx {
+            req_id: 7,
+            caller: Some("system-agent"),
+            tenant_scope: "tenant-a",
+            graph_name: "graph-a",
+            graph_type: GraphType::Commons,
+            owner: None,
+            isolation: &isolation,
+            core: &core,
+            persistence: None,
+            #[cfg(feature = "streaming")]
+            cdc: None,
+            materialization_manifest: None,
+            write_coalescer: None,
+        };
+
+        assert!(validate_graph_replay_request(
+            &ctx,
+            &ordinary_replay_method(&record, &method),
+            &batch_id,
+            crate::mutation_batch::MutationSurface::Graph,
+            &record,
+        )
+        .is_ok());
+        assert!(validate_graph_replay_request(
+            &ctx,
+            &method,
+            &batch_id,
+            crate::mutation_batch::MutationSurface::Graph,
+            &record,
+        )
+        .is_err());
     }
 
     /// (a) A GATEWAY_ROUTED, audited+CDC-emitting mutation (`AddNode`) produces a
@@ -3790,8 +4096,14 @@ mod tests {
         );
 
         let fname = crate::persist::sanitize(graph_name);
-        let batch_id =
-            crate::server::mutation_batch::opaque_request_key("rpc", graph_name, 11, &method);
+        let batch_id = crate::server::mutation_batch::opaque_request_key_for_context(
+            "rpc",
+            "opaque-test-tenant",
+            graph_name,
+            Some("system-agent"),
+            11,
+            &method,
+        );
         let record = persistence
             .read_mutation_batch(&fname, &batch_id)
             .await
@@ -4598,24 +4910,24 @@ mod tests {
         ("KvDelete", "native MutationBatch in kv.redb: KV row + status/fence/idempotency/outbox in one WTX"),
         ("KvCas", "native MutationBatch in kv.redb: CAS decision/row + exact result/coordinator metadata in one WTX"),
         ("TsAppend", "native MutationBatch in series.redb: series rows/projection + coordinator metadata in one WTX"),
-        ("TsEvict", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::evict_before_scoped -- no eg_mutation_store idempotency batch, because retention is content-idempotent (re-evicting an already-past cutoff is a safe no-op), unlike TsAppend"),
-        ("TsDeleteSeries", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::delete_scoped -- no eg_mutation_store idempotency batch, because deletion is content-idempotent (re-deleting an already-gone series is a safe no-op), unlike TsAppend"),
+        ("TsEvict", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::evict_before_scoped -- no eg_transaction idempotency batch, because retention is content-idempotent (re-evicting an already-past cutoff is a safe no-op), unlike TsAppend"),
+        ("TsDeleteSeries", "self-routes via dispatch.rs's tsdb block to timeseries.rs, like TsAppend above; one series.redb WTX via SeriesStore::delete_scoped -- no eg_transaction idempotency batch, because deletion is content-idempotent (re-deleting an already-gone series is a safe no-op), unlike TsAppend"),
         #[cfg(feature = "jobs")]
         ("AnalyticsJob", "native MutationBatch in jobs.redb; asynchronous claim writeback uses a staged graph MutationBatch"),
         // `Statechart` self-routes in dispatch.rs BEFORE dispatch_graph_op (see the
         // `Method::Statechart` arm there and `handlers::statechart` module docs) --
         // it never reaches this gateway's `try_handle_gateway`/`commit_mutation` at
         // all. `eg-statechart`'s `StatechartStore::instantiate`/`send_event` commit
-        // through `eg-mutation-store` (the SAME universal MutationBatch/OCC
+        // through `eg-transaction` (the SAME universal MutationBatch/OCC
         // primitive `eg-jobs` uses for `AnalyticsJob`, per eg-statechart/Cargo.toml)
         // against their OWN `statecharts.redb`, keyed by def_id/instance_id, not a
         // graph -- structurally identical to `AnalyticsJob` above, just gated
-        // `statechart` instead of `jobs`. Note: this is `eg-mutation-store` (a
+        // `statechart` instead of `jobs`. Note: this is `eg-transaction` (a
         // generic per-store OCC/durable-commit primitive shared by jobs/kv/blob/
         // series/statecharts), NOT this module's `GATEWAY_ROUTED`/`commit_mutation`
         // -- the two are easily conflated by name but are different mechanisms.
         #[cfg(feature = "statechart")]
-        ("Statechart", "native MutationBatch in statecharts.redb; instance define/instantiate/send_event commit status/version/fence/idempotency/outbox in one WTX via eg-mutation-store, exactly like AnalyticsJob in jobs.redb"),
+        ("Statechart", "native MutationBatch in statecharts.redb; instance define/instantiate/send_event commit status/version/fence/idempotency/outbox in one WTX via eg-transaction, exactly like AnalyticsJob in jobs.redb"),
         ("ImportSqliteFile", "native SQL-catalog MutationBatch: all imported tables + exact result/coordinator metadata in one WTX"),
         // ── Process-global registries on ServerState: opaque control-redb sagas,
         // no GraphCore/graph_name; dispatched directly in the top-level match. ──
@@ -4646,16 +4958,6 @@ mod tests {
         ("Restore", "prepared/committed admin MutationBatch saga around online restore/PITR"),
         ("RaftAddLearner", "leader-only openraft add_learner via handlers::raft_admin::try_handle against MultiRaft directly -- no GraphCore/graph_name in scope, cluster-wide like Reshard/CatalogAssign above"),
         ("RaftChangeMembership", "leader-only openraft change_membership via handlers::raft_admin::try_handle against MultiRaft directly -- no GraphCore/graph_name in scope, cluster-wide like Reshard/CatalogAssign above"),
-        // Pre-existing W1.1 gap (found while wiring W2.5/RegisterServer below): self-contained
-        // ClusterAdmin-domain write into the durable node_info.redb store
-        // (server::persistence::node_info_store::NodeInfoStore::upsert), issued only by a
-        // node's own Raft startup path (raft::node::start). NOT graph-scoped -- no
-        // GraphCore/graph_name in scope, self-routes in dispatch.rs BEFORE dispatch_graph_op
-        // (the `Method::ClusterMembers | Method::NodeInfoUpsert` arm), exactly like
-        // RaftAddLearner/RaftChangeMembership above. `crates/eg-capabilities/tests/
-        // consistency.rs` already carries the equivalent access.rs::requires_write UNASSIGNED
-        // entry for this method; this gateway-migration test was missing its own.
-        ("NodeInfoUpsert", "self-contained ClusterAdmin-domain write into node_info.redb (server::persistence::node_info_store); issued only by the node's own Raft startup path, never a live client -- NOT graph-scoped, no GraphCore/graph_name in scope, self-routes in dispatch.rs before dispatch_graph_op like RaftAddLearner/RaftChangeMembership above"),
         // W2.5 fleet server registry: self-translates into `Method::AddNode` against
         // `__commons__` from its own top-level dispatch.rs arm (see the
         // `Method::RegisterServer` match), exactly like `ApplyMultisigMutation` above
@@ -4704,9 +5006,8 @@ mod tests {
              context -- never enters MutationBatch/result/outbox/CDC projections, so it does not \
              fit commit_mutation's (ctx, plan, method, apply) shape at all",
         ),
-        // ── fix/eg-devlane-dispatch: DevelopmentLane*'s 6 write methods now route through
-        // dispatch.rs's dedicated `is_development_lane_method` block (sitting beside the
-        // WorkItem-claim-capability block), which commits through
+        // ── DevelopmentLane*'s 6 write methods now route through the explicit
+        // `handlers::development_lane::try_handle` owner, which commits through
         // `PersistenceBackend::commit_development_lane` -> the redb writer thread ->
         // `redb_store::development_lane::commit_development_lane` -- a self-contained
         // begin_write()/commit() against the native `development_lane_*` tables. Same posture
@@ -4716,12 +5017,12 @@ mod tests {
         // 174c381) said "no dispatch.rs wire-routing arm exists yet" -- that arm now exists;
         // see access.rs's REASON_NATIVE_DEVELOPMENT_LANE_READ for the read-side twin
         // (DevelopmentLaneStatus/QueryDevelopmentLane). ──
-        ("ReserveDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
-        ("RenewDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
-        ("ObserveDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
-        ("FinishDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
-        ("CleanupDevelopmentLane", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
-        ("UpdateDevelopmentLaneQuota", "dispatch.rs's is_development_lane_method block routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("ReserveDevelopmentLane", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("RenewDevelopmentLane", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("ObserveDevelopmentLane", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("FinishDevelopmentLane", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("CleanupDevelopmentLane", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
+        ("UpdateDevelopmentLaneQuota", "handlers::development_lane::try_handle routes this to PersistenceBackend::commit_development_lane -> redb_store::development_lane::commit_development_lane, a self-contained redb transaction against the native development_lane_* tables -- never enters MutationBatch/result/outbox/CDC projections, same posture as MintWorkItemClaimCapability above"),
     ];
 
     /// Graph-scoped methods requiring a coordinator outside this gateway. The set is

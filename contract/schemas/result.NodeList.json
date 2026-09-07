@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "maxItems": 2,
+    "minItems": 2,
+    "prefixItems": [
+      {
+        "type": "string"
+      },
+      true
+    ],
+    "type": "array"
+  },
+  "title": "Array_of_Tuple_of_string_and_AnyValue",
+  "type": "array"
+}

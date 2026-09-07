@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::super::state::ServerState;
-use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
+use crate::mutation_batch::{MutationBatch, DurabilityDomain, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::blob::{store, BlobCursors};
@@ -217,7 +217,7 @@ pub(crate) async fn try_handle(
             let got = run_blocking(req_id, move || store.get_chunk(&digest)).await;
             match got {
                 // A chunk is ARBITRARY binary (raw media bytes), NOT a packed map,
-                // so it must NOT travel as `PropertiesMsgpack` — the Python `_send`
+                // so it must NOT travel as a structured binary result — the Python `_send`
                 // blindly `unpackb`s any top-level `bytes` result, which corrupts /
                 // fails on non-MessagePack content. Wrap it as a `Raw` MessagePack
                 // `bin` (serde_bytes) so the client's second `unpackb` recovers the
@@ -373,7 +373,7 @@ pub(crate) fn compile_blob_batch(
 /// two independent connections from the same tenant/actor calling
 /// `BlobBegin()` with the same default `chunk_size` as their first RPC
 /// produced the EXACT SAME idempotency key. The engine's
-/// `eg_mutation_store::begin` idempotency ledger never expires (by design —
+/// `eg_transaction::MutationKernel::admit` idempotency ledger never expires (by design —
 /// it survives an acknowledgement-lost retry across a coordinator restart),
 /// so the SECOND connection's `BlobBegin` silently REPLAYED the first
 /// connection's already-committed result: the FIRST connection's cursor id,
@@ -412,7 +412,7 @@ pub(crate) fn compile_blob_batch_at(
         },
         method,
         MutationSurface::Other,
-        MutationDomain::BlobStore,
+        DurabilityDomain::BlobStore,
         "blob_operation",
     )?;
     Ok((batch, now))

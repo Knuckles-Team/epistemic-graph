@@ -56,31 +56,34 @@ pub fn isnan(a: ArrayView1<f64>) -> Vec<bool> {
     a.iter().map(|x| x.is_nan()).collect()
 }
 
-/// numpy `maximum(a, b)` — element-wise (NaN propagates).
-pub fn maximum(a: ArrayView1<f64>, b: ArrayView1<f64>) -> Result<Array1<f64>> {
+/// numpy's NaN-propagating element-wise pair ops: `maximum`/`minimum` differ only
+/// in which of the two finite values they keep, so they share one implementation.
+fn nan_propagating_pair(
+    op: &'static str,
+    a: ArrayView1<f64>,
+    b: ArrayView1<f64>,
+    keep: fn(f64, f64) -> f64,
+) -> Result<Array1<f64>> {
     if a.len() != b.len() {
-        return Err(NumericError::shape("maximum: shape mismatch"));
+        return Err(NumericError::shape(format!("{op}: shape mismatch")));
     }
     Ok(Array1::from_iter(a.iter().zip(b.iter()).map(|(&x, &y)| {
         if x.is_nan() || y.is_nan() {
             f64::NAN
         } else {
-            x.max(y)
+            keep(x, y)
         }
     })))
 }
 
+/// numpy `maximum(a, b)` — element-wise (NaN propagates).
+pub fn maximum(a: ArrayView1<f64>, b: ArrayView1<f64>) -> Result<Array1<f64>> {
+    nan_propagating_pair("maximum", a, b, f64::max)
+}
+
+/// numpy `minimum(a, b)` — element-wise (NaN propagates).
 pub fn minimum(a: ArrayView1<f64>, b: ArrayView1<f64>) -> Result<Array1<f64>> {
-    if a.len() != b.len() {
-        return Err(NumericError::shape("minimum: shape mismatch"));
-    }
-    Ok(Array1::from_iter(a.iter().zip(b.iter()).map(|(&x, &y)| {
-        if x.is_nan() || y.is_nan() {
-            f64::NAN
-        } else {
-            x.min(y)
-        }
-    })))
+    nan_propagating_pair("minimum", a, b, f64::min)
 }
 
 /// numpy `where(cond, a, b)` element-wise select.

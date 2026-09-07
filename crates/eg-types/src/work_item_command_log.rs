@@ -1,5 +1,5 @@
 //! GOC-19 — the WorkItem submission command-log admission core, built on
-//! GOC-03's [`crate::commit_descriptor::CommitDescriptorV1`] currency.
+//! GOC-03's [`crate::commit_descriptor::CommitDescriptor`] currency.
 //!
 //! # Scope and honesty about what this module is NOT
 //!
@@ -38,20 +38,20 @@
 //!    `commit_seq`/`fencing_token` does not represent forward progress for
 //!    its `authority_ref`, is rejected — mirroring the exact "strictly
 //!    greater fencing token on a newer sequence" rule
-//!    [`crate::commit_descriptor::ProjectionCursorV1::advance`] already
+//!    [`crate::commit_descriptor::ProjectionCursor::advance`] already
 //!    enforces and already has passing tests for.
 //!
 //! See `plans/graph-os-completion-program/lanes/GOC-19-atomic-workitem-command-log.md`.
 
 use std::collections::BTreeMap;
 
-use crate::commit_descriptor::CommitDescriptorV1;
+use crate::commit_descriptor::CommitDescriptor;
 
 /// One admitted (or replayed) WorkItem submission command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkItemCommandRecord {
     /// The GOC-03 commit currency this command was admitted under.
-    pub descriptor: CommitDescriptorV1,
+    pub descriptor: CommitDescriptor,
     /// The WorkItem this command created (or, for a replay, the WorkItem the
     /// ORIGINAL admission created — never a second id).
     pub work_item_id: String,
@@ -86,9 +86,9 @@ pub enum WorkItemCommandOutcome {
     /// `commit_seq` advanced but `fencing_token` did not strictly increase —
     /// the mechanical form of "a stale writer/reader that only knows an old
     /// `commit_seq` [must not] act as though it holds current authority"
-    /// (`CommitDescriptorV1::fencing_token` doc).
+    /// (`CommitDescriptor::fencing_token` doc).
     StaleFencingToken { observed_fencing_token: u64 },
-    /// The descriptor itself failed [`CommitDescriptorV1::validate`]; never
+    /// The descriptor itself failed [`CommitDescriptor::validate`]; never
     /// admitted, regardless of idempotency/fencing state.
     InvalidDescriptor(String),
 }
@@ -159,7 +159,7 @@ impl WorkItemCommandLog {
     /// wins and nothing is recorded.
     pub fn submit(
         &mut self,
-        descriptor: CommitDescriptorV1,
+        descriptor: CommitDescriptor,
         work_item_id: String,
     ) -> WorkItemCommandOutcome {
         if let Err(error) = descriptor.validate() {
@@ -254,10 +254,10 @@ mod tests {
         authority_ref: &str,
         position: CommandPosition,
         mutation_digest_byte: u8,
-    ) -> CommitDescriptorV1 {
+    ) -> CommitDescriptor {
         let mut participants = BTreeMap::new();
         participants.insert(CommitParticipantDomain::Graph, hex_digest(0xAB));
-        CommitDescriptorV1 {
+        CommitDescriptor {
             schema_version: COMMIT_DESCRIPTOR_VERSION,
             commit_id: commit_id.to_string(),
             txn_id: format!("txn-{commit_id}"),
@@ -592,7 +592,7 @@ mod tests {
             position(1, 1, 100),
             0x22,
         );
-        invalid.commit_seq = 0; // CommitDescriptorV1::validate() rejects this
+        invalid.commit_seq = 0; // CommitDescriptor::validate() rejects this
         let outcome = log.submit(invalid, "wi-1".to_string());
         assert!(log.is_empty());
         match outcome {

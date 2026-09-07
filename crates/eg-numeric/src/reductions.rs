@@ -3,17 +3,22 @@
 //! surface (§4 of the plan). Pure Rust, ndarray-backed; parity-tested vs numpy.
 
 use crate::error::{NumericError, Result};
-use ndarray::{Array1, ArrayD, ArrayView1, ArrayViewD, Axis};
+use ndarray::{Array1, ArrayD, ArrayView, ArrayView1, ArrayViewD, Axis, Dimension};
 
-pub fn sum(a: ArrayView1<f64>) -> f64 {
+// Every reduction below is dimension-generic: `ndarray`'s `.iter()` walks logical
+// (C) order for any dimensionality, so the 1-D surface (`np.mean(v)`) and the flat
+// `axis=None` surface (`np.mean(m)`) are literally the same reduction. One
+// implementation serves both; there is no `*_all` family.
+
+pub fn sum<D: Dimension>(a: ArrayView<f64, D>) -> f64 {
     a.sum()
 }
 
-pub fn prod(a: ArrayView1<f64>) -> f64 {
+pub fn prod<D: Dimension>(a: ArrayView<f64, D>) -> f64 {
     a.iter().product()
 }
 
-pub fn mean(a: ArrayView1<f64>) -> f64 {
+pub fn mean<D: Dimension>(a: ArrayView<f64, D>) -> f64 {
     if a.is_empty() {
         return f64::NAN; // numpy: mean of empty → nan (+ RuntimeWarning)
     }
@@ -21,7 +26,7 @@ pub fn mean(a: ArrayView1<f64>) -> f64 {
 }
 
 /// Variance with `ddof` (0 = population, 1 = sample) — matches `np.var(a, ddof=)`.
-pub fn var(a: ArrayView1<f64>, ddof: usize) -> f64 {
+pub fn var<D: Dimension>(a: ArrayView<f64, D>, ddof: usize) -> f64 {
     let n = a.len();
     if n == 0 || n <= ddof {
         return f64::NAN;
@@ -31,11 +36,11 @@ pub fn var(a: ArrayView1<f64>, ddof: usize) -> f64 {
     ss / (n - ddof) as f64
 }
 
-pub fn std(a: ArrayView1<f64>, ddof: usize) -> f64 {
+pub fn std<D: Dimension>(a: ArrayView<f64, D>, ddof: usize) -> f64 {
     var(a, ddof).sqrt()
 }
 
-pub fn min(a: ArrayView1<f64>) -> Result<f64> {
+pub fn min<D: Dimension>(a: ArrayView<f64, D>) -> Result<f64> {
     if a.is_empty() {
         return Err(NumericError::shape("min of empty array"));
     }
@@ -49,7 +54,7 @@ pub fn min(a: ArrayView1<f64>) -> Result<f64> {
     }))
 }
 
-pub fn max(a: ArrayView1<f64>) -> Result<f64> {
+pub fn max<D: Dimension>(a: ArrayView<f64, D>) -> Result<f64> {
     if a.is_empty() {
         return Err(NumericError::shape("max of empty array"));
     }
@@ -62,9 +67,9 @@ pub fn max(a: ArrayView1<f64>) -> Result<f64> {
     }))
 }
 
-/// numpy `argmin`: index of the first minimum. NaN, if present, is treated as the
-/// smallest (numpy returns the first NaN index).
-pub fn argmin(a: ArrayView1<f64>) -> Result<usize> {
+/// numpy `argmin`: index of the first minimum in logical (C) order. NaN, if
+/// present, is treated as the smallest (numpy returns the first NaN index).
+pub fn argmin<D: Dimension>(a: ArrayView<f64, D>) -> Result<usize> {
     if a.is_empty() {
         return Err(NumericError::shape("argmin of empty array"));
     }
@@ -82,7 +87,7 @@ pub fn argmin(a: ArrayView1<f64>) -> Result<usize> {
     Ok(best)
 }
 
-pub fn argmax(a: ArrayView1<f64>) -> Result<usize> {
+pub fn argmax<D: Dimension>(a: ArrayView<f64, D>) -> Result<usize> {
     if a.is_empty() {
         return Err(NumericError::shape("argmax of empty array"));
     }
@@ -166,151 +171,12 @@ pub fn quantile(a: ArrayView1<f64>, q: f64) -> Result<f64> {
 //
 // These close the "bare 1-D float64 only" gap: `np.mean(m, axis=1)`, integer
 // arrays (coerced to f64 at the pyo3 boundary), and multi-dim inputs now route
-// through the kernel. The `*_all` variants are the flat (axis=None) reductions
-// over any dimensionality; the `*_axis` variants collapse a single axis, matching
-// numpy's reduction semantics (NaN-propagating min/max, first-index argmin/argmax,
-// ddof for var/std). `keepdims` is applied at the boundary via `insert_axis`.
+// through the kernel. The flat (axis=None) reduction over any dimensionality is
+// the dimension-generic reduction above; the `*_axis` variants collapse a single
+// axis, matching numpy's reduction semantics (NaN-propagating min/max,
+// first-index argmin/argmax, ddof for var/std). `keepdims` is applied at the
+// boundary via `insert_axis`.
 // ---------------------------------------------------------------------------
-
-/// Flat argmin over a lane (numpy semantics: first NaN wins, else first minimum).
-/// Infallible — an empty lane yields index 0 (an all-length-0 axis is degenerate).
-fn argmin_lane(a: ArrayView1<f64>) -> usize {
-    if let Some((i, _)) = a.iter().enumerate().find(|(_, x)| x.is_nan()) {
-        return i;
-    }
-    let mut best = 0usize;
-    let mut bv = f64::INFINITY;
-    for (i, &x) in a.iter().enumerate() {
-        if x < bv {
-            bv = x;
-            best = i;
-        }
-    }
-    best
-}
-
-fn argmax_lane(a: ArrayView1<f64>) -> usize {
-    if let Some((i, _)) = a.iter().enumerate().find(|(_, x)| x.is_nan()) {
-        return i;
-    }
-    let mut best = 0usize;
-    let mut bv = f64::NEG_INFINITY;
-    for (i, &x) in a.iter().enumerate() {
-        if x > bv {
-            bv = x;
-            best = i;
-        }
-    }
-    best
-}
-
-/// NaN-propagating min of a lane (numpy `amin`).
-fn min_lane(a: ArrayView1<f64>) -> f64 {
-    a.iter().copied().fold(f64::INFINITY, |acc, x| {
-        if acc.is_nan() || x.is_nan() {
-            f64::NAN
-        } else {
-            acc.min(x)
-        }
-    })
-}
-
-fn max_lane(a: ArrayView1<f64>) -> f64 {
-    a.iter().copied().fold(f64::NEG_INFINITY, |acc, x| {
-        if acc.is_nan() || x.is_nan() {
-            f64::NAN
-        } else {
-            acc.max(x)
-        }
-    })
-}
-
-// ---- flat (axis=None) over any dimensionality ----
-
-pub fn sum_all(a: ArrayViewD<f64>) -> f64 {
-    a.sum()
-}
-pub fn prod_all(a: ArrayViewD<f64>) -> f64 {
-    a.iter().product()
-}
-pub fn mean_all(a: ArrayViewD<f64>) -> f64 {
-    if a.is_empty() {
-        return f64::NAN;
-    }
-    a.sum() / a.len() as f64
-}
-pub fn var_all(a: ArrayViewD<f64>, ddof: usize) -> f64 {
-    let n = a.len();
-    if n == 0 || n <= ddof {
-        return f64::NAN;
-    }
-    let m = a.sum() / n as f64;
-    let ss: f64 = a.iter().map(|&x| (x - m) * (x - m)).sum();
-    ss / (n - ddof) as f64
-}
-pub fn std_all(a: ArrayViewD<f64>, ddof: usize) -> f64 {
-    var_all(a, ddof).sqrt()
-}
-pub fn min_all(a: ArrayViewD<f64>) -> Result<f64> {
-    if a.is_empty() {
-        return Err(NumericError::shape("min of empty array"));
-    }
-    // ndarray's `.iter()` walks logical (C) order regardless of memory layout.
-    Ok(a.iter().copied().fold(f64::INFINITY, |acc, x| {
-        if acc.is_nan() || x.is_nan() {
-            f64::NAN
-        } else {
-            acc.min(x)
-        }
-    }))
-}
-pub fn max_all(a: ArrayViewD<f64>) -> Result<f64> {
-    if a.is_empty() {
-        return Err(NumericError::shape("max of empty array"));
-    }
-    Ok(a.iter().copied().fold(f64::NEG_INFINITY, |acc, x| {
-        if acc.is_nan() || x.is_nan() {
-            f64::NAN
-        } else {
-            acc.max(x)
-        }
-    }))
-}
-/// Flat argmin over C-order (numpy `argmin` with `axis=None`).
-pub fn argmin_all(a: ArrayViewD<f64>) -> Result<usize> {
-    if a.is_empty() {
-        return Err(NumericError::shape("argmin of empty array"));
-    }
-    if let Some((i, _)) = a.iter().enumerate().find(|(_, x)| x.is_nan()) {
-        return Ok(i);
-    }
-    let mut best = 0usize;
-    let mut bv = f64::INFINITY;
-    for (i, &x) in a.iter().enumerate() {
-        if x < bv {
-            bv = x;
-            best = i;
-        }
-    }
-    Ok(best)
-}
-pub fn argmax_all(a: ArrayViewD<f64>) -> Result<usize> {
-    if a.is_empty() {
-        return Err(NumericError::shape("argmax of empty array"));
-    }
-    if let Some((i, _)) = a.iter().enumerate().find(|(_, x)| x.is_nan()) {
-        return Ok(i);
-    }
-    let mut best = 0usize;
-    let mut bv = f64::NEG_INFINITY;
-    for (i, &x) in a.iter().enumerate() {
-        if x > bv {
-            bv = x;
-            best = i;
-        }
-    }
-    Ok(best)
-}
 
 // ---- single-axis collapse (numpy `<op>(a, axis=k)`) ----
 
@@ -348,19 +214,23 @@ pub fn var_axis(a: ArrayViewD<f64>, axis: usize, ddof: usize) -> Result<ArrayD<f
 pub fn std_axis(a: ArrayViewD<f64>, axis: usize, ddof: usize) -> Result<ArrayD<f64>> {
     Ok(var_axis(a, axis, ddof)?.mapv(f64::sqrt))
 }
+// A zero-length axis is degenerate: numpy raises, and the lane reductions below
+// report the same `Err`. The collapse keeps the identity element (`min` → +inf,
+// `max` → -inf) and index 0 rather than failing the whole array, which is what the
+// boundary has always returned for that shape.
 pub fn min_axis(a: ArrayViewD<f64>, axis: usize) -> Result<ArrayD<f64>> {
     check_axis(&a, axis)?;
-    Ok(a.map_axis(Axis(axis), min_lane))
+    Ok(a.map_axis(Axis(axis), |lane| min(lane).unwrap_or(f64::INFINITY)))
 }
 pub fn max_axis(a: ArrayViewD<f64>, axis: usize) -> Result<ArrayD<f64>> {
     check_axis(&a, axis)?;
-    Ok(a.map_axis(Axis(axis), max_lane))
+    Ok(a.map_axis(Axis(axis), |lane| max(lane).unwrap_or(f64::NEG_INFINITY)))
 }
 pub fn argmin_axis(a: ArrayViewD<f64>, axis: usize) -> Result<ArrayD<i64>> {
     check_axis(&a, axis)?;
-    Ok(a.map_axis(Axis(axis), |lane| argmin_lane(lane) as i64))
+    Ok(a.map_axis(Axis(axis), |lane| argmin(lane).unwrap_or(0) as i64))
 }
 pub fn argmax_axis(a: ArrayViewD<f64>, axis: usize) -> Result<ArrayD<i64>> {
     check_axis(&a, axis)?;
-    Ok(a.map_axis(Axis(axis), |lane| argmax_lane(lane) as i64))
+    Ok(a.map_axis(Axis(axis), |lane| argmax(lane).unwrap_or(0) as i64))
 }

@@ -170,6 +170,61 @@ struct WindowState {
     buckets: BTreeMap<i64, Bucket>,
 }
 
+/// Window mode: fold one delta into the time-bucket accumulators, returning how many
+/// buckets it touched. A bucket whose net count falls to zero is dropped, so retractions
+/// leave no empty residue.
+fn apply_to_buckets(w: &mut WindowState, delta: &Delta) -> usize {
+    let mut touched = 0usize;
+    for row in &delta.rows {
+        if row.weight == 0 || !label_matches(&row.props, &w.label) {
+            continue;
+        }
+        // Faithful to `exec::window_aggregate`: a graph-node row needs BOTH a
+        // `valid_from` event time and a numeric `value`; either absent drops it.
+        let (Some(ts), Some(val)) = (int_field(&row.props, TS_FIELD), row.num(VALUE_FIELD)) else {
+            continue;
+        };
+        let Some(start) = w.bucket_start(ts) else {
+            continue;
+        };
+        let b = w.buckets.entry(start).or_default();
+        b.sum += row.weight as f64 * val;
+        b.count += row.weight as i64;
+        if b.count <= 0 {
+            w.buckets.remove(&start);
+        }
+        touched += 1;
+    }
+    touched
+}
+
+/// Set mode: apply each row's signed weight to every membership stage whose predicate it
+/// satisfies, returning how many stage entries it touched. An id whose net weight falls to
+/// zero leaves the stage.
+fn apply_to_stages(stages: &mut [Stage], delta: &Delta) -> usize {
+    let mut touched = 0usize;
+    for row in &delta.rows {
+        if row.weight == 0 {
+            continue;
+        }
+        for stage in stages.iter_mut() {
+            if !stage.pred.holds(&row.props) {
+                continue;
+            }
+            let e = stage.members.entry(row.id.clone()).or_insert(0);
+            *e += row.weight;
+            if *e <= 0 {
+                stage.members.remove(&row.id);
+            }
+            touched += 1;
+        }
+    }
+    touched
+}
+
+mod build;
+use build::CircuitBuild;
+
 /// A compiled incremental circuit for one supported plan. Serializable so its maintained
 /// state (stage membership maps / bucket accumulators) persists in the
 /// `matview_operator_state` redb table — the analogue of turso's `dbsp_state` btree.
@@ -196,113 +251,26 @@ impl Circuit {
     /// `Limit`.
     pub fn compile(plan: &Plan) -> Result<Circuit, UnsupportedOp> {
         let ops = &plan.ops;
-        if ops.is_empty() {
-            return Err(UnsupportedOp {
-                index: 0,
-                reason: "empty plan (nothing to incrementalize)".into(),
-            });
-        }
-        let label = match &ops[0] {
-            Op::Scan { label } => label.clone(),
-            other => {
+        let label = match ops.first() {
+            Some(Op::Scan { label }) => label.clone(),
+            None => {
+                return Err(UnsupportedOp {
+                    index: 0,
+                    reason: "empty plan (nothing to incrementalize)".into(),
+                })
+            }
+            Some(other) => {
                 return Err(UnsupportedOp {
                     index: 0,
                     reason: format!("plan must start with Scan, found {}", op_name(other)),
                 })
             }
         };
-
-        let mut stages: Vec<Stage> = vec![Stage::new(StagePred::Scan {
-            label: label.clone(),
-        })];
-        let mut window: Option<WindowState> = None;
-        let mut limit: Option<usize> = None;
-
+        let mut build = CircuitBuild::scanning(label);
         for (i, op) in ops.iter().enumerate().skip(1) {
-            if limit.is_some() {
-                return Err(UnsupportedOp {
-                    index: i,
-                    reason: "no op may follow Limit".into(),
-                });
-            }
-            match op {
-                Op::Filter { preds } => {
-                    if window.is_some() {
-                        return Err(UnsupportedOp {
-                            index: i,
-                            reason: "Filter after WindowAgg is not supported".into(),
-                        });
-                    }
-                    for p in preds {
-                        match p {
-                            Pred::Eq { .. } | Pred::GtNum { .. } | Pred::LtNum { .. } => {}
-                            _ => {
-                                return Err(UnsupportedOp {
-                                    index: i,
-                                    reason: "Filter carries a non-relational predicate \
-                                             (JsonPath/spatial)"
-                                        .into(),
-                                })
-                            }
-                        }
-                    }
-                    stages.push(Stage::new(StagePred::Filter {
-                        preds: preds.clone(),
-                    }));
-                }
-                Op::AsOf { ts, axis } => {
-                    if window.is_some() {
-                        return Err(UnsupportedOp {
-                            index: i,
-                            reason: "AsOf after WindowAgg is not supported".into(),
-                        });
-                    }
-                    stages.push(Stage::new(StagePred::AsOf {
-                        ts: *ts,
-                        axis: *axis,
-                    }));
-                }
-                Op::WindowAgg { secs, agg } => {
-                    if window.is_some() {
-                        return Err(UnsupportedOp {
-                            index: i,
-                            reason: "more than one WindowAgg is not supported".into(),
-                        });
-                    }
-                    // Only Scan may precede the WindowAgg (stages == [Scan]); a Filter/AsOf
-                    // before it would source-on-empty and make the aggregate non-local.
-                    if stages.len() > 1 {
-                        return Err(UnsupportedOp {
-                            index: i,
-                            reason: "WindowAgg over a Filter/AsOf-narrowed set is not \
-                                     incrementally maintainable in v1 (exec's empty-input- \
-                                     source rule makes it non-local); only Scan → WindowAgg"
-                                .into(),
-                        });
-                    }
-                    window = Some(compile_window_agg(i, label.clone(), *secs, agg)?);
-                }
-                Op::Limit { k } => limit = Some(*k),
-                other => {
-                    return Err(UnsupportedOp {
-                        index: i,
-                        reason: format!("{} has no incremental form in v1", op_name(other)),
-                    })
-                }
-            }
+            build.push(i, op)?;
         }
-
-        // Window mode doesn't use the membership stages (its `label` gate lives in
-        // `WindowState`); drop them so `apply`/`current` branch cleanly on `window`.
-        if window.is_some() {
-            stages.clear();
-        }
-
-        Ok(Circuit {
-            stages,
-            window,
-            limit,
-        })
+        Ok(build.finish())
     }
 
     /// Whether this circuit's plan is aggregate (window) mode.
@@ -316,52 +284,10 @@ impl Circuit {
     /// to every membership stage whose predicate it satisfies (set mode), or to its
     /// time-bucket accumulator (window mode).
     pub fn apply(&mut self, delta: &Delta) -> usize {
-        let mut touched = 0usize;
         match &mut self.window {
-            Some(w) => {
-                for row in &delta.rows {
-                    if row.weight == 0 || !label_matches(&row.props, &w.label) {
-                        continue;
-                    }
-                    // Faithful to `exec::window_aggregate`: a graph-node row needs BOTH a
-                    // `valid_from` event time and a numeric `value`; either absent drops it.
-                    let (Some(ts), Some(val)) =
-                        (int_field(&row.props, TS_FIELD), row.num(VALUE_FIELD))
-                    else {
-                        continue;
-                    };
-                    let Some(start) = w.bucket_start(ts) else {
-                        continue;
-                    };
-                    let b = w.buckets.entry(start).or_default();
-                    b.sum += row.weight as f64 * val;
-                    b.count += row.weight as i64;
-                    if b.count <= 0 {
-                        w.buckets.remove(&start);
-                    }
-                    touched += 1;
-                }
-            }
-            None => {
-                for row in &delta.rows {
-                    if row.weight == 0 {
-                        continue;
-                    }
-                    for stage in &mut self.stages {
-                        if !stage.pred.holds(&row.props) {
-                            continue;
-                        }
-                        let e = stage.members.entry(row.id.clone()).or_insert(0);
-                        *e += row.weight;
-                        if *e <= 0 {
-                            stage.members.remove(&row.id);
-                        }
-                        touched += 1;
-                    }
-                }
-            }
+            Some(w) => apply_to_buckets(w, delta),
+            None => apply_to_stages(&mut self.stages, delta),
         }
-        touched
     }
 
     /// The current materialized result from the MAINTAINED state (the hot-path read a
@@ -719,6 +645,15 @@ mod tests {
         ]))
         .unwrap_err();
         assert_eq!(e.index, 2);
+        // Pinned deliberately: the `\`-continued literal this reason is written as
+        // carried a stray space inside "empty-input- source" before the builder split;
+        // the text was corrected there, so it is asserted here rather than assumed.
+        assert_eq!(
+            e.reason,
+            "WindowAgg over a Filter/AsOf-narrowed set is not incrementally maintainable \
+             in v1 (exec's empty-input-source rule makes it non-local); \
+             only Scan \u{2192} WindowAgg"
+        );
     }
 
     #[test]

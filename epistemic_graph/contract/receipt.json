@@ -1,0 +1,305 @@
+{
+  "artifact_digests": {
+    "contract/methods.json": "6275a4502ae4f764f0547d231786d0216c912b80cd612bf1abb366ba92f9050e",
+    "contract/schemas/method.request.json": "ac01308033c45885f7294b5be408debd13ed3f803e0cef4390fc6569c1f55abc",
+    "contract/schemas/result.Bool.json": "f4bcf35f07ea1acd8a6067aa0279864f120fc1eb6e308afb0720e034b2d57744",
+    "contract/schemas/result.Count.json": "c139342b656a7d5b0bf598ad6a64f92992dc1071ab8f6568bcfa55422f1f326a",
+    "contract/schemas/result.EdgeList.json": "837e5e87b9131e55b1136b2fd5588b002ff9c26eeaad14892a3b3f2b83e1cbc2",
+    "contract/schemas/result.Float.json": "9d8d9890a0e39f6dddc45c7cf3533aef05ca6ec9709174618174f793bb6bf7e4",
+    "contract/schemas/result.Ids.json": "cef7480310b4300eebd51a58740a8d606713ab1fd6d043a7eda4b451a33595ae",
+    "contract/schemas/result.NodeList.json": "584c3712101c532f50581a956cf755b9e84b280bbe2d189ece85b9e577365e4b",
+    "contract/schemas/result.String.json": "a3e272c53a4f5de4d4d6d51ff824bf63bfb22b3aa59609d990cd53065148a4ab",
+    "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
+    "docs/capabilities.generated.md": "25d32ead78d072eba0c44e362835345ec37568d3f14c2200ca5636b17dffbd80",
+    "epistemic_graph/contract/__init__.py": "36e6ba4cbab070e0f32c5974af8bca0cacb1d7391e9a256a2ba947acb85899c4",
+    "epistemic_graph/generated/__init__.py": "d4a8937ece7c71927f0f4b4d4b571ebb1a5ca6e18a12cc3a93b3a370bae63493",
+    "epistemic_graph/generated/_ids.py": "3c876a5bbc24e280c76e3f165b0e4c672a6396ceb55cf0f0725adc0fdff14d25",
+    "epistemic_graph/generated/_runtime.py": "9c654cf9a7e4e3304d0e0f933fb791f06a6ed78a6e4e1f2f82d24f577185a6fa",
+    "epistemic_graph/generated/cluster.py": "9db77471e24e9c6612b48ad3625b1c46e08e9122a0da47d55066e45e1b4ec8d3",
+    "epistemic_graph/generated/compute.py": "912901c873d200bd03e44e5f9a378dc8cd4767fdf4cc6f9b4e99f0540a265145",
+    "epistemic_graph/generated/coordination.py": "c5e8921a08fa915f89406afa636e0c4d27e3c23e75dd999c7572d6d788a02f5d",
+    "epistemic_graph/generated/graph.py": "50714095cadc9fd7f6f85d7af904e1a93a2841cb41cba42775cc81b3744c36f8",
+    "epistemic_graph/generated/ingestion.py": "4a12d30f795258d2f4dabd6c2ba995671cd5616bc3d4d037ab4de779b974f58d",
+    "epistemic_graph/generated/messaging.py": "c3ab794f5a3a23f9b0520c4be8ceac1b9dbc0ee1a2069ad2fc9535164096df87",
+    "epistemic_graph/generated/query.py": "d191dcb24f729b13bdfad6de34427be550d9e355eb0ecce4891da3ea53683970",
+    "epistemic_graph/generated/reasoning.py": "7eebd7ced3443ca2f7a35b2ca531185219a96a17427f6dc44fbb898c131be384",
+    "epistemic_graph/generated/security.py": "4e639b62478973d2e9cc0cada8b5ed5541e33625b0ac35db0f4492e481471dc2",
+    "epistemic_graph/generated/storage.py": "cdf7e34d05ad93dc1f72c835cb0a8905f0ec5a0bcea69d982d22a2ccb08dd8d1",
+    "epistemic_graph/generated/transactions.py": "620eca482b86fd65c956204e308ef15a4d6765fa21887a4a93dbe40dd85998be"
+  },
+  "cargo_lock_sha256": "1095313b8ba47b4d2ddf3a6ac6eb7af6acc1996d2d17404e83e8c3cc66cec657",
+  "contract_digest": "6493bd9091ec296de02822786d59d5122caf090521d274c349225432889fb8c1",
+  "contract_version": 1,
+  "feature_profile": [
+    "contract",
+    "canonical-ledger",
+    "contract-schema",
+    "jobs",
+    "statechart",
+    "knowledge-batch",
+    "modality-serving",
+    "quantum",
+    "asr-native",
+    "viz"
+  ],
+  "format_identities": {
+    "ANALYTICS_JOB_SCOPE_INCARNATION": {
+      "sites": [
+        "crates/eg-jobs/src/store.rs:2414"
+      ],
+      "value": "\"incarnation:eg-jobs:analytics-jobs:1\""
+    },
+    "BOOTSTRAP_COMMONS_INCARNATION": {
+      "sites": [
+        "crates/eg-core/src/registry.rs:458"
+      ],
+      "value": "\"incarnation:commons:v1\""
+    },
+    "BUNDLE_FORMAT_VERSION": {
+      "sites": [
+        "src/server/persistence/backup.rs:133"
+      ],
+      "value": "4"
+    },
+    "CATALOG_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/persistence/tenant_catalog.rs:54"
+      ],
+      "value": "\"tenant-catalog:v1\""
+    },
+    "CLUSTER_HIERARCHY_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/persistence/cluster_hierarchy_store.rs:42"
+      ],
+      "value": "\"cluster-hierarchy:v1\""
+    },
+    "COLD_SCOPE_INCARNATION": {
+      "sites": [
+        "crates/eg-kvcache/src/cold.rs:131"
+      ],
+      "value": "\"kvcache-cold:v1\""
+    },
+    "COLD_TIER_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/cold_tier_impl.rs:23"
+      ],
+      "value": "\"cold-tier:v1\""
+    },
+    "COMPILED_BATCH_INCARNATION": {
+      "sites": [
+        "crates/eg-types/src/mutation_batch/model/identity.rs:176"
+      ],
+      "value": "\"epistemic-graph:mutation-batch-compiler:v1\""
+    },
+    "CONSENSUS_TRANSACTION_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-transaction/src/participant/mod.rs:31"
+      ],
+      "value": "1"
+    },
+    "CONSENSUS_TXN_SCHEMA_VERSION": {
+      "sites": [
+        "src/server/handlers/txn.rs:1955"
+      ],
+      "value": "1"
+    },
+    "DIRECT_STATE_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-storage/src/direct_state/contract.rs:43"
+      ],
+      "value": "1"
+    },
+    "DISCOVERY_SCHEMA_VERSION": {
+      "sites": [
+        "src/server/handlers/topology.rs:28"
+      ],
+      "value": "1"
+    },
+    "EMBEDDING_BINDING_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-query/src/tables/embedding_binding.rs:46"
+      ],
+      "value": "1"
+    },
+    "ENCRYPTION_KEY_BINDING_FORMAT_VERSION": {
+      "sites": [
+        "src/crypto.rs:397"
+      ],
+      "value": "1"
+    },
+    "GRAPH_META_SCHEMA_VERSION": {
+      "sites": [
+        "src/redb_store.rs:16113"
+      ],
+      "value": "2"
+    },
+    "GRAPH_SNAPSHOT_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-core/src/graph.rs:919"
+      ],
+      "value": "2"
+    },
+    "INSTANCE_MUTATION_INCARNATION": {
+      "sites": [
+        "crates/eg-statechart/src/store/batches.rs:23"
+      ],
+      "value": ""
+    },
+    "INTENT_SCHEMA_VERSION": {
+      "sites": [
+        "src/server/txn_intent.rs:58"
+      ],
+      "value": "1"
+    },
+    "KNOWLEDGE_STREAM_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-types/src/knowledge_stream.rs:13"
+      ],
+      "value": "1"
+    },
+    "MEMBERSHIP_SHRINK_SCHEMA_VERSION": {
+      "sites": [
+        "src/raft/membership_shrink.rs:18"
+      ],
+      "value": "1"
+    },
+    "MODALITY_ROW_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-modality/src/rows.rs:43"
+      ],
+      "value": "1"
+    },
+    "NATIVE_CONTROL_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-types/src/native_control.rs:18"
+      ],
+      "value": "1"
+    },
+    "NODE_INFO_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/persistence/node_info_store.rs:45"
+      ],
+      "value": "\"node-info:v1\""
+    },
+    "PATH_SCOPE_INCARNATION": {
+      "sites": [
+        "crates/eg-core/src/path_persist.rs:191"
+      ],
+      "value": "\"path-index:v1\""
+    },
+    "POLICY_BUNDLE_FORMAT_VERSION": {
+      "sites": [
+        "src/server/policy_export/mod.rs:183"
+      ],
+      "value": "\"policy-bundle-v1\""
+    },
+    "PROGRAM_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-program/src/contracts.rs:13"
+      ],
+      "value": "1"
+    },
+    "PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-query/src/tables/property_graph/model.rs:29"
+      ],
+      "value": "1"
+    },
+    "PROPERTY_GRAPH_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-query/src/tables/property_graph/model.rs:20"
+      ],
+      "value": "1"
+    },
+    "PROVENANCE_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/viz_provenance.rs:51"
+      ],
+      "value": "\"viz-provenance:v1\""
+    },
+    "RAFT_RESPONSE_SCHEMA_VERSION": {
+      "sites": [
+        "src/raft/mod.rs:179"
+      ],
+      "value": "2"
+    },
+    "RAFT_SNAPSHOT_SCHEMA_VERSION": {
+      "sites": [
+        "src/raft/store.rs:95"
+      ],
+      "value": "4"
+    },
+    "RAFT_WIRE_VERSION": {
+      "sites": [
+        "src/raft/network.rs:128"
+      ],
+      "value": "1"
+    },
+    "RAW_GRAPH_ROWS_SCHEMA_VERSION": {
+      "sites": [
+        "src/server/persistence/online_reshard.rs:180"
+      ],
+      "value": "1"
+    },
+    "RBAC_SCOPE_INCARNATION": {
+      "sites": [
+        "crates/eg-core/src/rbac_persist.rs:58"
+      ],
+      "value": "\"rbac-security-control:v1\""
+    },
+    "REPLAY_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/request_replay.rs:75"
+      ],
+      "value": "\"request-replay:v1\""
+    },
+    "SCHEMA_MIGRATION_FORMAT_VERSION": {
+      "sites": [
+        "crates/eg-query/src/tables/migration.rs:32"
+      ],
+      "value": "1"
+    },
+    "SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-epistemic/src/incremental.rs:171",
+        "crates/eg-jobs/src/result.rs:147",
+        "crates/eg-types/src/epistemic_operations_manifest.rs:6",
+        "crates/eg-types/src/mutation_batch/fault.rs:23",
+        "src/performance_probe.rs:44"
+      ],
+      "value": "1"
+    },
+    "SECONDARY_INDEX_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-query/src/tables/index.rs:21"
+      ],
+      "value": "1"
+    },
+    "STORAGE_KERNEL_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-storage/src/physical/incarnation.rs:25"
+      ],
+      "value": "2"
+    },
+    "WIRE_VERSION": {
+      "sites": [
+        "crates/eg-viz-graph-tiles/src/wire.rs:41"
+      ],
+      "value": "1"
+    }
+  },
+  "generator": "eg-capabilities/gen_contract",
+  "internal_only_methods": 19,
+  "method_count": 408,
+  "opaque_result_methods": 279,
+  "python_client_methods": 389,
+  "result_provenance": {
+    "annotation-only": 36,
+    "confirmed": 68,
+    "contradicted": 4,
+    "dispatch-only": 78,
+    "undeclared": 222
+  },
+  "source_tree_oid": "3b85e1087d7bf908f324d8923068cf2ababda42a539d2f7f4d958a7d2265e80d",
+  "typed_result_methods": 129
+}

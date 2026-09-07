@@ -125,63 +125,80 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
-def _load_manifest() -> dict[str, Any]:
+def _load_json_object(path: Path, read_error: str, shape_error: str) -> dict[str, Any]:
+    """One JSON object, duplicate keys rejected, or a gate failure."""
     try:
-        manifest = json.loads(
-            MANIFEST_PATH.read_text(encoding="utf-8"),
+        document = json.loads(
+            path.read_text(encoding="utf-8"),
             object_pairs_hook=_no_duplicate_keys,
         )
     except (OSError, json.JSONDecodeError) as exc:
-        raise GateError(f"cannot read generated manifest: {exc}") from exc
-    if not isinstance(manifest, dict):
-        raise GateError("generated manifest must be a JSON object")
-    return manifest
+        raise GateError(f"{read_error}: {exc}") from exc
+    if not isinstance(document, dict):
+        raise GateError(shape_error)
+    return document
+
+
+#: Every development-lane vocabulary the golden vector pins, as
+#: (vector key, expected value, drift subject). One table instead of seven
+#: identical `if vector.get(k) != EXPECTED: raise` ladders, so adding a pinned
+#: vocabulary cannot silently skip its drift check.
+_DEVELOPMENT_LANE_VOCABULARIES: tuple[tuple[str, object, str], ...] = (
+    ("work_item_kinds", list(DEVELOPMENT_LANE_KINDS), "WorkItem kind vocabulary"),
+    ("refusal_decisions", list(DEVELOPMENT_LANE_REFUSALS), "refusal vocabulary"),
+    (
+        "disk_counter_dimensions",
+        list(DEVELOPMENT_LANE_DISK_COUNTER_DIMENSIONS),
+        "disk counter dimensions",
+    ),
+    (
+        "public_result_redactions",
+        list(DEVELOPMENT_LANE_PUBLIC_RESULT_REDACTIONS),
+        "public result redactions",
+    ),
+    (
+        "lane_intent_extension_key",
+        DEVELOPMENT_LANE_INTENT_EXTENSION_KEY,
+        "intent extension key",
+    ),
+    (
+        "lane_cleanup_extension_key",
+        DEVELOPMENT_LANE_CLEANUP_EXTENSION_KEY,
+        "cleanup extension key",
+    ),
+    (
+        "global_policy_tenant_ref",
+        DEVELOPMENT_LANE_GLOBAL_POLICY_TENANT_REF,
+        "global-policy sentinel",
+    ),
+)
+
+
+def _embedded_json(vector: dict[str, Any], key: str, subject: str) -> Any:
+    """Parse one JSON document the golden vector carries as a nested string."""
+    try:
+        return json.loads(vector.get(key), object_pairs_hook=_no_duplicate_keys)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise GateError(f"development-lane {subject} is invalid: {exc}") from exc
 
 
 def _check_development_lane_golden_vector() -> None:
-    try:
-        vector = json.loads(
-            GOLDEN_VECTOR_PATH.read_text(encoding="utf-8"),
-            object_pairs_hook=_no_duplicate_keys,
-        )
-    except (OSError, json.JSONDecodeError) as exc:
-        raise GateError(f"cannot read development-lane golden vector: {exc}") from exc
-    if not isinstance(vector, dict):
-        raise GateError("development-lane golden vector must be an object")
-    if vector.get("work_item_kinds") != list(DEVELOPMENT_LANE_KINDS):
-        raise GateError("development-lane WorkItem kind vocabulary drifted")
-    if vector.get("refusal_decisions") != list(DEVELOPMENT_LANE_REFUSALS):
-        raise GateError("development-lane refusal vocabulary drifted")
-    if vector.get("disk_counter_dimensions") != list(
-        DEVELOPMENT_LANE_DISK_COUNTER_DIMENSIONS
-    ):
-        raise GateError("development-lane disk counter dimensions drifted")
-    if vector.get("public_result_redactions") != list(
-        DEVELOPMENT_LANE_PUBLIC_RESULT_REDACTIONS
-    ):
-        raise GateError("development-lane public result redactions drifted")
-    if vector.get("lane_intent_extension_key") != DEVELOPMENT_LANE_INTENT_EXTENSION_KEY:
-        raise GateError("development-lane intent extension key drifted")
-    if vector.get("lane_cleanup_extension_key") != DEVELOPMENT_LANE_CLEANUP_EXTENSION_KEY:
-        raise GateError("development-lane cleanup extension key drifted")
-    if vector.get("global_policy_tenant_ref") != DEVELOPMENT_LANE_GLOBAL_POLICY_TENANT_REF:
-        raise GateError("development-lane global-policy sentinel drifted")
-    cleanup_json = vector.get("lane_cleanup_extension_json")
-    try:
-        cleanup = json.loads(cleanup_json, object_pairs_hook=_no_duplicate_keys)
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise GateError(f"development-lane cleanup extension is invalid: {exc}") from exc
+    vector = _load_json_object(
+        GOLDEN_VECTOR_PATH,
+        "cannot read development-lane golden vector",
+        "development-lane golden vector must be an object",
+    )
+    for key, expected, subject in _DEVELOPMENT_LANE_VOCABULARIES:
+        if vector.get(key) != expected:
+            raise GateError(f"development-lane {subject} drifted")
+    cleanup = _embedded_json(vector, "lane_cleanup_extension_json", "cleanup extension")
     if list(cleanup) != list(DEVELOPMENT_LANE_CLEANUP_EXTENSION_FIELDS):
         raise GateError("development-lane cleanup extension fields drifted")
     if vector.get("quota_policy_update_expected_revision") != 7:
         raise GateError("development-lane golden quota CAS revision drifted")
-    intent_json = vector.get("intent_json")
-    if not isinstance(intent_json, str):
+    if not isinstance(vector.get("intent_json"), str):
         raise GateError("development-lane intent golden vector is not a string")
-    try:
-        intent = json.loads(intent_json, object_pairs_hook=_no_duplicate_keys)
-    except json.JSONDecodeError as exc:
-        raise GateError(f"development-lane intent golden vector is invalid: {exc}") from exc
+    intent = _embedded_json(vector, "intent_json", "intent golden vector")
     if not isinstance(intent, dict) or intent.get("schema_version") != "1":
         raise GateError("development-lane intent golden vector must be v1")
 
@@ -207,15 +224,65 @@ def _rust_fields() -> dict[str, list[str]]:
     return structs
 
 
+def _attribute_block_before(source: str, index: int) -> str:
+    """The contiguous attribute/comment block immediately preceding `index`.
+
+    Attributes on a Rust item are an unordered block, so the previous
+    adjacency-only regex (`#[serde(deny_unknown_fields)]` immediately followed
+    by `pub struct X {`) reported the invariant as VIOLATED as soon as any other
+    attribute was appended after it -- which is what
+    `#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]` did
+    to every DTO in this file. Walking the block backwards over balanced
+    `#[...]` spans reads the whole attribute set the compiler sees, so ordering
+    is irrelevant and a genuinely absent attribute is still fatal.
+    """
+
+    block: list[str] = []
+    cursor = index
+    while True:
+        head = source[:cursor].rstrip()
+        start = _preceding_attribute_start(head)
+        if start is None:
+            line_start = head.rfind("\n") + 1
+            if not head[line_start:].lstrip().startswith("//"):
+                return "\n".join(reversed(block))
+            start = line_start
+        block.append(head[start:])
+        cursor = start
+
+
+def _preceding_attribute_start(head: str) -> int | None:
+    """Where the `#[...]` attribute ending `head` begins, if there is one."""
+
+    if not head.endswith("]"):
+        return None
+    depth = 0
+    scan = len(head) - 1
+    while scan >= 0:
+        if head[scan] == "]":
+            depth += 1
+        elif head[scan] == "[":
+            depth -= 1
+            if not depth:
+                break
+        scan -= 1
+    if scan <= 0 or head[scan - 1] != "#":
+        return None
+    return scan - 1
+
+
 def _assert_rust_closed(bindings: list[dict[str, Any]]) -> None:
     source = RUST_SOURCE.read_text(encoding="utf-8")
     for binding in bindings:
-        rust_type = re.escape(str(binding["rust_type"]))
-        pattern = (
-            rf"#\[serde\(deny_unknown_fields\)\]\s*pub\s+struct\s+{rust_type}\s*\{{"
+        rust_type = str(binding["rust_type"])
+        declaration = re.search(
+            rf"\bpub\s+struct\s+{re.escape(rust_type)}\s*\{{", source
         )
-        if re.search(pattern, source) is None:
-            raise GateError(f"Rust {binding['rust_type']} must deny unknown fields")
+        if declaration is None:
+            raise GateError(f"Rust {rust_type} is not declared")
+        attributes = _attribute_block_before(source, declaration.start())
+        if "#[serde(deny_unknown_fields)]" not in "".join(attributes.split()):
+            raise GateError(f"Rust {rust_type} must deny unknown fields")
     for match in RUST_OPTION_FIELD_RE.finditer(source):
         if 'deserialize_with = "deserialize_required_option"' not in match.group(
             "attributes"
@@ -255,18 +322,24 @@ def _render_rust(manifest: dict[str, Any]) -> str:
     )
 
 
-def run() -> dict[str, Any]:
-    manifest = _load_manifest()
-    _check_development_lane_golden_vector()
-    if manifest.get("protocol") != "epistemic-operations":
-        raise GateError("protocol name drifted")
-    if manifest.get("version") != "1":
-        raise GateError("only current version 1 is allowed")
-    if manifest.get("compatibility_policy") != "current-only":
-        raise GateError("compatibility policy must be current-only")
-    if manifest.get("unknown_field_policy") != "reject":
-        raise GateError("unknown fields must be rejected")
+#: The manifest header fields that pin this protocol as current-only, as
+#: (field, required value, drift message).
+_MANIFEST_HEADER: tuple[tuple[str, str, str], ...] = (
+    ("protocol", "epistemic-operations", "protocol name drifted"),
+    ("version", "1", "only current version 1 is allowed"),
+    ("compatibility_policy", "current-only", "compatibility policy must be current-only"),
+    ("unknown_field_policy", "reject", "unknown fields must be rejected"),
+)
 
+
+def _require_manifest_header(manifest: dict[str, Any]) -> None:
+    for field, required, message in _MANIFEST_HEADER:
+        if manifest.get(field) != required:
+            raise GateError(message)
+
+
+def _require_catalog_digest(manifest: dict[str, Any]) -> None:
+    """The manifest's own digest must cover everything else it declares."""
     digest = manifest.get("catalog_sha256")
     if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
         raise GateError("catalog digest is invalid")
@@ -278,18 +351,19 @@ def run() -> dict[str, Any]:
     if digest != expected_digest:
         raise GateError("catalog digest does not match the generated manifest")
 
-    schemas = manifest.get("schemas")
-    if not isinstance(schemas, list):
-        raise GateError("schemas must be a list")
-    names = tuple(entry.get("name") for entry in schemas if isinstance(entry, dict))
-    if names != REQUIRED_SCHEMAS:
-        raise GateError(f"expected exactly {len(REQUIRED_SCHEMAS)} schemas in canonical order: {names}")
+
+def _require_schema_digests(schemas: list[Any]) -> None:
+    """Every catalog entry carries a well-formed content digest."""
     if any(
         not isinstance(entry.get("sha256"), str)
         or not SHA256_RE.fullmatch(entry["sha256"])
         for entry in schemas
     ):
         raise GateError("one or more schema digests are invalid")
+
+
+def _require_schema_versions(schemas: list[Any]) -> None:
+    """Each named schema sits at exactly its pinned version."""
     versions = {
         str(entry.get("name")): entry.get("version")
         for entry in schemas
@@ -301,6 +375,23 @@ def run() -> dict[str, Any]:
             f"expected {REQUIRED_SCHEMA_VERSIONS}, found {versions}"
         )
 
+
+def _require_schema_catalog(manifest: dict[str, Any]) -> None:
+    """Exactly the required schemas, in canonical order, digested and versioned."""
+    schemas = manifest.get("schemas")
+    if not isinstance(schemas, list):
+        raise GateError("schemas must be a list")
+    names = tuple(entry.get("name") for entry in schemas if isinstance(entry, dict))
+    if names != REQUIRED_SCHEMAS:
+        raise GateError(
+            f"expected exactly {len(REQUIRED_SCHEMAS)} schemas in canonical order: {names}"
+        )
+    _require_schema_digests(schemas)
+    _require_schema_versions(schemas)
+
+
+def _require_rust_bindings(manifest: dict[str, Any]) -> None:
+    """Every declared binding names a distinct Rust struct with the same fields."""
     bindings = manifest.get("bindings")
     if not isinstance(bindings, list):
         raise GateError("bindings must be a list")
@@ -323,6 +414,10 @@ def run() -> dict[str, Any]:
             )
     _assert_rust_closed(bindings)
 
+
+def _require_generated_rust(manifest: dict[str, Any]) -> None:
+    """The committed Rust binding is exactly what this manifest renders, and
+    eg-types exposes it."""
     try:
         generated = RUST_GENERATED.read_text(encoding="utf-8")
         lib_source = LIB_SOURCE.read_text(encoding="utf-8")
@@ -333,6 +428,20 @@ def run() -> dict[str, Any]:
     for module in ("epistemic_operations", "epistemic_operations_manifest"):
         if f"pub mod {module};" not in lib_source:
             raise GateError(f"eg-types does not expose {module}")
+
+
+def run() -> dict[str, Any]:
+    manifest = _load_json_object(
+        MANIFEST_PATH,
+        "cannot read generated manifest",
+        "generated manifest must be a JSON object",
+    )
+    _check_development_lane_golden_vector()
+    _require_manifest_header(manifest)
+    _require_catalog_digest(manifest)
+    _require_schema_catalog(manifest)
+    _require_rust_bindings(manifest)
+    _require_generated_rust(manifest)
     return manifest
 
 

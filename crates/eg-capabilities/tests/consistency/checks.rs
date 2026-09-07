@@ -216,6 +216,7 @@ fn print_known_divergence_report() {
     );
 }
 
+#[cfg(feature = "canonical-ledger")]
 #[test]
 fn generated_ledger_is_not_stale() {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -226,14 +227,14 @@ fn generated_ledger_is_not_stale() {
     let checked_in_path = repo_root.join("docs").join("capabilities.generated.md");
     let checked_in = std::fs::read_to_string(&checked_in_path).unwrap_or_else(|e| {
         panic!(
-            "failed to read {}: {e} -- run `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving,statechart --bin gen_ledger` first",
+            "failed to read {}: {e} -- run `cargo run -p eg-capabilities --features contract --bin gen_contract` first",
             checked_in_path.display()
         )
     });
     let fresh = eg_capabilities::gen_ledger();
     assert_eq!(
         checked_in, fresh,
-        "docs/capabilities.generated.md is STALE -- regenerate with `cargo run -p eg-capabilities --features jobs,knowledge-batch,modality-serving,statechart --bin gen_ledger` and commit the result"
+        "docs/capabilities.generated.md is STALE -- regenerate with `cargo run -p eg-capabilities --features contract --bin gen_contract` and commit the result"
     );
 }
 
@@ -241,16 +242,14 @@ fn generated_ledger_is_not_stale() {
 /// protocol edit that adds or removes variants is visible in the same policy parity check.
 #[test]
 fn method_policy_registry_has_the_expected_variant_count() {
-    // 403 unconditional rows plus one row for each optional feature surface.
-    let expected = 403
+    // 401 unconditional rows plus one row for each optional feature surface.
+    let expected = 401
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))
         + usize::from(cfg!(feature = "quantum"))
         + usize::from(cfg!(feature = "viz"))
-        + usize::from(cfg!(feature = "asr-native"))
-        + usize::from(cfg!(feature = "tts-piper"))
-        + usize::from(cfg!(feature = "policy_export"));
+        + usize::from(cfg!(feature = "asr-native"));
     assert_eq!(eg_capabilities::method_policy_entries().count(), expected);
 }

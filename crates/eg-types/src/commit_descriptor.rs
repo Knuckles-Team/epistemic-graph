@@ -2,7 +2,7 @@
 //!
 //! An acknowledged mutation must have exactly ONE authority sequence, and every
 //! reader must be able to ask for an authority-consistent read barrier over it.
-//! `CommitDescriptorV1` is that one currency: graph rows, modality rows/chunks,
+//! `CommitDescriptor` is that one currency: graph rows, modality rows/chunks,
 //! blob references and refcounts, vectors, time-series measurements, evidence/
 //! lineage, SQL/lake metadata, terminal analytics outcomes, and the projection
 //! outbox all register a participant digest against the same `commit_id`/
@@ -11,7 +11,7 @@
 //! This is deliberately a NEW, additive module rather than a field bolted onto
 //! [`crate::mutation_batch::MutationBatch`]. `MutationBatch` remains the request
 //! envelope a single surface (graph/txn/query/rdf/lifecycle/job/broker) stages;
-//! `CommitDescriptorV1` is the higher-altitude cross-domain identity a
+//! `CommitDescriptor` is the higher-altitude cross-domain identity a
 //! `MutationBatch` — or a cross-modal group of them — commits under. Wiring the
 //! descriptor into the `commit_cross_modal_txn` state machine and the durable
 //! commit index is tracked separately (GOC-03-W03/W05); this module defines the
@@ -27,15 +27,15 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// Current wire/on-disk schema version for [`CommitDescriptorV1`] and
-/// [`ProjectionCursorV1`]. One negotiated version is accepted after merge; an
+/// Current wire/on-disk schema version for [`CommitDescriptor`] and
+/// [`ProjectionCursor`]. One negotiated version is accepted after merge; an
 /// unsupported version fails closed (`validate()` returns a typed error, never a
 /// best-effort read of a foreign shape). There is no compatibility shim — see the
 /// repo's "No Legacy" edict.
 pub const COMMIT_DESCRIPTOR_VERSION: u16 = 1;
 
 /// The domain a commit participant registers durable bytes under. Deliberately a
-/// distinct vocabulary from [`crate::mutation_batch::MutationDomain`] (which
+/// distinct vocabulary from [`crate::mutation_batch::DurabilityDomain`] (which
 /// classifies one `MutationOperation`'s durability target): this enum is the
 /// commit-descriptor-level participant registry the lane doc's "Registration of
 /// graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
@@ -115,11 +115,11 @@ fn validate_non_empty(field: &str, value: &str) -> Result<(), String> {
 
 /// The one durable, authenticated commit descriptor shared across every
 /// participant domain (lane doc "Commit descriptor"). See each field's doc for
-/// its exact contract; [`CommitDescriptorV1::validate`] enforces the invariants
+/// its exact contract; [`CommitDescriptor::validate`] enforces the invariants
 /// that hold independent of persistence-layer wiring.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CommitDescriptorV1 {
+pub struct CommitDescriptor {
     pub schema_version: u16,
     /// Opaque stable identity for this commit. Shared, unmodified, by every
     /// participant's durable record and by the outbox/CDC envelope it emits.
@@ -186,7 +186,7 @@ pub struct CommitDescriptorV1 {
     pub diagnostic_ref: Option<String>,
 }
 
-impl CommitDescriptorV1 {
+impl CommitDescriptor {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != COMMIT_DESCRIPTOR_VERSION {
             return Err(format!(
@@ -265,11 +265,11 @@ impl CommitDescriptorV1 {
 // Acceptance gate 9 ("Cross-node participants are explicitly rejected or
 // delegated to GOC-13; no undocumented two-phase behavior is introduced"): this
 // shape has exactly ONE `authority_ref`/`authority_epoch` pair per descriptor —
-// there is no per-participant authority field anywhere on `CommitDescriptorV1`
-// or `ProjectionCursorV1`. A cross-node/cross-authority commit therefore cannot
+// there is no per-participant authority field anywhere on `CommitDescriptor`
+// or `ProjectionCursor`. A cross-node/cross-authority commit therefore cannot
 // be expressed through this type at all; it is not a runtime check but a
 // structural one, satisfied by omission. GOC-13 is expected to define its own
-// coordinator-level type that references one `CommitDescriptorV1` per
+// coordinator-level type that references one `CommitDescriptor` per
 // participating authority rather than extending this one to carry several.
 
 /// Durable per-projection watermark and fence (lane doc "Commit descriptor").
@@ -277,14 +277,14 @@ impl CommitDescriptorV1 {
 /// keyed by `(projection, identity, batch_id, outbox_ordinal)` — where
 /// `identity` is the typed `MutationScopeIdentity` (tenant, typed logical
 /// owner, lifecycle generation) — for the existing per-surface outbox
-/// delivery loop; `ProjectionCursorV1` is keyed by
+/// delivery loop; `ProjectionCursor` is keyed by
 /// `(domain, authority_ref)` and advances by `commit_seq`, the cross-domain
 /// currency this module defines. A domain-specific projection (GOC-04/09/10/11)
 /// is expected to maintain both where it already participates in outbox delivery
 /// AND registers as a commit participant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ProjectionCursorV1 {
+pub struct ProjectionCursor {
     pub schema_version: u16,
     pub domain: CommitParticipantDomain,
     pub authority_ref: String,
@@ -300,7 +300,7 @@ pub struct ProjectionCursorV1 {
     /// discarded" for the projection side.
     pub fence: u64,
     /// sha256 digest of the participant bytes this projection actually applied at
-    /// `applied_seq`; must equal `CommitDescriptorV1::participant_digests[domain]`
+    /// `applied_seq`; must equal `CommitDescriptor::participant_digests[domain]`
     /// for `applied_seq` to be considered `Ready` (invariant 4).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub applied_digest: Option<String>,
@@ -312,7 +312,7 @@ pub struct ProjectionCursorV1 {
     pub updated_at_ms: u64,
 }
 
-impl ProjectionCursorV1 {
+impl ProjectionCursor {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != COMMIT_DESCRIPTOR_VERSION {
             return Err(format!(
@@ -362,7 +362,7 @@ impl ProjectionCursorV1 {
     /// rollback and a fencing-token mismatch — the two mechanical checks
     /// underneath acceptance gate 5 ("Every projection cursor rejects sequence
     /// rollback and cannot advance without matching the descriptor digest").
-    /// Digest equality against the owning [`CommitDescriptorV1`] is the caller's
+    /// Digest equality against the owning [`CommitDescriptor`] is the caller's
     /// responsibility (this type has no access to the descriptor store); this
     /// method only enforces what is checkable from the two cursor values.
     pub fn advance(
@@ -372,7 +372,7 @@ impl ProjectionCursorV1 {
         next_fence: u64,
         next_applied_digest: Option<String>,
         now_ms: u64,
-    ) -> Result<ProjectionCursorV1, String> {
+    ) -> Result<ProjectionCursor, String> {
         if next_committed_seq < self.committed_seq {
             return Err(format!(
                 "PROJECTION_SEQUENCE_ROLLBACK: next committed_seq {next_committed_seq} is behind \
@@ -401,7 +401,7 @@ impl ProjectionCursorV1 {
         } else {
             ProjectionState::CatchingUp
         };
-        let next = ProjectionCursorV1 {
+        let next = ProjectionCursor {
             schema_version: self.schema_version,
             domain: self.domain,
             authority_ref: self.authority_ref.clone(),
@@ -459,12 +459,12 @@ pub enum ReadBarrierResponse {
     /// Every requested domain is `Ready` at or above `min_commit_seq`.
     Released {
         released_seq: u64,
-        cursors: Vec<ProjectionCursorV1>,
+        cursors: Vec<ProjectionCursor>,
     },
     /// At least one requested domain is not yet `Ready` at `min_commit_seq`
     /// (`CatchingUp`) or is `Degraded`. Carries the exact cursors so the caller
     /// can retry/back off or surface the degraded domain, never a generic error.
-    NotReady { cursors: Vec<ProjectionCursorV1> },
+    NotReady { cursors: Vec<ProjectionCursor> },
     /// Tenant, classification, deletion, retention, legal-hold, or purpose
     /// policy denied release (invariant 7), evaluated again at barrier time even
     /// though it was already evaluated before prepare.
@@ -502,10 +502,10 @@ mod tests {
         }
     }
 
-    fn descriptor(commit_seq: u64, status: CommitStatus) -> CommitDescriptorV1 {
+    fn descriptor(commit_seq: u64, status: CommitStatus) -> CommitDescriptor {
         let mut participants = BTreeMap::new();
         participants.insert(CommitParticipantDomain::Graph, hex_digest(0xAB));
-        CommitDescriptorV1 {
+        CommitDescriptor {
             schema_version: COMMIT_DESCRIPTOR_VERSION,
             commit_id: "commit-1".into(),
             txn_id: "txn-1".into(),
@@ -540,11 +540,11 @@ mod tests {
         d.validate().unwrap();
 
         let mp = rmp_serde::to_vec_named(&d).unwrap();
-        let back: CommitDescriptorV1 = rmp_serde::from_slice(&mp).unwrap();
+        let back: CommitDescriptor = rmp_serde::from_slice(&mp).unwrap();
         assert_eq!(back, d);
 
         let json = serde_json::to_string(&d).unwrap();
-        let back_json: CommitDescriptorV1 = serde_json::from_str(&json).unwrap();
+        let back_json: CommitDescriptor = serde_json::from_str(&json).unwrap();
         assert_eq!(back_json, d);
     }
 
@@ -566,7 +566,7 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .insert("bogus_future_field".to_string(), serde_json::json!(true));
-        let decoded: Result<CommitDescriptorV1, _> = serde_json::from_value(value);
+        let decoded: Result<CommitDescriptor, _> = serde_json::from_value(value);
         assert!(
             decoded.is_err(),
             "an unknown field must be rejected, not ignored"
@@ -638,8 +638,8 @@ mod tests {
         applied: u64,
         fence: u64,
         state: ProjectionState,
-    ) -> ProjectionCursorV1 {
-        ProjectionCursorV1 {
+    ) -> ProjectionCursor {
+        ProjectionCursor {
             schema_version: COMMIT_DESCRIPTOR_VERSION,
             domain: CommitParticipantDomain::Graph,
             authority_ref: "shard-0".into(),

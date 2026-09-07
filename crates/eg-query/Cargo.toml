@@ -15,7 +15,13 @@ name = "eg_query"
 default = []
 # `eg-types/query` surfaces the `Pred`/`JsonPathOp` wire enums the SQL classifier lowers
 # the Postgres/Mongo JSON operators onto (CONCEPT:EG-084) — additive, always on with `sql`.
-sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-text", "dep:eg-ann", "dep:futures-util", "dep:md-5", "dep:sha1", "dep:sha2", "dep:hex", "dep:base64", "dep:ipnet", "eg-types/query", "iceberg-federation"]
+sql = ["dep:datafusion", "dep:arrow", "dep:arrow-schema", "dep:tokio", "dep:petgraph", "dep:tracing", "dep:async-trait", "dep:redb", "dep:eg-storage", "dep:eg-transaction", "dep:eg-text", "dep:eg-ann", "dep:futures-util", "dep:md-5", "dep:sha1", "dep:sha2", "dep:hex", "dep:base64", "dep:ipnet", "eg-types/query", "iceberg-federation"]
+# The development/test composition root for the SQL store's scope grants
+# (`tables::store::dev_scope_grant`, and the `TableStore::open_temp` that uses
+# it). OFF by default and folded into NO tier aggregate: RF-RULING-004 puts the
+# scope-grant proof authority in the composition root, so a production build of
+# `eg-query` must not be able to link a verifier of its own.
+dev-scope-grant = ["sql"]
 # Dep-free Cypher subset (CONCEPT:KG-2.179): a hand-written parser compiled to the
 # engine's own primitives (label index, VF2, BFS). Pulls only `petgraph` for the
 # variable-length-path BFS — already in the tree via eg-core, NOT a new heavy dep —
@@ -95,6 +101,13 @@ eg-text = { path = "../eg-text", optional = true }
 # sole place the exec pushdown compiles). eg-ann's DEFAULT build links no heavy/GPU
 # deps (pure-Rust, Pi-lean), so this stays out of a `cypher`-only eg-query build.
 eg-ann = { path = "../eg-ann", optional = true }
+# RF-RULING-004/006: `eg-storage` is the sole physical authority for the SQL
+# owner file and `eg-transaction` its sole writer. `TableStore` opens through
+# `StorageKernel` under `OwnerLayout::Sql` and every write it makes is an
+# admitted mutation. Both are optional under `sql` for the same reason `redb`
+# is: a lean Pi/`cypher`-only build links neither.
+eg-storage = { path = "../eg-storage", optional = true }
+eg-transaction = { path = "../eg-transaction", optional = true }
 # CONCEPT:EG-329 — the pure BLAS/LAPACK-free numeric kernel (nalgebra + ndarray) behind the
 # Surface-B SQL UDFs. OPTIONAL, only under `numeric`; the engine links it WITHOUT pyo3
 # (eg-numeric's `python` feature stays off), preserving the Pi-contract (out of `pi`).

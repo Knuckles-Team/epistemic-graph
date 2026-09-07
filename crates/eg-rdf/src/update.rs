@@ -30,6 +30,7 @@ use eg_core::graph::GraphCore;
 use oxrdf::{Graph, Literal, NamedOrBlankNode, Term, Triple};
 
 use crate::guard::{GuardRejection, WriteGuard};
+use crate::mapping::cell_lexical;
 use spargebra::algebra::GraphTarget;
 use spargebra::term::{
     GraphName, GraphNamePattern, GroundQuad, GroundQuadPattern, GroundTerm, GroundTermPattern,
@@ -1172,17 +1173,6 @@ fn remove_typed_edge(core: &GraphCore, s: &str, o: &str, p: &str) -> bool {
         let _ = core.add_edge(s.to_string(), o.to_string(), blob);
     }
     true
-}
-
-/// Lexical value of a stored property cell (typed `{value,…}` or a bare scalar).
-fn cell_lexical(cell: &serde_json::Value) -> Option<String> {
-    match cell {
-        serde_json::Value::Object(m) => m.get("value").and_then(|v| v.as_str()).map(String::from),
-        serde_json::Value::String(s) => Some(s.clone()),
-        serde_json::Value::Number(n) => Some(n.to_string()),
-        serde_json::Value::Bool(b) => Some(b.to_string()),
-        _ => None,
-    }
 }
 
 // ── an in-memory store for tests + embedded use ─────────────────────────────────

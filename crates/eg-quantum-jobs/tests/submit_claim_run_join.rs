@@ -14,7 +14,7 @@ use eg_quantum_sim::statevector::StateVectorSimulator;
 
 fn open_store() -> (JobStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let store = JobStore::open(&dir.path().join("jobs.redb")).unwrap();
+    let store = eg_jobs::dev_scope_grant::open_dev_store(&dir.path().join("jobs.redb")).unwrap();
     (store, dir)
 }
 

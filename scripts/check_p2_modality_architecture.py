@@ -114,7 +114,9 @@ def require_graph_dispatch_ordering(dispatch: str) -> None:
     )
 
 
-def main() -> None:
+def require_universal_artifact_identity() -> None:
+    """Universal artifact identities and fail-closed opaque-reference decoding."""
+
     artifact = read("crates/eg-modality/src/artifact.rs")
     for identity in (
         "ArtifactId",
@@ -130,6 +132,10 @@ def main() -> None:
         "impl<'de> Deserialize<'de> for OpaqueRef" in artifact,
         "opaque references can bypass validation during decode",
     )
+
+
+def require_modality_governed_contracts() -> None:
+    """Every modality's 12/12 production TCK and governed-payload contract."""
 
     for modality in ("document", "image", "audio", "video"):
         contract = read(f"crates/eg-{modality}/src/contract.rs")
@@ -173,6 +179,10 @@ def main() -> None:
             f"{modality} retains a no-op codec/extractor feature",
         )
 
+
+def require_modality_native_runtimes() -> None:
+    """Every modality's concrete native runtime and its bounded extraction."""
+
     document = read("crates/eg-document/src/decoder.rs")
     require(
         "LexicalPosting" in document
@@ -209,6 +219,10 @@ def main() -> None:
     ):
         require(marker in video, f"video runtime lacks native {marker}")
 
+
+def require_native_predicate_plane() -> None:
+    """The native predicate plane the modalities index into."""
+
     native = read("crates/eg-modality/src/native.rs")
     for marker in (
         "DocumentLexeme",
@@ -223,6 +237,10 @@ def main() -> None:
         "2_788",
     ):
         require(marker in native, f"native predicate plane lacks {marker}")
+
+
+def require_knowledge_batch_result_stream() -> None:
+    """The KnowledgeBatch families, adapters, and bounded Arrow writer."""
 
     stream = read("crates/eg-plan/src/result_stream.rs")
     for family in (
@@ -245,17 +263,24 @@ def main() -> None:
         "cross_modal_result_stream",
     ):
         require(adapter in stream, f"missing KnowledgeBatch adapter {adapter}")
-    require("write_arrow_ipc" in stream, "native batch stream has no bounded Arrow writer")
+    require(
+        "write_arrow_ipc" in stream, "native batch stream has no bounded Arrow writer"
+    )
     require("safe_reference(&row.id)" in stream, "result ids are not forced opaque")
 
+
+def require_served_knowledge_stream_wire() -> None:
+    """The served KnowledgeStream wire: typed query, bound cursor, ACL ordering."""
+
     handler = knowledge_stream_handler_source()
+    stream = read("crates/eg-plan/src/result_stream.rs")
     wire = read("crates/eg-types/src/knowledge_stream.rs")
     require(
         "pub enum KnowledgeStreamQuery" in wire,
         "served KnowledgeBatch has no typed multi-family wire query",
     )
     require(
-        "pub struct KnowledgeStreamCursorV1" in wire,
+        "pub struct KnowledgeStreamCursor" in wire,
         "served KnowledgeBatch has no versioned authority-bound cursor",
     )
     require(
@@ -306,7 +331,7 @@ def main() -> None:
     )
     require_knowledge_stream_authority(handler)
     require(
-        "placement_ref: keyed_opaque(authority, \"placement\"" in handler
+        'placement_ref: keyed_opaque(authority, "placement"' in handler
         and "cursor.placement_ref != self.context.placement_ref" in stream,
         "served wire cursor does not fence placement changes",
     )
@@ -318,8 +343,14 @@ def main() -> None:
     dispatch = read("src/server/dispatch.rs")
     require_graph_dispatch_ordering(dispatch)
 
+
+def require_served_modality_plane() -> None:
+    """Served modalities: unsafe-payload rejection, filtered replay, native postings."""
+
     served = read("crates/eg-modality/src/served.rs")
-    require("UnsafePayload" in served, "served modalities do not reject unsafe payloads")
+    require(
+        "UnsafePayload" in served, "served modalities do not reject unsafe payloads"
+    )
     require(
         "events_after_authorized" in served,
         "served event replay is not policy filtered",
@@ -344,6 +375,10 @@ def main() -> None:
         "served fleet TCK does not require the native production probe",
     )
 
+
+def require_served_modality_protocol() -> None:
+    """The served modality protocol method and its complete wire operation set."""
+
     wire = read("crates/eg-types/src/protocol.rs")
     require("ServedModality" in wire, "main protocol has no served modality method")
     wire_types = read("crates/eg-types/src/modality.rs")
@@ -362,6 +397,10 @@ def main() -> None:
         "Capabilities",
     ):
         require(operation in wire_types, f"wire omits served operation {operation}")
+
+
+def require_modality_request_handler() -> None:
+    """The server handler: native runtimes, verified claims, sealed state, ceilings."""
 
     handler = read("src/server/handlers/modality.rs")
     for runtime in (
@@ -384,6 +423,13 @@ def main() -> None:
         in handler,
         "a cross-policy occurrence can hitchhike in an authorized returned bundle",
     )
+
+
+def require_modality_resource_bounds() -> None:
+    """Configurable hard resource ceilings and authority-keyed native predicates."""
+
+    handler = read("src/server/handlers/modality.rs")
+    wire_types = read("crates/eg-types/src/modality.rs")
     require(
         "EPISTEMIC_GRAPH_MODALITY_MAX_SOURCE_BYTES" in handler
         and "HARD_MAX_SOURCE_BYTES" in handler,
@@ -410,6 +456,11 @@ def main() -> None:
         "require_management" in handler and "through_event_sequence" in wire_types,
         "aggregate stats or retention collection is not management/fence governed",
     )
+
+
+def require_modality_client_surface() -> None:
+    """The Python client's served-modality surface."""
+
     python_client = read("epistemic_graph/client.py")
     for method in (
         "search_documents",
@@ -418,7 +469,15 @@ def main() -> None:
         "query_audio_window",
         "query_video_window",
     ):
-        require(f"async def {method}(" in python_client, f"Python client omits {method}")
+        require(
+            f"async def {method}(" in python_client, f"Python client omits {method}"
+        )
+
+
+def require_modality_transport_path() -> None:
+    """The transport/dispatch path a served modality request actually travels."""
+
+    handler = read("src/server/handlers/modality.rs")
     transport = read("src/server/transport.rs")
     require(
         "EPISTEMIC_GRAPH_MAX_REQUEST_BYTES" in transport
@@ -443,6 +502,11 @@ def main() -> None:
         and "dispatch_served_modality" in dispatch,
         "served modalities permit unverified request authority",
     )
+
+
+def require_modality_mutation_governance() -> None:
+    """Mutation, audit, and raft governance of served modality state."""
+
     mutation = read("src/server/mutation.rs")
     receipt = mutation[
         mutation.find("fn durable_receipt_method") : mutation.find(
@@ -458,12 +522,21 @@ def main() -> None:
         and "served-modality-receipt-v1" in receipt,
         "modality receipt retains a direct digest of the source-bearing wire body",
     )
+
+
+def require_modality_audit_and_replication() -> None:
+
     audit = read("src/audit.rs")
     require(
         'event_type == "authoritative_state_operation"' in audit
         and "AUTHORITATIVE_STATE_MUTATION" in audit,
         "state-backed modality commits do not append a digest-only audit link",
     )
+
+
+def require_modality_raft_replication() -> None:
+    """Raft replication of sanitized served-modality commands."""
+
     raft = read("src/raft/mod.rs")
     command_start = raft.find("pub struct SanitizedModalityRaftCommand")
     command_end = raft.find("/// The application request replicated through Raft")
@@ -491,6 +564,12 @@ def main() -> None:
         and "AUTHORITATIVE_STATE_MUTATION|sha256:" in raft,
         "Raft privacy test does not cover MutationBatch, audit, and outbox surfaces",
     )
+
+
+def require_modality_replication_dispatch() -> None:
+    """The dispatch path that sanitizes and submits a modality replication."""
+
+    dispatch = read("src/server/dispatch.rs")
     # Same repair as the ordering check above: `replicate_served_modality` was
     # decomposed into `decode_modality_replication_inputs` ->
     # `build_modality_raft_command` -> `submit_modality_replication`, all
@@ -511,6 +590,11 @@ def main() -> None:
         in modality_dispatch,
         "source-bearing ServedModality can bypass the sanitized Raft constructor",
     )
+
+
+def require_modality_durability() -> None:
+    """Source-free durability and deterministic follower commit of modality state."""
+
     mutation_apply = read("src/mutation_apply.rs")
     require(
         "raw source bytes are replaced by the state-backed receipt" in mutation_apply
@@ -532,10 +616,19 @@ def main() -> None:
         "followers do not validate and deterministically commit sanitized modality state",
     )
 
+
+def require_facade_feature_exposure() -> None:
+    """The facade features that actually ship KnowledgeBatch and modality serving."""
+
     facade = read("Cargo.toml")
     require(
         "knowledge-batch = [" in facade
-        and '"dep:eg-modality"' in facade[facade.find("knowledge-batch = [") : facade.find("]", facade.find("knowledge-batch = ["))]
+        and '"dep:eg-modality"'
+        in facade[
+            facade.find("knowledge-batch = [") : facade.find(
+                "]", facade.find("knowledge-batch = [")
+            )
+        ]
         and '"eg-plan/knowledge-batch"' in facade
         and '"eg-types/knowledge-batch"' in facade,
         "facade does not expose native KnowledgeBatch",
@@ -544,8 +637,32 @@ def main() -> None:
         (line for line in facade.splitlines() if line.startswith("full = [")), ""
     )
     require('"knowledge-batch"' in full_line, "full deployment omits KnowledgeBatch")
-    require('"modality-serving"' in full_line, "full deployment omits live modality serving")
+    require(
+        '"modality-serving"' in full_line, "full deployment omits live modality serving"
+    )
 
+
+def main() -> None:
+    """Run every P2 modality architecture contract, in dependency order."""
+
+    require_universal_artifact_identity()
+    require_modality_governed_contracts()
+    require_modality_native_runtimes()
+    require_native_predicate_plane()
+    require_knowledge_batch_result_stream()
+    require_served_knowledge_stream_wire()
+    require_served_modality_plane()
+    require_served_modality_protocol()
+    require_modality_request_handler()
+    require_modality_resource_bounds()
+    require_modality_client_surface()
+    require_modality_transport_path()
+    require_modality_mutation_governance()
+    require_modality_audit_and_replication()
+    require_modality_raft_replication()
+    require_modality_replication_dispatch()
+    require_modality_durability()
+    require_facade_feature_exposure()
     print("P2 modality architecture gate passed")
 
 

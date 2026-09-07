@@ -7,6 +7,7 @@ use super::{MutationOperation, MutationRequestContext, MutationScopeIdentity};
 /// Digest/version descriptor for authenticated authoritative graph material.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationStateDescriptor {
     pub algorithm: String,
     pub digest: String,
@@ -17,9 +18,11 @@ pub struct MutationStateDescriptor {
 /// A projection/index/CDC/audit/lineage notification to publish after commit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationOutboxIntent {
     pub topic: String,
     pub key: String,
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
     #[serde(with = "serde_bytes")]
     pub payload: Vec<u8>,
     pub headers: BTreeMap<String, String>,
@@ -28,6 +31,7 @@ pub struct MutationOutboxIntent {
 /// Explicit OCC semantics captured before validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum VersionExpectation {
     Graph(u64),
     Native(u64),
@@ -74,6 +78,7 @@ impl CommittedVersion {
 /// Universal, deterministic durable mutation unit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationBatch {
     pub schema_version: u16,
     /// Stable identity for status lookup and outbox correlation.

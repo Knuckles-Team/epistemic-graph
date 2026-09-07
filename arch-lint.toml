@@ -1,36 +1,53 @@
-# Native Rust architecture policy.  The minimal preset is intentional: this
-# repository already has a measured complexity/Clippy policy, while this gate
-# owns the native architecture profile.  Raising the preset would turn existing
-# panic and sync-I/O census debt into an unmeasured release blocker.
-preset = "minimal"
+# Native Rust static-analysis policy for arch-lint 0.5.0.
+#
+# The CLI does not use `preset` to select rules. Keep the complete supported
+# rule set explicit here and pass the enabled identifiers explicitly from the
+# checked-in wrapper. This file is not a dependency-direction policy;
+# arch-lint 0.5.0 has no Rust dependency-direction rule.
 fail_on = "error"
 
 [analyzer]
-# arch-lint's syn analyzer walks `<root>/**/*.rs`; the workspace is a Cargo
-# multi-crate project, so the root must include both the binary/client sources
-# and every crate under `crates/`. Keeping this at `.` is also explicit about
-# the path passed by the hook (`arch-lint check ... .`).
 root = "."
 exclude = [
-    # `.gitignore` declares `target/`, `target-isolated/` AND `target-*/`: every
-    # worktree builds into its own isolated target dir (AGENTS.md). Matching only
-    # `target/` here left cargo output inside the gate's declared root `.`, so the
-    # finding total moved with build state -- 4,638 / 4,642 / 4,650 were measured
-    # on three occasions with no source change between them. A gate whose
-    # denominator depends on whether someone has built cannot be a baseline for
-    # anything. Keep this list in step with `.gitignore`.
+    # Build products are not source. Both spellings are used by isolated
+    # worktrees and must remain excluded so the denominator is build-state
+    # independent. Tracked generated code, vendors, and fixtures remain in
+    # the source universe: broad source exclusions would make the gate partial.
     "**/target/**",
     "**/target-*/**",
-    "**/generated/**",
-    "**/vendor/**",
-    "**/third_party/**",
-    "**/fixtures/**",
 ]
 respect_gitignore = true
 
-# AL001 is already a measured CCCC/KISS concern for this repository: enabling
-# it here would turn the existing production panic census into an unmeasured
-# release blocker.  Keep arch-lint focused on dependency direction until that
-# debt is deliberately reduced and the rule can be enabled with evidence.
+# AL001 is not silently selected by a preset. Panic policy is owned by the
+# existing CCCC/KISS/Clippy gates; this explicit false is part of the contract.
 [rules.no-unwrap-expect]
 enabled = false
+severity = "error"
+
+[rules.no-sync-io]
+enabled = true
+severity = "error"
+
+[rules.no-error-swallowing]
+enabled = true
+severity = "warning"
+
+[rules.handler-complexity]
+enabled = true
+severity = "warning"
+
+[rules.require-thiserror]
+enabled = true
+severity = "warning"
+
+[rules.require-tracing]
+enabled = true
+severity = "warning"
+
+[rules.tracing-env-init]
+enabled = true
+severity = "warning"
+
+[rules.no-silent-result-drop]
+enabled = true
+severity = "warning"
