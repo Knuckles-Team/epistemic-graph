@@ -881,83 +881,108 @@ fn scan_directives(seg: &str) -> Result<Vec<ScannedDir>, String> {
                 &seg[i..]
             ));
         }
-        let start = i + 1;
-        let mut j = start;
-        while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
-            j += 1;
+        let (name, after_name) = read_directive_name(seg, i + 1)?;
+        let mut open = after_name;
+        while open < bytes.len() && bytes[open].is_ascii_whitespace() {
+            open += 1;
         }
-        let name = seg[start..j].to_string();
-        if name.is_empty()
-            || !bytes[start].is_ascii_alphabetic() && bytes[start] != b'_'
-            || name.starts_with("__")
-        {
-            return Err("GraphQL federation SDL: malformed directive name".to_string());
+        if open < bytes.len() && bytes[open] == b'(' {
+            let close = directive_args_end(bytes, open + 1)
+                .ok_or_else(|| format!("GraphQL federation SDL: unterminated @{name} arguments"))?;
+            out.push(scan_directive_args(name, &seg[open + 1..close])?);
+            i = close + 1;
+        } else {
+            out.push(ScannedDir {
+                name,
+                fields: None,
+                from: None,
+                resolvable: None,
+            });
+            i = after_name;
         }
-        let mut fields = None;
-        let mut from = None;
-        let mut resolvable = None;
-        let mut k = j;
-        while k < bytes.len() && bytes[k].is_ascii_whitespace() {
-            k += 1;
-        }
-        if k < bytes.len() && bytes[k] == b'(' {
-            let mut cursor = k + 1;
-            let mut quoted = false;
-            let mut escaped = false;
-            while cursor < bytes.len() {
-                match bytes[cursor] {
-                    b'\\' if quoted => escaped = !escaped,
-                    b'"' if !escaped => quoted = !quoted,
-                    b')' if !quoted => break,
-                    _ => escaped = false,
-                }
-                cursor += 1;
-            }
-            if cursor == bytes.len() || quoted {
-                return Err(format!(
-                    "GraphQL federation SDL: unterminated @{name} arguments"
-                ));
-            }
-            let raw_args = &seg[k + 1..cursor];
-            if raw_args.trim().is_empty() {
-                return Err(format!(
-                    "GraphQL federation SDL: @{name} has an empty argument list"
-                ));
-            }
-            let mut args = parse_directive_args(raw_args)?;
-            fields = args
-                .remove("fields")
-                .map(|value| parse_quoted_arg("fields", &value))
-                .transpose()?;
-            from = args
-                .remove("from")
-                .map(|value| parse_quoted_arg("from", &value))
-                .transpose()?;
-            resolvable =
-                args.remove("resolvable")
-                    .map(|value| match value.as_str() {
-                        "true" => Ok(true),
-                        "false" => Ok(false),
-                        _ => Err("GraphQL federation SDL: `resolvable` must be true or false"
-                            .to_string()),
-                    })
-                    .transpose()?;
-            if let Some(unexpected) = args.keys().next() {
-                return Err(format!(
-                    "GraphQL federation SDL: unsupported directive argument `{unexpected}`"
-                ));
-            }
-            j = cursor + 1;
-        }
-        out.push(ScannedDir {
-            name,
-            fields,
-            from,
-            resolvable,
-        });
-        i = j;
     }
     Ok(out)
+}
+
+/// Read the directive name starting at `start` (just past the `@`), returning it and the
+/// index just past it. A GraphQL directive name is `[A-Za-z_][A-Za-z0-9_]*` and may not be
+/// in the reserved `__` namespace.
+fn read_directive_name(seg: &str, start: usize) -> Result<(String, usize), String> {
+    let bytes = seg.as_bytes();
+    let mut j = start;
+    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+        j += 1;
+    }
+    let name = seg[start..j].to_string();
+    if name.is_empty()
+        || !bytes[start].is_ascii_alphabetic() && bytes[start] != b'_'
+        || name.starts_with("__")
+    {
+        return Err("GraphQL federation SDL: malformed directive name".to_string());
+    }
+    Ok((name, j))
+}
+
+/// The index of the `)` closing an argument list whose contents start at `open`,
+/// respecting quoted strings and their backslash escapes. `None` when the input runs out
+/// or ends inside a string, both of which are an unterminated argument list.
+fn directive_args_end(bytes: &[u8], open: usize) -> Option<usize> {
+    let mut cursor = open;
+    let mut quoted = false;
+    let mut escaped = false;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'\\' if quoted => escaped = !escaped,
+            b'"' if !escaped => quoted = !quoted,
+            b')' if !quoted => break,
+            _ => escaped = false,
+        }
+        cursor += 1;
+    }
+    if cursor == bytes.len() || quoted {
+        None
+    } else {
+        Some(cursor)
+    }
+}
+
+/// Parse a directive's argument text into the three federation arguments this scanner
+/// understands — `fields:`, `from:` and `@key`'s bare `resolvable:` flag — and reject any
+/// other argument rather than silently dropping it.
+fn scan_directive_args(name: String, raw_args: &str) -> Result<ScannedDir, String> {
+    if raw_args.trim().is_empty() {
+        return Err(format!(
+            "GraphQL federation SDL: @{name} has an empty argument list"
+        ));
+    }
+    let mut args = parse_directive_args(raw_args)?;
+    let fields = args
+        .remove("fields")
+        .map(|value| parse_quoted_arg("fields", &value))
+        .transpose()?;
+    let from = args
+        .remove("from")
+        .map(|value| parse_quoted_arg("from", &value))
+        .transpose()?;
+    let resolvable = args
+        .remove("resolvable")
+        .map(|value| match value.as_str() {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            _ => Err("GraphQL federation SDL: `resolvable` must be true or false".to_string()),
+        })
+        .transpose()?;
+    if let Some(unexpected) = args.keys().next() {
+        return Err(format!(
+            "GraphQL federation SDL: unsupported directive argument `{unexpected}`"
+        ));
+    }
+    Ok(ScannedDir {
+        name,
+        fields,
+        from,
+        resolvable,
+    })
 }
 
 fn parse_directive_args(args: &str) -> Result<BTreeMap<String, String>, String> {
