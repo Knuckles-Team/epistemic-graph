@@ -150,23 +150,85 @@ _REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
 }
 
 
+#: `Succeeded` is reachable only from `Publishing`, so no publication-completion
+#: entry point may carry a `Running` source arm. The historical check named a
+#: `pub fn succeed` that has not existed since eg-jobs was split: `str.find`
+#: returned -1, the slice was empty, and the assertion could never fire. Every
+#: offset-based contract below therefore treats an absent marker as FATAL.
+_PUBLICATION_COMPLETION_FNS = (
+    "pub fn complete_publication_fenced(",
+    "pub fn complete_publication_prepared(",
+)
+_RUNNING_SOURCE_ARM = "JobState::Running {"
+_JOB_STORE = "crates/eg-jobs/src/store.rs"
+
+
+def _method_body(source: str, signature: str) -> str | None:
+    """One `impl` method's text, or None when its signature is absent.
+
+    The body ends at the first impl-level closing brace, so a following
+    method's doc comment can never be read as part of it.
+    """
+    start = source.find(signature)
+    if start < 0:
+        return None
+    end = source.find("\n    }\n", start)
+    return source[start:] if end < 0 else source[start : end + len("\n    }\n")]
+
+
+def _ordered_markers(
+    source: str, path: str, first: str, second: str, violation: str
+) -> list[str]:
+    """`first` must appear before `second` in `source`; an absent marker fails."""
+    for marker in (first, second):
+        if marker not in source:
+            return [
+                f"{path}: cannot locate {marker!r} to check its ordering contract"
+            ]
+    return [violation] if source.find(first) > source.find(second) else []
+
+
+def _publication_barrier_failures(store: str) -> list[str]:
+    """No publication-completion method may accept a Running job."""
+    failures = []
+    for signature in _PUBLICATION_COMPLETION_FNS:
+        body = _method_body(store, signature)
+        if body is None:
+            failures.append(
+                f"{_JOB_STORE}: cannot locate {signature!r}; the publication "
+                "barrier cannot be checked"
+            )
+        elif _RUNNING_SOURCE_ARM in body:
+            failures.append(
+                f"{_JOB_STORE}: {signature[len('pub fn '):-1]} still permits "
+                "Running -> Succeeded"
+            )
+    return failures
+
+
 def _analytics_ordering_failures(sources: dict[str, str]) -> list[str]:
     """Ordering and authority contracts no single marker can express."""
-    store = sources["crates/eg-jobs/src/store.rs"]
     handler = sources["src/server/handlers/jobs.rs"]
     reasoning = sources["src/server/reasoning_projection.rs"]
-    failures = []
-    if (
-        "JobState::Running { checkpoint } =>"
-        in store[store.find("pub fn succeed") : store.find("pub fn fail")]
-    ):
-        failures.append("JobStore::succeed still permits Running -> Succeeded")
-    if handler.find("stage_result_fenced(") > handler.find(
-        "complete_publication_fenced("
-    ):
-        failures.append("handler completes publication before staging the typed result")
-    if reasoning.find("persist_index(") > reasoning.find("ack_mutation_outbox("):
-        failures.append("reasoning cursor can advance before projection persistence")
+    failures = _publication_barrier_failures(sources[_JOB_STORE])
+    failures.extend(
+        _ordered_markers(
+            handler,
+            "src/server/handlers/jobs.rs",
+            "stage_result_fenced(",
+            "complete_publication_fenced(",
+            "handler completes publication before staging the typed result",
+        )
+    )
+    failures.extend(
+        _ordered_markers(
+            reasoning,
+            "src/server/reasoning_projection.rs",
+            "persist_index(",
+            "ack_mutation_outbox(",
+            "reasoning cursor can advance before projection persistence",
+        )
+    )
     if (
         "from_slice::<Vec<MutationOperation>>(&lease.record.intent.payload)"
         in reasoning
