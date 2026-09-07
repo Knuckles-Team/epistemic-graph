@@ -38,82 +38,80 @@ pub fn parse_path(path: &str) -> Option<Vec<Segment>> {
     }
     let mut segs = Vec::new();
     while let Some(&c) = chars.peek() {
-        match c {
+        let seg = match c {
             '.' => {
                 chars.next();
-                if chars.peek() == Some(&'*') {
-                    chars.next();
-                    segs.push(Segment::Wildcard);
-                } else {
-                    let key = take_bare_key(&mut chars);
-                    if key.is_empty() {
-                        return None;
-                    }
-                    segs.push(Segment::Key(key));
-                }
+                parse_dot_segment(&mut chars)?
             }
             '[' => {
                 chars.next();
-                match chars.peek() {
-                    Some('*') => {
-                        chars.next();
-                        if chars.next() != Some(']') {
-                            return None;
-                        }
-                        segs.push(Segment::Wildcard);
-                    }
-                    Some('\'') | Some('"') => {
-                        let quote = chars.next()?;
-                        let mut key = String::new();
-                        loop {
-                            match chars.next() {
-                                Some(c) if c == quote => break,
-                                Some(c) => key.push(c),
-                                None => return None,
-                            }
-                        }
-                        if chars.next() != Some(']') {
-                            return None;
-                        }
-                        segs.push(Segment::Key(key));
-                    }
-                    Some(c) if c.is_ascii_digit() => {
-                        let mut num = String::new();
-                        while let Some(&c) = chars.peek() {
-                            if c.is_ascii_digit() {
-                                num.push(c);
-                                chars.next();
-                            } else {
-                                break;
-                            }
-                        }
-                        if chars.next() != Some(']') {
-                            return None;
-                        }
-                        segs.push(Segment::Index(num.parse().ok()?));
-                    }
-                    _ => return None,
-                }
+                parse_bracket_segment(&mut chars)?
             }
-            _ => {
-                // A bare leading key without a `.` (e.g. `a.b` with no `$`); only valid
-                // at the very start of the path.
-                if !segs.is_empty() {
-                    return None;
-                }
-                let key = take_bare_key(&mut chars);
-                if key.is_empty() {
-                    return None;
-                }
-                segs.push(Segment::Key(key));
-            }
-        }
+            // A bare leading key without a `.` (e.g. `a.b` with no `$`); only valid
+            // at the very start of the path.
+            _ if segs.is_empty() => Segment::Key(take_bare_key(&mut chars)?),
+            _ => return None,
+        };
+        segs.push(seg);
     }
     Some(segs)
 }
 
-/// Consume a run of key characters up to the next `.` or `[`.
-fn take_bare_key(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+/// The path characters still to be consumed.
+type PathChars<'a> = std::iter::Peekable<std::str::Chars<'a>>;
+
+/// Parse the segment that follows a `.`: `.*` is a wildcard, anything else a bare key.
+fn parse_dot_segment(chars: &mut PathChars<'_>) -> Option<Segment> {
+    if chars.peek() == Some(&'*') {
+        chars.next();
+        return Some(Segment::Wildcard);
+    }
+    Some(Segment::Key(take_bare_key(chars)?))
+}
+
+/// Parse the segment inside `[...]`, with the opening bracket already consumed: `[*]`,
+/// a quoted key `['key']` / `["key"]`, or an array index `[n]`. The closing bracket is
+/// required, so an unterminated bracket is a malformed path.
+fn parse_bracket_segment(chars: &mut PathChars<'_>) -> Option<Segment> {
+    let first = *chars.peek()?;
+    let seg = match first {
+        '*' => {
+            chars.next();
+            Segment::Wildcard
+        }
+        quote @ ('\'' | '"') => {
+            chars.next();
+            let mut key = String::new();
+            loop {
+                match chars.next()? {
+                    c if c == quote => break,
+                    c => key.push(c),
+                }
+            }
+            Segment::Key(key)
+        }
+        c if c.is_ascii_digit() => {
+            let mut num = String::new();
+            while let Some(&c) = chars.peek() {
+                if !c.is_ascii_digit() {
+                    break;
+                }
+                num.push(c);
+                chars.next();
+            }
+            Segment::Index(num.parse().ok()?)
+        }
+        _ => return None,
+    };
+    if chars.next() != Some(']') {
+        return None;
+    }
+    Some(seg)
+}
+
+/// Consume a run of key characters up to the next `.` or `[`. `None` for an empty key,
+/// which is always a malformed path.
+fn take_bare_key(chars: &mut PathChars<'_>) -> Option<String> {
     let mut key = String::new();
     while let Some(&c) = chars.peek() {
         if c == '.' || c == '[' {
@@ -122,7 +120,11 @@ fn take_bare_key(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String
         key.push(c);
         chars.next();
     }
-    key
+    if key.is_empty() {
+        None
+    } else {
+        Some(key)
+    }
 }
 
 /// Evaluate parsed `segments` against `root`, returning every matched value
@@ -133,27 +135,26 @@ pub fn eval<'a>(root: &'a Value, segments: &[Segment]) -> Vec<&'a Value> {
     for seg in segments {
         let mut next = Vec::new();
         for v in cur {
-            match seg {
-                Segment::Key(k) => {
-                    if let Some(child) = v.get(k) {
-                        next.push(child);
-                    }
-                }
-                Segment::Index(i) => {
-                    if let Some(child) = v.get(*i) {
-                        next.push(child);
-                    }
-                }
-                Segment::Wildcard => match v {
-                    Value::Object(m) => next.extend(m.values()),
-                    Value::Array(a) => next.extend(a.iter()),
-                    _ => {}
-                },
-            }
+            descend(v, seg, &mut next);
         }
         cur = next;
     }
     cur
+}
+
+/// Append the values one segment reaches from `v`: a key or index contributes at most one
+/// child (and nothing at all when absent), a wildcard contributes every immediate child of
+/// an object or array and nothing for a scalar.
+fn descend<'a>(v: &'a Value, seg: &Segment, out: &mut Vec<&'a Value>) {
+    match seg {
+        Segment::Key(k) => out.extend(v.get(k)),
+        Segment::Index(i) => out.extend(v.get(*i)),
+        Segment::Wildcard => match v {
+            Value::Object(m) => out.extend(m.values()),
+            Value::Array(a) => out.extend(a.iter()),
+            _ => {}
+        },
+    }
 }
 
 /// Parse `path` and evaluate it against `root` in one call (CONCEPT:EG-KG.compute.json-deep-indexing). A
