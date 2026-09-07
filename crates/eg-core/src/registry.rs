@@ -138,6 +138,17 @@ impl MaterializationManifest {
         }
     }
 
+    /// Mark this image FAILED and not valid — the single owner of that transition.
+    /// `discard_cursor` also drops the completeness cursor, which a partial image whose
+    /// source snapshot moved under it must do: it can no longer be continued, only restarted.
+    fn fail(&mut self, discard_cursor: bool) {
+        self.phase = MaterializationPhase::Failed;
+        self.valid = false;
+        if discard_cursor {
+            self.completeness_cursor = None;
+        }
+    }
+
     /// Advance the authoritative version covered by a complete resident image.
     ///
     /// Gateway completions can finish their post-commit bookkeeping out of order,
@@ -943,20 +954,15 @@ impl GraphRegistry {
             register_secondary_indexes(core, factory.as_ref(), ticket.name(), complete);
         }
         if complete && !secondary_indexes_valid(core) {
-            self.mark_materialization_failed(ticket.name());
+            if let Some(manifest) = self.materialization.get(ticket.name()) {
+                if let Ok(mut manifest) = manifest.write() {
+                    // The image is fully loaded, so its cursor is already None; keep it.
+                    manifest.fail(false);
+                }
+            }
             return false;
         }
         true
-    }
-
-    /// Mark a graph's materialization manifest failed and invalid.
-    fn mark_materialization_failed(&self, name: &str) {
-        if let Some(manifest) = self.materialization.get(name) {
-            if let Ok(mut manifest) = manifest.write() {
-                manifest.phase = MaterializationPhase::Failed;
-                manifest.valid = false;
-            }
-        }
     }
 
     /// Make `core` the resident graph for the ticket's name, under the ticket's identity.
@@ -1180,9 +1186,7 @@ impl GraphRegistry {
         }
         if snapshot_changed(manifest_ref, &page) {
             if let Ok(mut manifest) = manifest_ref.write() {
-                manifest.phase = MaterializationPhase::Failed;
-                manifest.valid = false;
-                manifest.completeness_cursor = None;
+                manifest.fail(true);
             }
             return None;
         }
@@ -1357,111 +1361,11 @@ impl GraphRegistry {
     }
 }
 
-/// Replay one [`MaterialPage`] into `core` via the SAME `add_node`/`add_edge`/
-/// semantic-store calls [`GraphRegistry::open_lazy`]'s full-material path uses
-/// (CONCEPT:EG-KG.sharding.paged-lazy-open, DIST-P2-5) — shared by
-/// [`GraphRegistry::open_lazy_paged`] and [`GraphRegistry::page_in`] so a paged
-/// open is byte-identical, one page at a time, to the eager/full-material one.
-/// Whether `page` comes from a DIFFERENT source snapshot than the manifest already
-/// recorded — a mixed snapshot the caller must never advertise. Only decidable when both
-/// sides name a version.
-fn snapshot_changed(
-    manifest_ref: &Arc<RwLock<MaterializationManifest>>,
-    page: &MaterialPage,
-) -> bool {
-    let prior = manifest_ref
-        .read()
-        .ok()
-        .and_then(|manifest| manifest.source_snapshot_version);
-    prior.is_some()
-        && page.source_snapshot_version.is_some()
-        && prior != page.source_snapshot_version
-}
-
-/// Fold one applied page into the manifest. The graph stays PARTIAL and invalid even on
-/// the last page: exhausting the source cursor is not availability, because maintained
-/// indexes must first rebuild against this exact resident image.
-fn advance_partial_manifest(
-    manifest_ref: &Arc<RwLock<MaterializationManifest>>,
-    page: &MaterialPage,
-    next_cursor: Option<MaterializeCursor>,
-) {
-    let Ok(mut manifest) = manifest_ref.write() else {
-        return;
-    };
-    manifest.loaded_nodes = manifest
-        .loaded_nodes
-        .saturating_add(page.nodes.len() as u64);
-    manifest.loaded_edges = manifest
-        .loaded_edges
-        .saturating_add(page.edges.len() as u64);
-    manifest.source_snapshot_version = manifest
-        .source_snapshot_version
-        .or(page.source_snapshot_version);
-    manifest.completeness_cursor = next_cursor;
-    manifest.phase = MaterializationPhase::Partial;
-    manifest.valid = false;
-}
-
-/// Rebuild the secondary indexes against the now-complete resident image and settle the
-/// manifest: COMPLETE and valid when every content-derived index came up valid, FAILED
-/// otherwise.
-fn finish_materialization(
-    manifest_ref: &Arc<RwLock<MaterializationManifest>>,
-    core: &Arc<GraphCore>,
-) {
-    rebuild_secondary_indexes(core);
-    let indexes_valid = secondary_indexes_valid(core);
-    if let Ok(mut manifest) = manifest_ref.write() {
-        manifest.phase = if indexes_valid {
-            MaterializationPhase::Complete
-        } else {
-            MaterializationPhase::Failed
-        };
-        manifest.valid = indexes_valid;
-    }
-}
-
-/// Replay a FULL durable material into a fresh core: its integrity policy, every node and
-/// edge, and the encoded semantic store if one was captured. The eager counterpart of
-/// [`apply_material_page`].
-fn load_material(core: &Arc<GraphCore>, material: GraphMaterial) {
-    if let Some(policy) = material.integrity_policy {
-        core.set_integrity_policy(policy);
-    }
-    for (node_id, props) in material.nodes {
-        core.add_node(node_id, props);
-    }
-    for (src, tgt, props) in material.edges {
-        let _ = core.add_edge(src, tgt, props);
-    }
-    if !material.semantic.is_empty() {
-        if let Ok(store) =
-            rmp_serde::from_slice::<crate::compute::semantic::SemanticStore>(&material.semantic)
-        {
-            *core.semantic_store.write() = store;
-        }
-    }
-}
-
-fn apply_material_page(core: &Arc<GraphCore>, page: &MaterialPage) {
-    if let Some(policy) = &page.integrity_policy {
-        core.set_integrity_policy(policy.clone());
-    }
-    for (node_id, props) in &page.nodes {
-        core.add_node(node_id.clone(), props.clone());
-    }
-    for (src, tgt, props) in &page.edges {
-        let _ = core.add_edge(src.clone(), tgt.clone(), props.clone());
-    }
-    if !page.semantic.is_empty() {
-        if let Ok(store) =
-            rmp_serde::from_slice::<crate::compute::semantic::SemanticStore>(&page.semantic)
-        {
-            *core.semantic_store.write() = store;
-        }
-    }
-}
+mod material;
+use material::{
+    advance_partial_manifest, apply_material_page, finish_materialization, load_material,
+    snapshot_changed,
+};
 
 /// Register one graph's server-layer indexes. Spatial indexes are derived entirely
 /// from resident graph material, so they must be backfilled before planner pushdown

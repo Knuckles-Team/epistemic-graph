@@ -849,6 +849,21 @@ struct BrokerClaim {
 /// writers (and excludes graph-traversal readers) for the transaction's duration.
 /// Property writes still go through the DashMap (lock-free per key) but are ordered
 /// by the held topology guard for structural consistency. (Phase C-B)
+pub struct GraphTxn<'a> {
+    pub topo: RwLockWriteGuard<'a, Topology>,
+    node_properties: &'a DashMap<String, Arc<Vec<u8>>>,
+    edge_properties: &'a DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
+    ledger: &'a Mutex<Vec<String>>,
+    /// Read-guard access to `GraphCore::node_bloom` (CONCEPT:EG-KG.storage.bloom-negative-lookup-guard) —
+    /// `add_node` records every id it inserts, lock-free (`fetch_or` on `AtomicU64`
+    /// words) under a shared read guard.
+    node_bloom: &'a RwLock<crate::bloom::NodeBloomFilter>,
+    /// Shared with `GraphCore::ledger_dropped_total` (BUG A1 follow-up) — every
+    /// PRODUCTION ledger write goes through `Self::push_ledger`, which applies
+    /// the cap + drop-accounting policy via `push_ledger_impl`.
+    ledger_dropped_total: &'a std::sync::atomic::AtomicU64,
+}
+
 /// Whether any property blob recorded on edge `source_id -> target_id` declares
 /// `relationship`. The crate's one answer to that question: both the write transaction
 /// and the store read through it, so a change to the edge-property encoding has one site.
@@ -873,21 +888,6 @@ fn edge_declares_relationship(
                     .unwrap_or(false)
             })
         })
-}
-
-pub struct GraphTxn<'a> {
-    pub topo: RwLockWriteGuard<'a, Topology>,
-    node_properties: &'a DashMap<String, Arc<Vec<u8>>>,
-    edge_properties: &'a DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
-    ledger: &'a Mutex<Vec<String>>,
-    /// Read-guard access to `GraphCore::node_bloom` (CONCEPT:EG-KG.storage.bloom-negative-lookup-guard) —
-    /// `add_node` records every id it inserts, lock-free (`fetch_or` on `AtomicU64`
-    /// words) under a shared read guard.
-    node_bloom: &'a RwLock<crate::bloom::NodeBloomFilter>,
-    /// Shared with `GraphCore::ledger_dropped_total` (BUG A1 follow-up) — every
-    /// PRODUCTION ledger write goes through `Self::push_ledger`, which applies
-    /// the cap + drop-accounting policy via `push_ledger_impl`.
-    ledger_dropped_total: &'a std::sync::atomic::AtomicU64,
 }
 
 /// Result of an owner-fenced delivery-tag nack transition.
@@ -7863,9 +7863,6 @@ fn check_match(
     )
 }
 
-/// Every ALREADY-MAPPED pattern in-edge into `p_node` must have a counterpart
-/// in-edge into `t_node` in the host, with compatible edge properties. A pattern
-/// neighbour that is not yet mapped constrains nothing at this depth.
 /// Every already-mapped pattern edge at `p_idx` running in `direction` must exist in the
 /// host between the mapped endpoints, with matching edge properties. Pattern edges whose
 /// far endpoint is not mapped yet are skipped — a later step checks them.

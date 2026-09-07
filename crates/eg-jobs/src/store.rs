@@ -46,6 +46,9 @@ use eg_types::mutation_batch::{
 };
 use eg_types::protocol::Method;
 use redb::{ReadableTable, TableDefinition};
+
+mod index_keys;
+use index_keys::{capability_index_key, tenant_index_key};
 use serde::de::DeserializeOwned;
 
 use crate::intent::JobIntent;
@@ -1766,10 +1769,6 @@ fn reserved_cpu(job: &AnalyticsJob) -> u64 {
         .unwrap_or(0)
 }
 
-fn tenant_index_key(tenant: &str) -> String {
-    index_key(b"eg-jobs.tenant-index.v1\0", tenant)
-}
-
 fn adjust_tenant_total(
     wtx: &AdmittedOwnerWrite<'_, JobsOwner>,
     job: &AnalyticsJob,
@@ -1873,21 +1872,6 @@ fn tenant_active_total(
         .map(|value| value.value())
         .unwrap_or((0, 0));
     Ok((usize::try_from(count).unwrap_or(usize::MAX), cpu))
-}
-
-fn capability_index_key(token: &str) -> String {
-    index_key(b"eg-jobs.capability-index.v1\0", token)
-}
-
-/// A stable secondary-index key: SHA-256 over the NUL-terminated `domain` tag followed by
-/// `value`, hex-encoded. The domain tag is what keeps the tenant and capability index
-/// spaces from colliding on the same input string.
-fn index_key(domain: &[u8], value: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(domain);
-    hasher.update(value.as_bytes());
-    hex::encode(hasher.finalize())
 }
 
 /// Whether `policy`'s tenant/actor/purpose/fingerprint scalars exceed their
