@@ -31,8 +31,9 @@ this automated gate can special-case, so lifting it back to a plain
 from __future__ import annotations
 
 import sys
-import tomllib
 from pathlib import Path
+
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,26 +47,37 @@ _DEPENDENCY_TABLE_PREFIXES = (
 def _dependency_tables(doc: dict) -> list[tuple[str, dict]]:
     """Yield (label, table) for every dependency table in a parsed Cargo.toml."""
 
-    tables: list[tuple[str, dict]] = []
-    for prefix in _DEPENDENCY_TABLE_PREFIXES:
-        table = doc.get(prefix)
-        if isinstance(table, dict):
-            tables.append((prefix, table))
     workspace = doc.get("workspace")
-    if isinstance(workspace, dict):
-        table = workspace.get("dependencies")
-        if isinstance(table, dict):
-            tables.append(("workspace.dependencies", table))
     target = doc.get("target")
-    if isinstance(target, dict):
-        for cfg_name, cfg_table in target.items():
-            if not isinstance(cfg_table, dict):
-                continue
-            for prefix in _DEPENDENCY_TABLE_PREFIXES:
-                table = cfg_table.get(prefix)
-                if isinstance(table, dict):
-                    tables.append((f"target.{cfg_name}.{prefix}", table))
-    return tables
+    candidates: list[tuple[str, object]] = [
+        (prefix, doc.get(prefix)) for prefix in _DEPENDENCY_TABLE_PREFIXES
+    ]
+    candidates.append(
+        (
+            "workspace.dependencies",
+            workspace.get("dependencies") if isinstance(workspace, dict) else None,
+        )
+    )
+    for cfg_name, cfg_table in (target.items() if isinstance(target, dict) else ()):
+        if isinstance(cfg_table, dict):
+            candidates.extend(
+                (f"target.{cfg_name}.{prefix}", cfg_table.get(prefix))
+                for prefix in _DEPENDENCY_TABLE_PREFIXES
+            )
+    return [(label, table) for label, table in candidates if isinstance(table, dict)]
+
+
+def _escaping_path_dependency(manifest_dir: Path, spec: dict) -> Path | None:
+    """The resolved `path = ` target when it lands outside this workspace."""
+    path_value = spec.get("path")
+    if not isinstance(path_value, str):
+        return None
+    resolved = (manifest_dir / path_value).resolve()
+    try:
+        resolved.relative_to(ROOT)
+    except ValueError:
+        return resolved
+    return None
 
 
 def check_manifest(manifest_path: Path, failures: list[str]) -> None:
@@ -83,19 +95,15 @@ def check_manifest(manifest_path: Path, failures: list[str]) -> None:
                     f"({spec.get('git')!r}). Rust dependencies must come from crates.io "
                     "-- see AGENTS.md, 'crates.io-only Rust dependency edict'."
                 )
-            path_value = spec.get("path")
-            if isinstance(path_value, str):
-                resolved = (manifest_dir / path_value).resolve()
-                try:
-                    resolved.relative_to(ROOT)
-                except ValueError:
-                    failures.append(
-                        f"{relative_manifest} [{label}] '{dep_name}' has a path = "
-                        f"dependency ({path_value!r}) that resolves OUTSIDE this "
-                        f"workspace ({resolved}). Only in-workspace path dependencies "
-                        "are allowed -- see AGENTS.md, 'crates.io-only Rust dependency "
-                        "edict'."
-                    )
+            escaped = _escaping_path_dependency(manifest_dir, spec)
+            if escaped is not None:
+                failures.append(
+                    f"{relative_manifest} [{label}] '{dep_name}' has a path = "
+                    f"dependency ({spec['path']!r}) that resolves OUTSIDE this "
+                    f"workspace ({escaped}). Only in-workspace path dependencies "
+                    "are allowed -- see AGENTS.md, 'crates.io-only Rust dependency "
+                    "edict'."
+                )
 
 
 def check_lockfile(failures: list[str]) -> None:

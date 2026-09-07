@@ -53,6 +53,44 @@ def _claims(text: str) -> list[dict[str, str]]:
     return rows
 
 
+def _claim_field_errors(row: dict[str, str]) -> list[str]:
+    """Errors visible in one claim row's own cells."""
+    errors = []
+    if row["status"] not in STATUSES:
+        errors.append(f"{row['id']}: unknown status {row['status']!r}")
+    if not row["evidence"]:
+        errors.append(f"{row['id']}: evidence/scope is empty")
+    return errors
+
+
+def _claim_anchor_errors(root: Path, row: dict[str, str]) -> list[str]:
+    """Errors from resolving one claim's `path#text` source anchor."""
+    claim_id, anchor = row["id"], row["anchor"]
+    if "#" not in anchor:
+        return [f"{claim_id}: source anchor must be path#text"]
+    relative, needle = anchor.split("#", 1)
+    source = (root / relative).resolve()
+    try:
+        source.relative_to(root.resolve())
+    except ValueError:
+        return [f"{claim_id}: source anchor escapes repository: {relative}"]
+    if not source.is_file():
+        return [f"{claim_id}: source file is missing: {relative}"]
+    source_text = source.read_text(encoding="utf-8")
+    errors = []
+    if needle not in source_text:
+        errors.append(f"{claim_id}: anchor text is missing from {relative}: {needle!r}")
+    if row["required"] and row["required"] not in source_text:
+        errors.append(
+            f"{claim_id}: required source text is missing from {relative}: {row['required']!r}"
+        )
+    if row["status"] in {"LIVE", "1M-CERTIFIED"} and "reports/" not in row["evidence"]:
+        errors.append(
+            f"{claim_id}: {row['status']} requires a versioned reports/ evidence reference"
+        )
+    return errors
+
+
 def check_claims(root: Path = ROOT, claims_path: Path = DEFAULT_CLAIMS) -> list[str]:
     """Return deterministic errors for a claim register, without executing code."""
 
@@ -62,43 +100,17 @@ def check_claims(root: Path = ROOT, claims_path: Path = DEFAULT_CLAIMS) -> list[
         return [f"cannot read claims register {claims_path}: {exc}"]
 
     rows = _claims(text)
-    errors: list[str] = []
     if not rows:
         return ["claims register has no five-column claim table"]
+    errors: list[str] = []
     seen: set[str] = set()
     for row in rows:
         claim_id = row["id"]
         if not claim_id or claim_id in seen:
             errors.append(f"duplicate or empty claim id: {claim_id!r}")
         seen.add(claim_id)
-        status = row["status"]
-        if status not in STATUSES:
-            errors.append(f"{claim_id}: unknown status {status!r}")
-        if not row["evidence"]:
-            errors.append(f"{claim_id}: evidence/scope is empty")
-        anchor = row["anchor"]
-        if "#" not in anchor:
-            errors.append(f"{claim_id}: source anchor must be path#text")
-            continue
-        relative, needle = anchor.split("#", 1)
-        source = (root / relative).resolve()
-        try:
-            source.relative_to(root.resolve())
-        except ValueError:
-            errors.append(f"{claim_id}: source anchor escapes repository: {relative}")
-            continue
-        if not source.is_file():
-            errors.append(f"{claim_id}: source file is missing: {relative}")
-            continue
-        source_text = source.read_text(encoding="utf-8")
-        if needle not in source_text:
-            errors.append(f"{claim_id}: anchor text is missing from {relative}: {needle!r}")
-        if row["required"] and row["required"] not in source_text:
-            errors.append(
-                f"{claim_id}: required source text is missing from {relative}: {row['required']!r}"
-            )
-        if status in {"LIVE", "1M-CERTIFIED"} and "reports/" not in row["evidence"]:
-            errors.append(f"{claim_id}: {status} requires a versioned reports/ evidence reference")
+        errors.extend(_claim_field_errors(row))
+        errors.extend(_claim_anchor_errors(root, row))
     return errors
 
 

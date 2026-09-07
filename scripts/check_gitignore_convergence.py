@@ -135,23 +135,28 @@ def _gitignore_tokens() -> set[str]:
     return tokens
 
 
+def _missing_required_entries() -> list[str]:
+    """Fleet-shared REQUIRED entries this .gitignore does not carry."""
+    tokens = _gitignore_tokens()
+    return sorted(req for req in REQUIRED if _normalize(req) not in tokens)
+
+
+def _tracked_build_output() -> list[str]:
+    """Build-output paths that are already tracked, which no rule can un-track."""
+    return sorted(p for p in _tracked_paths() if _TRACKED_BUILD_OUTPUT_RE.match(p))
+
+
 def main() -> int:
     problems: list[str] = []
 
-    gitignore_tokens = _gitignore_tokens()
-    missing = sorted(
-        req for req in REQUIRED if _normalize(req) not in gitignore_tokens
-    )
+    missing = _missing_required_entries()
     if missing:
         problems.append(
             "Missing from .gitignore (fleet-shared REQUIRED set):\n"
             + "\n".join(f"    {m}" for m in missing)
         )
 
-    tracked = _tracked_paths()
-    tracked_build_output = sorted(
-        p for p in tracked if _TRACKED_BUILD_OUTPUT_RE.match(p)
-    )
+    tracked_build_output = _tracked_build_output()
     if tracked_build_output:
         problems.append(
             "Build-output paths are TRACKED (a .gitignore rule cannot "
