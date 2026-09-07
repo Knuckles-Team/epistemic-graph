@@ -1020,6 +1020,9 @@ impl<'a> DurableCrypto<'a> {
     }
 }
 
+#[cfg(test)]
+mod shard_control_tests;
+
 /// The shard file's own control scope.
 ///
 /// `OwnerLayout::GraphShard` declares `MutationDomain::GraphRows`, which may
@@ -1031,15 +1034,17 @@ impl<'a> DurableCrypto<'a> {
 /// the materialized views, the encryption canary and the cross-modal series
 /// rows, none of which belong to any one graph.
 ///
+/// The literal has ONE owner, `eg_storage::GRAPH_SHARD_CONTROL_GRAPH`: the
+/// storage kernel refuses the name on any layout that does not reserve it and
+/// reads the group's control class off the identity, so the kernel guard and the
+/// durable chokepoints below cannot disagree about which name it is.
+///
 /// It is therefore a REAL graph name that no user may ever hold. The name is
 /// bracketed like `__commons__` (a real, user-visible graph) but is refused at
 /// every durable chokepoint below, so a tenant cannot create it, write to it,
 /// register its identity, or purge it -- and a shard that already carries a user
 /// graph under this name cannot exist, because no path could have created one.
-#[cfg(test)]
-mod shard_control_tests;
-
-pub const SHARD_CONTROL_GRAPH: &str = "__shard_control__";
+pub const SHARD_CONTROL_GRAPH: &str = eg_storage::GRAPH_SHARD_CONTROL_GRAPH;
 
 /// Refuse a durable operation that names the shard's own control scope.
 ///

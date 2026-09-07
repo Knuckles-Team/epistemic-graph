@@ -42,6 +42,22 @@ fn table_names(db: &Database) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
+/// The kernel and the durable tier name the SAME reserved scope.
+///
+/// `eg_storage::GRAPH_SHARD_CONTROL_GRAPH` is the single owner of the literal --
+/// `authenticate_scope` refuses it on any layout that does not reserve it, and
+/// `admit_group` reads a member's control class off its identity -- so this
+/// asserts the kernel really does reserve it for the layout the shard uses,
+/// rather than only that two constants happen to be spelled alike.
+#[test]
+fn the_kernel_reserves_the_same_control_scope_the_durable_tier_refuses() {
+    assert_eq!(
+        eg_storage::reserved_control_graph(eg_storage::OwnerLayout::GraphShard),
+        Some(SHARD_CONTROL_GRAPH)
+    );
+    assert!(reject_reserved_graph(eg_storage::GRAPH_SHARD_CONTROL_GRAPH).is_err());
+}
+
 #[test]
 fn the_reserved_control_scope_is_not_a_usable_graph_name() {
     // Both the raw logical name and the durable key it sanitizes to.
