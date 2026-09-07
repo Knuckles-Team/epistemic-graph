@@ -402,7 +402,7 @@ mod py {
             arr,
             ax,
             keepdims,
-            |v| Ok(reductions::sum_all(v)),
+            |v| Ok(reductions::sum(v)),
             reductions::sum_axis,
         )
     }
@@ -421,7 +421,7 @@ mod py {
             arr,
             ax,
             keepdims,
-            |v| Ok(reductions::prod_all(v)),
+            |v| Ok(reductions::prod(v)),
             reductions::prod_axis,
         )
     }
@@ -440,7 +440,7 @@ mod py {
             arr,
             ax,
             keepdims,
-            |v| Ok(reductions::mean_all(v)),
+            |v| Ok(reductions::mean(v)),
             reductions::mean_axis,
         )
     }
@@ -460,7 +460,7 @@ mod py {
             arr,
             ax,
             keepdims,
-            |v| Ok(reductions::var_all(v, ddof)),
+            |v| Ok(reductions::var(v, ddof)),
             |v, k| reductions::var_axis(v, k, ddof),
         )
     }
@@ -480,7 +480,7 @@ mod py {
             arr,
             ax,
             keepdims,
-            |v| Ok(reductions::std_all(v, ddof)),
+            |v| Ok(reductions::std(v, ddof)),
             |v, k| reductions::std_axis(v, k, ddof),
         )
     }
@@ -494,14 +494,7 @@ mod py {
     ) -> PyResult<Py<PyAny>> {
         let arr = to_f64_dyn(a)?;
         let ax = norm_axis(axis, arr.ndim())?;
-        finish_f64(
-            py,
-            arr,
-            ax,
-            keepdims,
-            reductions::min_all,
-            reductions::min_axis,
-        )
+        finish_f64(py, arr, ax, keepdims, reductions::min, reductions::min_axis)
     }
     #[pyfunction]
     #[pyo3(signature = (a, axis=None, keepdims=false))]
@@ -513,14 +506,7 @@ mod py {
     ) -> PyResult<Py<PyAny>> {
         let arr = to_f64_dyn(a)?;
         let ax = norm_axis(axis, arr.ndim())?;
-        finish_f64(
-            py,
-            arr,
-            ax,
-            keepdims,
-            reductions::max_all,
-            reductions::max_axis,
-        )
+        finish_f64(py, arr, ax, keepdims, reductions::max, reductions::max_axis)
     }
     #[pyfunction]
     #[pyo3(signature = (a, axis=None, keepdims=false))]
@@ -537,7 +523,7 @@ mod py {
             arr,
             ax,
             keepdims,
-            reductions::argmin_all,
+            reductions::argmin,
             reductions::argmin_axis,
         )
     }
@@ -556,7 +542,7 @@ mod py {
             arr,
             ax,
             keepdims,
-            reductions::argmax_all,
+            reductions::argmax,
             reductions::argmax_axis,
         )
     }
