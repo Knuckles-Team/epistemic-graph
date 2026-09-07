@@ -1304,13 +1304,29 @@ impl JobStore {
 
     /// Which job (if any) first committed `result_ref`.
     pub fn result_committed_by(&self, result_ref: &str) -> Result<Option<JobId>> {
-        if !valid_identifier(result_ref) {
-            return Err(codec_err("analytics-job result reference is invalid"));
+        self.first_wins_owner(
+            COMMITTED_RESULTS,
+            result_ref,
+            "analytics-job result reference is invalid",
+        )
+    }
+
+    /// The owner recorded against `subject` in a first-wins ledger table, or `None` when
+    /// nobody has claimed it. Shared by the `COMMITTED_RESULTS` and `IDEMPOTENCY_LEDGER`
+    /// readers, which differ only in their table and the message for a malformed subject.
+    fn first_wins_owner(
+        &self,
+        ledger: TableDefinition<'static, &str, &str>,
+        subject: &str,
+        invalid: &str,
+    ) -> Result<Option<String>> {
+        if !valid_identifier(subject) {
+            return Err(codec_err(invalid));
         }
         let read = self.scoped_read()?;
-        let table = read.open_owner_table(COMMITTED_RESULTS).map_err(redb_err)?;
+        let table = read.open_owner_table(ledger).map_err(redb_err)?;
         Ok(table
-            .get(result_ref)
+            .get(subject)
             .map_err(redb_err)?
             .map(|v| v.value().to_string()))
     }
@@ -1349,17 +1365,11 @@ impl JobStore {
 
     /// Which owner (if any) first claimed `key`.
     pub fn idempotency_claimed_by(&self, key: &str) -> Result<Option<String>> {
-        if !valid_identifier(key) {
-            return Err(codec_err("analytics-job idempotency key is invalid"));
-        }
-        let read = self.scoped_read()?;
-        let table = read
-            .open_owner_table(IDEMPOTENCY_LEDGER)
-            .map_err(redb_err)?;
-        Ok(table
-            .get(key)
-            .map_err(redb_err)?
-            .map(|v| v.value().to_string()))
+        self.first_wins_owner(
+            IDEMPOTENCY_LEDGER,
+            key,
+            "analytics-job idempotency key is invalid",
+        )
     }
 
     // ── `JobIntent` registry (CONCEPT:INT-P2-1, daemon-consolidation design Phase 3) ──
@@ -1757,11 +1767,7 @@ fn reserved_cpu(job: &AnalyticsJob) -> u64 {
 }
 
 fn tenant_index_key(tenant: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(b"eg-jobs.tenant-index.v1\0");
-    hasher.update(tenant.as_bytes());
-    hex::encode(hasher.finalize())
+    index_key(b"eg-jobs.tenant-index.v1\0", tenant)
 }
 
 fn adjust_tenant_total(
@@ -1870,10 +1876,17 @@ fn tenant_active_total(
 }
 
 fn capability_index_key(token: &str) -> String {
+    index_key(b"eg-jobs.capability-index.v1\0", token)
+}
+
+/// A stable secondary-index key: SHA-256 over the NUL-terminated `domain` tag followed by
+/// `value`, hex-encoded. The domain tag is what keeps the tenant and capability index
+/// spaces from colliding on the same input string.
+fn index_key(domain: &[u8], value: &str) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(b"eg-jobs.capability-index.v1\0");
-    hasher.update(token.as_bytes());
+    hasher.update(domain);
+    hasher.update(value.as_bytes());
     hex::encode(hasher.finalize())
 }
 
@@ -2094,7 +2107,18 @@ fn collect_expired_lease_ids(
     wtx: &AdmittedMutation<'_, JobsOwner>,
     now_ms: i64,
 ) -> Result<Vec<String>> {
-    let table = wtx.open_read_table(JOB_LEASE_EXPIRY).map_err(redb_err)?;
+    collect_due_ids(wtx, JOB_LEASE_EXPIRY, now_ms)
+}
+
+/// The job ids in a `(timestamp, job_id)`-keyed scheduler index whose timestamp is at or
+/// before `now_ms`, in key order. Refuses to return more than one reconciliation batch's
+/// worth, so a corrupted or runaway index cannot make a sweep unbounded.
+fn collect_due_ids(
+    wtx: &AdmittedMutation<'_, JobsOwner>,
+    index: TableDefinition<'static, (i64, &str), ()>,
+    now_ms: i64,
+) -> Result<Vec<String>> {
+    let table = wtx.open_read_table(index).map_err(redb_err)?;
     let mut ids = Vec::new();
     for row in table
         .range_inclusive((i64::MIN, ""), (now_ms, "\u{10ffff}"))
@@ -2163,19 +2187,7 @@ fn reconcile_expired_lease_job(
 /// out of `reconcile_scheduler` (extract-method, cx/wD8) — same limit check,
 /// same order as before.
 fn collect_deadline_ids(wtx: &AdmittedMutation<'_, JobsOwner>, now_ms: i64) -> Result<Vec<String>> {
-    let table = wtx.open_read_table(JOB_DEADLINE).map_err(redb_err)?;
-    let mut ids = Vec::new();
-    for row in table
-        .range_inclusive((i64::MIN, ""), (now_ms, "\u{10ffff}"))
-        .map_err(redb_err)?
-    {
-        let (key, _) = row.map_err(redb_err)?;
-        if ids.len() >= MAX_SCHEDULER_RECONCILE_ITEMS {
-            return Err(codec_err("scheduler reconciliation exceeds limits"));
-        }
-        ids.push(key.value().1.to_string());
-    }
-    Ok(ids)
+    collect_due_ids(wtx, JOB_DEADLINE, now_ms)
 }
 
 /// Reconcile one deadline-exceeded job. Split out of `reconcile_scheduler`
