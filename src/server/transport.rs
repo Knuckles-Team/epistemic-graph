@@ -419,14 +419,32 @@ pub(crate) fn validate_nested_msgpack(
     .map_err(|_| "invalid or over-complex nested MessagePack payload")
 }
 
-fn connection_io_timeout() -> std::time::Duration {
-    let seconds = std::env::var("EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS")
+/// One environment-configured whole-second timeout: a positive `u64`, clamped into the
+/// range that timeout accepts, else the compiled-in default.
+///
+/// The transport's three timeouts differ only in variable, default and accepted range,
+/// so none of them can drift into accepting a zero, a non-numeric value, or an
+/// unbounded one the others reject.
+fn seconds_from_env(
+    variable: &str,
+    default_seconds: u64,
+    accepted: std::ops::RangeInclusive<u64>,
+) -> std::time::Duration {
+    let seconds = std::env::var(variable)
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
         .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_CONNECTION_IO_TIMEOUT_SECS)
-        .clamp(1, 3_600);
+        .unwrap_or(default_seconds)
+        .clamp(*accepted.start(), *accepted.end());
     std::time::Duration::from_secs(seconds)
+}
+
+fn connection_io_timeout() -> std::time::Duration {
+    seconds_from_env(
+        "EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS",
+        DEFAULT_CONNECTION_IO_TIMEOUT_SECS,
+        1..=3_600,
+    )
 }
 
 /// CONCEPT:EG-KG.coordination.backpressure-busy-signal — the hard per-dispatch deadline.
@@ -446,13 +464,11 @@ fn connection_io_timeout() -> std::time::Duration {
 /// wedged durable-writer thread, a lost oneshot, a dropped completion) can still not
 /// strand the reservation.
 fn dispatch_deadline() -> std::time::Duration {
-    let seconds = std::env::var("EPISTEMIC_GRAPH_DISPATCH_DEADLINE_SECS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_DISPATCH_DEADLINE_SECS)
-        .clamp(1, 86_400);
-    std::time::Duration::from_secs(seconds)
+    seconds_from_env(
+        "EPISTEMIC_GRAPH_DISPATCH_DEADLINE_SECS",
+        DEFAULT_DISPATCH_DEADLINE_SECS,
+        1..=86_400,
+    )
 }
 
 /// Run one dispatch under the hard deadline (CONCEPT:EG-KG.coordination.backpressure-busy-signal).
@@ -491,13 +507,11 @@ where
 }
 
 fn tls_handshake_timeout() -> std::time::Duration {
-    let seconds = std::env::var("EPISTEMIC_GRAPH_TLS_HANDSHAKE_TIMEOUT_SECS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_TLS_HANDSHAKE_TIMEOUT_SECS)
-        .clamp(1, 120);
-    std::time::Duration::from_secs(seconds)
+    seconds_from_env(
+        "EPISTEMIC_GRAPH_TLS_HANDSHAKE_TIMEOUT_SECS",
+        DEFAULT_TLS_HANDSHAKE_TIMEOUT_SECS,
+        1..=120,
+    )
 }
 
 /// The admission permits a request was granted (held by the dispatch task and

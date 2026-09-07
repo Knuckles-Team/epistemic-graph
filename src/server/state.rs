@@ -28,6 +28,26 @@ pub const MAX_BATCH_IDS: usize = 100_000;
 /// pagination) INSTEAD of building the pathological frame.
 pub const DEFAULT_MAX_RESPONSE_NODES: usize = 50_000;
 
+/// One positive-`usize` served-response bound, read from the environment ONCE into
+/// `cache` and reused thereafter.
+///
+/// Zero, absent and non-parsable values resolve to `default`: a served response bound
+/// cannot be disabled, and the node and edge caps cannot drift on what they accept or
+/// on how many times they read the environment.
+fn cached_positive_usize_from_env(
+    cache: &'static std::sync::OnceLock<usize>,
+    variable: &str,
+    default: usize,
+) -> usize {
+    *cache.get_or_init(|| {
+        std::env::var(variable)
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(default)
+    })
+}
+
 /// Resolve the `GetNodes` full-dump node cap, read ONCE from
 /// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES` (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). Cached in a
 /// `OnceLock` so the env var is parsed a single time at first use, matching the
@@ -35,15 +55,12 @@ pub const DEFAULT_MAX_RESPONSE_NODES: usize = 50_000;
 /// `ServerState` construction site. Zero, absent, and non-parsable values resolve
 /// to [`DEFAULT_MAX_RESPONSE_NODES`]; the served response bound cannot be disabled.
 pub fn max_response_nodes() -> usize {
-    use std::sync::OnceLock;
-    static CAP: OnceLock<usize> = OnceLock::new();
-    *CAP.get_or_init(|| {
-        std::env::var("EPISTEMIC_GRAPH_MAX_RESPONSE_NODES")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .filter(|value| *value > 0)
-            .unwrap_or(DEFAULT_MAX_RESPONSE_NODES)
-    })
+    static CAP: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    cached_positive_usize_from_env(
+        &CAP,
+        "EPISTEMIC_GRAPH_MAX_RESPONSE_NODES",
+        DEFAULT_MAX_RESPONSE_NODES,
+    )
 }
 
 /// Default cap on the number of edges a `GetEdges`-style FULL-graph dump may
@@ -102,15 +119,12 @@ pub(crate) fn placement_authority_kind(
 /// single time at first use. Zero, absent, and non-parsable values resolve to
 /// [`DEFAULT_MAX_RESPONSE_EDGES`]; the served response bound cannot be disabled.
 pub fn max_response_edges() -> usize {
-    use std::sync::OnceLock;
-    static CAP: OnceLock<usize> = OnceLock::new();
-    *CAP.get_or_init(|| {
-        std::env::var("EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .filter(|value| *value > 0)
-            .unwrap_or(DEFAULT_MAX_RESPONSE_EDGES)
-    })
+    static CAP: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    cached_positive_usize_from_env(
+        &CAP,
+        "EPISTEMIC_GRAPH_MAX_RESPONSE_EDGES",
+        DEFAULT_MAX_RESPONSE_EDGES,
+    )
 }
 
 /// Read the OCC-transaction TTL + open-txn caps from the environment
