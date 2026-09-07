@@ -428,6 +428,22 @@ def _substitute_matrix(text: str, combo: dict) -> str:
     return MATRIX_EXPR_RE.sub(repl, text)
 
 
+def _cartesian_legs(matrix: dict) -> list[dict]:
+    """One combo dict per combination of the matrix's list-valued axes.
+    `include`/`exclude` are not axes: include entries are appended by the
+    caller and exclude is deliberately unimplemented (see
+    _matrix_combinations)."""
+    axes = {
+        k: v
+        for k, v in matrix.items()
+        if k not in ("include", "exclude") and isinstance(v, list)
+    }
+    combos: list[dict] = [{}] if axes else []
+    for key, values in axes.items():
+        combos = [dict(c, **{key: v}) for c in combos for v in values]
+    return combos
+
+
 def _matrix_combinations(matrix: dict | None) -> list[dict]:
     """Cartesian-expand a `strategy.matrix` block into concrete per-leg
     combo dicts: one entry per (axis-value-combination ∪ include-entry).
@@ -438,19 +454,12 @@ def _matrix_combinations(matrix: dict | None) -> list[dict]:
     dropping a leg."""
     if not matrix:
         return [{}]
-    axes = {
-        k: v
-        for k, v in matrix.items()
-        if k not in ("include", "exclude") and isinstance(v, list)
-    }
-    combos: list[dict] = []
-    if axes:
-        combos = [{}]
-        for key, values in axes.items():
-            combos = [dict(c, **{key: v}) for c in combos for v in values]
-    for extra in matrix.get("include", []) or []:
-        if isinstance(extra, dict):
-            combos.append(dict(extra))
+    combos = _cartesian_legs(matrix)
+    combos.extend(
+        dict(extra)
+        for extra in (matrix.get("include") or [])
+        if isinstance(extra, dict)
+    )
     return combos or [{}]
 
 
@@ -569,12 +578,59 @@ def _job_blocking(spec_blocking: bool, job: dict) -> bool:
     treated conservatively as blocking since it cannot be evaluated
     generically here -- `build` itself is not in any WorkflowSpec.
     executable_jobs, so this never actually needs to resolve that
-    expression today. Extracted to its own function (not inlined at the
-    call site) so it does not add to build_plan_for_workflow's own
-    complexity count -- that function is already over this repo's
-    cyclomatic/cognitive caps and must never be made WORSE, per this
-    project's no-ratchets complexity discipline."""
+    expression today."""
     return spec_blocking and job.get("continue-on-error") is not True
+
+
+def _step_disposition(
+    step: dict, skip_reason: str | None, feature_table: dict[str, list[str]]
+) -> tuple[str, str]:
+    """How one already-matrix-substituted step runs in this replica.
+
+    `skip_reason` is the owning job's `WorkflowSpec.job_skip_reasons` entry when
+    the job is not executable here; a step of an executable job is classified on
+    its own text, then demoted to TOOLCHAIN_MISSING when its cargo invocation
+    needs a build tool this host does not have (GAP 4).
+    """
+    if skip_reason is not None:
+        return "SKIP_LOUD", skip_reason
+    mode, detail = classify_step(step)
+    if mode != "RUN":
+        return mode, detail
+    toolchain_reason = check_toolchain_requirements(detail, feature_table)
+    if toolchain_reason is not None:
+        return "TOOLCHAIN_MISSING", toolchain_reason
+    return mode, detail
+
+
+def _job_plan_rows(
+    spec: WorkflowSpec,
+    job_id: str,
+    job: dict,
+    skip_reason: str | None,
+    feature_table: dict[str, list[str]],
+) -> list[dict]:
+    """Every plan row one job contributes: one per (matrix leg x step)."""
+    steps = _job_steps(job)
+    blocking = _job_blocking(spec.blocking, job)
+    matrix = ((job.get("strategy") or {}).get("matrix")) or None
+    rows: list[dict] = []
+    for combo in _matrix_combinations(matrix):
+        job_label = job_id + _combo_label(combo)
+        for step in steps:
+            substituted = _apply_matrix(step, combo)
+            mode, detail = _step_disposition(substituted, skip_reason, feature_table)
+            rows.append(
+                {
+                    "workflow": spec.filename,
+                    "blocking": blocking,
+                    "job": job_label,
+                    "name": _step_label(substituted),
+                    "mode": mode,
+                    "detail": detail,
+                }
+            )
+    return rows
 
 
 def build_plan_for_workflow(
@@ -599,43 +655,17 @@ def build_plan_for_workflow(
     unclassified: list[str] = []
 
     for job_id, job in jobs.items():
-        job = job or {}
-        steps = _job_steps(job)
-        matrix = ((job.get("strategy") or {}).get("matrix")) or None
-        combos = _matrix_combinations(matrix)
-
         if job_id in spec.executable_jobs:
-            mode_for_missing = None  # classified per-step below
+            skip_reason = None
         elif job_id in spec.job_skip_reasons:
-            mode_for_missing = "SKIP_LOUD"
+            skip_reason = spec.job_skip_reasons[job_id]
         else:
             unclassified.append(job_id)
             continue
 
-        for combo in combos:
-            job_label = job_id + _combo_label(combo)
-            for step in steps:
-                step2 = _apply_matrix(step, combo)
-                if mode_for_missing == "SKIP_LOUD":
-                    mode, detail = "SKIP_LOUD", spec.job_skip_reasons[job_id]
-                else:
-                    mode, detail = classify_step(step2)
-                    if mode == "RUN":
-                        toolchain_reason = check_toolchain_requirements(
-                            detail, feature_table
-                        )
-                        if toolchain_reason is not None:
-                            mode, detail = "TOOLCHAIN_MISSING", toolchain_reason
-                plan.append(
-                    {
-                        "workflow": spec.filename,
-                        "blocking": _job_blocking(spec.blocking, job),
-                        "job": job_label,
-                        "name": _step_label(step2),
-                        "mode": mode,
-                        "detail": detail,
-                    }
-                )
+        plan.extend(
+            _job_plan_rows(spec, job_id, job or {}, skip_reason, feature_table)
+        )
 
     known = spec.executable_jobs | set(spec.job_skip_reasons)
     stale = sorted(j for j in known if j not in jobs)
@@ -671,42 +701,73 @@ def _parse_cargo_config_sections(text: str) -> list[tuple[str, str, str]]:
     narrow, well-known dialect (flat key=value under bracketed sections)
     and this only needs to find a handful of well-known keys, not
     round-trip arbitrary TOML. A `#`-comment is stripped outside of a
-    multi-line array; a `rustflags = [\\n  "...",\\n]` array is reassembled
+    multi-line array; a `rustflags = [\n  "...",\n]` array is reassembled
     onto one logical line via a bracket-depth counter before matching."""
     section = ""
     results: list[tuple[str, str, str]] = []
-    pending_key: str | None = None
-    pending_value = ""
+    pending: tuple[str, str] | None = None
     depth = 0
     for raw_line in text.splitlines():
-        if depth == 0:
-            line = raw_line.split("#", 1)[0]
-            stripped = line.strip()
-            m = _TOML_SECTION_RE.match(stripped)
-            if m:
-                section = m.group("name").strip("'\" ")
-                continue
-            if not stripped:
-                continue
-            kv = _TOML_KV_RE.match(stripped)
-            if not kv:
-                continue
-            key, value = kv.group("key"), kv.group("value")
-            depth += value.count("[") - value.count("]")
-            if depth > 0:
-                pending_key, pending_value = key, value
-                continue
-            results.append((section, key.strip("'\""), value))
-        else:
-            stripped = raw_line.split("#", 1)[0].strip()
-            pending_value += " " + stripped
+        stripped = raw_line.split("#", 1)[0].strip()
+        if pending is not None:
+            pending = (pending[0], pending[1] + " " + stripped)
             depth += stripped.count("[") - stripped.count("]")
             if depth <= 0:
-                results.append(
-                    (section, (pending_key or "").strip("'\""), pending_value)
-                )
-                pending_key, pending_value, depth = None, "", 0
+                results.append((section, pending[0].strip("'\""), pending[1]))
+                pending, depth = None, 0
+            continue
+        header = _TOML_SECTION_RE.match(stripped)
+        if header:
+            section = header.group("name").strip("'\" ")
+            continue
+        kv = _TOML_KV_RE.match(stripped)
+        if not kv:
+            continue
+        key, value = kv.group("key"), kv.group("value")
+        depth = value.count("[") - value.count("]")
+        if depth > 0:
+            pending = (key, value)
+            continue
+        depth = 0
+        results.append((section, key.strip("'\""), value))
     return results
+
+
+def _wrapper_binary(section: str, key: str, value: str) -> tuple[str, str] | None:
+    """The compiler wrapper every cargo invocation hard-depends on, if the
+    config declares one — either `[build] rustc-wrapper` or the `[env]`
+    `RUSTC_WRAPPER` entry cargo reads as its equivalent."""
+    if key == "rustc-wrapper" and section in ("build", ""):
+        name = value.strip("'\"")
+        return (name, f"[{section or 'build'}] rustc-wrapper") if name else None
+    if key.upper() == "RUSTC_WRAPPER" and section == "env":
+        quoted = re.search(r"[\"']([^\"']+)[\"']", value)
+        return (quoted.group(1), "[env] RUSTC_WRAPPER") if quoted else None
+    return None
+
+
+def _target_toolchain_binaries(
+    section: str, key: str, value: str
+) -> list[tuple[str, str]]:
+    """External binaries one `[target.*]` section's link/run settings require:
+    an explicit linker or runner, or a linker named inside rustflags."""
+    if not section.startswith("target."):
+        return []
+    if key == "linker":
+        name = value.strip("'\"")
+        return [(Path(name).name, f"[{section}] linker")] if name else []
+    if key == "runner":
+        tokens = value.strip("'\"").split()
+        return [(Path(tokens[0]).name, f"[{section}] runner")] if tokens else []
+    if key != "rustflags":
+        return []
+    return [
+        (m.group(1), f"[{section}] rustflags -fuse-ld")
+        for m in _FUSE_LD_RE.finditer(value)
+    ] + [
+        (Path(m.group(1)).name, f"[{section}] rustflags -C linker")
+        for m in _C_LINKER_RE.finditer(value)
+    ]
 
 
 def find_required_build_binaries(cargo_config_path: Path) -> list[tuple[str, str]]:
@@ -717,33 +778,15 @@ def find_required_build_binaries(cargo_config_path: Path) -> list[tuple[str, str
     check."""
     if not cargo_config_path.is_file():
         return []
-    text = cargo_config_path.read_text(encoding="utf-8")
     found: list[tuple[str, str]] = []
-    for section, key, raw_value in _parse_cargo_config_sections(text):
+    for section, key, raw_value in _parse_cargo_config_sections(
+        cargo_config_path.read_text(encoding="utf-8")
+    ):
         value = raw_value.strip()
-        if key == "rustc-wrapper" and section in ("build", ""):
-            name = value.strip("'\"")
-            if name:
-                found.append((name, f"[{section or 'build'}] rustc-wrapper"))
-        if key.upper() == "RUSTC_WRAPPER" and section == "env":
-            m = re.search(r"[\"']([^\"']+)[\"']", value)
-            if m:
-                found.append((m.group(1), "[env] RUSTC_WRAPPER"))
-        if key == "linker" and section.startswith("target."):
-            name = value.strip("'\"")
-            if name:
-                found.append((Path(name).name, f"[{section}] linker"))
-        if key == "runner" and section.startswith("target."):
-            tokens = value.strip("'\"").split()
-            if tokens:
-                found.append((Path(tokens[0]).name, f"[{section}] runner"))
-        if key == "rustflags" and section.startswith("target."):
-            for m in _FUSE_LD_RE.finditer(value):
-                found.append((m.group(1), f"[{section}] rustflags -fuse-ld"))
-            for m in _C_LINKER_RE.finditer(value):
-                found.append(
-                    (Path(m.group(1)).name, f"[{section}] rustflags -C linker")
-                )
+        wrapper = _wrapper_binary(section, key, value)
+        if wrapper is not None:
+            found.append(wrapper)
+        found.extend(_target_toolchain_binaries(section, key, value))
     return found
 
 
@@ -888,15 +931,18 @@ def _load_cargo_features(
     return doc.get("features", {}) or {}
 
 
+def _feature_names(value: str) -> set[str]:
+    """Comma- AND space-separated feature lists are both cargo-valid."""
+    return {v.strip() for v in re.split(r"[,\s]+", value) if v.strip()}
+
+
 def _extract_requested_features(run_text: str) -> tuple[set[str], bool]:
     """Tokenize a step's shell text the way a shell would (falling back to a
     plain whitespace split if it contains something shlex can't tokenize,
     e.g. an unbalanced quote from a stripped GHA expression) and pull out
     every `--features`/`-F` value plus whether `--all-features` appears
     anywhere. Deliberately tolerant of multiple cargo invocations in one
-    step (`&&`-chained) — every occurrence in the whole text is unioned.
-    Comma- AND space-separated feature lists are both cargo-valid, so both
-    are split on."""
+    step (`&&`-chained) — every occurrence in the whole text is unioned."""
     try:
         tokens = shlex.split(run_text, posix=True)
     except ValueError:
@@ -909,18 +955,12 @@ def _extract_requested_features(run_text: str) -> tuple[set[str], bool]:
         tok = tokens[i]
         if tok == "--all-features":
             all_features = True
-        elif tok in ("--features", "-F"):
-            if i + 1 < len(tokens):
-                features.update(
-                    v.strip() for v in re.split(r"[,\s]+", tokens[i + 1]) if v.strip()
-                )
-                i += 1
+        elif tok in ("--features", "-F") and i + 1 < len(tokens):
+            # The value token is consumed here so it is never re-read as a flag.
+            features |= _feature_names(tokens[i + 1])
+            i += 1
         elif tok.startswith("--features="):
-            features.update(
-                v.strip()
-                for v in re.split(r"[,\s]+", tok[len("--features=") :])
-                if v.strip()
-            )
+            features |= _feature_names(tok[len("--features=") :])
         i += 1
     return features, all_features
 
@@ -1041,6 +1081,106 @@ def diff_touches_build_affecting_files(
     return (len(hits) == 0, hits)
 
 
+@dataclass(frozen=True)
+class DriftReport:
+    """One class of drift between a workflow file and this replica's registry.
+
+    `bullets` are the already-rendered offender lines; `remedy` is the single
+    closing instruction printed after them (empty when the headline already
+    says what to do). An empty `bullets` is not drift.
+    """
+
+    headline: str
+    bullets: list[str]
+    remedy: str = ""
+
+    def report(self) -> None:
+        print(f"CONSISTENCY CHECK FAILED — {self.headline}")
+        for bullet in self.bullets:
+            print(f"  - {bullet}")
+        if self.remedy:
+            print(self.remedy)
+
+
+def _registry_drift(workflows_dir: Path) -> list[DriftReport]:
+    """Workflow files with no registry entry, and registry entries with no file."""
+    found_files = {p.name for p in discover_workflow_files(workflows_dir)}
+    registered = set(WORKFLOW_REGISTRY)
+    return [
+        DriftReport(
+            "workflow file(s) present but not in WORKFLOW_REGISTRY:",
+            [repr(f) for f in sorted(found_files - registered)],
+            "Add a WorkflowSpec entry for it in scripts/ci_gate_replica.py's "
+            "WORKFLOW_REGISTRY.",
+        ),
+        DriftReport(
+            "WORKFLOW_REGISTRY names workflow file(s) that no longer exist:",
+            [repr(f) for f in sorted(registered - found_files)],
+            "Remove the stale entry from WORKFLOW_REGISTRY.",
+        ),
+    ]
+
+
+def _job_drift(fname: str, unclassified: list[str], stale_jobs: list[str]) -> list[DriftReport]:
+    """Jobs one workflow has that the registry does not classify, and vice versa."""
+    return [
+        DriftReport(
+            f"{fname} has job(s) this replica does not classify:",
+            [
+                f"{j!r} is in neither executable_jobs nor job_skip_reasons "
+                f"for {fname}"
+                for j in unclassified
+            ],
+            f"Update WORKFLOW_REGISTRY[{fname!r}] to cover it.",
+        ),
+        DriftReport(
+            f"WORKFLOW_REGISTRY[{fname!r}] names job(s) no longer in {fname}:",
+            [repr(j) for j in stale_jobs],
+            f"Remove the stale entry from WORKFLOW_REGISTRY[{fname!r}].",
+        ),
+    ]
+
+
+def _registered_workflows(
+    workflows_dir: Path, workflow_docs: dict[str, dict] | None
+) -> list[tuple[str, WorkflowSpec, dict]]:
+    """Every registered workflow whose file exists, with its parsed document.
+    A registration with no file is skipped here — `_registry_drift` reports it."""
+    loaded = []
+    for fname, spec in WORKFLOW_REGISTRY.items():
+        if workflow_docs is not None and fname in workflow_docs:
+            loaded.append((fname, spec, workflow_docs[fname]))
+            continue
+        path = workflows_dir / fname
+        if path.is_file():
+            loaded.append((fname, spec, load_workflow(path)))
+    return loaded
+
+
+def _workflow_texts(workflows_dir: Path) -> dict[str, str]:
+    """Raw YAML of every registered workflow present on disk."""
+    return {
+        fname: (workflows_dir / fname).read_text(encoding="utf-8")
+        for fname in WORKFLOW_REGISTRY
+        if (workflows_dir / fname).is_file()
+    }
+
+
+def _workflow_job_census(
+    loaded: list[tuple[str, WorkflowSpec, dict]],
+) -> tuple[list[DriftReport], int, int]:
+    """Per-workflow job drift plus the job/step totals the summary line reports."""
+    drift: list[DriftReport] = []
+    total_jobs = 0
+    total_steps = 0
+    for fname, spec, doc in loaded:
+        plan, unclassified, stale_jobs = build_plan_for_workflow(spec, doc)
+        total_jobs += len(doc.get("jobs", {}) or {})
+        total_steps += len(plan)
+        drift.extend(_job_drift(fname, unclassified, stale_jobs))
+    return drift, total_jobs, total_steps
+
+
 def consistency_check(
     *,
     verbose: bool = True,
@@ -1051,98 +1191,43 @@ def consistency_check(
 ) -> bool:
     if cargo_config_path is None:
         cargo_config_path = CARGO_CONFIG_PATH
-    ok = True
 
-    found_files = {p.name for p in discover_workflow_files(workflows_dir)}
-    registered = set(WORKFLOW_REGISTRY)
-    unregistered = sorted(found_files - registered)
-    stale_registrations = sorted(registered - found_files)
-
-    if unregistered:
-        ok = False
-        if verbose:
-            print(
-                "CONSISTENCY CHECK FAILED — workflow file(s) present but not in WORKFLOW_REGISTRY:"
-            )
-            for f in unregistered:
-                print(f"  - {f!r}")
-            print(
-                "Add a WorkflowSpec entry for it in scripts/ci_gate_replica.py's WORKFLOW_REGISTRY."
-            )
-    if stale_registrations:
-        ok = False
-        if verbose:
-            print(
-                "CONSISTENCY CHECK FAILED — WORKFLOW_REGISTRY names workflow file(s) that no longer exist:"
-            )
-            for f in stale_registrations:
-                print(f"  - {f!r}")
-            print("Remove the stale entry from WORKFLOW_REGISTRY.")
-
-    total_jobs = 0
-    total_steps = 0
-    for fname, spec in WORKFLOW_REGISTRY.items():
-        if workflow_docs is not None and fname in workflow_docs:
-            doc = workflow_docs[fname]
-        else:
-            path = workflows_dir / fname
-            if not path.is_file():
-                continue  # already reported above as a stale registration
-            doc = load_workflow(path)
-
-        plan, unclassified, stale_jobs = build_plan_for_workflow(spec, doc)
-        total_jobs += len(doc.get("jobs", {}) or {})
-        total_steps += len(plan)
-
-        if unclassified:
-            ok = False
-            if verbose:
-                print(
-                    f"CONSISTENCY CHECK FAILED — {fname} has job(s) this replica does not classify:"
-                )
-                for j in unclassified:
-                    print(
-                        f"  - {j!r} is in neither executable_jobs nor job_skip_reasons for {fname}"
-                    )
-                print(f"Update WORKFLOW_REGISTRY[{fname!r}] to cover it.")
-        if stale_jobs:
-            ok = False
-            if verbose:
-                print(
-                    f"CONSISTENCY CHECK FAILED — WORKFLOW_REGISTRY[{fname!r}] names job(s) no longer in {fname}:"
-                )
-                for j in stale_jobs:
-                    print(f"  - {j!r}")
-                print(f"Remove the stale entry from WORKFLOW_REGISTRY[{fname!r}].")
+    drift = _registry_drift(workflows_dir)
+    per_workflow, total_jobs, total_steps = _workflow_job_census(
+        _registered_workflows(workflows_dir, workflow_docs)
+    )
+    drift.extend(per_workflow)
 
     # GAP 2, folded into the same fast, pure, every-commit check.
     if workflow_texts is None:
-        workflow_texts = {
-            fname: (workflows_dir / fname).read_text(encoding="utf-8")
-            for fname in WORKFLOW_REGISTRY
-            if (workflows_dir / fname).is_file()
-        }
-    build_tool_problems = check_build_tool_dependencies(
-        cargo_config_path, workflow_texts
-    )
-    if build_tool_problems:
-        ok = False
-        if verbose:
-            print(
-                "CONSISTENCY CHECK FAILED — a build-config external-binary dependency "
-                "is never installed by the workflow(s) that would need it:"
-            )
-            for p in build_tool_problems:
-                print(f"  - {p}")
-
-    if ok and verbose:
-        print(
-            f"CONSISTENCY CHECK PASSED — {len(WORKFLOW_REGISTRY)} workflow(s) registered "
-            f"({sorted(WORKFLOW_REGISTRY)}), {total_jobs} job(s), all classified, "
-            f"{total_steps} step(s) total across all matrix legs; no unresolved build-tool "
-            f"dependency found."
+        workflow_texts = _workflow_texts(workflows_dir)
+    drift.append(
+        DriftReport(
+            "a build-config external-binary dependency is never installed by "
+            "the workflow(s) that would need it:",
+            [
+                str(problem)
+                for problem in check_build_tool_dependencies(
+                    cargo_config_path, workflow_texts
+                )
+            ],
         )
-    return ok
+    )
+
+    failures = [report for report in drift if report.bullets]
+    if not verbose:
+        return not failures
+    for failure in failures:
+        failure.report()
+    if failures:
+        return False
+    print(
+        f"CONSISTENCY CHECK PASSED — {len(WORKFLOW_REGISTRY)} workflow(s) registered "
+        f"({sorted(WORKFLOW_REGISTRY)}), {total_jobs} job(s), all classified, "
+        f"{total_steps} step(s) total across all matrix legs; no unresolved build-tool "
+        f"dependency found."
+    )
+    return True
 
 
 def _run_step(
