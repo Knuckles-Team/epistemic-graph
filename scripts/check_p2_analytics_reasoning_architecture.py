@@ -7,10 +7,33 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from rust_module_tree import read_module_tree  # noqa: E402
+
+
+def _source(path: str) -> str:
+    """The compiler-declared production source of a Rust module, not one file.
+
+    Each needle below names a behaviour a *module* must carry. Reading only the
+    facade file made every assertion silently stale the moment that module was
+    decomposed into `<name>.rs` + `<name>/**`: the four consensus needles this
+    gate reported missing from `src/server/dispatch.rs` all still exist, they
+    just moved into `src/server/dispatch/consensus.rs`. The test-inclusive
+    view is deliberate -- it is the exact superset of the single file this gate
+    used to read (one needle here, `replicated_submission_and_claim_converge_
+    across_independent_projections`, names a required test), so repointing adds
+    declared children without narrowing any existing assertion. Non-Rust inputs
+    (`Cargo.toml`) are read verbatim.
+    """
+
+    if not path.endswith(".rs"):
+        return (ROOT / path).read_text(encoding="utf-8")
+    return read_module_tree(path, root_dir=ROOT, include_tests=True)
 
 
 def require(path: str, needles: list[str], failures: list[str]) -> str:
-    text = (ROOT / path).read_text(encoding="utf-8")
+    text = _source(path)
     for needle in needles:
         if needle not in text:
             failures.append(f"{path}: missing {needle!r}")

@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import ast
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from rust_module_tree import read_module_tree  # noqa: E402
 
 PHASES = {
     "before_rows",
@@ -34,6 +38,23 @@ DOMAINS = {
 
 def _read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def _read_rust_module(relative: str) -> str:
+    """The compiler-declared source of a Rust module, not one facade file.
+
+    The fault seam this gate pins is a property of the `mutation_batch` module,
+    not of `crates/eg-types/src/mutation_batch.rs` specifically. When that
+    module was decomposed into `mutation_batch.rs` + `mutation_batch/**` every
+    one of the twelve seam tokens moved into `mutation_batch/fault.rs` and
+    `mutation_batch/model/request.rs`, and this gate reported the entire
+    certification fault seam as deleted. Reading the module the way the compiler
+    assembles it (test-inclusive, the exact superset of the single file that was
+    read before) makes a decomposition invisible to the gate and a real deletion
+    still fatal.
+    """
+
+    return read_module_tree(relative, root_dir=ROOT, include_tests=True)
 
 
 def _without_module_docstring(source: str) -> str:
@@ -196,7 +217,7 @@ def _check_harness_contract(harness: str) -> list[str]:
 
 def _check_fault_seam_contract() -> list[str]:
     errors: list[str] = []
-    types = _read("crates/eg-types/src/mutation_batch.rs")
+    types = _read_rust_module("crates/eg-types/src/mutation_batch.rs")
     _require(
         types,
         {

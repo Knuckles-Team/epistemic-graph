@@ -130,9 +130,16 @@ _CFG_TOKEN = re.compile(
     r"\s*(?:(?P<ident>[A-Za-z_][A-Za-z0-9_]*)|"
     r'(?P<string>"(?:\\.|[^"\\])*")|(?P<punct>[(),=]))'
 )
+# `derive`, like the lint attributes, takes a parenthesized path list and is
+# inert for module discovery: unlike `cfg`, `cfg_attr` and `path` it can neither
+# drop an item nor name a source file, so it cannot move a `mod` declaration.
+# Rejecting it made every eg-types module tree unreadable (195 occurrences of
+# `cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))`), which
+# is what kept four architecture gates pinned to single facade files.
 _CFG_ATTR_INERT_ATTRIBUTES = {
     "allow",
     "deny",
+    "derive",
     "doc",
     "forbid",
     "recursion_limit",
@@ -485,14 +492,14 @@ def _validate_inert_conditional_attribute(
     end: int,
 ) -> None:
     failure = f"unsupported conditional Rust attribute shape: {name}"
-    if name in {"allow", "deny", "forbid", "warn"}:
+    if name in {"allow", "deny", "derive", "forbid", "warn"}:
         require(cursor < end and mask[cursor] == "(", failure)
         closer = _balanced_span_from(mask, cursor, "(", ")")
         require(not mask[closer + 1 : end].strip(), failure)
-        lint = r"[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*"
+        item = r"[A-Za-z_][A-Za-z0-9_]*(?:\s*::\s*[A-Za-z_][A-Za-z0-9_]*)*"
         require(
             re.fullmatch(
-                rf"\s*{lint}(?:\s*,\s*{lint})*\s*,?\s*", mask[cursor + 1 : closer]
+                rf"\s*{item}(?:\s*,\s*{item})*\s*,?\s*", mask[cursor + 1 : closer]
             )
             is not None,
             failure,

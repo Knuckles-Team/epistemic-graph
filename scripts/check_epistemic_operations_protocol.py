@@ -207,15 +207,65 @@ def _rust_fields() -> dict[str, list[str]]:
     return structs
 
 
+def _attribute_block_before(source: str, index: int) -> str:
+    """The contiguous attribute/comment block immediately preceding `index`.
+
+    Attributes on a Rust item are an unordered block, so the previous
+    adjacency-only regex (`#[serde(deny_unknown_fields)]` immediately followed
+    by `pub struct X {`) reported the invariant as VIOLATED as soon as any other
+    attribute was appended after it -- which is what
+    `#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]` did
+    to every DTO in this file. Walking the block backwards over balanced
+    `#[...]` spans reads the whole attribute set the compiler sees, so ordering
+    is irrelevant and a genuinely absent attribute is still fatal.
+    """
+
+    block: list[str] = []
+    cursor = index
+    while True:
+        head = source[:cursor].rstrip()
+        start = _preceding_attribute_start(head)
+        if start is None:
+            line_start = head.rfind("\n") + 1
+            if not head[line_start:].lstrip().startswith("//"):
+                return "\n".join(reversed(block))
+            start = line_start
+        block.append(head[start:])
+        cursor = start
+
+
+def _preceding_attribute_start(head: str) -> int | None:
+    """Where the `#[...]` attribute ending `head` begins, if there is one."""
+
+    if not head.endswith("]"):
+        return None
+    depth = 0
+    scan = len(head) - 1
+    while scan >= 0:
+        if head[scan] == "]":
+            depth += 1
+        elif head[scan] == "[":
+            depth -= 1
+            if not depth:
+                break
+        scan -= 1
+    if scan <= 0 or head[scan - 1] != "#":
+        return None
+    return scan - 1
+
+
 def _assert_rust_closed(bindings: list[dict[str, Any]]) -> None:
     source = RUST_SOURCE.read_text(encoding="utf-8")
     for binding in bindings:
-        rust_type = re.escape(str(binding["rust_type"]))
-        pattern = (
-            rf"#\[serde\(deny_unknown_fields\)\]\s*pub\s+struct\s+{rust_type}\s*\{{"
+        rust_type = str(binding["rust_type"])
+        declaration = re.search(
+            rf"\bpub\s+struct\s+{re.escape(rust_type)}\s*\{{", source
         )
-        if re.search(pattern, source) is None:
-            raise GateError(f"Rust {binding['rust_type']} must deny unknown fields")
+        if declaration is None:
+            raise GateError(f"Rust {rust_type} is not declared")
+        attributes = _attribute_block_before(source, declaration.start())
+        if "#[serde(deny_unknown_fields)]" not in "".join(attributes.split()):
+            raise GateError(f"Rust {rust_type} must deny unknown fields")
     for match in RUST_OPTION_FIELD_RE.finditer(source):
         if 'deserialize_with = "deserialize_required_option"' not in match.group(
             "attributes"
