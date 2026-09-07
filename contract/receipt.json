@@ -27,8 +27,8 @@
     "epistemic_graph/generated/storage.py": "cdf7e34d05ad93dc1f72c835cb0a8905f0ec5a0bcea69d982d22a2ccb08dd8d1",
     "epistemic_graph/generated/transactions.py": "620eca482b86fd65c956204e308ef15a4d6765fa21887a4a93dbe40dd85998be"
   },
-  "cargo_lock_sha256": "e6a3e0ec2641ace430f44a58df19068d6568cdf1949f1bdf92a04369ee53d6b4",
-  "contract_digest": "3cffa1e236d1c2feb4ebce010ace5bda6d1a35e43dfe9a820166739ad691cdcb",
+  "cargo_lock_sha256": "1095313b8ba47b4d2ddf3a6ac6eb7af6acc1996d2d17404e83e8c3cc66cec657",
+  "contract_digest": "c8c7ddf5c768ba33e9e14670b38af685ddc429dbb585563f5128555b99d44500",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -45,7 +45,7 @@
   "format_identities": {
     "ANALYTICS_JOB_SCOPE_INCARNATION": {
       "sites": [
-        "crates/eg-jobs/src/store.rs:2365"
+        "crates/eg-jobs/src/store.rs:2406"
       ],
       "value": "\"incarnation:eg-jobs:analytics-jobs:1\""
     },
@@ -61,6 +61,30 @@
       ],
       "value": "4"
     },
+    "CATALOG_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/persistence/tenant_catalog.rs:54"
+      ],
+      "value": "\"tenant-catalog:v1\""
+    },
+    "CLUSTER_HIERARCHY_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/persistence/cluster_hierarchy_store.rs:42"
+      ],
+      "value": "\"cluster-hierarchy:v1\""
+    },
+    "COLD_SCOPE_INCARNATION": {
+      "sites": [
+        "crates/eg-kvcache/src/cold.rs:131"
+      ],
+      "value": "\"kvcache-cold:v1\""
+    },
+    "COLD_TIER_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/cold_tier_impl.rs:23"
+      ],
+      "value": "\"cold-tier:v1\""
+    },
     "COMPILED_BATCH_INCARNATION": {
       "sites": [
         "crates/eg-types/src/mutation_batch/model/identity.rs:176"
@@ -75,7 +99,13 @@
     },
     "CONSENSUS_TXN_SCHEMA_VERSION": {
       "sites": [
-        "src/server/handlers/txn.rs:1959"
+        "src/server/handlers/txn.rs:1955"
+      ],
+      "value": "1"
+    },
+    "DIRECT_STATE_SCHEMA_VERSION": {
+      "sites": [
+        "crates/eg-storage/src/direct_state/contract.rs:43"
       ],
       "value": "1"
     },
@@ -111,7 +141,7 @@
     },
     "INSTANCE_MUTATION_INCARNATION": {
       "sites": [
-        "crates/eg-statechart/src/store.rs:733"
+        "crates/eg-statechart/src/store/batches.rs:23"
       ],
       "value": "\"incarnation:eg-statechart:statechart-instances:1\""
     },
@@ -145,6 +175,18 @@
       ],
       "value": "1"
     },
+    "NODE_INFO_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/persistence/node_info_store.rs:45"
+      ],
+      "value": "\"node-info:v1\""
+    },
+    "PATH_SCOPE_INCARNATION": {
+      "sites": [
+        "crates/eg-core/src/path_persist.rs:192"
+      ],
+      "value": "\"path-index:v1\""
+    },
     "POLICY_BUNDLE_FORMAT_VERSION": {
       "sites": [
         "src/server/policy_export/mod.rs:183"
@@ -168,6 +210,12 @@
         "crates/eg-query/src/tables/property_graph/model.rs:20"
       ],
       "value": "1"
+    },
+    "PROVENANCE_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/viz_provenance.rs:51"
+      ],
+      "value": "\"viz-provenance:v1\""
     },
     "RAFT_RESPONSE_SCHEMA_VERSION": {
       "sites": [
@@ -195,9 +243,15 @@
     },
     "RBAC_SCOPE_INCARNATION": {
       "sites": [
-        "crates/eg-core/src/rbac_persist.rs:53"
+        "crates/eg-core/src/rbac_persist.rs:58"
       ],
       "value": "\"rbac-security-control:v1\""
+    },
+    "REPLAY_SCOPE_INCARNATION": {
+      "sites": [
+        "src/server/request_replay.rs:75"
+      ],
+      "value": "\"request-replay:v1\""
     },
     "SCHEMA_MIGRATION_FORMAT_VERSION": {
       "sites": [
@@ -246,6 +300,6 @@
     "dispatch-only": 78,
     "undeclared": 222
   },
-  "source_tree_oid": "42a11141de0392003b50730906bdb7ca128beaa8c6f69fb39ae48831bef4af98",
+  "source_tree_oid": "0a638f3ebc072df67c8ddbe9f44332af4af2953ed62af5017c8e4120cc54c775",
   "typed_result_methods": 129
 }
