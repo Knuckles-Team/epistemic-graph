@@ -56,9 +56,9 @@ pub fn from_wkb_srid(bytes: &[u8]) -> Result<(Option<u32>, Geometry), String> {
 
 // ── writer ───────────────────────────────────────────────────────────────────────
 
-fn write_geom(out: &mut Vec<u8>, geom: &Geometry, srid: Option<u32>) {
-    out.push(1); // NDR little-endian
-    let base = match geom {
+/// The WKB geometry type code for `geom` — the OGC type-code table, one arm per kind.
+fn wkb_type_code(geom: &Geometry) -> u32 {
+    match geom {
         Geometry::Point(_) => WKB_POINT,
         Geometry::LineString(_) => WKB_LINESTRING,
         Geometry::Polygon(_) => WKB_POLYGON,
@@ -66,7 +66,14 @@ fn write_geom(out: &mut Vec<u8>, geom: &Geometry, srid: Option<u32>) {
         Geometry::MultiLineString(_) => WKB_MULTILINESTRING,
         Geometry::MultiPolygon(_) => WKB_MULTIPOLYGON,
         Geometry::GeometryCollection(_) => WKB_GEOMETRYCOLLECTION,
-    };
+    }
+}
+
+/// Write a geometry header: the NDR byte-order flag, the type code (with the EWKB SRID
+/// bit set when `srid` is given), and the SRID itself.
+fn write_header(out: &mut Vec<u8>, geom: &Geometry, srid: Option<u32>) {
+    out.push(1); // NDR little-endian
+    let base = wkb_type_code(geom);
     let ty = if srid.is_some() {
         base | EWKB_SRID_FLAG
     } else {
@@ -76,28 +83,37 @@ fn write_geom(out: &mut Vec<u8>, geom: &Geometry, srid: Option<u32>) {
     if let Some(s) = srid {
         out.extend_from_slice(&s.to_le_bytes());
     }
+}
+
+/// Write a member count followed by each member as a standalone (SRID-less) geometry —
+/// the payload shape shared by MultiPoint, MultiLineString, MultiPolygon and
+/// GeometryCollection. `members` is consumed lazily, so no member list is materialised.
+fn write_members(out: &mut Vec<u8>, count: usize, members: impl Iterator<Item = Geometry>) {
+    out.extend_from_slice(&(count as u32).to_le_bytes());
+    for g in members {
+        write_geom(out, &g, None);
+    }
+}
+
+fn write_geom(out: &mut Vec<u8>, geom: &Geometry, srid: Option<u32>) {
+    write_header(out, geom, srid);
     match geom {
         Geometry::Point(p) => write_point(out, p),
         Geometry::LineString(l) => write_line(out, l),
         Geometry::Polygon(pg) => write_poly(out, pg),
         Geometry::MultiPoint(ps) => {
-            out.extend_from_slice(&(ps.len() as u32).to_le_bytes());
-            for p in ps {
-                write_geom(out, &Geometry::Point(*p), None);
-            }
+            write_members(out, ps.len(), ps.iter().map(|p| Geometry::Point(*p)))
         }
-        Geometry::MultiLineString(ls) => {
-            out.extend_from_slice(&(ls.len() as u32).to_le_bytes());
-            for l in ls {
-                write_geom(out, &Geometry::LineString(l.clone()), None);
-            }
-        }
-        Geometry::MultiPolygon(pgs) => {
-            out.extend_from_slice(&(pgs.len() as u32).to_le_bytes());
-            for pg in pgs {
-                write_geom(out, &Geometry::Polygon(pg.clone()), None);
-            }
-        }
+        Geometry::MultiLineString(ls) => write_members(
+            out,
+            ls.len(),
+            ls.iter().map(|l| Geometry::LineString(l.clone())),
+        ),
+        Geometry::MultiPolygon(pgs) => write_members(
+            out,
+            pgs.len(),
+            pgs.iter().map(|pg| Geometry::Polygon(pg.clone())),
+        ),
         Geometry::GeometryCollection(gs) => {
             out.extend_from_slice(&(gs.len() as u32).to_le_bytes());
             for g in gs {
@@ -122,16 +138,10 @@ fn write_line(out: &mut Vec<u8>, l: &LineString) {
 fn write_poly(out: &mut Vec<u8>, pg: &Polygon) {
     let n_rings = 1 + pg.interiors.len();
     out.extend_from_slice(&(n_rings as u32).to_le_bytes());
-    write_ring(out, &pg.exterior);
+    // A WKB ring has the same encoding as a LineString: a point count then the points.
+    write_line(out, &pg.exterior);
     for r in &pg.interiors {
-        write_ring(out, r);
-    }
-}
-
-fn write_ring(out: &mut Vec<u8>, r: &LineString) {
-    out.extend_from_slice(&(r.points.len() as u32).to_le_bytes());
-    for p in &r.points {
-        write_point(out, p);
+        write_line(out, r);
     }
 }
 
@@ -164,15 +174,21 @@ impl<'a> Cursor<'a> {
         Ok(b)
     }
 
-    fn u32(&mut self) -> Result<u32, String> {
-        let end = self.pos + 4;
-        let bytes: [u8; 4] = self
+    /// Take the next `N` bytes and advance, or fail naming the field that ran out.
+    fn take<const N: usize>(&mut self, field: &str) -> Result<[u8; N], String> {
+        let end = self.pos + N;
+        let bytes: [u8; N] = self
             .buf
             .get(self.pos..end)
-            .ok_or_else(|| "WKB: truncated u32".to_string())?
+            .ok_or_else(|| format!("WKB: truncated {field}"))?
             .try_into()
             .unwrap();
         self.pos = end;
+        Ok(bytes)
+    }
+
+    fn u32(&mut self) -> Result<u32, String> {
+        let bytes = self.take::<4>("u32")?;
         Ok(if self.little {
             u32::from_le_bytes(bytes)
         } else {
@@ -181,14 +197,7 @@ impl<'a> Cursor<'a> {
     }
 
     fn f64(&mut self) -> Result<f64, String> {
-        let end = self.pos + 8;
-        let bytes: [u8; 8] = self
-            .buf
-            .get(self.pos..end)
-            .ok_or_else(|| "WKB: truncated f64".to_string())?
-            .try_into()
-            .unwrap();
-        self.pos = end;
+        let bytes = self.take::<8>("f64")?;
         Ok(if self.little {
             f64::from_le_bytes(bytes)
         } else {
@@ -213,49 +222,37 @@ fn read_geom(c: &mut Cursor) -> Result<Geometry, String> {
         WKB_POINT => Ok(Geometry::Point(read_point(c)?)),
         WKB_LINESTRING => Ok(Geometry::LineString(read_line(c)?)),
         WKB_POLYGON => Ok(Geometry::Polygon(read_poly(c)?)),
-        WKB_MULTIPOINT => {
-            let n = c.u32()? as usize;
-            let mut ps = Vec::with_capacity(n);
-            for _ in 0..n {
-                match read_geom(c)? {
-                    Geometry::Point(p) => ps.push(p),
-                    _ => return Err("WKB: MultiPoint member is not a Point".to_string()),
-                }
-            }
-            Ok(Geometry::MultiPoint(ps))
-        }
-        WKB_MULTILINESTRING => {
-            let n = c.u32()? as usize;
-            let mut ls = Vec::with_capacity(n);
-            for _ in 0..n {
-                match read_geom(c)? {
-                    Geometry::LineString(l) => ls.push(l),
-                    _ => return Err("WKB: MultiLineString member is not a LineString".to_string()),
-                }
-            }
-            Ok(Geometry::MultiLineString(ls))
-        }
-        WKB_MULTIPOLYGON => {
-            let n = c.u32()? as usize;
-            let mut pgs = Vec::with_capacity(n);
-            for _ in 0..n {
-                match read_geom(c)? {
-                    Geometry::Polygon(pg) => pgs.push(pg),
-                    _ => return Err("WKB: MultiPolygon member is not a Polygon".to_string()),
-                }
-            }
-            Ok(Geometry::MultiPolygon(pgs))
-        }
-        WKB_GEOMETRYCOLLECTION => {
-            let n = c.u32()? as usize;
-            let mut gs = Vec::with_capacity(n);
-            for _ in 0..n {
-                gs.push(read_geom(c)?);
-            }
-            Ok(Geometry::GeometryCollection(gs))
-        }
+        WKB_MULTIPOINT => Ok(Geometry::MultiPoint(read_members(c, |g| match g {
+            Geometry::Point(p) => Ok(p),
+            _ => Err("WKB: MultiPoint member is not a Point".to_string()),
+        })?)),
+        WKB_MULTILINESTRING => Ok(Geometry::MultiLineString(read_members(c, |g| match g {
+            Geometry::LineString(l) => Ok(l),
+            _ => Err("WKB: MultiLineString member is not a LineString".to_string()),
+        })?)),
+        WKB_MULTIPOLYGON => Ok(Geometry::MultiPolygon(read_members(c, |g| match g {
+            Geometry::Polygon(pg) => Ok(pg),
+            _ => Err("WKB: MultiPolygon member is not a Polygon".to_string()),
+        })?)),
+        WKB_GEOMETRYCOLLECTION => Ok(Geometry::GeometryCollection(read_members(c, Ok)?)),
         other => Err(format!("WKB: unknown geometry type {other}")),
     }
+}
+
+/// Read a member count followed by that many standalone nested geometries, passing each
+/// through `member` — which narrows it to the variant the container requires, or rejects
+/// it. The payload shape shared by MultiPoint, MultiLineString, MultiPolygon and
+/// GeometryCollection (which accepts every member, so it passes `Ok`).
+fn read_members<T>(
+    c: &mut Cursor,
+    member: impl Fn(Geometry) -> Result<T, String>,
+) -> Result<Vec<T>, String> {
+    let n = c.u32()? as usize;
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        out.push(member(read_geom(c)?)?);
+    }
+    Ok(out)
 }
 
 fn read_point(c: &mut Cursor) -> Result<Point, String> {

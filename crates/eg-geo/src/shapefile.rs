@@ -259,48 +259,38 @@ fn read_parts(c: &mut Cur) -> Result<Vec<Vec<Point>>, String> {
 /// (`signed_area < 0`) are exteriors; counter-clockwise rings are holes assigned to the
 /// exterior whose ring contains the hole's first vertex.
 fn assemble_polygon(parts: Vec<Vec<Point>>) -> Geometry {
-    let mut exteriors: Vec<Vec<Point>> = Vec::new();
-    let mut holes: Vec<Vec<Point>> = Vec::new();
-    for ring in parts {
-        if signed_area(&ring) < 0.0 {
-            exteriors.push(ring);
-        } else {
-            holes.push(ring);
-        }
-    }
+    let (exteriors, holes): (Vec<Vec<Point>>, Vec<Vec<Point>>) =
+        parts.into_iter().partition(|ring| signed_area(ring) < 0.0);
+    let as_polygon = |r: Vec<Point>| Polygon::new(LineString::new(r), Vec::new());
     // Degenerate: no clockwise ring — treat every ring as its own exterior (lenient).
     if exteriors.is_empty() {
-        let polys: Vec<Polygon> = holes
-            .into_iter()
-            .map(|r| Polygon::new(LineString::new(r), Vec::new()))
-            .collect();
-        return if polys.len() == 1 {
-            Geometry::Polygon(polys.into_iter().next().unwrap())
-        } else {
-            Geometry::MultiPolygon(polys)
-        };
+        return polygon_geometry(holes.into_iter().map(as_polygon).collect());
     }
-    let mut polys: Vec<Polygon> = exteriors
-        .into_iter()
-        .map(|r| Polygon::new(LineString::new(r), Vec::new()))
-        .collect();
+    let mut polys: Vec<Polygon> = exteriors.into_iter().map(as_polygon).collect();
     for hole in holes {
-        let anchor = hole.first().copied();
-        // Find the exterior ring that contains the hole's first vertex.
-        let mut target = 0usize;
-        if let Some(a) = anchor {
-            for (i, pg) in polys.iter().enumerate() {
-                let ring = Polygon::new(pg.exterior.clone(), Vec::new());
-                if ring.contains_point(&a) {
-                    target = i;
-                    break;
-                }
-            }
-        }
+        let target = containing_exterior(&polys, &hole);
         polys[target].interiors.push(LineString::new(hole));
     }
+    polygon_geometry(polys)
+}
+
+/// The index of the exterior ring that contains `hole`'s first vertex — 0 when the hole is
+/// empty or no exterior contains it, so a stray hole still lands on a polygon.
+fn containing_exterior(polys: &[Polygon], hole: &[Point]) -> usize {
+    let Some(anchor) = hole.first() else {
+        return 0;
+    };
+    polys
+        .iter()
+        .position(|pg| Polygon::new(pg.exterior.clone(), Vec::new()).contains_point(anchor))
+        .unwrap_or(0)
+}
+
+/// One assembled exterior is a [`Geometry::Polygon`]; several are a
+/// [`Geometry::MultiPolygon`].
+fn polygon_geometry(mut polys: Vec<Polygon>) -> Geometry {
     if polys.len() == 1 {
-        Geometry::Polygon(polys.into_iter().next().unwrap())
+        Geometry::Polygon(polys.remove(0))
     } else {
         Geometry::MultiPolygon(polys)
     }

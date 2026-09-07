@@ -352,7 +352,29 @@ pub fn decode_png(bytes: &[u8]) -> Option<(u32, u32, u32, Vec<u8>)> {
     if bytes.len() < 8 || bytes[..8] != PNG_SIG {
         return None;
     }
-    let mut pos = 8usize;
+    let header = read_png_chunks(&bytes[8..])?;
+    if header.width == 0 || header.height == 0 || header.bands == 0 {
+        return None;
+    }
+    let raw = zlib_inflate_stored(&header.idat)?;
+    let pixels = unfilter_scanlines(&raw, header.width, header.height, header.bands)?;
+    Some((header.width, header.height, header.bands, pixels))
+}
+
+/// What one pass over a PNG chunk stream yields: the IHDR geometry and the concatenated
+/// IDAT payload.
+struct PngHeader {
+    width: u32,
+    height: u32,
+    bands: u32,
+    idat: Vec<u8>,
+}
+
+/// Walk the chunk stream that follows the PNG signature, reading IHDR and concatenating
+/// every IDAT until IEND. `None` on a truncated chunk or an IHDR outside the supported
+/// subset (8-bit depth, non-interlaced). Unknown chunks are skipped.
+fn read_png_chunks(bytes: &[u8]) -> Option<PngHeader> {
+    let mut pos = 0usize;
     let mut width = 0u32;
     let mut height = 0u32;
     let mut bands = 0u32;
@@ -381,11 +403,18 @@ pub fn decode_png(bytes: &[u8]) -> Option<(u32, u32, u32, Vec<u8>)> {
         }
         pos = data_end + 4; // skip CRC
     }
-    if width == 0 || height == 0 || bands == 0 {
-        return None;
-    }
-    let raw = zlib_inflate_stored(&idat)?;
-    // Strip the per-row filter byte (must be 0 = None).
+    Some(PngHeader {
+        width,
+        height,
+        bands,
+        idat,
+    })
+}
+
+/// Strip the leading per-row filter byte from inflated scanlines, yielding interleaved
+/// pixels. `None` unless the data is exactly `height` rows of `width * bands` samples and
+/// every row carries filter 0 (None), the only filter this module emits.
+fn unfilter_scanlines(raw: &[u8], width: u32, height: u32, bands: u32) -> Option<Vec<u8>> {
     let stride = (width * bands) as usize;
     if raw.len() != (height as usize) * (stride + 1) {
         return None;
@@ -398,7 +427,7 @@ pub fn decode_png(bytes: &[u8]) -> Option<(u32, u32, u32, Vec<u8>)> {
         }
         out.extend_from_slice(&raw[off + 1..off + 1 + stride]);
     }
-    Some((width, height, bands, out))
+    Some(out)
 }
 
 /// Inflate a zlib stream that uses only *stored* DEFLATE blocks (the subset [`zlib_store`]

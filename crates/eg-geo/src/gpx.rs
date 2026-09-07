@@ -49,47 +49,21 @@ impl Gpx {
 /// `lat`/`lon` attribute is present but unparsable.
 pub fn read_gpx(xml: &str) -> Result<Gpx, String> {
     let mut gpx = Gpx::default();
-    // Context: are we inside a <trkseg> / <rte>, and the line being accumulated.
-    let mut in_trkseg = false;
-    let mut in_rte = false;
+    // The point run currently being accumulated for each container element.
     let mut cur_seg: Vec<Point> = Vec::new();
     let mut cur_rte: Vec<Point> = Vec::new();
 
     for tag in TagIter::new(xml) {
         let name = tag.name();
         match name {
-            "trkseg" => {
-                if tag.is_close {
-                    gpx.tracks
-                        .push(LineString::new(std::mem::take(&mut cur_seg)));
-                    in_trkseg = false;
-                } else if !tag.is_self_closing {
-                    in_trkseg = true;
-                    cur_seg.clear();
-                }
-            }
-            "rte" => {
-                if tag.is_close {
-                    gpx.routes
-                        .push(LineString::new(std::mem::take(&mut cur_rte)));
-                    in_rte = false;
-                } else if !tag.is_self_closing {
-                    in_rte = true;
-                    cur_rte.clear();
-                }
-            }
-            "trkpt" | "rtept" | "wpt" if !tag.is_close => {
-                let p = tag.lat_lon_point()?;
-                match name {
-                    "trkpt" if in_trkseg => cur_seg.push(p),
-                    "rtept" if in_rte => cur_rte.push(p),
-                    "wpt" => gpx.waypoints.push(p),
-                    // A trkpt/rtept outside its container: attach best-effort.
-                    "trkpt" => cur_seg.push(p),
-                    "rtept" => cur_rte.push(p),
-                    _ => {}
-                }
-            }
+            "trkseg" => apply_container_tag(&tag, &mut cur_seg, &mut gpx.tracks),
+            "rte" => apply_container_tag(&tag, &mut cur_rte, &mut gpx.routes),
+            "trkpt" | "rtept" | "wpt" if !tag.is_close => match name {
+                "wpt" => gpx.waypoints.push(tag.lat_lon_point()?),
+                "rtept" => cur_rte.push(tag.lat_lon_point()?),
+                // A trkpt outside its <trkseg> is attached best-effort, as is an rtept.
+                _ => cur_seg.push(tag.lat_lon_point()?),
+            },
             _ => {}
         }
     }
@@ -101,6 +75,17 @@ pub fn read_gpx(xml: &str) -> Result<Gpx, String> {
         gpx.routes.push(LineString::new(cur_rte));
     }
     Ok(gpx)
+}
+
+/// Apply a GPX container tag (`<trkseg>` or `<rte>`) to the run of points accumulating
+/// inside it: a close flushes the run as a finished line into `lines`, an opening tag
+/// that is not self-closing starts a fresh run.
+fn apply_container_tag(tag: &Tag<'_>, run: &mut Vec<Point>, lines: &mut Vec<LineString>) {
+    if tag.is_close {
+        lines.push(LineString::new(std::mem::take(run)));
+    } else if !tag.is_self_closing {
+        run.clear();
+    }
 }
 
 // ── a minimal XML tag scanner ──────────────────────────────────────────────────────

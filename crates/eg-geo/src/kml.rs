@@ -251,26 +251,12 @@ fn write_geometry(s: &mut String, g: &Geometry) {
             s.push_str("</coordinates></LineString>");
         }
         Geometry::Polygon(pg) => write_polygon(s, pg),
-        Geometry::MultiPoint(ps) => {
-            s.push_str("<MultiGeometry>");
-            for p in ps {
-                write_geometry(s, &Geometry::Point(*p));
-            }
-            s.push_str("</MultiGeometry>");
-        }
+        Geometry::MultiPoint(ps) => write_multi_geometry(s, ps.iter().map(|p| Geometry::Point(*p))),
         Geometry::MultiLineString(ls) => {
-            s.push_str("<MultiGeometry>");
-            for l in ls {
-                write_geometry(s, &Geometry::LineString(l.clone()));
-            }
-            s.push_str("</MultiGeometry>");
+            write_multi_geometry(s, ls.iter().map(|l| Geometry::LineString(l.clone())))
         }
         Geometry::MultiPolygon(pgs) => {
-            s.push_str("<MultiGeometry>");
-            for pg in pgs {
-                write_polygon(s, pg);
-            }
-            s.push_str("</MultiGeometry>");
+            write_multi_geometry(s, pgs.iter().map(|pg| Geometry::Polygon(pg.clone())))
         }
         Geometry::GeometryCollection(gs) => {
             s.push_str("<MultiGeometry>");
@@ -280,6 +266,16 @@ fn write_geometry(s: &mut String, g: &Geometry) {
             s.push_str("</MultiGeometry>");
         }
     }
+}
+
+/// Wrap a KML `<MultiGeometry>` around each member's own geometry element — the shape
+/// every multi-part KML geometry serialises to. Members are produced lazily.
+fn write_multi_geometry(s: &mut String, members: impl Iterator<Item = Geometry>) {
+    s.push_str("<MultiGeometry>");
+    for g in members {
+        write_geometry(s, &g);
+    }
+    s.push_str("</MultiGeometry>");
 }
 
 fn write_polygon(s: &mut String, pg: &Polygon) {
@@ -345,84 +341,19 @@ impl XmlNode {
 pub fn parse_xml(xml: &str) -> Result<XmlNode, String> {
     // A synthetic root collects the top-level element(s).
     let mut stack: Vec<XmlNode> = vec![XmlNode::default()];
-    let bytes = xml.as_bytes();
     let mut i = 0usize;
-    while i < bytes.len() {
-        if bytes[i] == b'<' {
-            // Comments / CDATA / declarations.
-            if xml[i..].starts_with("<!--") {
-                let end = xml[i..]
-                    .find("-->")
-                    .ok_or_else(|| "XML: unterminated comment".to_string())?;
-                i += end + 3;
-                continue;
-            }
-            if xml[i..].starts_with("<![CDATA[") {
-                let end = xml[i + 9..]
-                    .find("]]>")
-                    .ok_or_else(|| "XML: unterminated CDATA".to_string())?;
-                let cdata = &xml[i + 9..i + 9 + end];
+    while i < xml.len() {
+        let (unit, next) = lex_markup(xml, i)?;
+        i = next;
+        match unit {
+            Markup::Ignored => {}
+            Markup::Text(text) => {
                 if let Some(top) = stack.last_mut() {
-                    top.text.push_str(cdata);
-                }
-                i += 9 + end + 3;
-                continue;
-            }
-            let gt = xml[i..]
-                .find('>')
-                .ok_or_else(|| "XML: unterminated tag".to_string())?
-                + i;
-            let raw = &xml[i + 1..gt];
-            i = gt + 1;
-            if raw.starts_with('?') || raw.starts_with('!') {
-                continue; // prolog / doctype
-            }
-            if let Some(close) = raw.strip_prefix('/') {
-                // Closing tag: pop and attach to parent.
-                let name = close.trim();
-                let node = stack
-                    .pop()
-                    .ok_or_else(|| "XML: close tag without open".to_string())?;
-                if !node.name.eq_ignore_ascii_case(name) {
-                    return Err(format!(
-                        "XML: mismatched close </{}> for <{}>",
-                        name, node.name
-                    ));
-                }
-                stack
-                    .last_mut()
-                    .ok_or_else(|| "XML: close tag underflow".to_string())?
-                    .children
-                    .push(node);
-            } else {
-                let self_close = raw.ends_with('/');
-                let inner = raw.trim_end_matches('/').trim();
-                let name = inner
-                    .split(|c: char| c.is_whitespace())
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-                if name.is_empty() {
-                    return Err("XML: empty tag name".to_string());
-                }
-                let node = XmlNode {
-                    name,
-                    ..Default::default()
-                };
-                if self_close {
-                    stack.last_mut().unwrap().children.push(node);
-                } else {
-                    stack.push(node);
+                    top.text.push_str(&text);
                 }
             }
-        } else {
-            // Text run up to the next '<' — attach to the current open element.
-            let next = xml[i..].find('<').map(|p| p + i).unwrap_or(bytes.len());
-            let text = decode_entities(&xml[i..next]);
-            if let Some(top) = stack.last_mut() {
-                top.text.push_str(&text);
-            }
-            i = next;
+            Markup::Close(name) => close_element(&mut stack, name)?,
+            Markup::Open { inner, self_close } => open_element(&mut stack, inner, self_close)?,
         }
     }
     let mut root = stack.pop().ok_or_else(|| "XML: no root".to_string())?;
@@ -434,6 +365,110 @@ pub fn parse_xml(xml: &str) -> Result<XmlNode, String> {
     root.children
         .pop()
         .ok_or_else(|| "XML: document has no root element".to_string())
+}
+
+/// One lexical unit of an XML document.
+enum Markup<'a> {
+    /// A comment, XML prolog or `<!…>` declaration — contributes nothing to the tree.
+    Ignored,
+    /// Character data belonging to the innermost open element, entity-decoded (CDATA is
+    /// taken verbatim, as the XML spec requires).
+    Text(String),
+    /// A closing tag `</name>`, carrying the name.
+    Close(&'a str),
+    /// An opening tag, carrying its inner text (name plus any attributes) with the
+    /// self-closing slash already trimmed.
+    Open { inner: &'a str, self_close: bool },
+}
+
+/// Lex the one markup unit starting at byte `i`, returning it and the index just past it.
+fn lex_markup(xml: &str, i: usize) -> Result<(Markup<'_>, usize), String> {
+    if !xml[i..].starts_with('<') {
+        // Text run up to the next '<'.
+        let next = xml[i..].find('<').map(|p| p + i).unwrap_or(xml.len());
+        return Ok((Markup::Text(decode_entities(&xml[i..next])), next));
+    }
+    if xml[i..].starts_with("<!--") {
+        let end = xml[i..]
+            .find("-->")
+            .ok_or_else(|| "XML: unterminated comment".to_string())?;
+        return Ok((Markup::Ignored, i + end + 3));
+    }
+    if xml[i..].starts_with("<![CDATA[") {
+        let end = xml[i + 9..]
+            .find("]]>")
+            .ok_or_else(|| "XML: unterminated CDATA".to_string())?;
+        return Ok((
+            Markup::Text(xml[i + 9..i + 9 + end].to_string()),
+            i + 9 + end + 3,
+        ));
+    }
+    let gt = xml[i..]
+        .find('>')
+        .ok_or_else(|| "XML: unterminated tag".to_string())?
+        + i;
+    let raw = &xml[i + 1..gt];
+    let next = gt + 1;
+    if raw.starts_with('?') || raw.starts_with('!') {
+        return Ok((Markup::Ignored, next)); // prolog / doctype
+    }
+    Ok(match raw.strip_prefix('/') {
+        Some(close) => (Markup::Close(close.trim()), next),
+        None => (
+            Markup::Open {
+                inner: raw.trim_end_matches('/').trim(),
+                self_close: raw.ends_with('/'),
+            },
+            next,
+        ),
+    })
+}
+
+/// Close the innermost open element: pop it, require its name to match `name`
+/// (case-insensitively), and attach it to its parent.
+fn close_element(stack: &mut Vec<XmlNode>, name: &str) -> Result<(), String> {
+    let node = stack
+        .pop()
+        .ok_or_else(|| "XML: close tag without open".to_string())?;
+    if !node.name.eq_ignore_ascii_case(name) {
+        return Err(format!(
+            "XML: mismatched close </{}> for <{}>",
+            name, node.name
+        ));
+    }
+    stack
+        .last_mut()
+        .ok_or_else(|| "XML: close tag underflow".to_string())?
+        .children
+        .push(node);
+    Ok(())
+}
+
+/// Start an element from an opening tag's inner text. A self-closing tag is attached to
+/// its parent at once; any other becomes the new innermost open element.
+fn open_element(stack: &mut Vec<XmlNode>, inner: &str, self_close: bool) -> Result<(), String> {
+    let name = inner
+        .split(|c: char| c.is_whitespace())
+        .next()
+        .unwrap_or("")
+        .to_string();
+    if name.is_empty() {
+        return Err("XML: empty tag name".to_string());
+    }
+    let node = XmlNode {
+        name,
+        ..Default::default()
+    };
+    if self_close {
+        stack
+            .last_mut()
+            .ok_or_else(|| "XML: self-closing tag without an open element".to_string())?
+            .children
+            .push(node);
+    } else {
+        stack.push(node);
+    }
+    Ok(())
 }
 
 /// Decode the five predefined XML entities (all KML needs).

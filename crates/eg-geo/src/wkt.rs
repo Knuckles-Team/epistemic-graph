@@ -54,76 +54,109 @@ fn split_srid(s: &str) -> (Option<u32>, &str) {
     (None, s)
 }
 
+/// Which WKT geometry a body belongs to, resolved from the leading type keyword.
+#[derive(Clone, Copy)]
+enum WktKind {
+    Point,
+    LineString,
+    Polygon,
+    MultiPoint,
+    MultiLineString,
+    MultiPolygon,
+    Collection,
+}
+
+impl WktKind {
+    /// Resolve the leading type keyword of an uppercased WKT body, returning the kind and
+    /// the text after the keyword. Longest keyword first, so `MULTIPOINT` is not shadowed
+    /// by `POINT` and `MULTILINESTRING` not by `LINESTRING`.
+    fn of(upper: &str) -> Option<(WktKind, &str)> {
+        const KEYWORDS: [(&str, WktKind); 7] = [
+            ("MULTIPOLYGON", WktKind::MultiPolygon),
+            ("MULTILINESTRING", WktKind::MultiLineString),
+            ("MULTIPOINT", WktKind::MultiPoint),
+            ("GEOMETRYCOLLECTION", WktKind::Collection),
+            ("POLYGON", WktKind::Polygon),
+            ("LINESTRING", WktKind::LineString),
+            ("POINT", WktKind::Point),
+        ];
+        KEYWORDS
+            .iter()
+            .find_map(|(word, kind)| upper.strip_prefix(word).map(|rest| (*kind, rest)))
+    }
+}
+
+/// Parse the inside of a `MULTIPOINT (...)`, which has two accepted dialects: bare
+/// coordinates `x y, x y` and parenthesised ones `(x y), (x y)`. Each part must carry
+/// exactly one coordinate, and an empty MULTIPOINT is rejected.
+fn parse_multipoint_body(body: &str) -> Result<Vec<Point>, String> {
+    let mut pts = Vec::new();
+    for part in split_top_level(body) {
+        let part = part.trim();
+        let coord = if part.starts_with('(') {
+            strip_outer_parens(part)?
+        } else {
+            part.to_string()
+        };
+        let one = parse_coord_list(&coord)?;
+        if one.len() != 1 {
+            return Err(format!("MULTIPOINT part expects 1 coordinate: '{part}'"));
+        }
+        pts.push(one[0]);
+    }
+    if pts.is_empty() {
+        return Err("MULTIPOINT expects >= 1 coordinate".into());
+    }
+    Ok(pts)
+}
+
 /// Parse one geometry (the recursive entry point used by `GEOMETRYCOLLECTION`).
 fn parse_geometry(s: &str) -> Result<Geometry, String> {
     let s = s.trim();
     let upper = s.to_ascii_uppercase();
-    // Longest keywords first so MULTIPOINT isn't shadowed by POINT, etc.
-    if let Some(rest) = upper.strip_prefix("MULTIPOLYGON") {
-        let body = outer_body(after(s, rest))?;
-        let polys = split_top_level(&body)
-            .into_iter()
-            .map(|p| parse_polygon_body(&strip_outer_parens(p.trim())?))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Geometry::MultiPolygon(polys))
-    } else if let Some(rest) = upper.strip_prefix("MULTILINESTRING") {
-        let body = outer_body(after(s, rest))?;
-        let lines = split_top_level(&body)
-            .into_iter()
-            .map(|l| {
-                Ok(LineString::new(parse_coord_list(&strip_outer_parens(
-                    l.trim(),
-                )?)?))
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        Ok(Geometry::MultiLineString(lines))
-    } else if let Some(rest) = upper.strip_prefix("MULTIPOINT") {
-        let body = outer_body(after(s, rest))?;
-        // Tolerate both `MULTIPOINT (x y, x y)` and `MULTIPOINT ((x y), (x y))`.
-        let mut pts = Vec::new();
-        for part in split_top_level(&body) {
-            let part = part.trim();
-            let coord = if part.starts_with('(') {
-                strip_outer_parens(part)?
-            } else {
-                part.to_string()
-            };
-            let one = parse_coord_list(&coord)?;
-            if one.len() != 1 {
-                return Err(format!("MULTIPOINT part expects 1 coordinate: '{part}'"));
+    let Some((kind, rest)) = WktKind::of(&upper) else {
+        return Err(format!("unsupported or malformed WKT: {s}"));
+    };
+    let body = outer_body(after(s, rest))?;
+    match kind {
+        WktKind::Point => {
+            let pts = parse_coord_list(&body)?;
+            if pts.len() != 1 {
+                return Err(format!("POINT expects 1 coordinate, got {}", pts.len()));
             }
-            pts.push(one[0]);
+            Ok(Geometry::Point(pts[0]))
         }
-        if pts.is_empty() {
-            return Err("MULTIPOINT expects >= 1 coordinate".into());
+        WktKind::LineString => {
+            let pts = parse_coord_list(&body)?;
+            if pts.len() < 2 {
+                return Err("LINESTRING expects >= 2 coordinates".into());
+            }
+            Ok(Geometry::LineString(LineString::new(pts)))
         }
-        Ok(Geometry::MultiPoint(pts))
-    } else if let Some(rest) = upper.strip_prefix("GEOMETRYCOLLECTION") {
-        let body = outer_body(after(s, rest))?;
-        let geoms = split_top_level(&body)
-            .into_iter()
-            .map(|g| parse_geometry(g.trim()))
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Geometry::GeometryCollection(geoms))
-    } else if let Some(rest) = upper.strip_prefix("POLYGON") {
-        let body = outer_body(after(s, rest))?;
-        Ok(Geometry::Polygon(parse_polygon_body(&body)?))
-    } else if let Some(rest) = upper.strip_prefix("LINESTRING") {
-        let body = outer_body(after(s, rest))?;
-        let pts = parse_coord_list(&body)?;
-        if pts.len() < 2 {
-            return Err("LINESTRING expects >= 2 coordinates".into());
-        }
-        Ok(Geometry::LineString(LineString::new(pts)))
-    } else if let Some(rest) = upper.strip_prefix("POINT") {
-        let body = outer_body(after(s, rest))?;
-        let pts = parse_coord_list(&body)?;
-        if pts.len() != 1 {
-            return Err(format!("POINT expects 1 coordinate, got {}", pts.len()));
-        }
-        Ok(Geometry::Point(pts[0]))
-    } else {
-        Err(format!("unsupported or malformed WKT: {s}"))
+        WktKind::Polygon => Ok(Geometry::Polygon(parse_polygon_body(&body)?)),
+        WktKind::MultiPoint => Ok(Geometry::MultiPoint(parse_multipoint_body(&body)?)),
+        WktKind::MultiLineString => Ok(Geometry::MultiLineString(
+            split_top_level(&body)
+                .into_iter()
+                .map(|l| {
+                    Ok(LineString::new(parse_coord_list(&strip_outer_parens(
+                        l.trim(),
+                    )?)?))
+                })
+                .collect::<Result<Vec<_>, String>>()?,
+        )),
+        WktKind::MultiPolygon => Ok(Geometry::MultiPolygon(
+            split_top_level(&body)
+                .into_iter()
+                .map(|p| parse_polygon_body(&strip_outer_parens(p.trim())?))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
+        WktKind::Collection => Ok(Geometry::GeometryCollection(
+            split_top_level(&body)
+                .into_iter()
+                .map(|g| parse_geometry(g.trim()))
+                .collect::<Result<Vec<_>, _>>()?,
+        )),
     }
 }
 
