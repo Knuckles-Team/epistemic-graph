@@ -184,134 +184,139 @@ def is_placeholder(match_str: str) -> bool:
     return False
 
 
-def get_repo_files(repo_path: Path):
+def _tracked_inventory(repo_path: Path) -> list[Path]:
+    """Every file Git knows about, minus the generated trees."""
+    result = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        cwd=str(repo_path),
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    )
+    files = []
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        relative = Path(line.strip())
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("unsafe source inventory path")
+        if not any(part in EXCLUDED_DIRS for part in relative.parts):
+            files.append(repo_path / relative)
+    return files
+
+
+def _walked_inventory(repo_path: Path) -> list[Path]:
+    """Fallback inventory for a tree Git could not report.
+
+    Hidden source/config directories (for example ``.github``) can contain
+    credentials and must not disappear merely because Git inventory was
+    unavailable. Only known generated trees are excluded.
+    """
+    files = []
+    for root, dirs, walk_files in os.walk(str(repo_path)):
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
+        files.extend(Path(root) / file for file in walk_files)
+    return files
+
+
+def get_repo_files(repo_path: Path) -> list[Path]:
     try:
-        result = subprocess.run(
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-            cwd=str(repo_path),
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=30,
-        )
-        files = []
-        for line in result.stdout.splitlines():
-            if line.strip():
-                relative = Path(line.strip())
-                if relative.is_absolute() or ".." in relative.parts:
-                    raise ValueError("unsafe source inventory path")
-                # Avoid files inside excluded directories
-                parts = relative.parts
-                if not any(part in EXCLUDED_DIRS for part in parts):
-                    files.append(repo_path / relative)
-        return files
+        return _tracked_inventory(repo_path)
     except (OSError, subprocess.SubprocessError, ValueError):
-        # Fallback to manual recursive scan
-        files = []
-        for root, dirs, walk_files in os.walk(str(repo_path)):
-            # Hidden source/config directories (for example ``.github``) can
-            # contain credentials and must not disappear merely because Git
-            # inventory was unavailable. Exclude only known generated trees.
-            dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
-            for file in walk_files:
-                files.append(Path(root) / file)
-        return files
+        return _walked_inventory(repo_path)
 
 
-def scan_repository(repo_path: Path):
+def _matches_any(patterns: list[re.Pattern[str]], name: str) -> bool:
+    return any(pattern.fullmatch(name) for pattern in patterns)
+
+
+def naming_violations(relative: Path) -> list[str]:
+    """Repository-hygiene findings derived from a path alone."""
+    found = []
+    if _matches_any(TRANSIENT_NOTE_PATTERNS, relative.name):
+        found.append(
+            f"Transient agent note detected: '{relative}'. Keep durable decisions "
+            "in canonical documentation and scratch notes outside the repository."
+        )
+    if relative.parent != Path("."):
+        return found
+    if relative.suffix == ".txt":
+        if relative.name.lower() not in ALLOWED_TXT_NAMES:
+            found.append(
+                "Non-standard root-level text file detected: "
+                f"'{relative.name}'. Only {sorted(ALLOWED_TXT_NAMES)} are allowed."
+            )
+    elif relative.suffix == ".py" and _matches_any(
+        TRANSIENT_PY_PATTERNS, relative.name
+    ):
+        found.append(
+            "Transient/temporary script detected in root: "
+            f"'{relative.name}'. Please move it to a subfolder or delete it."
+        )
+    return found
+
+
+def line_secret_labels(line: str) -> list[str]:
+    """Credential labels a single source line exposes.
+
+    Honours the SAME inline exemption marker this repo's other credential
+    scanner (``scripts/security/check_secret_history.py``) honours, and which
+    the test suite already uses. Before that, the two scanners disagreed: a
+    synthetic fixture correctly marked ``# sanitizer:ignore`` for one still
+    tripped the other, so there was no way to mark a fixture safe for both. The
+    sharpest example is check_secret_history.py's OWN self-check fixtures -- the
+    planted AWS key it uses to prove it still detects a real credential -- which
+    carried the marker and were flagged here anyway.
+
+    Deliberately a LINE marker, not a value allowlist: it forces the exemption
+    to sit next to the literal it exempts, where review sees it, instead of in a
+    distant list that silently widens.
+    """
+    if SANITIZER_IGNORE_MARKER in line:
+        return []
+    labels = []
+    for label, pattern in SECRET_PATTERNS:
+        for match in pattern.findall(line):
+            match_str = match[0] if isinstance(match, tuple) else match
+            if not is_placeholder(match_str):
+                labels.append(label)
+    return labels
+
+
+def secret_violations(file_path: Path, relative: Path) -> list[str]:
+    """Credential findings in one readable, in-boundary source file."""
+    if file_path.suffix.lower() in EXCLUDED_EXTENSIONS:
+        return []
+    if file_path.name == "security_sanitizer.py":
+        return []
+    try:
+        if file_path.stat().st_size > MAX_SCAN_BYTES:
+            return [f"Source file exceeds security scan boundary: '{relative}'"]
+        # Decode strictly. Silently discarding invalid bytes can splice a
+        # credential around the discarded byte and make a fail-open scan.
+        lines = file_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return [f"Source file could not be inspected: '{relative}'"]
+    return [
+        f"Potential unmasked secret ({label}) detected in {relative}:{idx}"
+        for idx, line in enumerate(lines, 1)
+        for label in line_secret_labels(line)
+    ]
+
+
+def scan_repository(repo_path: Path) -> list[str]:
     violations = []
-    files_to_scan = get_repo_files(repo_path)
-
-    for file_path in files_to_scan:
+    for file_path in get_repo_files(repo_path):
         if not file_path.is_file():
             continue
         if file_path.is_symlink():
             # Git tracks the link target text, not the target contents. Never
             # follow a repository symlink into machine-local material.
             continue
-
-        for pattern in TRANSIENT_NOTE_PATTERNS:
-            if pattern.fullmatch(file_path.name):
-                violations.append(
-                    "Transient agent note detected: "
-                    f"'{file_path.relative_to(repo_path)}'. Keep durable decisions "
-                    "in canonical documentation and scratch notes outside the repository."
-                )
-                break
-
-        # 1. Check root level naming constraints
-        if file_path.parent == repo_path:
-            # Check txt files
-            if file_path.suffix == ".txt":
-                if file_path.name.lower() not in ALLOWED_TXT_NAMES:
-                    violations.append(
-                        "Non-standard root-level text file detected: "
-                        f"'{file_path.name}'. Only {sorted(ALLOWED_TXT_NAMES)} "
-                        "are allowed."
-                    )
-            # Check transient py files
-            elif file_path.suffix == ".py":
-                for pattern in TRANSIENT_PY_PATTERNS:
-                    if pattern.match(file_path.name):
-                        violations.append(
-                            "Transient/temporary script detected in root: "
-                            f"'{file_path.name}'. Please move it to a subfolder "
-                            "or delete it."
-                        )
-                        break
-
-        # 2. Check for secrets
-        if file_path.suffix.lower() in EXCLUDED_EXTENSIONS:
-            continue
-
-        if file_path.name == "security_sanitizer.py":
-            continue
-
-        try:
-            if file_path.stat().st_size > MAX_SCAN_BYTES:
-                violations.append(
-                    f"Source file exceeds security scan boundary: "
-                    f"'{file_path.relative_to(repo_path)}'"
-                )
-                continue
-            # Decode strictly. Silently discarding invalid bytes can splice a
-            # credential around the discarded byte and make a fail-open scan.
-            content = file_path.read_text(encoding="utf-8")
-            lines = content.splitlines()
-
-            for idx, line in enumerate(lines, 1):
-                # Honour the SAME inline exemption marker this repo's other
-                # credential scanner (`scripts/security/check_secret_history.py`)
-                # already honours, and which the test suite already uses.
-                #
-                # Before this, the two scanners disagreed: a synthetic fixture
-                # correctly marked `# sanitizer:ignore` for one still tripped the
-                # other, so there was no way to mark a fixture safe for both. The
-                # sharpest example is check_secret_history.py's OWN self-check
-                # fixtures — the planted AWS key it uses to prove it still detects
-                # a real credential — which carried the marker and were flagged
-                # here anyway.
-                #
-                # Deliberately a LINE marker, not a value allowlist: it forces the
-                # exemption to sit next to the literal it exempts, where review
-                # sees it, instead of in a distant list that silently widens.
-                if SANITIZER_IGNORE_MARKER in line:
-                    continue
-                for label, pattern in SECRET_PATTERNS:
-                    for match in pattern.findall(line):
-                        match_str = match[0] if isinstance(match, tuple) else match
-                        if not is_placeholder(match_str):
-                            rel_path = file_path.relative_to(repo_path)
-                            violations.append(
-                                f"Potential unmasked secret ({label}) detected in "
-                                f"{rel_path}:{idx}"
-                            )
-        except (OSError, UnicodeError):
-            violations.append(
-                f"Source file could not be inspected: "
-                f"'{file_path.relative_to(repo_path)}'"
-            )
-
+        relative = file_path.relative_to(repo_path)
+        violations.extend(naming_violations(relative))
+        violations.extend(secret_violations(file_path, relative))
     return violations
 
 

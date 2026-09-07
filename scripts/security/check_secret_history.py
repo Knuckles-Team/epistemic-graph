@@ -96,7 +96,6 @@ import math
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -240,31 +239,40 @@ def scan_credentials(patch_lines: list[str]) -> list[dict]:
     return hits
 
 
+def _high_entropy_tokens(content: str) -> list[tuple[str, float]]:
+    """Tokens in one added line that look like real random credential material.
+
+    A candidate must survive all three filters -- known-noise classifier, three
+    distinct character classes, entropy floor. Any one alone is mostly hashes.
+    """
+    found = []
+    for match in _ENTROPY_TOKEN_RE.finditer(content):
+        token = match.group(0)
+        if _is_entropy_noise(token):
+            continue
+        classes = sum(
+            bool(re.search(p, token)) for p in (r"[a-z]", r"[A-Z]", r"[0-9]", r"[+/_.=-]")
+        )
+        if classes < 3:
+            continue
+        entropy = _shannon_entropy(token)
+        if entropy >= _MIN_ENTROPY:
+            found.append((token, entropy))
+    return found
+
+
+def _is_lockfile(file_: str) -> bool:
+    """True for a dependency lockfile, whose hashes are entropy noise."""
+    return file_ != "?" and file_.endswith(_LOCKFILE_SUFFIXES)
+
+
 def scan_entropy(patch_lines: list[str]) -> list[dict]:
     hits: list[dict] = []
     seen: set[tuple[str, str, str]] = set()
-    current_file_for_lockfile_check: str | None = None
     for commit, file_, content in _iter_added_lines(patch_lines):
-        current_file_for_lockfile_check = file_
-        if _is_self(file_):
+        if _is_self(file_) or _is_lockfile(file_):
             continue
-        if file_ != "?" and any(
-            file_.endswith(suffix) for suffix in _LOCKFILE_SUFFIXES
-        ):
-            continue
-        for m in _ENTROPY_TOKEN_RE.finditer(content):
-            token = m.group(0)
-            if _is_entropy_noise(token):
-                continue
-            classes = sum(
-                bool(re.search(p, token))
-                for p in (r"[a-z]", r"[A-Z]", r"[0-9]", r"[+/_.=-]")
-            )
-            if classes < 3:
-                continue
-            entropy = _shannon_entropy(token)
-            if entropy < _MIN_ENTROPY:
-                continue
+        for token, entropy in _high_entropy_tokens(content):
             key = (commit, file_, token[:12])
             if key in seen:
                 continue
@@ -277,7 +285,6 @@ def scan_entropy(patch_lines: list[str]) -> list[dict]:
                     "token_preview": token[:12] + "...",
                 }
             )
-    del current_file_for_lockfile_check
     return hits
 
 
