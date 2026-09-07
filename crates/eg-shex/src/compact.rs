@@ -474,28 +474,33 @@ impl<'a> Parser<'a> {
 
     // shapeOr := shapeAnd ("OR" shapeAnd)*
     fn parse_shape_expression(&mut self) -> Result<ShapeExpr, String> {
-        let first = self.parse_shape_and()?;
-        if !matches!(self.peek(), Tok::Word(w) if w == "OR") {
-            return Ok(first);
-        }
-        let mut branches = vec![first];
-        while self.eat_word("OR") {
-            branches.push(self.parse_shape_and()?);
-        }
-        Ok(ShapeExpr::Or(branches))
+        self.parse_operator_chain("OR", Self::parse_shape_and, ShapeExpr::Or)
     }
 
     // shapeAnd := shapeNot ("AND" shapeNot)*
     fn parse_shape_and(&mut self) -> Result<ShapeExpr, String> {
-        let first = self.parse_shape_not()?;
-        if !matches!(self.peek(), Tok::Word(w) if w == "AND") {
+        self.parse_operator_chain("AND", Self::parse_shape_not, ShapeExpr::And)
+    }
+
+    /// Parse a left-associative `operand (KEYWORD operand)*` production. A single operand
+    /// with no keyword after it is returned unwrapped, so `A` does not become `And([A])`;
+    /// two or more are handed to `combine`. Both ShExC shape-expression levels — `OR` over
+    /// `shapeAnd` and `AND` over `shapeNot` — are this production.
+    fn parse_operator_chain(
+        &mut self,
+        keyword: &str,
+        operand: fn(&mut Self) -> Result<ShapeExpr, String>,
+        combine: fn(Vec<ShapeExpr>) -> ShapeExpr,
+    ) -> Result<ShapeExpr, String> {
+        let first = operand(self)?;
+        if !matches!(self.peek(), Tok::Word(w) if w == keyword) {
             return Ok(first);
         }
         let mut branches = vec![first];
-        while self.eat_word("AND") {
-            branches.push(self.parse_shape_not()?);
+        while self.eat_word(keyword) {
+            branches.push(operand(self)?);
         }
-        Ok(ShapeExpr::And(branches))
+        Ok(combine(branches))
     }
 
     // shapeNot := "NOT"? shapeAtom
@@ -673,23 +678,27 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_facet_uint(&mut self) -> Result<usize, String> {
-        match self.bump() {
-            Tok::Num(n) => n
-                .parse::<usize>()
-                .map_err(|e| format!("ShExC: bad integer facet argument `{n}`: {e}")),
-            other => Err(format!(
-                "ShExC: expected an integer facet argument, found {other:?}"
-            )),
-        }
+        self.parse_facet("integer", "an integer")
     }
 
     fn parse_facet_num(&mut self) -> Result<f64, String> {
+        self.parse_facet("numeric", "a numeric")
+    }
+
+    /// Parse a facet's numeric argument into `T`. `kind` names the argument type in the
+    /// unparsable-number message and `expected` (the same noun with its article) in the
+    /// wrong-token message.
+    fn parse_facet<T>(&mut self, kind: &str, expected: &str) -> Result<T, String>
+    where
+        T: std::str::FromStr,
+        T::Err: std::fmt::Display,
+    {
         match self.bump() {
             Tok::Num(n) => n
-                .parse::<f64>()
-                .map_err(|e| format!("ShExC: bad numeric facet argument `{n}`: {e}")),
+                .parse::<T>()
+                .map_err(|e| format!("ShExC: bad {kind} facet argument `{n}`: {e}")),
             other => Err(format!(
-                "ShExC: expected a numeric facet argument, found {other:?}"
+                "ShExC: expected {expected} facet argument, found {other:?}"
             )),
         }
     }
