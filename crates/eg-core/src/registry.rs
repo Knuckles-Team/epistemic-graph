@@ -331,6 +331,17 @@ pub struct PagedOpenOutcome {
     pub accepted: bool,
 }
 
+impl PagedOpenOutcome {
+    /// Nothing was published: the graph is not resident and no cursor is offered.
+    fn rejected() -> Self {
+        PagedOpenOutcome {
+            resident: false,
+            cursor: None,
+            accepted: false,
+        }
+    }
+}
+
 /// Prepared lazy-open operation.  It owns only cloneable factories and immutable
 /// catalog metadata, so durable I/O can run without holding the registry or
 /// server-wide write lock.  Publication is separately fenced by incarnation and
@@ -868,17 +879,10 @@ impl GraphRegistry {
         if self.graphs.contains_key(ticket.name()) {
             return self.ticket_is_current(ticket);
         }
-        if !self.ticket_is_current(ticket) {
-            return false;
-        }
-        if ticket.materializer.is_some() && material.is_none() {
-            return false;
-        }
-        if !ticket.accepts_material(
-            material
-                .as_ref()
-                .and_then(|value| value.incarnation_id.as_deref()),
-        ) {
+        let incarnation = material
+            .as_ref()
+            .and_then(|value| value.incarnation_id.as_deref());
+        if !self.admits_material(ticket, incarnation, material.is_some()) {
             return false;
         }
         let core = Arc::new(GraphCore::new());
@@ -886,22 +890,7 @@ impl GraphRegistry {
             .as_ref()
             .and_then(|value| value.source_snapshot_version);
         if let Some(material) = material {
-            if let Some(policy) = material.integrity_policy {
-                core.set_integrity_policy(policy);
-            }
-            for (node_id, props) in material.nodes {
-                core.add_node(node_id, props);
-            }
-            for (src, tgt, props) in material.edges {
-                let _ = core.add_edge(src, tgt, props);
-            }
-            if !material.semantic.is_empty() {
-                if let Ok(store) = rmp_serde::from_slice::<crate::compute::semantic::SemanticStore>(
-                    &material.semantic,
-                ) {
-                    *core.semantic_store.write() = store;
-                }
-            }
+            load_material(&core, material);
         }
         // CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — this is the FULL/eager
         // (non-paged) load: every durable node (if any) was just replayed through
@@ -912,24 +901,66 @@ impl GraphRegistry {
                 return false;
             }
         }
-        if let Some(factory) = &self.read_through_factory {
-            core.set_read_through(factory.for_graph(ticket.name()));
-        }
-        if let Some(factory) = &self.secondary_index_factory {
-            register_secondary_indexes(&core, factory.as_ref(), ticket.name(), true);
-        }
-        if !secondary_indexes_valid(&core) {
-            if let Some(manifest) = self.materialization.get(ticket.name()) {
-                if let Ok(mut manifest) = manifest.write() {
-                    manifest.phase = MaterializationPhase::Failed;
-                    manifest.valid = false;
-                }
-            }
+        if !self.attach_read_paths(ticket, &core, true) {
             return false;
         }
         if !self.ticket_is_current(ticket) {
             return false;
         }
+        self.install_graph(ticket, core);
+        self.record_complete_manifest(ticket, source_snapshot_version);
+        true
+    }
+
+    /// The admission rules every lazy publish shares: the ticket must still be current,
+    /// a materializer-backed ticket must actually have produced material, and that
+    /// material's incarnation must be the one the ticket asked for.
+    fn admits_material(
+        &self,
+        ticket: &LazyOpenTicket,
+        incarnation: Option<&str>,
+        produced: bool,
+    ) -> bool {
+        self.ticket_is_current(ticket)
+            && !(ticket.materializer.is_some() && !produced)
+            && ticket.accepts_material(incarnation)
+    }
+
+    /// Wire a freshly built core's read-through source and secondary indexes, answering
+    /// whether it may become resident. `complete` says the durable material is fully
+    /// loaded: only then are content-derived indexes required to be valid, and a partially
+    /// paged graph registers its indexes as still building.
+    fn attach_read_paths(
+        &self,
+        ticket: &LazyOpenTicket,
+        core: &Arc<GraphCore>,
+        complete: bool,
+    ) -> bool {
+        if let Some(factory) = &self.read_through_factory {
+            core.set_read_through(factory.for_graph(ticket.name()));
+        }
+        if let Some(factory) = &self.secondary_index_factory {
+            register_secondary_indexes(core, factory.as_ref(), ticket.name(), complete);
+        }
+        if complete && !secondary_indexes_valid(core) {
+            self.mark_materialization_failed(ticket.name());
+            return false;
+        }
+        true
+    }
+
+    /// Mark a graph's materialization manifest failed and invalid.
+    fn mark_materialization_failed(&self, name: &str) {
+        if let Some(manifest) = self.materialization.get(name) {
+            if let Ok(mut manifest) = manifest.write() {
+                manifest.phase = MaterializationPhase::Failed;
+                manifest.valid = false;
+            }
+        }
+    }
+
+    /// Make `core` the resident graph for the ticket's name, under the ticket's identity.
+    fn install_graph(&mut self, ticket: &LazyOpenTicket, core: Arc<GraphCore>) {
         self.graphs.insert(
             ticket.name.clone(),
             GraphEntry {
@@ -941,26 +972,33 @@ impl GraphRegistry {
                 cancellation: ticket.cancellation.clone(),
             },
         );
-        if let Some(manifest) = self.materialization.get(ticket.name()) {
-            if let Ok(mut manifest) = manifest.write() {
-                let mut complete = MaterializationManifest::complete(
-                    ticket.incarnation_id.clone(),
-                    source_snapshot_version,
-                );
-                complete.loaded_nodes = self
-                    .graphs
-                    .get(ticket.name())
-                    .map(|entry| entry.core.node_count() as u64)
-                    .unwrap_or(0);
-                complete.loaded_edges = self
-                    .graphs
-                    .get(ticket.name())
-                    .map(|entry| entry.core.edge_count() as u64)
-                    .unwrap_or(0);
-                *manifest = complete;
-            }
-        }
-        true
+    }
+
+    /// Record a COMPLETE materialization manifest, reading the resident graph's actual
+    /// node/edge counts back out so the manifest cannot disagree with what was loaded.
+    fn record_complete_manifest(
+        &self,
+        ticket: &LazyOpenTicket,
+        source_snapshot_version: Option<u64>,
+    ) {
+        let Some(manifest) = self.materialization.get(ticket.name()) else {
+            return;
+        };
+        let Ok(mut manifest) = manifest.write() else {
+            return;
+        };
+        let resident = self.graphs.get(ticket.name());
+        let mut complete = MaterializationManifest::complete(
+            ticket.incarnation_id.clone(),
+            source_snapshot_version,
+        );
+        complete.loaded_nodes = resident
+            .map(|entry| entry.core.node_count() as u64)
+            .unwrap_or(0);
+        complete.loaded_edges = resident
+            .map(|entry| entry.core.edge_count() as u64)
+            .unwrap_or(0);
+        *manifest = complete;
     }
 
     /// Lazily materialize a catalog-known graph's resident `GraphCore` from a
@@ -982,11 +1020,7 @@ impl GraphRegistry {
             };
         }
         let Some(ticket) = self.prepare_lazy_open(name) else {
-            return PagedOpenOutcome {
-                resident: false,
-                cursor: None,
-                accepted: false,
-            };
+            return PagedOpenOutcome::rejected();
         };
         let page = ticket.materialize_page(None, page_size);
         self.publish_lazy_first_page(&ticket, page)
@@ -1006,18 +1040,11 @@ impl GraphRegistry {
                 accepted,
             };
         }
-        if !self.ticket_is_current(ticket)
-            || (ticket.materializer.is_some() && page.is_none())
-            || !ticket.accepts_material(
-                page.as_ref()
-                    .and_then(|value| value.incarnation_id.as_deref()),
-            )
-        {
-            return PagedOpenOutcome {
-                resident: false,
-                cursor: None,
-                accepted: false,
-            };
+        let incarnation = page
+            .as_ref()
+            .and_then(|value| value.incarnation_id.as_deref());
+        if !self.admits_material(ticket, incarnation, page.is_some()) {
+            return PagedOpenOutcome::rejected();
         }
         let core = Arc::new(GraphCore::new());
         let mut cursor = None;
@@ -1037,79 +1064,67 @@ impl GraphRegistry {
         // remains, leave it unmarked: `page_in`/`apply_lazy_page_to_handle` marks
         // it on the eventual final page instead, so a not-yet-paged-in node is
         // never mistaken for a genuine absence in the meantime.
-        if cursor.is_none() {
+        let complete = cursor.is_none();
+        if complete {
             core.mark_bloom_complete();
         }
         if let Some(version) = source_snapshot_version.filter(|version| *version > 0) {
             if core.adopt_materialized_version(version).is_err() {
-                return PagedOpenOutcome {
-                    resident: false,
-                    cursor: None,
-                    accepted: false,
-                };
+                return PagedOpenOutcome::rejected();
             }
         }
-        if let Some(factory) = &self.read_through_factory {
-            core.set_read_through(factory.for_graph(ticket.name()));
-        }
-        if let Some(factory) = &self.secondary_index_factory {
-            // Every content-derived index is registered with an invalid/building
-            // manifest until the final page performs a stable full rebuild.
-            register_secondary_indexes(&core, factory.as_ref(), ticket.name(), cursor.is_none());
-        }
-        if cursor.is_none() && !secondary_indexes_valid(&core) {
-            if let Some(manifest) = self.materialization.get(ticket.name()) {
-                if let Ok(mut manifest) = manifest.write() {
-                    manifest.phase = MaterializationPhase::Failed;
-                    manifest.valid = false;
-                }
-            }
-            return PagedOpenOutcome {
-                resident: false,
-                cursor: None,
-                accepted: false,
-            };
+        if !self.attach_read_paths(ticket, &core, complete) {
+            return PagedOpenOutcome::rejected();
         }
         if !self.ticket_is_current(ticket) {
-            return PagedOpenOutcome {
-                resident: false,
-                cursor: None,
-                accepted: false,
-            };
+            return PagedOpenOutcome::rejected();
         }
-        self.graphs.insert(
-            ticket.name.clone(),
-            GraphEntry {
-                name: ticket.name.clone(),
-                graph_type: ticket.graph_type,
-                core,
-                owner: ticket.owner.clone(),
-                incarnation_id: ticket.incarnation_id.clone(),
-                cancellation: ticket.cancellation.clone(),
-            },
+        self.install_graph(ticket, core);
+        self.record_first_page_manifest(
+            ticket,
+            source_snapshot_version,
+            cursor.clone(),
+            loaded_nodes,
+            loaded_edges,
         );
-        if let Some(manifest) = self.materialization.get(ticket.name()) {
-            if let Ok(mut manifest) = manifest.write() {
-                *manifest = MaterializationManifest {
-                    incarnation_id: ticket.incarnation_id.clone(),
-                    phase: if cursor.is_some() {
-                        MaterializationPhase::Partial
-                    } else {
-                        MaterializationPhase::Complete
-                    },
-                    source_snapshot_version,
-                    completeness_cursor: cursor.clone(),
-                    loaded_nodes,
-                    loaded_edges,
-                    valid: cursor.is_none(),
-                };
-            }
-        }
         PagedOpenOutcome {
             resident: true,
             cursor,
             accepted: true,
         }
+    }
+
+    /// Record the manifest a first page leaves behind: COMPLETE and valid when that page
+    /// was also the last (no cursor), otherwise PARTIAL, not yet valid, and carrying the
+    /// cursor the caller must page in from.
+    fn record_first_page_manifest(
+        &self,
+        ticket: &LazyOpenTicket,
+        source_snapshot_version: Option<u64>,
+        cursor: Option<MaterializeCursor>,
+        loaded_nodes: u64,
+        loaded_edges: u64,
+    ) {
+        let Some(manifest) = self.materialization.get(ticket.name()) else {
+            return;
+        };
+        let Ok(mut manifest) = manifest.write() else {
+            return;
+        };
+        let complete = cursor.is_none();
+        *manifest = MaterializationManifest {
+            incarnation_id: ticket.incarnation_id.clone(),
+            phase: if complete {
+                MaterializationPhase::Complete
+            } else {
+                MaterializationPhase::Partial
+            },
+            source_snapshot_version,
+            completeness_cursor: cursor,
+            loaded_nodes,
+            loaded_edges,
+            valid: complete,
+        };
     }
 
     /// Page in the NEXT bounded batch of an already-resident graph's durable
@@ -1163,14 +1178,7 @@ impl GraphRegistry {
         {
             return None;
         }
-        let prior_snapshot = manifest_ref
-            .read()
-            .ok()
-            .and_then(|manifest| manifest.source_snapshot_version);
-        if prior_snapshot.is_some()
-            && page.source_snapshot_version.is_some()
-            && prior_snapshot != page.source_snapshot_version
-        {
+        if snapshot_changed(manifest_ref, &page) {
             if let Ok(mut manifest) = manifest_ref.write() {
                 manifest.phase = MaterializationPhase::Failed;
                 manifest.valid = false;
@@ -1180,39 +1188,14 @@ impl GraphRegistry {
         }
         apply_material_page(&handle.core, &page);
         let next_cursor = page.next_cursor.clone();
-        let final_page = next_cursor.is_none();
-        if let Ok(mut manifest) = manifest_ref.write() {
-            manifest.loaded_nodes = manifest
-                .loaded_nodes
-                .saturating_add(page.nodes.len() as u64);
-            manifest.loaded_edges = manifest
-                .loaded_edges
-                .saturating_add(page.edges.len() as u64);
-            manifest.source_snapshot_version = manifest
-                .source_snapshot_version
-                .or(page.source_snapshot_version);
-            manifest.completeness_cursor = next_cursor.clone();
-            // Exhausting the source cursor is not availability: maintained
-            // indexes must first rebuild against this exact resident image.
-            manifest.phase = MaterializationPhase::Partial;
-            manifest.valid = false;
-        }
-        if final_page {
+        advance_partial_manifest(manifest_ref, &page, next_cursor.clone());
+        if next_cursor.is_none() {
             // CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — every durable node has now
             // been replayed through `add_node` across this graph's pages, so the
             // bloom filter reflects the complete set regardless of index-rebuild
             // outcome (index validity is orthogonal to node-id completeness).
             handle.core.mark_bloom_complete();
-            rebuild_secondary_indexes(&handle.core);
-            let indexes_valid = secondary_indexes_valid(&handle.core);
-            if let Ok(mut manifest) = manifest_ref.write() {
-                manifest.phase = if indexes_valid {
-                    MaterializationPhase::Complete
-                } else {
-                    MaterializationPhase::Failed
-                };
-                manifest.valid = indexes_valid;
-            }
+            finish_materialization(manifest_ref, &handle.core);
         }
         next_cursor
     }
@@ -1379,6 +1362,88 @@ impl GraphRegistry {
 /// (CONCEPT:EG-KG.sharding.paged-lazy-open, DIST-P2-5) — shared by
 /// [`GraphRegistry::open_lazy_paged`] and [`GraphRegistry::page_in`] so a paged
 /// open is byte-identical, one page at a time, to the eager/full-material one.
+/// Whether `page` comes from a DIFFERENT source snapshot than the manifest already
+/// recorded — a mixed snapshot the caller must never advertise. Only decidable when both
+/// sides name a version.
+fn snapshot_changed(
+    manifest_ref: &Arc<RwLock<MaterializationManifest>>,
+    page: &MaterialPage,
+) -> bool {
+    let prior = manifest_ref
+        .read()
+        .ok()
+        .and_then(|manifest| manifest.source_snapshot_version);
+    prior.is_some()
+        && page.source_snapshot_version.is_some()
+        && prior != page.source_snapshot_version
+}
+
+/// Fold one applied page into the manifest. The graph stays PARTIAL and invalid even on
+/// the last page: exhausting the source cursor is not availability, because maintained
+/// indexes must first rebuild against this exact resident image.
+fn advance_partial_manifest(
+    manifest_ref: &Arc<RwLock<MaterializationManifest>>,
+    page: &MaterialPage,
+    next_cursor: Option<MaterializeCursor>,
+) {
+    let Ok(mut manifest) = manifest_ref.write() else {
+        return;
+    };
+    manifest.loaded_nodes = manifest
+        .loaded_nodes
+        .saturating_add(page.nodes.len() as u64);
+    manifest.loaded_edges = manifest
+        .loaded_edges
+        .saturating_add(page.edges.len() as u64);
+    manifest.source_snapshot_version = manifest
+        .source_snapshot_version
+        .or(page.source_snapshot_version);
+    manifest.completeness_cursor = next_cursor;
+    manifest.phase = MaterializationPhase::Partial;
+    manifest.valid = false;
+}
+
+/// Rebuild the secondary indexes against the now-complete resident image and settle the
+/// manifest: COMPLETE and valid when every content-derived index came up valid, FAILED
+/// otherwise.
+fn finish_materialization(
+    manifest_ref: &Arc<RwLock<MaterializationManifest>>,
+    core: &Arc<GraphCore>,
+) {
+    rebuild_secondary_indexes(core);
+    let indexes_valid = secondary_indexes_valid(core);
+    if let Ok(mut manifest) = manifest_ref.write() {
+        manifest.phase = if indexes_valid {
+            MaterializationPhase::Complete
+        } else {
+            MaterializationPhase::Failed
+        };
+        manifest.valid = indexes_valid;
+    }
+}
+
+/// Replay a FULL durable material into a fresh core: its integrity policy, every node and
+/// edge, and the encoded semantic store if one was captured. The eager counterpart of
+/// [`apply_material_page`].
+fn load_material(core: &Arc<GraphCore>, material: GraphMaterial) {
+    if let Some(policy) = material.integrity_policy {
+        core.set_integrity_policy(policy);
+    }
+    for (node_id, props) in material.nodes {
+        core.add_node(node_id, props);
+    }
+    for (src, tgt, props) in material.edges {
+        let _ = core.add_edge(src, tgt, props);
+    }
+    if !material.semantic.is_empty() {
+        if let Ok(store) =
+            rmp_serde::from_slice::<crate::compute::semantic::SemanticStore>(&material.semantic)
+        {
+            *core.semantic_store.write() = store;
+        }
+    }
+}
+
 fn apply_material_page(core: &Arc<GraphCore>, page: &MaterialPage) {
     if let Some(policy) = &page.integrity_policy {
         core.set_integrity_policy(policy.clone());
