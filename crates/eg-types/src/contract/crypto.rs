@@ -7,9 +7,9 @@ use sha2::{Digest as _, Sha256};
 use std::fmt;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Digest256V1([u8; SHA256_BYTES]);
+pub struct Digest256([u8; SHA256_BYTES]);
 
-impl Digest256V1 {
+impl Digest256 {
     pub fn from_bytes(bytes: [u8; SHA256_BYTES]) -> Self {
         Self(bytes)
     }
@@ -45,24 +45,24 @@ impl Digest256V1 {
     }
 }
 
-impl fmt::Debug for Digest256V1 {
+impl fmt::Debug for Digest256 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_tuple("Digest256V1")
+            .debug_tuple("Digest256")
             .field(&self.to_hex())
             .finish()
     }
 }
-impl fmt::Display for Digest256V1 {
+impl fmt::Display for Digest256 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.to_hex())
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NonceV1([u8; NONCE_BYTES]);
+pub struct Nonce([u8; NONCE_BYTES]);
 
-impl NonceV1 {
+impl Nonce {
     pub fn from_bytes(bytes: [u8; NONCE_BYTES]) -> Self {
         Self(bytes)
     }
@@ -78,9 +78,9 @@ impl NonceV1 {
         hex::encode(self.0)
     }
 }
-impl fmt::Debug for NonceV1 {
+impl fmt::Debug for Nonce {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("NonceV1([redacted])")
+        formatter.write_str("Nonce([redacted])")
     }
 }
 
@@ -148,12 +148,12 @@ macro_rules! fixed_hex_serde {
         }
     };
 }
-fixed_hex_serde!(Digest256V1);
-fixed_hex_serde!(NonceV1);
+fixed_hex_serde!(Digest256);
+fixed_hex_serde!(Nonce);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Ed25519SignatureV1([u8; ED25519_SIGNATURE_BYTES]);
-impl Ed25519SignatureV1 {
+pub struct Ed25519Signature([u8; ED25519_SIGNATURE_BYTES]);
+impl Ed25519Signature {
     pub fn from_bytes(bytes: [u8; ED25519_SIGNATURE_BYTES]) -> Self {
         Self(bytes)
     }
@@ -161,12 +161,12 @@ impl Ed25519SignatureV1 {
         &self.0
     }
 }
-impl fmt::Debug for Ed25519SignatureV1 {
+impl fmt::Debug for Ed25519Signature {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("Ed25519SignatureV1([64 bytes])")
+        formatter.write_str("Ed25519Signature([64 bytes])")
     }
 }
-impl Serialize for Ed25519SignatureV1 {
+impl Serialize for Ed25519Signature {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -177,7 +177,7 @@ impl Serialize for Ed25519SignatureV1 {
 
 struct Ed25519SignatureVisitor;
 impl Visitor<'_> for Ed25519SignatureVisitor {
-    type Value = Ed25519SignatureV1;
+    type Value = Ed25519Signature;
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("exactly 64 bytes of Ed25519 signature material")
     }
@@ -194,10 +194,10 @@ impl Visitor<'_> for Ed25519SignatureVisitor {
         let bytes: [u8; ED25519_SIGNATURE_BYTES] = value
             .try_into()
             .map_err(|_| E::custom("Ed25519 signature must contain exactly 64 bytes"))?;
-        Ok(Ed25519SignatureV1(bytes))
+        Ok(Ed25519Signature(bytes))
     }
 }
-impl<'de> Deserialize<'de> for Ed25519SignatureV1 {
+impl<'de> Deserialize<'de> for Ed25519Signature {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -213,25 +213,25 @@ mod tests {
     #[test]
     fn digest_and_nonce_reject_uppercase() {
         let uppercase = "AA".repeat(32);
-        assert!(Digest256V1::parse(&uppercase).is_err());
-        assert!(NonceV1::parse(&uppercase).is_err());
-        assert!(Digest256V1::parse(&"aa".repeat(32)).is_ok());
-        assert!(NonceV1::parse(&"aa".repeat(32)).is_ok());
+        assert!(Digest256::parse(&uppercase).is_err());
+        assert!(Nonce::parse(&uppercase).is_err());
+        assert!(Digest256::parse(&"aa".repeat(32)).is_ok());
+        assert!(Nonce::parse(&"aa".repeat(32)).is_ok());
     }
     #[test]
     fn framing_preserves_field_boundaries() {
-        let first = Digest256V1::framed(b"test/v1", &[b"ab", b"c"]).unwrap();
-        let second = Digest256V1::framed(b"test/v1", &[b"a", b"bc"]).unwrap();
+        let first = Digest256::framed(b"test/v1", &[b"ab", b"c"]).unwrap();
+        let second = Digest256::framed(b"test/v1", &[b"a", b"bc"]).unwrap();
         assert_ne!(first, second);
     }
     #[test]
     fn ed25519_signature_requires_exact_binary_width() {
         let exact = rmp_serde::to_vec(&BinaryFixture(vec![7; ED25519_SIGNATURE_BYTES])).unwrap();
-        assert!(rmp_serde::from_slice::<Ed25519SignatureV1>(&exact).is_ok());
+        assert!(rmp_serde::from_slice::<Ed25519Signature>(&exact).is_ok());
         let short =
             rmp_serde::to_vec(&BinaryFixture(vec![7; ED25519_SIGNATURE_BYTES - 1])).unwrap();
-        assert!(rmp_serde::from_slice::<Ed25519SignatureV1>(&short).is_err());
+        assert!(rmp_serde::from_slice::<Ed25519Signature>(&short).is_err());
         let long = rmp_serde::to_vec(&BinaryFixture(vec![7; ED25519_SIGNATURE_BYTES + 1])).unwrap();
-        assert!(rmp_serde::from_slice::<Ed25519SignatureV1>(&long).is_err());
+        assert!(rmp_serde::from_slice::<Ed25519Signature>(&long).is_err());
     }
 }

@@ -3,7 +3,7 @@ use std::fmt;
 use serde::de::{DeserializeSeed, Error as _, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
-use crate::contract::{BoundedVecV1, MAX_MUTATION_ENVELOPE_BYTES};
+use crate::contract::{BoundedVec, MAX_MUTATION_ENVELOPE_BYTES};
 // complete 64-parent scope copies are < 200 KiB, fewer than 96 bounded 1 KiB
 // identifiers are < 96 KiB, and all fixed digests, map keys, markers, and
 // integers fit in the remaining > 700 KiB. Repeated collections are charged
@@ -117,7 +117,7 @@ impl<'de, T, const MAXIMUM: usize> Visitor<'de> for BudgetedVecVisitor<'_, T, MA
 where
     T: MutationBudgetDeserialize<'de>,
 {
-    type Value = BoundedVecV1<T, MAXIMUM>;
+    type Value = BoundedVec<T, MAXIMUM>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "at most {MAXIMUM} structurally budgeted items")
@@ -139,7 +139,7 @@ where
                 marker: std::marker::PhantomData::<T>,
             })?
             else {
-                return BoundedVecV1::new(values).map_err(A::Error::custom);
+                return BoundedVec::new(values).map_err(A::Error::custom);
             };
             values.push(value);
         }
@@ -148,7 +148,7 @@ where
                 "collection exceeds {MAXIMUM} items"
             )));
         }
-        BoundedVecV1::new(values).map_err(A::Error::custom)
+        BoundedVec::new(values).map_err(A::Error::custom)
     }
 }
 
@@ -156,7 +156,7 @@ impl<'de, T, const MAXIMUM: usize> DeserializeSeed<'de> for BudgetedVecSeed<'_, 
 where
     T: MutationBudgetDeserialize<'de>,
 {
-    type Value = BoundedVecV1<T, MAXIMUM>;
+    type Value = BoundedVec<T, MAXIMUM>;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where

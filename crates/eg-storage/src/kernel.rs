@@ -1,4 +1,4 @@
-//! `StorageKernelV1` — the sole physical-state authority.
+//! `StorageKernel` — the sole physical-state authority.
 
 use crate::capability::{PhysicalWriteCapability, ScopedRead, ScopedSnapshot};
 use crate::owner::blob_shared::{
@@ -41,7 +41,7 @@ const MAX_SCOPE_GROUP_MEMBERS: usize = 1024;
 /// It alone opens and identifies the file, owns its complete table/domain
 /// registry, and issues scoped read, snapshot and write capabilities. Domain
 /// crates hold only the capabilities it issues.
-pub struct StorageKernelV1 {
+pub struct StorageKernel {
     store: Arc<PhysicalStore>,
     mutation_authority: Option<MutationOwnerAuthority>,
 }
@@ -49,7 +49,7 @@ pub struct StorageKernelV1 {
 /// Move-once physical write authority.
 ///
 /// It is not `Clone`, not `Default`, not serializable, and has no public
-/// constructor. [`StorageKernelV1::into_read_and_mutation_authority`] yields
+/// constructor. [`StorageKernel::into_read_and_mutation_authority`] yields
 /// the single instance for one kernel, so a domain crate can never name one and
 /// therefore can never obtain a write capability.
 ///
@@ -144,7 +144,7 @@ impl StoreOpenOptions {
     }
 }
 
-impl StorageKernelV1 {
+impl StorageKernel {
     /// Create a current-format owner file under the default open options. No
     /// serving scope is created here.
     pub fn create_owner<D: OwnerDomain>(

@@ -13,7 +13,7 @@ use crate::tables::{
     BATCHES, CLASSES, FENCES, IDEMPOTENCY, OUTBOX, PRIVATE_PAYLOADS, REPLAY_NONCES,
     REPLAY_OPERATIONS, SCOPE_BINDINGS, STORE_ROOT, VERSIONS,
 };
-use crate::StorageKernelV1;
+use crate::StorageKernel;
 use eg_types::{MutationBatchRecord, MutationBatchStatus};
 use redb::{ReadTransaction, ReadableDatabase, ReadableTable, TableHandle};
 
@@ -41,7 +41,7 @@ pub struct RecoveryStoreCounts {
 /// Validate a LIVE, read-write-capable owner file: proves the physical file has
 /// not been substituted since it was opened, then runs the same content checks
 /// as [`validate_recovery_store_read_only`].
-pub fn validate_recovery_store(kernel: &StorageKernelV1) -> Result<RecoveryStoreCounts, String> {
+pub fn validate_recovery_store(kernel: &StorageKernel) -> Result<RecoveryStoreCounts, String> {
     validate_live_recovery_store(kernel.store())
 }
 

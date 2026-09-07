@@ -3,7 +3,7 @@
 //! This module deliberately contains only serde data.  The Arrow-backed adapter
 //! and query-family runtimes live in `eg-plan` and the facade respectively, while
 //! this bottom-of-DAG crate gives every client one stable pull protocol.  A caller
-//! sends the same `KnowledgeStreamRequestV1` for the first and subsequent pulls;
+//! sends the same `KnowledgeStreamRequest` for the first and subsequent pulls;
 //! `cursor = None` opens the deterministic snapshot and a returned cursor resumes
 //! it.  There is no server-side cursor identity that can outlive its verified
 //! request authority or placement epoch.
@@ -116,7 +116,7 @@ impl KnowledgeStreamQuery {
 /// validates them by constructing `eg_modality::OpaqueRef`s before resuming.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct KnowledgeStreamCursorV1 {
+pub struct KnowledgeStreamCursor {
     pub schema_version: u16,
     pub family: KnowledgeResultFamily,
     /// Keyed integrity reference over every other cursor field, including the
@@ -138,24 +138,24 @@ pub struct KnowledgeStreamCursorV1 {
 /// One pull from the shared served stream.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct KnowledgeStreamRequestV1 {
+pub struct KnowledgeStreamRequest {
     pub schema_version: u16,
     pub query: KnowledgeStreamQuery,
     /// Clamped by the server to its safe bound.
     pub batch_size: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<KnowledgeStreamCursorV1>,
+    pub cursor: Option<KnowledgeStreamCursor>,
     #[serde(default)]
     pub projection: KnowledgeStreamProjection,
 }
 
 /// One bounded native Arrow batch.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct KnowledgeStreamBatchV1 {
+pub struct KnowledgeStreamBatch {
     pub schema_version: u16,
     pub family: KnowledgeResultFamily,
     pub projection: KnowledgeStreamProjection,
-    pub cursor: KnowledgeStreamCursorV1,
+    pub cursor: KnowledgeStreamCursor,
     /// Arrow IPC stream bytes for `ArrowIpcV1`.
     #[serde(with = "serde_bytes")]
     pub payload: Vec<u8>,
@@ -206,7 +206,7 @@ mod tests {
             KnowledgeResultFamily::ALL
         );
         for query in queries {
-            let request = KnowledgeStreamRequestV1 {
+            let request = KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query,
                 batch_size: 32,
@@ -214,13 +214,13 @@ mod tests {
                 projection: KnowledgeStreamProjection::ArrowIpcV1,
             };
             let encoded = rmp_serde::to_vec_named(&request).unwrap();
-            let decoded: KnowledgeStreamRequestV1 = rmp_serde::from_slice(&encoded).unwrap();
+            let decoded: KnowledgeStreamRequest = rmp_serde::from_slice(&encoded).unwrap();
             assert_eq!(decoded, request);
         }
     }
 
     #[test]
-    fn native_projection_is_arrow_ipc_v1() {
+    fn native_projection_is_arrow_ipc() {
         let projection = KnowledgeStreamProjection::ArrowIpcV1;
         let encoded = rmp_serde::to_vec_named(&projection).unwrap();
         let decoded: KnowledgeStreamProjection = rmp_serde::from_slice(&encoded).unwrap();

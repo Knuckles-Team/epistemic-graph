@@ -107,8 +107,8 @@ pub fn read_fences<D: OwnerDomain>(
 ///
 /// This is a *paging* position over [`read_outbox`], not a durable delivery
 /// claim: the six declared outbox delivery tables
-/// (`mutation_outbox_consumers_v1`, `..._deliveries_v1`, `..._cursors_v1`,
-/// `..._claim_cursors_v1`, `..._fairness_v1`, `..._topic_index_v1`) are
+/// (`mutation_outbox_consumers`, `..._deliveries`, `..._cursors`,
+/// `..._claim_cursors`, `..._fairness`, `..._topic_index`) are
 /// declared in the manifest census but have no accepted claim/deliver/fairness
 /// protocol yet, so this kernel does not write them.
 #[derive(Debug, Clone, PartialEq, Eq)]

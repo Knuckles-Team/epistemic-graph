@@ -2,7 +2,7 @@ use super::*;
 
 impl OpenedCurrentFence {
     pub(in crate::direct_state) fn from_image(
-        image: &DirectStateCurrentImageV1,
+        image: &DirectStateCurrentImage,
     ) -> Result<Self, String> {
         image.validate()?;
         Ok(Self {
@@ -35,7 +35,7 @@ pub(in crate::direct_state) fn read_current_image(
     if bytes.len() > MAX_DIRECT_STATE_MANIFEST_BYTES {
         return Err("direct-state current image exceeds its byte bound".into());
     }
-    let current: DirectStateCurrentImageV1 =
+    let current: DirectStateCurrentImage =
         decode_canonical_durable_record(&bytes, "direct-state Current image")?;
     current.validate()?;
     root.sync()?;
@@ -198,7 +198,7 @@ fn replay_current_publication(
 
 fn validate_current_successor(
     previous: &DurableCurrentImage,
-    current: &DirectStateCurrentImageV1,
+    current: &DirectStateCurrentImage,
 ) -> Result<(), String> {
     let previous = OpenedCurrentFence::from_image(previous.image())?;
     let candidate = OpenedCurrentFence::from_image(current)?;
@@ -276,7 +276,7 @@ impl CurrentDurabilityRecovery {
 pub struct DurableCurrentImage {
     pub(in crate::direct_state) authority_identity: Arc<StateImageAuthorityIdentity>,
     pub(in crate::direct_state) registry_identity: Arc<DirectStateRegistryIdentity>,
-    pub(in crate::direct_state) image: DirectStateCurrentImageV1,
+    pub(in crate::direct_state) image: DirectStateCurrentImage,
     pub(in crate::direct_state) path: PathBuf,
     pub(in crate::direct_state) authority_file: File,
     pub(in crate::direct_state) root: PinnedPrivateDirectory,
@@ -368,7 +368,7 @@ impl DirectStateRecoveryCompletion {
 }
 
 impl DurableCurrentImage {
-    pub fn image(&self) -> &DirectStateCurrentImageV1 {
+    pub fn image(&self) -> &DirectStateCurrentImage {
         &self.image
     }
 

@@ -13,7 +13,7 @@ use eg_storage::{encode_bounded, ledger_scope_key, ScopeFence};
 /// Reopening must run the recovery-content check, so a corrupted row is
 /// rejected at open rather than served.
 fn reopen_error(path: &Path) -> String {
-    match StorageKernelV1::open_owner::<LedgerOnlyOwner>(
+    match StorageKernel::open_owner::<LedgerOnlyOwner>(
         path,
         PhysicalStoreIdentity::new("physical:test:ledger-only").unwrap(),
         None,
@@ -108,13 +108,13 @@ fn a_batch_row_under_an_unbound_scope_key_fails_to_reopen() {
 /// and any undeclared table are unreachable through it.
 #[test]
 fn a_capability_cannot_open_an_identity_or_undeclared_table() {
-    const ROOT: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root_v1");
+    const ROOT: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root");
     const MANIFEST: TableDefinition<&str, &[u8]> =
-        TableDefinition::new("mutation_owner_manifest_v1");
+        TableDefinition::new("mutation_owner_manifest");
     const BINDINGS: TableDefinition<&str, &[u8]> =
-        TableDefinition::new("mutation_scope_bindings_v1");
-    const FOREIGN: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac_v1");
-    const INVENTED: TableDefinition<&str, &[u8]> = TableDefinition::new("not_declared_v1");
+        TableDefinition::new("mutation_scope_bindings");
+    const FOREIGN: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac");
+    const INVENTED: TableDefinition<&str, &[u8]> = TableDefinition::new("not_declared");
 
     let dir = tempfile::tempdir().unwrap();
     let identity = native_identity("tenant-a", "incarnation:capability");

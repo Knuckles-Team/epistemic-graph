@@ -4,27 +4,27 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::authority::AuthorityScopeV1;
+use crate::authority::AuthorityScope;
 use crate::contract::{
-    BoundedVecV1, Digest256V1, OpaqueIdV1, ResourceIdV1, UtcUnixNanosV1, MAX_PARTICIPANTS,
+    BoundedVec, Digest256, OpaqueId, ResourceId, UtcUnixNanos, MAX_PARTICIPANTS,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum TransactionDecisionV1 {
+pub enum TransactionDecision {
     Commit,
     Abort,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ParentTransactionStateV1 {
+pub enum ParentTransactionState {
     Prepared,
-    Decided { decision: TransactionDecisionV1 },
-    Finalized { decision: TransactionDecisionV1 },
+    Decided { decision: TransactionDecision },
+    Finalized { decision: TransactionDecision },
 }
 
-impl ParentTransactionStateV1 {
+impl ParentTransactionState {
     pub fn validate_successor(self, next: Self) -> Result<(), String> {
         match (self, next) {
             (Self::Prepared, Self::Decided { .. }) => Ok(()),
@@ -38,7 +38,7 @@ impl ParentTransactionStateV1 {
         }
     }
 
-    fn decision(self) -> Option<TransactionDecisionV1> {
+    fn decision(self) -> Option<TransactionDecision> {
         match self {
             Self::Prepared => None,
             Self::Decided { decision } | Self::Finalized { decision } => Some(decision),
@@ -48,13 +48,13 @@ impl ParentTransactionStateV1 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ParticipantTransactionStateV1 {
+pub enum ParticipantTransactionState {
     Prepared,
-    Resolved { decision: TransactionDecisionV1 },
-    Collected { decision: TransactionDecisionV1 },
+    Resolved { decision: TransactionDecision },
+    Collected { decision: TransactionDecision },
 }
 
-impl ParticipantTransactionStateV1 {
+impl ParticipantTransactionState {
     pub fn validate_successor(self, next: Self) -> Result<(), String> {
         match (self, next) {
             (Self::Prepared, Self::Resolved { .. }) => Ok(()),
@@ -68,7 +68,7 @@ impl ParticipantTransactionStateV1 {
         }
     }
 
-    fn decision(self) -> Option<TransactionDecisionV1> {
+    fn decision(self) -> Option<TransactionDecision> {
         match self {
             Self::Prepared => None,
             Self::Resolved { decision } | Self::Collected { decision } => Some(decision),
@@ -78,17 +78,17 @@ impl ParticipantTransactionStateV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TransactionParticipantV1 {
-    pub participant_id: ResourceIdV1,
-    pub storage_scope_id: ResourceIdV1,
+pub struct TransactionParticipant {
+    pub participant_id: ResourceId,
+    pub storage_scope_id: ResourceId,
     pub route_epoch: u64,
     pub expected_fence: u64,
-    pub slice_digest: Digest256V1,
+    pub slice_digest: Digest256,
 }
 
-impl TransactionParticipantV1 {
-    fn digest(&self) -> Result<Digest256V1, String> {
-        Digest256V1::framed(
+impl TransactionParticipant {
+    fn digest(&self) -> Result<Digest256, String> {
+        Digest256::framed(
             b"eg/transaction-participant-descriptor/v1",
             &[
                 self.participant_id.as_str().as_bytes(),
@@ -105,22 +105,22 @@ impl TransactionParticipantV1 {
 /// or advance its decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ParentTransactionRecordV1 {
-    pub transaction_id: OpaqueIdV1,
-    pub mutation_id: OpaqueIdV1,
-    pub scope: AuthorityScopeV1,
-    pub authority_receipt_id: OpaqueIdV1,
-    pub operation_replay_digest: Digest256V1,
-    pub nonce_replay_digest: Digest256V1,
-    pub envelope_digest: Digest256V1,
-    pub policy_digest: Digest256V1,
-    pub participants: BoundedVecV1<TransactionParticipantV1, MAX_PARTICIPANTS>,
-    pub state: ParentTransactionStateV1,
-    pub expires_at: UtcUnixNanosV1,
-    pub state_digest: Digest256V1,
+pub struct ParentTransactionRecord {
+    pub transaction_id: OpaqueId,
+    pub mutation_id: OpaqueId,
+    pub scope: AuthorityScope,
+    pub authority_receipt_id: OpaqueId,
+    pub operation_replay_digest: Digest256,
+    pub nonce_replay_digest: Digest256,
+    pub envelope_digest: Digest256,
+    pub policy_digest: Digest256,
+    pub participants: BoundedVec<TransactionParticipant, MAX_PARTICIPANTS>,
+    pub state: ParentTransactionState,
+    pub expires_at: UtcUnixNanos,
+    pub state_digest: Digest256,
 }
 
-impl ParentTransactionRecordV1 {
+impl ParentTransactionRecord {
     pub fn validate(&self) -> Result<(), String> {
         self.scope.validate()?;
         if self.participants.is_empty() {
@@ -139,7 +139,7 @@ impl ParentTransactionRecordV1 {
         Ok(())
     }
 
-    pub fn recompute_state_digest(&self) -> Result<Digest256V1, String> {
+    pub fn recompute_state_digest(&self) -> Result<Digest256, String> {
         let mut participant_digests = Vec::with_capacity(self.participants.len());
         for participant in &self.participants {
             participant_digests.push(participant.digest()?);
@@ -157,28 +157,28 @@ impl ParentTransactionRecordV1 {
         let expires_at = self.expires_at.get().to_be_bytes();
         fields.push(&expires_at);
         let state = match self.state {
-            ParentTransactionStateV1::Prepared => b"prepared".as_slice(),
-            ParentTransactionStateV1::Decided {
-                decision: TransactionDecisionV1::Commit,
+            ParentTransactionState::Prepared => b"prepared".as_slice(),
+            ParentTransactionState::Decided {
+                decision: TransactionDecision::Commit,
             } => b"decided_commit".as_slice(),
-            ParentTransactionStateV1::Decided {
-                decision: TransactionDecisionV1::Abort,
+            ParentTransactionState::Decided {
+                decision: TransactionDecision::Abort,
             } => b"decided_abort".as_slice(),
-            ParentTransactionStateV1::Finalized {
-                decision: TransactionDecisionV1::Commit,
+            ParentTransactionState::Finalized {
+                decision: TransactionDecision::Commit,
             } => b"finalized_commit".as_slice(),
-            ParentTransactionStateV1::Finalized {
-                decision: TransactionDecisionV1::Abort,
+            ParentTransactionState::Finalized {
+                decision: TransactionDecision::Abort,
             } => b"finalized_abort".as_slice(),
         };
         fields.push(state);
         for digest in &participant_digests {
             fields.push(digest.as_bytes());
         }
-        Digest256V1::framed(b"eg/parent-transaction-record/v1", &fields)
+        Digest256::framed(b"eg/parent-transaction-record/v1", &fields)
     }
 
-    pub fn recompute_binding_digest(&self) -> Result<Digest256V1, String> {
+    pub fn recompute_binding_digest(&self) -> Result<Digest256, String> {
         let mut participant_digests = Vec::with_capacity(self.participants.len());
         for participant in &self.participants {
             participant_digests.push(participant.digest()?);
@@ -198,7 +198,7 @@ impl ParentTransactionRecordV1 {
         for digest in &participant_digests {
             fields.push(digest.as_bytes());
         }
-        Digest256V1::framed(b"eg/parent-transaction-binding/v1", &fields)
+        Digest256::framed(b"eg/parent-transaction-binding/v1", &fields)
     }
 
     fn immutable_binding_is_unchanged(&self, next: &Self) -> bool {
@@ -241,24 +241,24 @@ impl ParentTransactionRecordV1 {
 /// the exact durable parent decision and never invent a local decision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ParticipantTransactionRecordV1 {
-    pub transaction_id: OpaqueIdV1,
-    pub mutation_id: OpaqueIdV1,
-    pub participant: TransactionParticipantV1,
-    pub scope: AuthorityScopeV1,
-    pub authority_receipt_id: OpaqueIdV1,
-    pub operation_replay_digest: Digest256V1,
-    pub nonce_replay_digest: Digest256V1,
-    pub envelope_digest: Digest256V1,
-    pub policy_digest: Digest256V1,
-    pub parent_binding_digest: Digest256V1,
-    pub state: ParticipantTransactionStateV1,
-    pub prepared_effect_digest: Digest256V1,
-    pub expires_at: UtcUnixNanosV1,
-    pub state_digest: Digest256V1,
+pub struct ParticipantTransactionRecord {
+    pub transaction_id: OpaqueId,
+    pub mutation_id: OpaqueId,
+    pub participant: TransactionParticipant,
+    pub scope: AuthorityScope,
+    pub authority_receipt_id: OpaqueId,
+    pub operation_replay_digest: Digest256,
+    pub nonce_replay_digest: Digest256,
+    pub envelope_digest: Digest256,
+    pub policy_digest: Digest256,
+    pub parent_binding_digest: Digest256,
+    pub state: ParticipantTransactionState,
+    pub prepared_effect_digest: Digest256,
+    pub expires_at: UtcUnixNanos,
+    pub state_digest: Digest256,
 }
 
-impl ParticipantTransactionRecordV1 {
+impl ParticipantTransactionRecord {
     pub fn validate(&self) -> Result<(), String> {
         self.scope.validate()?;
         if self.state_digest != self.recompute_state_digest()? {
@@ -267,25 +267,25 @@ impl ParticipantTransactionRecordV1 {
         Ok(())
     }
 
-    pub fn recompute_state_digest(&self) -> Result<Digest256V1, String> {
+    pub fn recompute_state_digest(&self) -> Result<Digest256, String> {
         let state = match self.state {
-            ParticipantTransactionStateV1::Prepared => b"prepared".as_slice(),
-            ParticipantTransactionStateV1::Resolved {
-                decision: TransactionDecisionV1::Commit,
+            ParticipantTransactionState::Prepared => b"prepared".as_slice(),
+            ParticipantTransactionState::Resolved {
+                decision: TransactionDecision::Commit,
             } => b"resolved_commit".as_slice(),
-            ParticipantTransactionStateV1::Resolved {
-                decision: TransactionDecisionV1::Abort,
+            ParticipantTransactionState::Resolved {
+                decision: TransactionDecision::Abort,
             } => b"resolved_abort".as_slice(),
-            ParticipantTransactionStateV1::Collected {
-                decision: TransactionDecisionV1::Commit,
+            ParticipantTransactionState::Collected {
+                decision: TransactionDecision::Commit,
             } => b"collected_commit".as_slice(),
-            ParticipantTransactionStateV1::Collected {
-                decision: TransactionDecisionV1::Abort,
+            ParticipantTransactionState::Collected {
+                decision: TransactionDecision::Abort,
             } => b"collected_abort".as_slice(),
         };
         let participant = self.participant.digest()?;
         let scope = self.scope.digest()?;
-        Digest256V1::framed(
+        Digest256::framed(
             b"eg/participant-transaction-record/v1",
             &[
                 self.transaction_id.as_str().as_bytes(),
@@ -335,7 +335,7 @@ impl ParticipantTransactionRecordV1 {
         )
     }
 
-    fn matches_exact_parent(&self, parent: &ParentTransactionRecordV1) -> Result<bool, String> {
+    fn matches_exact_parent(&self, parent: &ParentTransactionRecord) -> Result<bool, String> {
         let exact_parent_binding = (
             &parent.transaction_id,
             &parent.mutation_id,
@@ -366,7 +366,7 @@ impl ParticipantTransactionRecordV1 {
         Ok(exact_parent_binding && exact_member)
     }
 
-    fn decision_matches_parent(&self, parent: &ParentTransactionRecordV1) -> bool {
+    fn decision_matches_parent(&self, parent: &ParentTransactionRecord) -> bool {
         match self.state.decision() {
             Some(participant_decision) => parent.state.decision() == Some(participant_decision),
             None => true,
@@ -376,7 +376,7 @@ impl ParticipantTransactionRecordV1 {
     pub fn validate_successor(
         &self,
         next: &Self,
-        parent: &ParentTransactionRecordV1,
+        parent: &ParentTransactionRecord,
     ) -> Result<(), String> {
         self.validate()?;
         next.validate()?;
@@ -398,49 +398,49 @@ impl ParticipantTransactionRecordV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::authority::ScopeKindV1;
-    use crate::contract::{TenantIdV1, MAX_SCOPE_COMPONENTS};
+    use crate::authority::ScopeKind;
+    use crate::contract::{TenantId, MAX_SCOPE_COMPONENTS};
 
-    fn digest(byte: u8) -> Digest256V1 {
-        Digest256V1::from_bytes([byte; 32])
+    fn digest(byte: u8) -> Digest256 {
+        Digest256::from_bytes([byte; 32])
     }
 
-    fn scope() -> AuthorityScopeV1 {
-        AuthorityScopeV1 {
-            kind: ScopeKindV1::new("graph").unwrap(),
-            scope_id: ResourceIdV1::new("graph:tenant:a/g").unwrap(),
-            tenant: Some(TenantIdV1::new("tenant:a").unwrap()),
-            parent_scope_ids: BoundedVecV1::<ResourceIdV1, MAX_SCOPE_COMPONENTS>::new(vec![
-                ResourceIdV1::new("tenant:a").unwrap(),
+    fn scope() -> AuthorityScope {
+        AuthorityScope {
+            kind: ScopeKind::new("graph").unwrap(),
+            scope_id: ResourceId::new("graph:tenant:a/g").unwrap(),
+            tenant: Some(TenantId::new("tenant:a").unwrap()),
+            parent_scope_ids: BoundedVec::<ResourceId, MAX_SCOPE_COMPONENTS>::new(vec![
+                ResourceId::new("tenant:a").unwrap(),
             ])
             .unwrap(),
             graph_incarnation: None,
         }
     }
 
-    fn participant(id: &str) -> TransactionParticipantV1 {
-        TransactionParticipantV1 {
-            participant_id: ResourceIdV1::new(id).unwrap(),
-            storage_scope_id: ResourceIdV1::new("store:a").unwrap(),
+    fn participant(id: &str) -> TransactionParticipant {
+        TransactionParticipant {
+            participant_id: ResourceId::new(id).unwrap(),
+            storage_scope_id: ResourceId::new("store:a").unwrap(),
             route_epoch: 3,
             expected_fence: 4,
             slice_digest: digest(5),
         }
     }
 
-    fn parent(state: ParentTransactionStateV1) -> ParentTransactionRecordV1 {
-        let mut parent = ParentTransactionRecordV1 {
-            transaction_id: OpaqueIdV1::new("transaction:1").unwrap(),
-            mutation_id: OpaqueIdV1::new("mutation:1").unwrap(),
+    fn parent(state: ParentTransactionState) -> ParentTransactionRecord {
+        let mut parent = ParentTransactionRecord {
+            transaction_id: OpaqueId::new("transaction:1").unwrap(),
+            mutation_id: OpaqueId::new("mutation:1").unwrap(),
             scope: scope(),
-            authority_receipt_id: OpaqueIdV1::new("authority:1").unwrap(),
+            authority_receipt_id: OpaqueId::new("authority:1").unwrap(),
             operation_replay_digest: digest(6),
             nonce_replay_digest: digest(7),
             envelope_digest: digest(8),
             policy_digest: digest(9),
-            participants: BoundedVecV1::new(vec![participant("participant:a")]).unwrap(),
+            participants: BoundedVec::new(vec![participant("participant:a")]).unwrap(),
             state,
-            expires_at: UtcUnixNanosV1::new(1_000),
+            expires_at: UtcUnixNanos::new(1_000),
             state_digest: digest(0),
         };
         parent.state_digest = parent.recompute_state_digest().unwrap();
@@ -448,10 +448,10 @@ mod tests {
     }
 
     fn participant_record(
-        parent: &ParentTransactionRecordV1,
-        state: ParticipantTransactionStateV1,
-    ) -> ParticipantTransactionRecordV1 {
-        let mut record = ParticipantTransactionRecordV1 {
+        parent: &ParentTransactionRecord,
+        state: ParticipantTransactionState,
+    ) -> ParticipantTransactionRecord {
+        let mut record = ParticipantTransactionRecord {
             transaction_id: parent.transaction_id.clone(),
             mutation_id: parent.mutation_id.clone(),
             participant: parent.participants.as_slice()[0].clone(),
@@ -473,35 +473,35 @@ mod tests {
 
     #[test]
     fn parent_and_participant_lifecycles_are_closed() {
-        assert!(ParentTransactionStateV1::Prepared
-            .validate_successor(ParentTransactionStateV1::Decided {
-                decision: TransactionDecisionV1::Commit,
+        assert!(ParentTransactionState::Prepared
+            .validate_successor(ParentTransactionState::Decided {
+                decision: TransactionDecision::Commit,
             })
             .is_ok());
-        assert!(ParentTransactionStateV1::Prepared
-            .validate_successor(ParentTransactionStateV1::Finalized {
-                decision: TransactionDecisionV1::Commit,
+        assert!(ParentTransactionState::Prepared
+            .validate_successor(ParentTransactionState::Finalized {
+                decision: TransactionDecision::Commit,
             })
             .is_err());
-        assert!(ParticipantTransactionStateV1::Prepared
-            .validate_successor(ParticipantTransactionStateV1::Collected {
-                decision: TransactionDecisionV1::Abort,
+        assert!(ParticipantTransactionState::Prepared
+            .validate_successor(ParticipantTransactionState::Collected {
+                decision: TransactionDecision::Abort,
             })
             .is_err());
     }
 
     #[test]
     fn state_digests_cover_scope_expiry_and_all_participants() {
-        let parent = parent(ParentTransactionStateV1::Prepared);
+        let parent = parent(ParentTransactionState::Prepared);
         let mut changed_expiry = parent.clone();
-        changed_expiry.expires_at = UtcUnixNanosV1::new(2_000);
+        changed_expiry.expires_at = UtcUnixNanos::new(2_000);
         assert_ne!(
             parent.state_digest,
             changed_expiry.recompute_state_digest().unwrap()
         );
 
         let mut changed_scope = parent.clone();
-        changed_scope.scope.scope_id = ResourceIdV1::new("graph:tenant:a/other").unwrap();
+        changed_scope.scope.scope_id = ResourceId::new("graph:tenant:a/other").unwrap();
         assert_ne!(
             parent.state_digest,
             changed_scope.recompute_state_digest().unwrap()
@@ -510,27 +510,27 @@ mod tests {
 
     #[test]
     fn participant_rejects_parent_substitution_and_missing_membership() {
-        let prepared_parent = parent(ParentTransactionStateV1::Prepared);
-        let current = participant_record(&prepared_parent, ParticipantTransactionStateV1::Prepared);
-        let decided_parent = parent(ParentTransactionStateV1::Decided {
-            decision: TransactionDecisionV1::Commit,
+        let prepared_parent = parent(ParentTransactionState::Prepared);
+        let current = participant_record(&prepared_parent, ParticipantTransactionState::Prepared);
+        let decided_parent = parent(ParentTransactionState::Decided {
+            decision: TransactionDecision::Commit,
         });
         let next = participant_record(
             &decided_parent,
-            ParticipantTransactionStateV1::Resolved {
-                decision: TransactionDecisionV1::Commit,
+            ParticipantTransactionState::Resolved {
+                decision: TransactionDecision::Commit,
             },
         );
         assert!(current.validate_successor(&next, &decided_parent).is_ok());
 
         let mut substituted = decided_parent.clone();
-        substituted.mutation_id = OpaqueIdV1::new("mutation:other").unwrap();
+        substituted.mutation_id = OpaqueId::new("mutation:other").unwrap();
         substituted.state_digest = substituted.recompute_state_digest().unwrap();
         assert!(current.validate_successor(&next, &substituted).is_err());
 
         let mut missing_member = decided_parent;
         missing_member.participants =
-            BoundedVecV1::new(vec![participant("participant:other")]).unwrap();
+            BoundedVec::new(vec![participant("participant:other")]).unwrap();
         missing_member.state_digest = missing_member.recompute_state_digest().unwrap();
         assert!(current.validate_successor(&next, &missing_member).is_err());
     }

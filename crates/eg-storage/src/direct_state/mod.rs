@@ -79,8 +79,8 @@ pub use capture::{
     capture_physical_image_source, DirectStateCaptureBinding, RegisteredDirectStateRoots,
 };
 pub use contract::{
-    DirectStateAuthorityKind, DirectStateDomain, DirectStateOwnerManifestV1, DirectStateScope,
-    DirectStateSectionManifestV1, DEFAULT_MAX_DIRECT_STATE_BYTES, DIRECT_STATE_SCHEMA_VERSION,
+    DirectStateAuthorityKind, DirectStateDomain, DirectStateOwnerManifest, DirectStateScope,
+    DirectStateSectionManifest, DEFAULT_MAX_DIRECT_STATE_BYTES, DIRECT_STATE_SCHEMA_VERSION,
     HARD_MAX_DIRECT_STATE_BYTES, MAX_DIRECT_STATE_CHUNK_BYTES, MAX_DIRECT_STATE_CHUNK_ITEMS,
     MAX_DIRECT_STATE_MANIFEST_BYTES, MAX_DIRECT_STATE_OWNER_NAME_BYTES,
     MAX_DIRECT_STATE_OWNER_TABLES,
@@ -97,9 +97,9 @@ pub use image::{
     VerifiedDirectStateGeneration, VerifiedDirectStateIncoming,
 };
 pub use journal::{
-    CurrentCleanupRecovery, CurrentDurabilityRecovery, CurrentPromotion, DirectStateCurrentImageV1,
-    DirectStateGenerationManifestV1, DirectStateInstallJournalV1, DirectStateInstallPhase,
-    DirectStateInstallSectionV1, DirectStateRecoveryCompletion, DurableCurrentImage,
+    CurrentCleanupRecovery, CurrentDurabilityRecovery, CurrentPromotion, DirectStateCurrentImage,
+    DirectStateGenerationManifest, DirectStateInstallJournal, DirectStateInstallPhase,
+    DirectStateInstallSection, DirectStateRecoveryCompletion, DurableCurrentImage,
     DurablePendingJournal, DurablePreparedJournal, DurablePublishedJournal, PendingAbandonRecovery,
     PendingAbandonment, PreparedGenerationRecovery, PreparedJournalPublication,
     PreparedJournalRecovery, PreparedWholeGeneration, PublishedJournalPublication,
@@ -115,9 +115,9 @@ pub use registry::{
     ValidatedWholeGeneration,
 };
 pub use transport::{
-    CapturedWholeGeneration, DirectStateChunkStream, DirectStateChunkV1,
-    DirectStateRemoteTransportV1, DirectStateSectionSource, DirectStateTransportGeneration,
-    DirectStateTransportHeaderV1, ValidatingDirectStateChunks,
+    CapturedWholeGeneration, DirectStateChunkStream, DirectStateChunk,
+    DirectStateRemoteTransport, DirectStateSectionSource, DirectStateTransportGeneration,
+    DirectStateTransportHeader, ValidatingDirectStateChunks,
 };
 
 #[cfg(test)]

@@ -23,7 +23,7 @@
 //! unblocked, without inventing a second, incompatible contract later.
 //!
 //! `CommitOutcomeBundle` deliberately does not embed a full
-//! [`crate::commit_descriptor::CommitDescriptorV1`]: GOC-03's descriptor is
+//! [`crate::commit_descriptor::CommitDescriptor`]: GOC-03's descriptor is
 //! the cross-domain commit IDENTITY a participant registers a digest against
 //! once native wiring lands, not a payload this module should duplicate.
 //! `commit_participant_domains` instead names which [`CommitParticipantDomain`]
@@ -79,7 +79,7 @@ pub enum OutcomeCompleteness {
 /// One immutable, content-addressed artifact reference a
 /// [`CommitOutcomeBundle`] carries. The bundle never embeds artifact bytes —
 /// only a bounded reference/digest pair, mirroring
-/// [`crate::commit_descriptor::CommitDescriptorV1`]'s "digests cover canonical
+/// [`crate::commit_descriptor::CommitDescriptor`]'s "digests cover canonical
 /// encoded participant bytes, never mutable pointers or raw content" rule.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

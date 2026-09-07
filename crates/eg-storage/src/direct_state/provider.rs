@@ -57,7 +57,7 @@ impl DirectStateRecoveredValue {
 pub trait DirectStateProvider: sealed::DirectStateProvider + Send + Sync {
     fn domain(&self) -> DirectStateDomain;
     fn value_type_id(&self) -> TypeId;
-    fn owner_manifest(&self) -> Result<DirectStateOwnerManifestV1, String>;
+    fn owner_manifest(&self) -> Result<DirectStateOwnerManifest, String>;
     fn staging_directory(&self) -> &Path;
     fn generation_directory(&self) -> &Path;
 
@@ -86,14 +86,14 @@ pub trait DirectStateProvider: sealed::DirectStateProvider + Send + Sync {
     fn validate_payload(
         &self,
         permit: &StateImageInstallPermit,
-        manifest: &DirectStateSectionManifestV1,
+        manifest: &DirectStateSectionManifest,
         received: &DirectStatePhysicalImage,
     ) -> Result<Box<dyn Any + Send>, String>;
 
     fn stage_replace(
         &self,
         permit: &StateImageInstallPermit,
-        manifest: &DirectStateSectionManifestV1,
+        manifest: &DirectStateSectionManifest,
         received: DirectStatePhysicalImage,
         validated: Box<dyn Any + Send>,
     ) -> Result<DirectStateProviderStage, String>;
@@ -104,7 +104,7 @@ pub trait DirectStateProvider: sealed::DirectStateProvider + Send + Sync {
     fn recover_current(
         &self,
         permit: &StateImageInstallPermit,
-        section: &DirectStateInstallSectionV1,
+        section: &DirectStateInstallSection,
         generation: &VerifiedDirectStateGeneration,
     ) -> Result<DirectStateRecoveredValue, String>;
 
@@ -115,7 +115,7 @@ pub trait DirectStateProvider: sealed::DirectStateProvider + Send + Sync {
     fn recover_pending(
         &self,
         permit: &StateImageInstallPermit,
-        section: &DirectStateInstallSectionV1,
+        section: &DirectStateInstallSection,
         incoming: &VerifiedDirectStateIncoming,
         generation: &VerifiedDirectStateGeneration,
     ) -> Result<DirectStateRecoveredValue, String>;
@@ -124,12 +124,12 @@ pub trait DirectStateProvider: sealed::DirectStateProvider + Send + Sync {
 /// Independently configured closed owner-layout census. Provider code cannot
 /// self-attest its own table/layout identity at registration time.
 pub struct DirectStateRegistryContract {
-    pub(super) owners: BTreeMap<DirectStateDomain, DirectStateOwnerManifestV1>,
+    pub(super) owners: BTreeMap<DirectStateDomain, DirectStateOwnerManifest>,
 }
 
 impl DirectStateRegistryContract {
     pub fn new(
-        owners: impl IntoIterator<Item = DirectStateOwnerManifestV1>,
+        owners: impl IntoIterator<Item = DirectStateOwnerManifest>,
     ) -> Result<Self, String> {
         let mut by_domain = BTreeMap::new();
         for owner in owners {
@@ -153,7 +153,7 @@ impl DirectStateRegistryContract {
     pub(super) fn owner(
         &self,
         domain: DirectStateDomain,
-    ) -> Result<&DirectStateOwnerManifestV1, String> {
+    ) -> Result<&DirectStateOwnerManifest, String> {
         self.owners
             .get(&domain)
             .ok_or_else(|| format!("direct-state owner contract omits {domain:?}"))
@@ -175,7 +175,7 @@ impl DirectStateRegistryContract {
 
 pub(super) struct DirectStateProviderRegistration {
     pub(super) provider: Arc<dyn DirectStateProvider>,
-    pub(super) owner: DirectStateOwnerManifestV1,
+    pub(super) owner: DirectStateOwnerManifest,
     pub(super) staging: PinnedPrivateDirectory,
     pub(super) generations: PinnedPrivateDirectory,
 }
@@ -212,7 +212,7 @@ impl DirectStateProviderRegistration {
         &self,
         authority_identity: &Arc<StateImageAuthorityIdentity>,
         registry_identity: &Arc<DirectStateRegistryIdentity>,
-        section: &DirectStateInstallSectionV1,
+        section: &DirectStateInstallSection,
     ) -> Result<VerifiedDirectStateGeneration, String> {
         self.validate_live()?;
         if section.generation_manifest.domain != self.owner.domain {

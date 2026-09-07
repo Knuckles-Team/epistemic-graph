@@ -1,19 +1,19 @@
-use super::envelope::{MutationEnvelopePartsV1, MutationEnvelopeV1, MutationPayloadV1};
+use super::envelope::{MutationEnvelopeParts, MutationEnvelope, MutationPayload};
 use super::payload::{validate_payload_byte_budget, validate_payload_shape_and_scope};
 use super::MUTATION_ENVELOPE_SCHEMA_V1;
-use crate::contract::{Digest256V1, ResourceIdV1, MAX_MUTATION_ENVELOPE_BYTES};
+use crate::contract::{Digest256, ResourceId, MAX_MUTATION_ENVELOPE_BYTES};
 use crate::msgpack::{validate_single_value, MsgpackLimits};
 
-impl MutationEnvelopeV1 {
+impl MutationEnvelope {
     /// Builds a structurally checked untrusted envelope without a
     /// serialize-then-deserialize round trip. Success does not authorize or
     /// admit execution.
-    pub fn new(parts: MutationEnvelopePartsV1) -> Result<Self, String> {
+    pub fn new(parts: MutationEnvelopeParts) -> Result<Self, String> {
         parts.payload.validate()?;
         let operation_replay_digest = parts.operation_identity.digest()?;
         let nonce_replay_digest = parts.nonce_replay_key.digest()?;
         let canonical_payload_digest = parts.payload.canonical_payload_digest()?;
-        let MutationPayloadV1 {
+        let MutationPayload {
             mutation_id,
             scope,
             preconditions,
@@ -23,7 +23,7 @@ impl MutationEnvelopeV1 {
             requested_result,
         } = parts.payload;
         let mut envelope = Self {
-            schema_version: ResourceIdV1::new(MUTATION_ENVELOPE_SCHEMA_V1)?,
+            schema_version: ResourceId::new(MUTATION_ENVELOPE_SCHEMA_V1)?,
             mutation_id,
             verified_authority: parts.verified_authority,
             operation_identity: parts.operation_identity,
@@ -37,7 +37,7 @@ impl MutationEnvelopeV1 {
             provenance,
             requested_result,
             canonical_payload_digest,
-            envelope_digest: Digest256V1::from_bytes([0; 32]),
+            envelope_digest: Digest256::from_bytes([0; 32]),
         };
         envelope.envelope_digest = envelope.recompute_envelope_digest()?;
         envelope.validate_untrusted_request()?;

@@ -3,13 +3,13 @@
 use serde::{Deserialize, Serialize};
 
 use super::context::{
-    digest_purpose, validate_operation_purpose, AuthorityContextV1, AuthorityScopeV1,
+    digest_purpose, validate_operation_purpose, AuthorityContext, AuthorityScope,
     AUTHORITY_PROTOCOL_V1,
 };
 use crate::contract::{
-    ActorIdV1, AudienceIdV1, Digest256V1, EffectStateV1, IdempotencyKeyV1, MethodIdV1, NonceV1,
-    OpaqueIdV1, OperationV1, PolicyRevisionV1, ProtocolIdV1, PurposeKindV1, ReplayStatusV1,
-    ResourceIdV1, SchemaIdV1, TenantIdV1, UtcUnixNanosV1,
+    ActorId, AudienceId, Digest256, EffectState, IdempotencyKey, MethodId, Nonce,
+    OpaqueId, Operation, PolicyRevision, ProtocolId, PurposeKind, ReplayStatus,
+    ResourceId, SchemaId, TenantId, UtcUnixNanos,
 };
 
 /// Stable effect identity. The type cannot contain nonce, request/trace IDs, or
@@ -17,38 +17,38 @@ use crate::contract::{
 /// context when the semantically stable fields are identical.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct OperationReplayIdentityV1 {
-    pub schema_version: ResourceIdV1,
-    pub protocol_id: ProtocolIdV1,
-    pub catalog_digest: Digest256V1,
-    pub tenant: TenantIdV1,
-    pub actor: ActorIdV1,
-    pub audience: AudienceIdV1,
-    pub authority_scope: AuthorityScopeV1,
-    pub operation: OperationV1,
-    pub purpose_kind: PurposeKindV1,
-    pub purpose_resource: Option<ResourceIdV1>,
-    pub method: MethodIdV1,
-    pub method_schema_id: SchemaIdV1,
-    pub method_schema_digest: Digest256V1,
-    pub canonical_payload_digest: Digest256V1,
-    pub policy_revision: PolicyRevisionV1,
+pub struct OperationReplayIdentity {
+    pub schema_version: ResourceId,
+    pub protocol_id: ProtocolId,
+    pub catalog_digest: Digest256,
+    pub tenant: TenantId,
+    pub actor: ActorId,
+    pub audience: AudienceId,
+    pub authority_scope: AuthorityScope,
+    pub operation: Operation,
+    pub purpose_kind: PurposeKind,
+    pub purpose_resource: Option<ResourceId>,
+    pub method: MethodId,
+    pub method_schema_id: SchemaId,
+    pub method_schema_digest: Digest256,
+    pub canonical_payload_digest: Digest256,
+    pub policy_revision: PolicyRevision,
     pub policy_epoch: u64,
-    pub policy_digest: Digest256V1,
-    pub idempotency_key: IdempotencyKeyV1,
+    pub policy_digest: Digest256,
+    pub idempotency_key: IdempotencyKey,
 }
 
-impl OperationReplayIdentityV1 {
+impl OperationReplayIdentity {
     pub fn from_context(
-        context: &AuthorityContextV1,
-        method: MethodIdV1,
-        method_schema_id: SchemaIdV1,
-        method_schema_digest: Digest256V1,
-        canonical_payload_digest: Digest256V1,
+        context: &AuthorityContext,
+        method: MethodId,
+        method_schema_id: SchemaId,
+        method_schema_digest: Digest256,
+        canonical_payload_digest: Digest256,
     ) -> Result<Self, String> {
         context.validate()?;
         Ok(Self {
-            schema_version: ResourceIdV1::new("operation-replay-identity.v1")?,
+            schema_version: ResourceId::new("operation-replay-identity.v1")?,
             protocol_id: context.protocol_id.clone(),
             catalog_digest: context.catalog_digest,
             tenant: context.tenant.clone(),
@@ -90,7 +90,7 @@ impl OperationReplayIdentityV1 {
         )
     }
 
-    pub fn digest(&self) -> Result<Digest256V1, String> {
+    pub fn digest(&self) -> Result<Digest256, String> {
         self.validate()?;
         let scope_digest = self.authority_scope.digest()?;
         let purpose_digest = digest_purpose(
@@ -100,7 +100,7 @@ impl OperationReplayIdentityV1 {
             &self.authority_scope,
         )?;
         let policy_epoch = self.policy_epoch.to_be_bytes();
-        Digest256V1::framed(
+        Digest256::framed(
             b"eg/operation-replay-identity/v1",
             &[
                 self.schema_version.as_str().as_bytes(),
@@ -126,20 +126,20 @@ impl OperationReplayIdentityV1 {
 }
 
 /// Attempt-specific nonce key. Its digest changes for a fresh nonce even when
-/// `OperationReplayIdentityV1` remains stable.
+/// `OperationReplayIdentity` remains stable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct NonceReplayKeyV1 {
-    pub protocol_id: ProtocolIdV1,
-    pub catalog_digest: Digest256V1,
-    pub audience: AudienceIdV1,
-    pub actor: ActorIdV1,
-    pub tenant: TenantIdV1,
-    pub nonce: NonceV1,
+pub struct NonceReplayKey {
+    pub protocol_id: ProtocolId,
+    pub catalog_digest: Digest256,
+    pub audience: AudienceId,
+    pub actor: ActorId,
+    pub tenant: TenantId,
+    pub nonce: Nonce,
 }
 
-impl NonceReplayKeyV1 {
-    pub fn from_context(context: &AuthorityContextV1) -> Result<Self, String> {
+impl NonceReplayKey {
+    pub fn from_context(context: &AuthorityContext) -> Result<Self, String> {
         context.validate()?;
         Ok(Self {
             protocol_id: context.protocol_id.clone(),
@@ -151,11 +151,11 @@ impl NonceReplayKeyV1 {
         })
     }
 
-    pub fn digest(&self) -> Result<Digest256V1, String> {
+    pub fn digest(&self) -> Result<Digest256, String> {
         if self.protocol_id.as_str() != AUTHORITY_PROTOCOL_V1 {
             return Err("nonce replay key protocol is invalid".into());
         }
-        Digest256V1::framed(
+        Digest256::framed(
             b"eg/nonce-replay-key/v1",
             &[
                 self.protocol_id.as_str().as_bytes(),
@@ -173,29 +173,29 @@ impl NonceReplayKeyV1 {
 /// digests separately. It never infers either one from `context_digest`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ReplayReceiptV1 {
-    pub receipt_id: OpaqueIdV1,
-    pub context_digest: Digest256V1,
-    pub operation_replay_digest: Digest256V1,
-    pub nonce_replay_digest: Digest256V1,
+pub struct ReplayReceipt {
+    pub receipt_id: OpaqueId,
+    pub context_digest: Digest256,
+    pub operation_replay_digest: Digest256,
+    pub nonce_replay_digest: Digest256,
     pub replay_ledger_epoch: Option<u64>,
-    pub nonce_consumed_at: Option<UtcUnixNanosV1>,
-    pub recorded_at: UtcUnixNanosV1,
-    pub status: ReplayStatusV1,
-    pub effect_state: EffectStateV1,
-    pub effect_id: Option<OpaqueIdV1>,
-    pub commit_id: Option<OpaqueIdV1>,
-    pub effect_digest: Option<Digest256V1>,
-    pub result_digest: Option<Digest256V1>,
-    pub prior_replay_receipt_id: Option<OpaqueIdV1>,
-    pub prior_effect_id: Option<OpaqueIdV1>,
-    pub prior_commit_id: Option<OpaqueIdV1>,
-    pub prior_effect_digest: Option<Digest256V1>,
-    pub prior_result_digest: Option<Digest256V1>,
+    pub nonce_consumed_at: Option<UtcUnixNanos>,
+    pub recorded_at: UtcUnixNanos,
+    pub status: ReplayStatus,
+    pub effect_state: EffectState,
+    pub effect_id: Option<OpaqueId>,
+    pub commit_id: Option<OpaqueId>,
+    pub effect_digest: Option<Digest256>,
+    pub result_digest: Option<Digest256>,
+    pub prior_replay_receipt_id: Option<OpaqueId>,
+    pub prior_effect_id: Option<OpaqueId>,
+    pub prior_commit_id: Option<OpaqueId>,
+    pub prior_effect_digest: Option<Digest256>,
+    pub prior_result_digest: Option<Digest256>,
     pub retryable: bool,
 }
 
-impl ReplayReceiptV1 {
+impl ReplayReceipt {
     pub fn validate(&self) -> Result<(), String> {
         let valid = match (self.status.as_str(), self.effect_state.as_str()) {
             ("consumed", "pending") => replay_pending(self),
@@ -214,14 +214,14 @@ impl ReplayReceiptV1 {
         }
     }
 
-    pub fn evidence_digest(&self) -> Result<Digest256V1, String> {
+    pub fn evidence_digest(&self) -> Result<Digest256, String> {
         self.validate()?;
         let ledger_present = [u8::from(self.replay_ledger_epoch.is_some())];
         let ledger_epoch = self.replay_ledger_epoch.unwrap_or(0).to_be_bytes();
         let consumed_present = [u8::from(self.nonce_consumed_at.is_some())];
         let consumed_at = self
             .nonce_consumed_at
-            .map_or(0, UtcUnixNanosV1::get)
+            .map_or(0, UtcUnixNanos::get)
             .to_be_bytes();
         let recorded_at = self.recorded_at.get().to_be_bytes();
         let retryable = [u8::from(self.retryable)];
@@ -239,7 +239,7 @@ impl ReplayReceiptV1 {
         fields.push(self.effect_state.as_str().as_bytes());
         self.push_effect_fields(&mut fields);
         fields.push(&retryable);
-        Digest256V1::framed(b"eg/replay-receipt-evidence/v1", &fields)
+        Digest256::framed(b"eg/replay-receipt-evidence/v1", &fields)
     }
 
     fn push_effect_fields<'a>(&'a self, fields: &mut Vec<&'a [u8]>) {
@@ -255,7 +255,7 @@ impl ReplayReceiptV1 {
     }
 }
 
-fn consumed_effect_is_bound(receipt: &ReplayReceiptV1) -> bool {
+fn consumed_effect_is_bound(receipt: &ReplayReceipt) -> bool {
     receipt.replay_ledger_epoch.is_some()
         && receipt.nonce_consumed_at.is_some()
         && receipt
@@ -264,11 +264,11 @@ fn consumed_effect_is_bound(receipt: &ReplayReceiptV1) -> bool {
         && receipt.effect_id.is_some()
 }
 
-fn current_effect_is_absent(receipt: &ReplayReceiptV1) -> bool {
+fn current_effect_is_absent(receipt: &ReplayReceipt) -> bool {
     receipt.effect_id.is_none() && receipt.commit_id.is_none() && receipt.effect_digest.is_none()
 }
 
-fn prior_effect_is_absent(receipt: &ReplayReceiptV1) -> bool {
+fn prior_effect_is_absent(receipt: &ReplayReceipt) -> bool {
     receipt.prior_replay_receipt_id.is_none()
         && receipt.prior_effect_id.is_none()
         && receipt.prior_commit_id.is_none()
@@ -276,7 +276,7 @@ fn prior_effect_is_absent(receipt: &ReplayReceiptV1) -> bool {
         && receipt.prior_result_digest.is_none()
 }
 
-fn replay_pending(receipt: &ReplayReceiptV1) -> bool {
+fn replay_pending(receipt: &ReplayReceipt) -> bool {
     consumed_effect_is_bound(receipt)
         && receipt.commit_id.is_none()
         && receipt.effect_digest.is_none()
@@ -285,7 +285,7 @@ fn replay_pending(receipt: &ReplayReceiptV1) -> bool {
         && receipt.retryable
 }
 
-fn replay_committed(receipt: &ReplayReceiptV1) -> bool {
+fn replay_committed(receipt: &ReplayReceipt) -> bool {
     consumed_effect_is_bound(receipt)
         && receipt.commit_id.is_some()
         && receipt.effect_digest.is_some()
@@ -294,7 +294,7 @@ fn replay_committed(receipt: &ReplayReceiptV1) -> bool {
         && !receipt.retryable
 }
 
-fn replay_failure(receipt: &ReplayReceiptV1, retryable: bool) -> bool {
+fn replay_failure(receipt: &ReplayReceipt, retryable: bool) -> bool {
     consumed_effect_is_bound(receipt)
         && receipt.commit_id.is_none()
         && receipt.effect_digest.is_none()
@@ -303,7 +303,7 @@ fn replay_failure(receipt: &ReplayReceiptV1, retryable: bool) -> bool {
         && receipt.retryable == retryable
 }
 
-fn replay_duplicate(receipt: &ReplayReceiptV1) -> bool {
+fn replay_duplicate(receipt: &ReplayReceipt) -> bool {
     receipt.replay_ledger_epoch.is_some()
         && receipt
             .nonce_consumed_at
@@ -314,7 +314,7 @@ fn replay_duplicate(receipt: &ReplayReceiptV1) -> bool {
         && !receipt.retryable
 }
 
-fn duplicate_prior_is_bound(receipt: &ReplayReceiptV1) -> bool {
+fn duplicate_prior_is_bound(receipt: &ReplayReceipt) -> bool {
     receipt.prior_replay_receipt_id.is_some()
         && receipt.prior_effect_id.is_some()
         && receipt.prior_commit_id.is_some()
@@ -323,7 +323,7 @@ fn duplicate_prior_is_bound(receipt: &ReplayReceiptV1) -> bool {
         && receipt.prior_result_digest == receipt.result_digest
 }
 
-fn replay_rejected(receipt: &ReplayReceiptV1) -> bool {
+fn replay_rejected(receipt: &ReplayReceipt) -> bool {
     receipt.replay_ledger_epoch.is_some()
         && receipt.nonce_consumed_at.is_none()
         && current_effect_is_absent(receipt)
@@ -332,7 +332,7 @@ fn replay_rejected(receipt: &ReplayReceiptV1) -> bool {
         && !receipt.retryable
 }
 
-fn replay_unavailable(receipt: &ReplayReceiptV1) -> bool {
+fn replay_unavailable(receipt: &ReplayReceipt) -> bool {
     receipt.replay_ledger_epoch.is_none()
         && receipt.nonce_consumed_at.is_none()
         && current_effect_is_absent(receipt)
@@ -341,10 +341,10 @@ fn replay_unavailable(receipt: &ReplayReceiptV1) -> bool {
         && receipt.retryable
 }
 
-fn optional_opaque_bytes(value: Option<&OpaqueIdV1>) -> &[u8] {
+fn optional_opaque_bytes(value: Option<&OpaqueId>) -> &[u8] {
     value.map_or(b"".as_slice(), |item| item.as_str().as_bytes())
 }
 
-fn optional_digest_bytes(value: Option<&Digest256V1>) -> &[u8] {
+fn optional_digest_bytes(value: Option<&Digest256>) -> &[u8] {
     value.map_or(b"".as_slice(), |item| item.as_bytes().as_slice())
 }

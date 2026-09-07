@@ -209,7 +209,7 @@ pub struct ChangeEnvelope {
     #[serde(default)]
     pub lineage: Vec<LineageRecord>,
     pub privacy: PrivacyAttestation,
-    /// GOC-03 — the [`crate::commit_descriptor::CommitDescriptorV1::commit_seq`]
+    /// GOC-03 — the [`crate::commit_descriptor::CommitDescriptor::commit_seq`]
     /// this envelope's mutation was published under, once the durable
     /// commit-descriptor index is wired into the commit path (GOC-03-W03/W05).
     /// Additive and optional so an envelope predating that wiring, or one whose
@@ -219,7 +219,7 @@ pub struct ChangeEnvelope {
     /// index — this module does not itself construct or verify that pairing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit_seq: Option<u64>,
-    /// Opaque `CommitDescriptorV1::commit_id` this envelope's mutation was
+    /// Opaque `CommitDescriptor::commit_id` this envelope's mutation was
     /// published under. See `commit_seq`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit_descriptor_ref: Option<String>,
@@ -302,7 +302,7 @@ impl ChangeEnvelope {
 
     fn validate_core_text_fields(&self) -> Result<(), String> {
         // MutationBatch v1 carries `identity: MutationScopeIdentity`, so the tenant and
-        // graph names are no longer free-form strings reachable from here. `TenantId`
+        // graph names are no longer free-form strings reachable from here. `ScopeTenantId`
         // and `LogicalName` enforce the same persistence privacy policy this scan
         // applies -- both the path- and address-shaped forms -- inside `new()`, and on
         // deserialize via `impl_validated_deserialize!`. Scanning them again here would
@@ -734,7 +734,7 @@ mod tests {
                 verified_capabilities: Default::default(),
             },
             identity: crate::mutation_batch::MutationScopeIdentity::graph(
-                crate::mutation_batch::TenantId::new("tenant-a").unwrap(),
+                crate::mutation_batch::ScopeTenantId::new("tenant-a").unwrap(),
                 crate::mutation_batch::LogicalName::new("graph-a").unwrap(),
                 crate::mutation_batch::IncarnationId::new("incarnation:test:change-envelope")
                     .unwrap(),
@@ -747,7 +747,7 @@ mod tests {
             operations: vec![crate::mutation_batch::MutationOperation {
                 ordinal: 0,
                 surface: crate::mutation_batch::MutationSurface::Graph,
-                domain: crate::mutation_batch::MutationDomain::GraphRows,
+                domain: crate::mutation_batch::DurabilityDomain::GraphRows,
                 method: crate::protocol::Method::AddNode {
                     node_id: "n1".into(),
                     properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"value": 1}))
@@ -876,8 +876,8 @@ mod tests {
     // v0 built a `ChangeEnvelope` with a free-form `mutation.tenant: String`
     // set to unsafe text and asserted `validate()` rejected it via
     // `validate_safe_text`'s persistence-privacy scan. In v1 the tenant lives
-    // inside `MutationScopeIdentity`, whose `TenantId` is a validated newtype
-    // constructible only through `TenantId::new`, which returns `Result` and
+    // inside `MutationScopeIdentity`, whose `ScopeTenantId` is a validated newtype
+    // constructible only through `ScopeTenantId::new`, which returns `Result` and
     // is called by both the constructor and `impl_validated_deserialize!` --
     // an unsafe tenant can no longer reach a constructed `ChangeEnvelope` to
     // be rejected "after the fact" by `validate()`. Per the migration
@@ -885,13 +885,13 @@ mod tests {
     // keeping the original test's intent (unsafe text in a core mutation
     // identity field is rejected, not silently accepted).
     //
-    // NOTE: `TenantId::new` enforces `validate_identifier` (non-empty, no
+    // NOTE: `ScopeTenantId::new` enforces `validate_identifier` (non-empty, no
     // control chars, no boundary whitespace, and no path semantics: `.`,
     // `..`, `/`, `\`) -- a narrower rule set than `validate_safe_text`'s
     // privacy scan (which also rejects `@` and embedded `/home/`, `/users/`,
     // `/mnt/`, `file://` substrings). The original fixture value
     // "person@example.invalid" contains no path separator, so it would
-    // actually be ACCEPTED by `TenantId::new` -- it is `validate_safe_text`,
+    // actually be ACCEPTED by `ScopeTenantId::new` -- it is `validate_safe_text`,
     // not the tenant newtype, that used to reject it, and that scan no
     // longer runs over the tenant field (see `validate_core_text_fields`).
     // That is a real behavioral narrowing worth flagging upstream, not
@@ -899,11 +899,11 @@ mod tests {
     // asserting a false rejection. This test instead uses a machine-path
     // value ("/home/person", the same reserved placeholder username as
     // `feature_with_privacy_violating_value_is_rejected` below), which both
-    // the old privacy scan and the new `TenantId` path-semantics check
+    // the old privacy scan and the new `ScopeTenantId` path-semantics check
     // reject, so the assertion is true under v1 as written.
     #[test]
     fn unsafe_text_in_core_mutation_field_is_rejected() {
-        let err = crate::mutation_batch::TenantId::new("/home/person")
+        let err = crate::mutation_batch::ScopeTenantId::new("/home/person")
             .expect_err("tenant identity must reject unsafe machine-path text");
         assert!(err.contains("path semantics"), "got: {err}");
     }

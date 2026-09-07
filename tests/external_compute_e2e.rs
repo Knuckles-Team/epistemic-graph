@@ -22,8 +22,8 @@ use arrow::ipc::reader::StreamReader;
 use eg_types::jobs::{JobKind, JobOp, SubmitJobSpec};
 use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::knowledge_stream::{
-    KnowledgeResultFamily, KnowledgeStreamBatchV1, KnowledgeStreamProjection, KnowledgeStreamQuery,
-    KnowledgeStreamRequestV1, KNOWLEDGE_STREAM_SCHEMA_VERSION,
+    KnowledgeResultFamily, KnowledgeStreamBatch, KnowledgeStreamProjection, KnowledgeStreamQuery,
+    KnowledgeStreamRequest, KNOWLEDGE_STREAM_SCHEMA_VERSION,
 };
 use epistemic_graph::protocol::{Method, Request, Response, ResultPayload};
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
@@ -65,7 +65,7 @@ fn success_json(response: Response) -> serde_json::Value {
     }
 }
 
-fn success_batch(response: Response) -> KnowledgeStreamBatchV1 {
+fn success_batch(response: Response) -> KnowledgeStreamBatch {
     assert!(
         response.error.is_none(),
         "KnowledgeStream failed: {:?}",
@@ -88,7 +88,7 @@ fn arrow_rows(payload: &[u8]) -> usize {
 
 fn stream(query: KnowledgeStreamQuery) -> Method {
     Method::KnowledgeStream {
-        request: KnowledgeStreamRequestV1 {
+        request: KnowledgeStreamRequest {
             schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
             query,
             batch_size: 32,

@@ -70,7 +70,7 @@ async fn prepared_provider_view_rejects_path_replacement() {
     let authority = StateImageAuthority::new();
     let permit = authority.begin_install().await;
     let bytes = b"pinned-prepared";
-    let manifest = DirectStateSectionManifestV1 {
+    let manifest = DirectStateSectionManifest {
         schema_version: DIRECT_STATE_SCHEMA_VERSION,
         domain: DirectStateDomain::Blob,
         scope: DirectStateScope::DefaultGlobal {
@@ -168,7 +168,7 @@ async fn one_authority_cannot_cross_registry_staging_or_recovery_tokens() {
     let current = DurableCurrentImage {
         authority_identity: authority.identity.clone(),
         registry_identity: first.registry_identity.clone(),
-        image: DirectStateCurrentImageV1 {
+        image: DirectStateCurrentImage {
             schema_version: DIRECT_STATE_SCHEMA_VERSION,
             snapshot_sha256: "b".repeat(64),
             scope: DirectStateScope::DefaultGlobal {

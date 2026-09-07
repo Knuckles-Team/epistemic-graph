@@ -7,7 +7,7 @@ use crate::owner::registry::copy_declared_owner_tables;
 use crate::recovery::evidence::{copy_table, HashSnapshot};
 use crate::recovery::validate::{validate_live_recovery_store, RecoveryStoreCounts};
 use crate::tables::{visit_ledger_content_tables, visit_ledger_tables, SCOPE_BINDINGS};
-use crate::StorageKernelV1;
+use crate::StorageKernel;
 use redb::{ReadTransaction, ReadableTable, WriteTransaction};
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -17,7 +17,7 @@ use std::path::Path;
 /// Driven by the authoritative ledger-table list, so the fingerprint of two
 /// stores can never agree while their rows differ in any declared table --
 /// including the replay ledger, which a hand-maintained list omitted.
-pub fn recovery_store_fingerprint(kernel: &StorageKernelV1) -> Result<[u8; 32], String> {
+pub fn recovery_store_fingerprint(kernel: &StorageKernel) -> Result<[u8; 32], String> {
     recovery_store_fingerprint_of(kernel.store())
 }
 
@@ -38,7 +38,7 @@ pub(crate) fn recovery_store_fingerprint_of(store: &PhysicalStore) -> Result<[u8
 /// Create a physical backup with a newly derived destination root and exact
 /// rebinding of every logical scope to that root.
 pub fn backup_recovery_store(
-    source: &StorageKernelV1,
+    source: &StorageKernel,
     destination: &Path,
 ) -> Result<RecoveryStoreCounts, String> {
     backup_recovery_store_of(source.store(), destination)

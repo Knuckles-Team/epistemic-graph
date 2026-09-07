@@ -15,9 +15,9 @@ use crate::recovery::evidence::{
 };
 use crate::recovery::validate::{validate_recovery_content, RecoveryStoreCounts};
 use crate::tables::{SCOPE_BINDINGS, STORE_ROOT, VERSIONS};
-use crate::StorageKernelV1;
-use eg_types::mutation_batch::MutationDomain;
-use eg_types::{IncarnationId, LogicalName, MutationScopeIdentity, TenantId};
+use crate::StorageKernel;
+use eg_types::mutation_batch::DurabilityDomain;
+use eg_types::{IncarnationId, LogicalName, MutationScopeIdentity, ScopeTenantId};
 use redb::{Database, ReadTransaction, ReadableDatabase, ReadableTable, TableHandle, WriteTransaction};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -250,8 +250,8 @@ where
         return Ok(());
     }
     let expected = MutationScopeIdentity::native(
-        TenantId::new("native")?,
-        MutationDomain::Lifecycle,
+        ScopeTenantId::new("native")?,
+        DurabilityDomain::Lifecycle,
         LogicalName::new("statechart-instances")?,
         IncarnationId::new("incarnation:eg-statechart:statechart-instances:1")?,
     )?;
@@ -282,7 +282,7 @@ where
 /// the final write lock before any change.
 pub fn adopt_staged_mutation_store(
     token: ValidatedStagedMutationStore,
-) -> Result<StorageKernelV1, String> {
+) -> Result<StorageKernel, String> {
     let database = Database::open(&token.path).map_err(|error| error.to_string())?;
     let (adopted, physical_path) = StoreIncarnation::derive(&token.path)?;
     if adopted != token.target_root || physical_path != token.physical_path {
@@ -311,7 +311,7 @@ pub fn adopt_staged_mutation_store(
     if manifest_digest != token.manifest_digest {
         return Err("staged mutation owner manifest changed during adoption".to_string());
     }
-    Ok(StorageKernelV1::from_store(store))
+    Ok(StorageKernel::from_store(store))
 }
 
 fn validate_staged_reanchor(
@@ -330,7 +330,7 @@ fn validate_staged_reanchor(
         }
         if !matches!(
             before.table_id.as_str(),
-            "mutation_store_root_v1" | "mutation_scope_bindings_v1"
+            "mutation_store_root" | "mutation_scope_bindings"
         ) && before.fingerprint != after.fingerprint
         {
             return Err("staged mutation content changed during adoption".to_string());
@@ -342,7 +342,7 @@ fn validate_staged_reanchor(
 pub fn adopt_recovery(
     token: ValidatedRecoveryStore,
     destination_identity: PhysicalStoreIdentity,
-) -> Result<StorageKernelV1, String> {
+) -> Result<StorageKernel, String> {
     let database = Database::open(&token.path).map_err(|error| error.to_string())?;
     let rtx = database.begin_read().map_err(|error| error.to_string())?;
     let current = validate_manifest_read(
@@ -380,7 +380,7 @@ pub fn adopt_recovery(
         .ok_or_else(|| "mutation authority epoch exhausted".to_string())?;
     manifest.validate()?;
     commit_adoption(&database, &token, &source_manifest, &adopted, &manifest)?;
-    Ok(StorageKernelV1::from_store(PhysicalStore::from_parts(
+    Ok(StorageKernel::from_store(PhysicalStore::from_parts(
         database,
         store_handle(adopted),
         physical_path,

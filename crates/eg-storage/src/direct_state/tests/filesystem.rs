@@ -10,14 +10,14 @@ use super::{
 fn durable_records_require_bounded_exact_canonical_bytes() {
     let journal = placeholder_journal(DirectStateInstallPhase::Prepared);
     let canonical = rmp_serde::to_vec_named(&journal).unwrap();
-    let decoded: DirectStateInstallJournalV1 =
+    let decoded: DirectStateInstallJournal =
         journal::decode_canonical_durable_record(&canonical, "test journal").unwrap();
     assert_eq!(decoded, journal);
 
     let mut trailing = canonical;
     trailing.push(0xc0);
     assert!(
-        journal::decode_canonical_durable_record::<DirectStateInstallJournalV1>(
+        journal::decode_canonical_durable_record::<DirectStateInstallJournal>(
             &trailing,
             "test journal"
         )
@@ -26,7 +26,7 @@ fn durable_records_require_bounded_exact_canonical_bytes() {
 
     let allocation_claim = [0xdd, 0xff, 0xff, 0xff, 0xff];
     assert!(
-        journal::decode_canonical_durable_record::<DirectStateInstallJournalV1>(
+        journal::decode_canonical_durable_record::<DirectStateInstallJournal>(
             &allocation_claim,
             "test journal"
         )

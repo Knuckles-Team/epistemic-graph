@@ -17,15 +17,15 @@ use eg_storage::{
 use redb::TableDefinition;
 
 struct Attempt {
-    operation: OperationReplayIdentityV1,
-    nonce: NonceReplayKeyV1,
-    receipt: MutationReceiptV1,
+    operation: OperationReplayIdentity,
+    nonce: NonceReplayKey,
+    receipt: MutationReceipt,
 }
 
 fn attempt(nonce_byte: u8, request: &str, idempotency: &str) -> Attempt {
     let context = context(nonce_byte, request, idempotency);
     let operation = operation_identity(&context, "mutation.apply", digest_of(30));
-    let nonce = NonceReplayKeyV1::from_context(&context).unwrap();
+    let nonce = NonceReplayKey::from_context(&context).unwrap();
     let receipt = receipt(&format!("receipt-{request}"), &operation, &nonce);
     Attempt {
         operation,
@@ -115,7 +115,7 @@ fn a_strict_backup_proves_the_replay_tables_it_copied() {
         PhysicalStoreIdentity::new("physical:test:strict").unwrap(),
     )
     .unwrap();
-    for table in ["mutation_replay_nonces_v1", "mutation_replay_operations_v1"] {
+    for table in ["mutation_replay_nonces", "mutation_replay_operations"] {
         let row = evidence
             .tables
             .iter()

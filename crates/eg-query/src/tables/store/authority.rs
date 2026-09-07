@@ -19,11 +19,11 @@ use std::sync::{Arc, RwLock};
 
 use eg_storage::{
     ledger_scope_key, OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead,
-    SqlOwner, StorageKernelV1,
+    SqlOwner, StorageKernel,
 };
-use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite, Begin, MutationKernelV1};
+use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite, Begin, MutationKernel};
 use eg_types::mutation_batch::{
-    MutationBatch, MutationBatchRecord, MutationDomain, MutationOperation, MutationRequestContext,
+    MutationBatch, MutationBatchRecord, DurabilityDomain, MutationOperation, MutationRequestContext,
     MutationScopeIdentity, MutationSurface, VersionExpectation, COMPILED_BATCH_INCARNATION,
     MUTATION_BATCH_VERSION,
 };
@@ -52,7 +52,7 @@ pub(crate) type SqlRead<'a> = ScopedRead<'a, SqlOwner>;
 /// The typed identity of one SQL mutation scope.
 ///
 /// `COMPILED_BATCH_INCARNATION` is the incarnation the server's batch compiler
-/// stamps on every `MutationDomain::SqlCatalog` batch
+/// stamps on every `DurabilityDomain::SqlCatalog` batch
 /// (`src/server/mutation_batch/compile.rs`), so a scope resolved here by
 /// `(tenant, resource)` is byte-identical to the one a served batch carries.
 pub(crate) fn sql_scope_identity(
@@ -61,7 +61,7 @@ pub(crate) fn sql_scope_identity(
 ) -> Result<MutationScopeIdentity, String> {
     MutationScopeIdentity::fixed_native(
         tenant,
-        MutationDomain::SqlCatalog,
+        DurabilityDomain::SqlCatalog,
         resource,
         COMPILED_BATCH_INCARNATION,
     )
@@ -74,7 +74,7 @@ pub(crate) fn sql_scope_identity(
 /// is idempotent for an exact re-entry, so reopening a store re-binds the
 /// identical scope rather than failing.
 fn bind_serving_scope(
-    kernel: &StorageKernelV1,
+    kernel: &StorageKernel,
     verifier: &dyn ScopeGrantVerifier,
     principal: &str,
     proof: &[u8],
@@ -115,7 +115,7 @@ fn maintenance_batch(
     let operation = MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Query,
-        domain: MutationDomain::SqlCatalog,
+        domain: DurabilityDomain::SqlCatalog,
         method: Method::ApplyMutation {
             event_type: format!("sql_{kind}"),
             query: subject.to_string(),
@@ -166,8 +166,8 @@ type BoundScope = Arc<OwnedStoreHandle<SqlOwner>>;
 
 /// The SQL store's one physical authority plus its bound serving scopes.
 pub(crate) struct SqlAuthority {
-    kernel: StorageKernelV1,
-    mutations: MutationKernelV1,
+    kernel: StorageKernel,
+    mutations: MutationKernel,
     /// The composition root's proof authority. Held (not borrowed) because a
     /// scope reached for the first time by a served batch must be authenticated
     /// long after `open` returned.
@@ -220,12 +220,12 @@ impl SqlAuthority {
         let identity = sql_scope_identity(tenant_scope, SQL_BOOTSTRAP_RESOURCE)?;
         let physical = PhysicalStoreIdentity::new(SQL_PHYSICAL_STORE)?;
         let kernel = if path.exists() {
-            StorageKernelV1::open_owner::<SqlOwner>(path, physical, None)
+            StorageKernel::open_owner::<SqlOwner>(path, physical, None)
         } else {
-            StorageKernelV1::create_owner::<SqlOwner>(path, physical, None)
+            StorageKernel::create_owner::<SqlOwner>(path, physical, None)
         }?;
         let (kernel, authority) = kernel.into_read_and_mutation_authority()?;
-        let mutations = MutationKernelV1::new(authority);
+        let mutations = MutationKernel::new(authority);
         let bootstrap = Arc::new(bind_serving_scope(
             &kernel,
             verifier.as_ref(),

@@ -112,7 +112,7 @@ fn authority_batch(
         operations: vec![eg_types::MutationOperation {
             ordinal: 0,
             surface: eg_types::MutationSurface::Other,
-            domain: eg_types::mutation_batch::MutationDomain::ControlPlane,
+            domain: eg_types::mutation_batch::DurabilityDomain::ControlPlane,
             method: eg_types::protocol::Method::ApplyMutation {
                 event_type: "security_state_snapshot".to_string(),
                 query: format!("sha256:{digest}"),
@@ -175,7 +175,7 @@ pub(super) fn remove_authority_record(
     })
 }
 
-/// Admit `batch`, apply `apply_rows` to the `rbac_v1` owner table inside that
+/// Admit `batch`, apply `apply_rows` to the `rbac` owner table inside that
 /// one admitted write, and commit. The write transaction is minted by the
 /// storage kernel's single mutation authority and is never reachable here: the
 /// only handle this crate is given is the layout-bounded

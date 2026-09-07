@@ -3,9 +3,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::contract::{
-    ActorIdV1, AudienceIdV1, BoundedVecV1, Digest256V1, IdempotencyKeyV1, IngressSurfaceV1,
-    NonceV1, OpaqueIdV1, OperationV1, PolicyRevisionV1, ProtocolIdV1, PurposeKindV1, ResourceIdV1,
-    ScopeKindV1, TenantIdV1, UtcUnixNanosV1, MAX_SCOPE_COMPONENTS,
+    ActorId, AudienceId, BoundedVec, Digest256, IdempotencyKey, IngressSurface,
+    Nonce, OpaqueId, Operation, PolicyRevision, ProtocolId, PurposeKind, ResourceId,
+    ScopeKind, TenantId, UtcUnixNanos, MAX_SCOPE_COMPONENTS,
 };
 
 pub const AUTHORITY_CONTEXT_SCHEMA_V1: &str = "authority-context.v1";
@@ -15,15 +15,15 @@ pub const AUTHORITY_PROTOCOL_V1: &str = "au-eg.query.v1";
 /// sorted and unique so equal authority never has multiple byte spellings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorityScopeV1 {
-    pub kind: ScopeKindV1,
-    pub scope_id: ResourceIdV1,
-    pub tenant: Option<TenantIdV1>,
-    pub parent_scope_ids: BoundedVecV1<ResourceIdV1, MAX_SCOPE_COMPONENTS>,
-    pub graph_incarnation: Option<OpaqueIdV1>,
+pub struct AuthorityScope {
+    pub kind: ScopeKind,
+    pub scope_id: ResourceId,
+    pub tenant: Option<TenantId>,
+    pub parent_scope_ids: BoundedVec<ResourceId, MAX_SCOPE_COMPONENTS>,
+    pub graph_incarnation: Option<OpaqueId>,
 }
 
-impl AuthorityScopeV1 {
+impl AuthorityScope {
     pub fn validate(&self) -> Result<(), String> {
         if self
             .parent_scope_ids
@@ -69,7 +69,7 @@ impl AuthorityScopeV1 {
         }
     }
 
-    pub fn digest(&self) -> Result<Digest256V1, String> {
+    pub fn digest(&self) -> Result<Digest256, String> {
         self.validate()?;
         let mut fields: Vec<&[u8]> = Vec::with_capacity(self.parent_scope_ids.len() + 4);
         fields.push(self.kind.as_str().as_bytes());
@@ -79,7 +79,7 @@ impl AuthorityScopeV1 {
         for parent in &self.parent_scope_ids {
             fields.push(parent.as_str().as_bytes());
         }
-        Digest256V1::framed(b"eg/authority-scope/v1", &fields)
+        Digest256::framed(b"eg/authority-scope/v1", &fields)
     }
 }
 
@@ -88,32 +88,32 @@ impl AuthorityScopeV1 {
 /// as the stable operation replay identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorityContextV1 {
-    pub schema_version: ResourceIdV1,
-    pub protocol_id: ProtocolIdV1,
-    pub catalog_digest: Digest256V1,
-    pub request_id: OpaqueIdV1,
-    pub trace_id: OpaqueIdV1,
-    pub ingress_surface: IngressSurfaceV1,
-    pub actor: ActorIdV1,
-    pub audience: AudienceIdV1,
-    pub tenant: TenantIdV1,
-    pub authority_scope: AuthorityScopeV1,
-    pub purpose_kind: PurposeKindV1,
-    pub purpose_resource: Option<ResourceIdV1>,
-    pub operation: OperationV1,
-    pub policy_revision: PolicyRevisionV1,
+pub struct AuthorityContext {
+    pub schema_version: ResourceId,
+    pub protocol_id: ProtocolId,
+    pub catalog_digest: Digest256,
+    pub request_id: OpaqueId,
+    pub trace_id: OpaqueId,
+    pub ingress_surface: IngressSurface,
+    pub actor: ActorId,
+    pub audience: AudienceId,
+    pub tenant: TenantId,
+    pub authority_scope: AuthorityScope,
+    pub purpose_kind: PurposeKind,
+    pub purpose_resource: Option<ResourceId>,
+    pub operation: Operation,
+    pub policy_revision: PolicyRevision,
     pub policy_epoch: u64,
-    pub policy_decision_id: OpaqueIdV1,
-    pub policy_digest: Digest256V1,
-    pub issued_at: UtcUnixNanosV1,
-    pub expires_at: UtcUnixNanosV1,
-    pub nonce: NonceV1,
-    pub idempotency_key: Option<IdempotencyKeyV1>,
-    pub context_digest: Digest256V1,
+    pub policy_decision_id: OpaqueId,
+    pub policy_digest: Digest256,
+    pub issued_at: UtcUnixNanos,
+    pub expires_at: UtcUnixNanos,
+    pub nonce: Nonce,
+    pub idempotency_key: Option<IdempotencyKey>,
+    pub context_digest: Digest256,
 }
 
-impl AuthorityContextV1 {
+impl AuthorityContext {
     pub fn validate(&self) -> Result<(), String> {
         self.validate_header()?;
         self.authority_scope.validate()?;
@@ -138,7 +138,7 @@ impl AuthorityContextV1 {
         Ok(())
     }
 
-    pub fn recompute_context_digest(&self) -> Result<Digest256V1, String> {
+    pub fn recompute_context_digest(&self) -> Result<Digest256, String> {
         let scope_digest = self.authority_scope.digest()?;
         let purpose_digest = digest_purpose(
             &self.operation,
@@ -149,7 +149,7 @@ impl AuthorityContextV1 {
         let epoch = self.policy_epoch.to_be_bytes();
         let issued_at = self.issued_at.get().to_be_bytes();
         let expires_at = self.expires_at.get().to_be_bytes();
-        Digest256V1::framed(
+        Digest256::framed(
             b"eg/authority-context/v1",
             &[
                 self.schema_version.as_str().as_bytes(),
@@ -187,7 +187,7 @@ impl AuthorityContextV1 {
     }
 }
 
-fn operation_requires_idempotency(operation: &OperationV1) -> bool {
+fn operation_requires_idempotency(operation: &Operation) -> bool {
     matches!(
         operation.as_str(),
         "mutation" | "extract" | "ingest" | "backfeed" | "configure" | "audit"
@@ -195,10 +195,10 @@ fn operation_requires_idempotency(operation: &OperationV1) -> bool {
 }
 
 pub(super) fn validate_operation_purpose(
-    operation: &OperationV1,
-    kind: &PurposeKindV1,
-    resource: Option<&ResourceIdV1>,
-    scope: &AuthorityScopeV1,
+    operation: &Operation,
+    kind: &PurposeKind,
+    resource: Option<&ResourceId>,
+    scope: &AuthorityScope,
 ) -> Result<(), String> {
     let expected_purpose = match operation.as_str() {
         "query" => "graph_read",
@@ -222,13 +222,13 @@ pub(super) fn validate_operation_purpose(
 }
 
 pub(super) fn digest_purpose(
-    operation: &OperationV1,
-    kind: &PurposeKindV1,
-    resource: Option<&ResourceIdV1>,
-    scope: &AuthorityScopeV1,
-) -> Result<Digest256V1, String> {
+    operation: &Operation,
+    kind: &PurposeKind,
+    resource: Option<&ResourceId>,
+    scope: &AuthorityScope,
+) -> Result<Digest256, String> {
     validate_operation_purpose(operation, kind, resource, scope)?;
-    Digest256V1::framed(
+    Digest256::framed(
         b"eg/authority-purpose/v1",
         &[
             operation.as_str().as_bytes(),
@@ -238,14 +238,14 @@ pub(super) fn digest_purpose(
     )
 }
 
-fn optional_tenant_bytes(value: Option<&TenantIdV1>) -> &[u8] {
+fn optional_tenant_bytes(value: Option<&TenantId>) -> &[u8] {
     value.map_or(b"".as_slice(), |item| item.as_str().as_bytes())
 }
 
-fn optional_opaque_bytes(value: Option<&OpaqueIdV1>) -> &[u8] {
+fn optional_opaque_bytes(value: Option<&OpaqueId>) -> &[u8] {
     value.map_or(b"".as_slice(), |item| item.as_str().as_bytes())
 }
 
-fn optional_idempotency_bytes(value: Option<&IdempotencyKeyV1>) -> &[u8] {
+fn optional_idempotency_bytes(value: Option<&IdempotencyKey>) -> &[u8] {
     value.map_or(b"".as_slice(), |item| item.as_str().as_bytes())
 }

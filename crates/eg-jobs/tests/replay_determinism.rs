@@ -25,7 +25,7 @@ use eg_jobs::{
     ReproducibilityManifest, ResultColumn, SubmitSpec, TenantJobQuota, TypedJobResult,
 };
 use eg_types::mutation_batch::{
-    MutationBatch, MutationDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
+    MutationBatch, DurabilityDomain, MutationOperation, MutationOutboxIntent, MutationRequestContext,
     MutationScopeIdentity, MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
@@ -99,7 +99,7 @@ fn submit_batch(batch_id: &str, committed_at_ms: u64, native_version: u64) -> Mu
     let operation = MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Job,
-        domain: MutationDomain::AnalyticsJob,
+        domain: DurabilityDomain::AnalyticsJob,
         method: Method::ApplyMutation {
             event_type: "analytics_job_submit".to_string(),
             query: batch_id.to_string(),

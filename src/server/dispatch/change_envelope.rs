@@ -291,7 +291,7 @@ fn begin_multi_graph_saga(
         req_id,
         caller,
         &method,
-        crate::mutation_batch::MutationDomain::MultiGraph,
+        crate::mutation_batch::DurabilityDomain::MultiGraph,
     ) {
         Ok(saga) => saga,
         Err(error) => return Err(Response::err(req_id, error)),

@@ -5484,7 +5484,7 @@ async fn commit_sql_catalog_txn(
         // anonymous `IDEMPOTENCY_CONFLICT` from the kernel's byte comparison.
         let batch_scope = eg_types::mutation_batch::MutationScopeIdentity::fixed_native(
             &tenant_scope,
-            eg_types::mutation_batch::MutationDomain::SqlCatalog,
+            eg_types::mutation_batch::DurabilityDomain::SqlCatalog,
             &graph_name,
             eg_types::mutation_batch::COMPILED_BATCH_INCARNATION,
         )?;
@@ -5535,7 +5535,7 @@ async fn commit_sql_catalog_txn(
             },
             &sql_method,
             crate::mutation_batch::MutationSurface::Query,
-            crate::mutation_batch::MutationDomain::SqlCatalog,
+            crate::mutation_batch::DurabilityDomain::SqlCatalog,
             "sql_catalog_operation",
         )?;
         let committed = store.commit_txn_batch(&txn, &batch, created_at_ms)?;

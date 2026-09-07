@@ -31,7 +31,7 @@ use eg_sqlite_format::{ColumnDef as SqliteColumnDef, Reader, Value as SqliteValu
 use serde_json::Value as JsonValue;
 use std::path::{Path, PathBuf};
 
-use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
+use crate::mutation_batch::{MutationBatch, DurabilityDomain, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 
@@ -237,7 +237,7 @@ fn export_sqlite_lifecycle(
 /// identity of the whole `MutationBatch` -- which a rebuilt attempt can never
 /// satisfy, because `created_at_ms` and the observed OCC version legitimately
 /// differ between attempts (RF-RULING-006's stated cost, restored for free once
-/// `OperationReplayIdentityV1` lands). What this answers is the different, and
+/// `OperationReplayIdentity` lands). What this answers is the different, and
 /// strictly narrower, question the recovery path actually asks: *is the durable
 /// effect of THIS caller's THIS request already committed?* It is the same shape
 /// and the same reasoning as `server::wire::committed_sql_replay_receipt` --
@@ -320,7 +320,7 @@ fn compile_import_batch(
         },
         method,
         MutationSurface::Query,
-        MutationDomain::SqlCatalog,
+        DurabilityDomain::SqlCatalog,
         "sqlite_import",
     )?;
     Ok(batch)

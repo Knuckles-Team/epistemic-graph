@@ -7,7 +7,7 @@ use redb::{Key, ReadTransaction, TableDefinition, TableHandle, Value, WriteTrans
 use sha2::Sha256;
 
 // Closed owner-table registry. These names and types are the manifest contract.
-const RBAC: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("rbac_v1");
+const RBAC: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("rbac");
 const JOB_TABLES_BYTES: [TableDefinition<'static, &str, &[u8]>; 3] = [
     TableDefinition::new("analytics_jobs"),
     TableDefinition::new("job_intents"),
@@ -44,7 +44,7 @@ const TS_ROWS: [TableDefinition<'static, &str, &[u8]>; 2] = [
 ];
 pub(crate) const KV: TableDefinition<'static, (&str, &str), &[u8]> = TableDefinition::new("kv");
 const KV_COLD: TableDefinition<'static, &[u8], &[u8]> = TableDefinition::new("eg_kvcache_cold");
-const PATH_INDEX: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("path_index_v1");
+const PATH_INDEX: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("path_index");
 /// The ANN code buffers of one semantic index generation.
 ///
 /// Keyed `(tenant, binding, generation, part)` -- the generation component is
@@ -68,7 +68,7 @@ pub const ANN_CODES: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
 //
 // There is no `__sql_mutation_*__` table in this set. RF-RULING-006 retired
 // `eg-query`'s private admit/idempotency/OCC/fence/outbox ledger onto
-// `MutationKernelV1`'s: a second mutation ledger inside one kernel-owned file
+// `MutationKernel`'s: a second mutation ledger inside one kernel-owned file
 // is exactly what RF-RULING-004 forbids. The SQL layout is owner rows only.
 const SQL_STR_BYTES: [TableDefinition<'static, &str, &[u8]>; 6] = [
     TableDefinition::new("__sql_catalog__"),
@@ -108,11 +108,11 @@ const BLOB_OBJECTS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new
 const BLOB_REFS: TableDefinition<'static, &str, u64> = TableDefinition::new("cas_refcount");
 const BLOB_UPLOADS: TableDefinition<'static, u64, &[u8]> = TableDefinition::new("cas_uploads");
 const SEMANTIC_BINDINGS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
-    TableDefinition::new("semantic_bindings_v1");
+    TableDefinition::new("semantic_bindings");
 const SEMANTIC_HEADS: TableDefinition<'static, (&str, &str), u64> =
-    TableDefinition::new("semantic_binding_heads_v1");
+    TableDefinition::new("semantic_binding_heads");
 const SEMANTIC_STAGES: TableDefinition<'static, (&str, &str, &str), &[u8]> =
-    TableDefinition::new("semantic_stage_transitions_v1");
+    TableDefinition::new("semantic_stage_transitions");
 /// The binding's durable authority record (model identity and dimensions),
 /// keyed `(tenant, binding)` -- one per binding, not per generation.
 ///
@@ -120,9 +120,9 @@ const SEMANTIC_STAGES: TableDefinition<'static, (&str, &str, &str), &[u8]> =
 /// owner handles; a second hand-written declaration in a consumer crate is the
 /// drift `validate_owner_registry_equality` exists to refuse.
 pub const SEMANTIC_STATES: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("semantic_binding_state_transitions_v1");
+    TableDefinition::new("semantic_binding_state_transitions");
 const SEMANTIC_SOURCE_PROGRESS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
-    TableDefinition::new("semantic_source_progress_v1");
+    TableDefinition::new("semantic_source_progress");
 /// The binding's live-generation pointer, keyed `(tenant, binding)`. One row,
 /// so two live generations of one binding are structurally impossible.
 ///
@@ -130,31 +130,31 @@ const SEMANTIC_SOURCE_PROGRESS: TableDefinition<'static, (&str, &str, u64, &str)
 /// owner handles; a second hand-written declaration in a consumer crate is the
 /// drift `validate_owner_registry_equality` exists to refuse.
 pub const SEMANTIC_POINTERS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("semantic_active_pointers_v1");
+    TableDefinition::new("semantic_active_pointers");
 const SEMANTIC_DEAD_LETTERS: TableDefinition<'static, (&str, &str, u32), &[u8]> =
-    TableDefinition::new("semantic_dead_letters_v1");
+    TableDefinition::new("semantic_dead_letters");
 const SEMANTIC_TOMBSTONES: TableDefinition<'static, (&str, &str, u64), &[u8]> =
-    TableDefinition::new("semantic_tombstones_v1");
+    TableDefinition::new("semantic_tombstones");
 const SEMANTIC_SQL_SOURCES: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
-    TableDefinition::new("semantic_sql_source_manifests_v1");
+    TableDefinition::new("semantic_sql_source_manifests");
 const SEMANTIC_GRAPH_PROJECTIONS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
-    TableDefinition::new("semantic_graph_projection_manifests_v1");
+    TableDefinition::new("semantic_graph_projection_manifests");
 const SEMANTIC_AUTH_RECEIPTS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
-    TableDefinition::new("semantic_authorization_receipts_v1");
+    TableDefinition::new("semantic_authorization_receipts");
 const SEMANTIC_CHECKPOINTS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
-    TableDefinition::new("semantic_generation_checkpoints_v1");
+    TableDefinition::new("semantic_generation_checkpoints");
 const SEMANTIC_LEXICAL: TableDefinition<'static, (&str, &str, u64), &[u8]> =
-    TableDefinition::new("semantic_lexical_manifests_v1");
+    TableDefinition::new("semantic_lexical_manifests");
 const SEMANTIC_ANN: TableDefinition<'static, (&str, &str, u64), &[u8]> =
-    TableDefinition::new("semantic_ann_manifests_v1");
+    TableDefinition::new("semantic_ann_manifests");
 const SEMANTIC_VECTORS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
-    TableDefinition::new("semantic_vectors_v1");
+    TableDefinition::new("semantic_vectors");
 // Root-binary sidecar owner files. Each is one physical file with one fixed
 // native `ControlPlane` serving scope, so each declares its own layout rather
 // than sharing one: the census is exact, and a shared layout would force every
 // one of these files to carry every other's table.
 const REQUEST_REPLAY: TableDefinition<'static, &str, u64> =
-    TableDefinition::new("verified_request_replay_v2");
+    TableDefinition::new("verified_request_replay");
 const VIZ_PROVENANCE: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("viz_provenance");
 const COLD_GRAPHS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("cold_graphs");
@@ -390,7 +390,7 @@ pub fn declared_table_names(layout: OwnerLayout) -> Vec<&'static str> {
 pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
     match layout {
         OwnerLayout::LedgerOnly => &[],
-        OwnerLayout::Rbac => &["rbac_v1"],
+        OwnerLayout::Rbac => &["rbac"],
         OwnerLayout::Jobs => &[
             "analytics_jobs",
             "analytics_job_committed_results",
@@ -409,7 +409,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
         OwnerLayout::Statechart => &["statechart_defs", "statechart_instances"],
         OwnerLayout::TimeSeries => &["series_chunks", "series_meta", "series_projection_state"],
         OwnerLayout::Kv => &["kv", "eg_kvcache_cold"],
-        OwnerLayout::PathIndex => &["path_index_v1"],
+        OwnerLayout::PathIndex => &["path_index"],
         OwnerLayout::Sql => &[
             "__sql_catalog__",
             "__sql_functions__",
@@ -431,24 +431,24 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
         ],
         OwnerLayout::Blob => &["cas_chunks", "cas_blobs", "cas_refcount", "cas_uploads"],
         OwnerLayout::SemanticIndex => &[
-            "semantic_bindings_v1",
-            "semantic_binding_heads_v1",
-            "semantic_stage_transitions_v1",
-            "semantic_binding_state_transitions_v1",
-            "semantic_source_progress_v1",
-            "semantic_active_pointers_v1",
-            "semantic_dead_letters_v1",
-            "semantic_tombstones_v1",
-            "semantic_sql_source_manifests_v1",
-            "semantic_graph_projection_manifests_v1",
-            "semantic_authorization_receipts_v1",
-            "semantic_generation_checkpoints_v1",
-            "semantic_lexical_manifests_v1",
-            "semantic_ann_manifests_v1",
-            "semantic_vectors_v1",
+            "semantic_bindings",
+            "semantic_binding_heads",
+            "semantic_stage_transitions",
+            "semantic_binding_state_transitions",
+            "semantic_source_progress",
+            "semantic_active_pointers",
+            "semantic_dead_letters",
+            "semantic_tombstones",
+            "semantic_sql_source_manifests",
+            "semantic_graph_projection_manifests",
+            "semantic_authorization_receipts",
+            "semantic_generation_checkpoints",
+            "semantic_lexical_manifests",
+            "semantic_ann_manifests",
+            "semantic_vectors",
             "eg_ann",
         ],
-        OwnerLayout::RequestReplay => &["verified_request_replay_v2"],
+        OwnerLayout::RequestReplay => &["verified_request_replay"],
         OwnerLayout::VizProvenance => &["viz_provenance"],
         OwnerLayout::ColdTier => &["cold_graphs"],
         OwnerLayout::TenantCatalog => &["tenant_catalog"],

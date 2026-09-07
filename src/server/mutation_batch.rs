@@ -4,7 +4,7 @@
 //! persistence owns the atomic commit and handlers publish RAM only afterward.
 //!
 //! This namespace split is transitional organization around the current
-//! implementation. It does not claim the target `MutationKernelV1` extraction.
+//! implementation. It does not claim the target `MutationKernel` extraction.
 
 mod canonical;
 mod commit;

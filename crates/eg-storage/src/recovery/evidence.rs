@@ -14,7 +14,7 @@ use crate::recovery::validate::validate_recovery_content;
 use crate::tables::{
     visit_ledger_content_tables, visit_ledger_tables, OWNER_MANIFEST, SCOPE_BINDINGS,
 };
-use crate::StorageKernelV1;
+use crate::StorageKernel;
 use redb::{
     Key, ReadTransaction, ReadableTable, TableDefinition, TableHandle, Value, WriteTransaction,
 };
@@ -38,7 +38,7 @@ pub struct StrictRecoveryEvidence {
 
 /// Per-table row counts and fingerprints over one owner file's whole census.
 pub fn strict_recovery_evidence(
-    kernel: &StorageKernelV1,
+    kernel: &StorageKernel,
 ) -> Result<StrictRecoveryEvidence, String> {
     strict_evidence_of(kernel.store())
 }
@@ -56,7 +56,7 @@ pub(crate) fn strict_evidence_of(
 
 /// Copy one owner file to a new physical identity and prove the copy exactly.
 pub fn backup_strict_recovery_store(
-    source: &StorageKernelV1,
+    source: &StorageKernel,
     destination: &Path,
     destination_identity: PhysicalStoreIdentity,
 ) -> Result<StrictRecoveryEvidence, String> {
@@ -341,7 +341,7 @@ fn validate_copied_table_evidence(
         }
         let reanchored = matches!(
             source_table.table_id.as_str(),
-            "mutation_store_root_v1" | "mutation_scope_bindings_v1" | "mutation_owner_manifest_v1"
+            "mutation_store_root" | "mutation_scope_bindings" | "mutation_owner_manifest"
         );
         if !reanchored && source_table.fingerprint != target_table.fingerprint {
             return Err("strict backup copied-table fingerprint changed".to_string());

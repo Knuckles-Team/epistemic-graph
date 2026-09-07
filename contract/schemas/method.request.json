@@ -974,14 +974,14 @@
           "type": "array"
         },
         "commit_descriptor_ref": {
-          "description": "Opaque `CommitDescriptorV1::commit_id` this envelope's mutation was\npublished under. See `commit_seq`.",
+          "description": "Opaque `CommitDescriptor::commit_id` this envelope's mutation was\npublished under. See `commit_seq`.",
           "type": [
             "string",
             "null"
           ]
         },
         "commit_seq": {
-          "description": "GOC-03 — the [`crate::commit_descriptor::CommitDescriptorV1::commit_seq`]\nthis envelope's mutation was published under, once the durable\ncommit-descriptor index is wired into the commit path (GOC-03-W03/W05).\nAdditive and optional so an envelope predating that wiring, or one whose\nsurface does not yet register a commit-descriptor participant, remains\nvalid; a populated value MUST be paired with `commit_descriptor_ref`\n(see `validate`) and must match a real descriptor recorded by the commit\nindex — this module does not itself construct or verify that pairing.",
+          "description": "GOC-03 — the [`crate::commit_descriptor::CommitDescriptor::commit_seq`]\nthis envelope's mutation was published under, once the durable\ncommit-descriptor index is wired into the commit path (GOC-03-W03/W05).\nAdditive and optional so an envelope predating that wiring, or one whose\nsurface does not yet register a commit-descriptor participant, remains\nvalid; a populated value MUST be paired with `commit_descriptor_ref`\n(see `validate`) and must match a real descriptor recorded by the commit\nindex — this module does not itself construct or verify that pairing.",
           "format": "uint64",
           "minimum": 0,
           "type": [
@@ -2325,6 +2325,26 @@
           "type": "object"
         }
       ]
+    },
+    "DurabilityDomain": {
+      "description": "Authoritative durability domain for an operation.",
+      "enum": [
+        "graph_rows",
+        "graph_snapshot",
+        "rdf_dataset",
+        "sql_catalog",
+        "blob_store",
+        "kv_store",
+        "time_series",
+        "analytics_job",
+        "semantic_index",
+        "broker",
+        "cross_modal",
+        "multi_graph",
+        "lifecycle",
+        "control_plane"
+      ],
+      "type": "string"
     },
     "EstimatorParams": {
       "description": "Hyperparameters for the estimators. All optional; per-estimator defaults are\napplied at fit time to mirror scikit-learn's defaults.",
@@ -3944,7 +3964,7 @@
       ],
       "type": "string"
     },
-    "KnowledgeStreamCursorV1": {
+    "KnowledgeStreamCursor": {
       "description": "Authority-, placement-, query-, snapshot-, and schema-bound resume position.\n\nEvery reference is an opaque `eg:<namespace>:<digest>` value.  The facade\nvalidates them by constructing `eg_modality::OpaqueRef`s before resuming.",
       "properties": {
         "access_policy_ref": {
@@ -4203,7 +4223,7 @@
         }
       ]
     },
-    "KnowledgeStreamRequestV1": {
+    "KnowledgeStreamRequest": {
       "description": "One pull from the shared served stream.",
       "properties": {
         "batch_size": {
@@ -4215,7 +4235,7 @@
         "cursor": {
           "anyOf": [
             {
-              "$ref": "#/$defs/KnowledgeStreamCursorV1"
+              "$ref": "#/$defs/KnowledgeStreamCursor"
             },
             {
               "type": "null"
@@ -4442,32 +4462,12 @@
         }
       ]
     },
-    "MutationDomain": {
-      "description": "Authoritative durability domain for an operation.",
-      "enum": [
-        "graph_rows",
-        "graph_snapshot",
-        "rdf_dataset",
-        "sql_catalog",
-        "blob_store",
-        "kv_store",
-        "time_series",
-        "analytics_job",
-        "semantic_index",
-        "broker",
-        "cross_modal",
-        "multi_graph",
-        "lifecycle",
-        "control_plane"
-      ],
-      "type": "string"
-    },
     "MutationOperation": {
       "additionalProperties": false,
       "description": "One ordered engine operation in a [`MutationBatch`].",
       "properties": {
         "domain": {
-          "$ref": "#/$defs/MutationDomain",
+          "$ref": "#/$defs/DurabilityDomain",
           "description": "Required authoritative domain."
         },
         "method": {
@@ -4594,7 +4594,7 @@
           "additionalProperties": false,
           "properties": {
             "domain": {
-              "$ref": "#/$defs/MutationDomain"
+              "$ref": "#/$defs/DurabilityDomain"
             },
             "kind": {
               "const": "native",
@@ -4639,7 +4639,7 @@
           "$ref": "#/$defs/MutationScope"
         },
         "tenant": {
-          "$ref": "#/$defs/TenantId"
+          "$ref": "#/$defs/ScopeTenantId"
         }
       },
       "required": [
@@ -7137,6 +7137,10 @@
       ],
       "type": "object"
     },
+    "ScopeTenantId": {
+      "description": "Validated tenant security boundary. Bytes are retained exactly as supplied.",
+      "type": "string"
+    },
     "SequenceSource": {
       "description": "A graph-derived sequence source for `MineSequence` (CONCEPT:EG-KG.mining.prefixspan\n— Phase 4). Each node carrying `node_label` becomes one ordered sequence: the\nlist of `item_field` values gathered from its neighbors in `direction`,\npreserving the RESIDENT EDGE INSERTION ORDER (the natural \"ordered edge\nsequence per node\" — edges accumulate in the order they were added, so this\nis compute-near-data over the bitemporal write history without a separate\ntsdb/event-log dependency), optionally filtered to a `relation`.",
       "properties": {
@@ -8302,10 +8306,6 @@
         "rbf",
         "linear"
       ],
-      "type": "string"
-    },
-    "TenantId": {
-      "description": "Validated tenant security boundary. Bytes are retained exactly as supplied.",
       "type": "string"
     },
     "TensorElementwiseOp": {
@@ -17405,7 +17405,7 @@
           "additionalProperties": false,
           "properties": {
             "request": {
-              "$ref": "#/$defs/KnowledgeStreamRequestV1"
+              "$ref": "#/$defs/KnowledgeStreamRequest"
             }
           },
           "required": [

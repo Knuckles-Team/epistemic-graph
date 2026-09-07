@@ -4,45 +4,45 @@ use serde::de::{Error as _, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 
 use super::budget::{read_map_value_once, BudgetedVecSeed, StructuralBudget};
-use super::effects::MutationEffectV1;
-use super::outbox_decode::ProvenanceBindingV1;
+use super::effects::MutationEffect;
+use super::outbox_decode::ProvenanceBinding;
 use super::payload::{
     digest_sequence, recompute_canonical_payload_digest, recompute_egress_authorization_digest,
     validate_payload_byte_budget, validate_payload_shape_and_scope,
 };
-use super::targets::MutationPreconditionV1;
+use super::targets::MutationPrecondition;
 use super::{MAX_MUTATION_PRECONDITIONS, MAX_PROVENANCE_REFS};
 use crate::authority::{
-    AuthorityScopeV1, NonceReplayKeyV1, OperationReplayIdentityV1, VerifiedAuthorityV1,
+    AuthorityScope, NonceReplayKey, OperationReplayIdentity, VerifiedAuthority,
 };
 use crate::contract::{
-    BoundedVecV1, Digest256V1, OpaqueIdV1, RequestedMutationResultV1, ResourceIdV1,
+    BoundedVec, Digest256, OpaqueId, RequestedMutationResult, ResourceId,
     MAX_MUTATION_EFFECTS, MAX_OUTBOX_INTENTS,
 };
-use crate::outbox::OutboxIntentV1;
+use crate::outbox::OutboxIntent;
 /// Compiler-produced mutation payload before authority evidence is attached.
 /// It is intentionally not deserializable: producers use the checked
 /// constructor and then present its digests to the trusted admission boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MutationPayloadV1 {
-    pub(super) mutation_id: OpaqueIdV1,
-    pub(super) scope: AuthorityScopeV1,
-    pub(super) preconditions: BoundedVecV1<MutationPreconditionV1, MAX_MUTATION_PRECONDITIONS>,
-    pub(super) effects: BoundedVecV1<MutationEffectV1, MAX_MUTATION_EFFECTS>,
-    pub(super) outbox: BoundedVecV1<OutboxIntentV1, MAX_OUTBOX_INTENTS>,
-    pub(super) provenance: BoundedVecV1<ProvenanceBindingV1, MAX_PROVENANCE_REFS>,
-    pub(super) requested_result: RequestedMutationResultV1,
+pub struct MutationPayload {
+    pub(super) mutation_id: OpaqueId,
+    pub(super) scope: AuthorityScope,
+    pub(super) preconditions: BoundedVec<MutationPrecondition, MAX_MUTATION_PRECONDITIONS>,
+    pub(super) effects: BoundedVec<MutationEffect, MAX_MUTATION_EFFECTS>,
+    pub(super) outbox: BoundedVec<OutboxIntent, MAX_OUTBOX_INTENTS>,
+    pub(super) provenance: BoundedVec<ProvenanceBinding, MAX_PROVENANCE_REFS>,
+    pub(super) requested_result: RequestedMutationResult,
 }
 
-impl MutationPayloadV1 {
+impl MutationPayload {
     pub fn new(
-        mutation_id: OpaqueIdV1,
-        scope: AuthorityScopeV1,
-        preconditions: BoundedVecV1<MutationPreconditionV1, MAX_MUTATION_PRECONDITIONS>,
-        effects: BoundedVecV1<MutationEffectV1, MAX_MUTATION_EFFECTS>,
-        outbox: BoundedVecV1<OutboxIntentV1, MAX_OUTBOX_INTENTS>,
-        provenance: BoundedVecV1<ProvenanceBindingV1, MAX_PROVENANCE_REFS>,
-        requested_result: RequestedMutationResultV1,
+        mutation_id: OpaqueId,
+        scope: AuthorityScope,
+        preconditions: BoundedVec<MutationPrecondition, MAX_MUTATION_PRECONDITIONS>,
+        effects: BoundedVec<MutationEffect, MAX_MUTATION_EFFECTS>,
+        outbox: BoundedVec<OutboxIntent, MAX_OUTBOX_INTENTS>,
+        provenance: BoundedVec<ProvenanceBinding, MAX_PROVENANCE_REFS>,
+        requested_result: RequestedMutationResult,
     ) -> Result<Self, String> {
         let payload = Self {
             mutation_id,
@@ -80,7 +80,7 @@ impl MutationPayloadV1 {
         )
     }
 
-    pub fn canonical_payload_digest(&self) -> Result<Digest256V1, String> {
+    pub fn canonical_payload_digest(&self) -> Result<Digest256, String> {
         recompute_canonical_payload_digest(
             &self.mutation_id,
             &self.scope,
@@ -92,33 +92,33 @@ impl MutationPayloadV1 {
         )
     }
 
-    pub fn egress_authorization_digest(&self) -> Result<Digest256V1, String> {
+    pub fn egress_authorization_digest(&self) -> Result<Digest256, String> {
         recompute_egress_authorization_digest(&self.outbox)
     }
 
-    pub fn effect_digest(&self) -> Result<Digest256V1, String> {
+    pub fn effect_digest(&self) -> Result<Digest256, String> {
         digest_sequence(
             b"eg/mutation-effects/v1",
-            self.effects.iter().map(MutationEffectV1::digest),
+            self.effects.iter().map(MutationEffect::digest),
         )
     }
 }
 
 /// Non-deserializable assembly input for the untrusted wire envelope.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MutationEnvelopePartsV1 {
-    pub payload: MutationPayloadV1,
-    pub verified_authority: VerifiedAuthorityV1,
-    pub operation_identity: OperationReplayIdentityV1,
-    pub nonce_replay_key: NonceReplayKeyV1,
+pub struct MutationEnvelopeParts {
+    pub payload: MutationPayload,
+    pub verified_authority: VerifiedAuthority,
+    pub operation_identity: OperationReplayIdentity,
+    pub nonce_replay_key: NonceReplayKey,
 }
 
-impl MutationEnvelopePartsV1 {
+impl MutationEnvelopeParts {
     pub fn new(
-        payload: MutationPayloadV1,
-        verified_authority: VerifiedAuthorityV1,
-        operation_identity: OperationReplayIdentityV1,
-        nonce_replay_key: NonceReplayKeyV1,
+        payload: MutationPayload,
+        verified_authority: VerifiedAuthority,
+        operation_identity: OperationReplayIdentity,
+        nonce_replay_key: NonceReplayKey,
     ) -> Self {
         Self {
             payload,
@@ -132,28 +132,28 @@ impl MutationEnvelopePartsV1 {
 /// Untrusted serialized mutation request and evidence. Structural validation
 /// makes this DTO safe to inspect and persist, but never admits execution.
 ///
-/// The future `eg-transaction::MutationKernelV1` must accept a separate
+/// The future `eg-transaction::MutationKernel` must accept a separate
 /// crate-private, non-`Deserialize`, non-`Clone` admitted plan/token minted only
 /// after trusted cryptographic, key-registry, current-time, policy, and durable
 /// replay verification. That executable type must not live in `eg-types`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct MutationEnvelopeV1 {
-    pub(super) schema_version: ResourceIdV1,
-    pub(super) mutation_id: OpaqueIdV1,
-    pub(super) verified_authority: VerifiedAuthorityV1,
-    pub(super) operation_identity: OperationReplayIdentityV1,
-    pub(super) operation_replay_digest: Digest256V1,
-    pub(super) nonce_replay_key: NonceReplayKeyV1,
-    pub(super) nonce_replay_digest: Digest256V1,
-    pub(super) scope: AuthorityScopeV1,
-    pub(super) preconditions: BoundedVecV1<MutationPreconditionV1, MAX_MUTATION_PRECONDITIONS>,
-    pub(super) effects: BoundedVecV1<MutationEffectV1, MAX_MUTATION_EFFECTS>,
-    pub(super) outbox: BoundedVecV1<OutboxIntentV1, MAX_OUTBOX_INTENTS>,
-    pub(super) provenance: BoundedVecV1<ProvenanceBindingV1, MAX_PROVENANCE_REFS>,
-    pub(super) requested_result: RequestedMutationResultV1,
-    pub(super) canonical_payload_digest: Digest256V1,
-    pub(super) envelope_digest: Digest256V1,
+pub struct MutationEnvelope {
+    pub(super) schema_version: ResourceId,
+    pub(super) mutation_id: OpaqueId,
+    pub(super) verified_authority: VerifiedAuthority,
+    pub(super) operation_identity: OperationReplayIdentity,
+    pub(super) operation_replay_digest: Digest256,
+    pub(super) nonce_replay_key: NonceReplayKey,
+    pub(super) nonce_replay_digest: Digest256,
+    pub(super) scope: AuthorityScope,
+    pub(super) preconditions: BoundedVec<MutationPrecondition, MAX_MUTATION_PRECONDITIONS>,
+    pub(super) effects: BoundedVec<MutationEffect, MAX_MUTATION_EFFECTS>,
+    pub(super) outbox: BoundedVec<OutboxIntent, MAX_OUTBOX_INTENTS>,
+    pub(super) provenance: BoundedVec<ProvenanceBinding, MAX_PROVENANCE_REFS>,
+    pub(super) requested_result: RequestedMutationResult,
+    pub(super) canonical_payload_digest: Digest256,
+    pub(super) envelope_digest: Digest256,
 }
 
 #[derive(Deserialize)]
@@ -180,21 +180,21 @@ struct MutationEnvelopeVisitor;
 
 struct MutationEnvelopeFields {
     budget: StructuralBudget,
-    schema_version: Option<ResourceIdV1>,
-    mutation_id: Option<OpaqueIdV1>,
-    verified_authority: Option<VerifiedAuthorityV1>,
-    operation_identity: Option<OperationReplayIdentityV1>,
-    operation_replay_digest: Option<Digest256V1>,
-    nonce_replay_key: Option<NonceReplayKeyV1>,
-    nonce_replay_digest: Option<Digest256V1>,
-    scope: Option<AuthorityScopeV1>,
-    preconditions: Option<BoundedVecV1<MutationPreconditionV1, MAX_MUTATION_PRECONDITIONS>>,
-    effects: Option<BoundedVecV1<MutationEffectV1, MAX_MUTATION_EFFECTS>>,
-    outbox: Option<BoundedVecV1<OutboxIntentV1, MAX_OUTBOX_INTENTS>>,
-    provenance: Option<BoundedVecV1<ProvenanceBindingV1, MAX_PROVENANCE_REFS>>,
-    requested_result: Option<RequestedMutationResultV1>,
-    canonical_payload_digest: Option<Digest256V1>,
-    envelope_digest: Option<Digest256V1>,
+    schema_version: Option<ResourceId>,
+    mutation_id: Option<OpaqueId>,
+    verified_authority: Option<VerifiedAuthority>,
+    operation_identity: Option<OperationReplayIdentity>,
+    operation_replay_digest: Option<Digest256>,
+    nonce_replay_key: Option<NonceReplayKey>,
+    nonce_replay_digest: Option<Digest256>,
+    scope: Option<AuthorityScope>,
+    preconditions: Option<BoundedVec<MutationPrecondition, MAX_MUTATION_PRECONDITIONS>>,
+    effects: Option<BoundedVec<MutationEffect, MAX_MUTATION_EFFECTS>>,
+    outbox: Option<BoundedVec<OutboxIntent, MAX_OUTBOX_INTENTS>>,
+    provenance: Option<BoundedVec<ProvenanceBinding, MAX_PROVENANCE_REFS>>,
+    requested_result: Option<RequestedMutationResult>,
+    canonical_payload_digest: Option<Digest256>,
+    envelope_digest: Option<Digest256>,
 }
 
 impl MutationEnvelopeFields {
@@ -313,7 +313,7 @@ where
 }
 
 fn read_budgeted_collection<'de, T, A, const MAXIMUM: usize>(
-    slot: &mut Option<BoundedVecV1<T, MAXIMUM>>,
+    slot: &mut Option<BoundedVec<T, MAXIMUM>>,
     field: &'static str,
     map: &mut A,
     budget: &mut StructuralBudget,
@@ -363,11 +363,11 @@ where
     value.ok_or_else(|| E::missing_field(field))
 }
 
-fn finish_envelope<E>(fields: MutationEnvelopeFields) -> Result<MutationEnvelopeV1, E>
+fn finish_envelope<E>(fields: MutationEnvelopeFields) -> Result<MutationEnvelope, E>
 where
     E: serde::de::Error,
 {
-    Ok(MutationEnvelopeV1 {
+    Ok(MutationEnvelope {
         schema_version: require_field(fields.schema_version, "schema_version")?,
         mutation_id: require_field(fields.mutation_id, "mutation_id")?,
         verified_authority: require_field(fields.verified_authority, "verified_authority")?,
@@ -393,7 +393,7 @@ where
 }
 
 impl<'de> Visitor<'de> for MutationEnvelopeVisitor {
-    type Value = MutationEnvelopeV1;
+    type Value = MutationEnvelope;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a named untrusted mutation-envelope.v1 map")
@@ -404,7 +404,7 @@ impl<'de> Visitor<'de> for MutationEnvelopeVisitor {
         A: SeqAccess<'de>,
     {
         Err(A::Error::custom(
-            "MutationEnvelopeV1 requires a named map; positional sequences are forbidden",
+            "MutationEnvelope requires a named map; positional sequences are forbidden",
         ))
     }
 
@@ -420,7 +420,7 @@ impl<'de> Visitor<'de> for MutationEnvelopeVisitor {
     }
 }
 
-impl<'de> Deserialize<'de> for MutationEnvelopeV1 {
+impl<'de> Deserialize<'de> for MutationEnvelope {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -443,7 +443,7 @@ impl<'de> Deserialize<'de> for MutationEnvelopeV1 {
             "envelope_digest",
         ];
         let envelope = deserializer.deserialize_struct(
-            "MutationEnvelopeV1",
+            "MutationEnvelope",
             FIELDS,
             MutationEnvelopeVisitor,
         )?;

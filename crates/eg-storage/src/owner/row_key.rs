@@ -30,7 +30,7 @@ use eg_types::MutationScopeIdentity;
 /// The reserved logical name of a graph shard's own file-wide scope.
 ///
 /// Every scope on a shard file is a *graph* scope — `GraphShard` declares
-/// `MutationDomain::GraphRows`, which may never own a native scope — so the
+/// `DurabilityDomain::GraphRows`, which may never own a native scope — so the
 /// file's own control rows need a scope too, and the only thing that can
 /// distinguish it is its name. This one is reserved: it is refused on every
 /// other layout, and on a shard it *is* the control scope, so a user graph

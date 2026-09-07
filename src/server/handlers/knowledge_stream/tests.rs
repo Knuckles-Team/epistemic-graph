@@ -111,7 +111,7 @@ mod tests {
                 &authority,
                 4,
                 Some(9),
-                KnowledgeStreamRequestV1 {
+                KnowledgeStreamRequest {
                     schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                     query: query(family),
                     batch_size: 2,
@@ -135,7 +135,7 @@ mod tests {
                 &authority,
                 4,
                 Some(9),
-                KnowledgeStreamRequestV1 {
+                KnowledgeStreamRequest {
                     schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                     query: query(family),
                     batch_size: 2,
@@ -158,7 +158,7 @@ mod tests {
             &original_authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -174,7 +174,7 @@ mod tests {
                 authority,
                 epoch,
                 Some(9),
-                KnowledgeStreamRequestV1 {
+                KnowledgeStreamRequest {
                     schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                     query: query(KnowledgeResultFamily::Graph),
                     batch_size: 2,
@@ -196,7 +196,7 @@ mod tests {
             &original_authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -216,7 +216,7 @@ mod tests {
             &authority,
             0,
             None,
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Sql),
                 batch_size: 2,
@@ -239,7 +239,7 @@ mod tests {
             &base_authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -258,7 +258,7 @@ mod tests {
             &base_authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -273,7 +273,7 @@ mod tests {
             &base_authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -295,7 +295,7 @@ mod tests {
             &aba,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -315,7 +315,7 @@ mod tests {
             &replacement,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -474,7 +474,7 @@ mod tests {
             &authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
@@ -495,7 +495,7 @@ mod tests {
             &authority,
             4,
             Some(9),
-            KnowledgeStreamRequestV1 {
+            KnowledgeStreamRequest {
                 schema_version: KNOWLEDGE_STREAM_SCHEMA_VERSION,
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,

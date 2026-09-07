@@ -74,7 +74,7 @@ pub(super) async fn dispatch_knowledge_stream(
     req_id: u64,
     caller: Option<&str>,
     verified_context: &VerifiedRequestContext,
-    request: crate::knowledge_stream::KnowledgeStreamRequestV1,
+    request: crate::knowledge_stream::KnowledgeStreamRequest,
     authority: handlers::knowledge_stream::KnowledgeStreamAuthority,
 ) -> Response {
     dispatch_graph_op_inner(

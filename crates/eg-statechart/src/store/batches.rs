@@ -33,7 +33,7 @@ pub(super) const STATECHART_PHYSICAL_STORE: &str = "eg-statechart:statechart-ins
 pub(super) fn instance_mutation_identity() -> Result<MutationScopeIdentity> {
     MutationScopeIdentity::fixed_native(
         INSTANCE_MUTATION_TENANT,
-        MutationDomain::Lifecycle,
+        DurabilityDomain::Lifecycle,
         INSTANCE_MUTATION_GRAPH,
         INSTANCE_MUTATION_INCARNATION,
     )
@@ -70,7 +70,7 @@ pub(super) fn instance_batch(
     let operation = MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Lifecycle,
-        domain: MutationDomain::Lifecycle,
+        domain: DurabilityDomain::Lifecycle,
         method: Method::ApplyMutation {
             event_type: "statechart_instance_transition".to_string(),
             query: format!("sha256:{digest}"),
@@ -98,7 +98,7 @@ pub(super) fn instance_batch(
         // The scope's live authoritative version, supplied by the caller (see
         // this function's callers, which all read it via
         // `StatechartStore::mutation_version` before admitting the write) --
-        // `MutationKernelV1::finish` requires `VersionExpectation::Native` to
+        // `MutationKernel::finish` requires `VersionExpectation::Native` to
         // equal the scope's CURRENT authoritative version.
         version_expectation: VersionExpectation::Native(expected_version),
         fencing_token: None,
@@ -138,7 +138,7 @@ pub(super) fn definition_batch(
     let operation = MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Lifecycle,
-        domain: MutationDomain::Lifecycle,
+        domain: DurabilityDomain::Lifecycle,
         method: Method::ApplyMutation {
             event_type: "statechart_definition_store".to_string(),
             query: def_id.to_string(),
@@ -216,7 +216,7 @@ pub(super) fn creation_batch(
     let operation = MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Lifecycle,
-        domain: MutationDomain::Lifecycle,
+        domain: DurabilityDomain::Lifecycle,
         method: Method::ApplyMutation {
             event_type: "statechart_instance_create".to_string(),
             query: batch_id.clone(),

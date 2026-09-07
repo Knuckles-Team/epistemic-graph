@@ -1,13 +1,13 @@
 //! Sole physical-state authority for the epistemic-graph workspace.
 //!
-//! [`StorageKernelV1`] alone opens and identifies durable stores, owns the
+//! [`StorageKernel`] alone opens and identifies durable stores, owns the
 //! closed physical owner-table registry, issues scoped read, snapshot and write
 //! capabilities, and validates adoption, backup, restore and recovery. No
 //! server handler, domain crate, provider, sidecar, or wrapper may open a
 //! database or become a second physical authority.
 //!
 //! Writes are reachable only through [`MutationOwnerAuthority`], the move-once
-//! token [`StorageKernelV1::into_read_and_mutation_authority`] issues exactly
+//! token [`StorageKernel::into_read_and_mutation_authority`] issues exactly
 //! once per kernel. No code outside this crate can name one otherwise, so no
 //! domain crate can obtain a write capability.
 
@@ -29,7 +29,7 @@ pub use codec::{
     decode_batch_record, decode_ledger_record, decode_outbox_record, encode_bounded,
     CollectionBudget,
 };
-pub use kernel::{MutationOwnerAuthority, StorageKernelV1, StoreOpenOptions};
+pub use kernel::{MutationOwnerAuthority, StorageKernel, StoreOpenOptions};
 pub use owner::blob_shared::{
     BlobSharedRead, BlobSharedServiceHandle, BlobSharedServiceVerifier, BlobSharedTable,
     BlobSharedWrite, CasChunkRows, CasRefcountRows,

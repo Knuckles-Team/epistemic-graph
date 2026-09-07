@@ -46,7 +46,7 @@ pub(crate) fn table_contract(name: &str, owner: Option<OwnerLayout>) -> TableCon
     };
     let index = matches!(
         name,
-        "mutation_outbox_topic_index_v1"
+        "mutation_outbox_topic_index"
             | "analytics_job_ready_by_priority"
             | "analytics_job_ready_by_capability"
             | "analytics_job_scheduler_meta"
@@ -55,10 +55,10 @@ pub(crate) fn table_contract(name: &str, owner: Option<OwnerLayout>) -> TableCon
             | "analytics_job_active_totals_by_tenant"
             | "analytics_job_by_deadline"
             | "analytics_job_cancellation_reconcile"
-            | "semantic_binding_heads_v1"
-            | "semantic_lexical_manifests_v1"
-            | "semantic_ann_manifests_v1"
-            | "semantic_vectors_v1"
+            | "semantic_binding_heads"
+            | "semantic_lexical_manifests"
+            | "semantic_ann_manifests"
+            | "semantic_vectors"
     ) || (owner == Some(OwnerLayout::GraphShard) && graph_shard::is_derived_index(name));
     let shared = matches!(name, "cas_chunks" | "cas_refcount");
     let key_type_id = key_type_id(name);
@@ -99,7 +99,7 @@ pub(crate) fn table_contract(name: &str, owner: Option<OwnerLayout>) -> TableCon
         } else if owner.is_some()
             || !matches!(
                 name,
-                "mutation_store_root_v1" | "mutation_owner_manifest_v1"
+                "mutation_store_root" | "mutation_owner_manifest"
             )
         {
             TableScope::Serving
@@ -131,24 +131,24 @@ fn key_type_id(name: &str) -> &'static str {
 
 fn ledger_key_type(name: &str) -> Option<&'static str> {
     match name {
-        "mutation_outbox_topic_index_v1" => Some("(&str,&str,u64,u64,&str,u32)"),
-        "mutation_outbox_deliveries_v1" => Some("(&str,&str,&str,u32)"),
-        "mutation_outbox_v1" => Some("(&str,&str,u32)"),
-        "mutation_batches_v1"
-        | "mutation_idempotency_v1"
-        | "mutation_private_payloads_v1"
-        | "mutation_outbox_consumers_v1"
-        | "mutation_outbox_cursors_v1"
-        | "mutation_outbox_claim_cursors_v1"
-        | "mutation_outbox_fairness_v1"
-        | "mutation_replay_nonces_v1"
-        | "mutation_replay_operations_v1"
-        | "mutation_classes_v1" => Some("(&str,&str)"),
-        "mutation_store_root_v1"
-        | "mutation_scope_bindings_v1"
-        | "mutation_owner_manifest_v1"
-        | "mutation_versions_v1"
-        | "mutation_fences_v1" => Some("&str"),
+        "mutation_outbox_topic_index" => Some("(&str,&str,u64,u64,&str,u32)"),
+        "mutation_outbox_deliveries" => Some("(&str,&str,&str,u32)"),
+        "ledger_outbox" => Some("(&str,&str,u32)"),
+        "ledger_batches"
+        | "ledger_idempotency"
+        | "ledger_private_payloads"
+        | "mutation_outbox_consumers"
+        | "mutation_outbox_cursors"
+        | "mutation_outbox_claim_cursors"
+        | "mutation_outbox_fairness"
+        | "mutation_replay_nonces"
+        | "mutation_replay_operations"
+        | "mutation_classes" => Some("(&str,&str)"),
+        "mutation_store_root"
+        | "mutation_scope_bindings"
+        | "mutation_owner_manifest"
+        | "ledger_versions"
+        | "ledger_fences" => Some("&str"),
         _ => None,
     }
 }
@@ -182,13 +182,13 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
         "cas_uploads" | "node_info" => Some("u64"),
         "eg_kvcache_cold" => Some("&[u8]"),
         "cas_chunks" | "cas_refcount" | "cas_blobs" => Some("&str"),
-        "rbac_v1"
-        | "path_index_v1"
+        "rbac"
+        | "path_index"
         | "statechart_defs"
         | "statechart_instances"
         | "series_meta"
         | "series_projection_state"
-        | "verified_request_replay_v2"
+        | "verified_request_replay"
         | "viz_provenance"
         | "cold_graphs"
         | "tenant_catalog"
@@ -212,24 +212,24 @@ fn sql_key_type(name: &str) -> Option<&'static str> {
 
 fn semantic_key_type(name: &str) -> Option<&'static str> {
     match name {
-        "semantic_source_progress_v1"
-        | "semantic_sql_source_manifests_v1"
-        | "semantic_graph_projection_manifests_v1"
-        | "semantic_authorization_receipts_v1"
-        | "semantic_generation_checkpoints_v1"
-        | "semantic_vectors_v1"
+        "semantic_source_progress"
+        | "semantic_sql_source_manifests"
+        | "semantic_graph_projection_manifests"
+        | "semantic_authorization_receipts"
+        | "semantic_generation_checkpoints"
+        | "semantic_vectors"
         // `eg_ann` is keyed `(tenant, binding, generation, part)` like the rest
         // of the generation-scoped semantic payload, not by a flat name.
         | "eg_ann" => Some("(&str,&str,u64,&str)"),
-        "semantic_stage_transitions_v1" => Some("(&str,&str,&str)"),
-        "semantic_dead_letters_v1" => Some("(&str,&str,u32)"),
-        "semantic_bindings_v1"
-        | "semantic_tombstones_v1"
-        | "semantic_lexical_manifests_v1"
-        | "semantic_ann_manifests_v1" => Some("(&str,&str,u64)"),
-        "semantic_binding_heads_v1"
-        | "semantic_binding_state_transitions_v1"
-        | "semantic_active_pointers_v1" => Some("(&str,&str)"),
+        "semantic_stage_transitions" => Some("(&str,&str,&str)"),
+        "semantic_dead_letters" => Some("(&str,&str,u32)"),
+        "semantic_bindings"
+        | "semantic_tombstones"
+        | "semantic_lexical_manifests"
+        | "semantic_ann_manifests" => Some("(&str,&str,u64)"),
+        "semantic_binding_heads"
+        | "semantic_binding_state_transitions"
+        | "semantic_active_pointers" => Some("(&str,&str)"),
         _ => None,
     }
 }
@@ -238,38 +238,38 @@ fn value_type_id(name: &str) -> &'static str {
         return value;
     }
     match name {
-        "mutation_versions_v1"
+        "ledger_versions"
         | "analytics_job_scheduler_meta"
         | "cas_refcount"
-        | "verified_request_replay_v2"
-        | "semantic_binding_heads_v1" => "u64",
+        | "verified_request_replay"
+        | "semantic_binding_heads" => "u64",
         "analytics_job_active_totals_by_tenant" => "(u64,u64)",
-        "mutation_outbox_topic_index_v1"
+        "mutation_outbox_topic_index"
         | "analytics_job_ready_by_priority"
         | "analytics_job_ready_by_capability"
         | "analytics_job_lease_by_expiry"
         | "analytics_job_by_deadline"
         | "analytics_job_cancellation_reconcile" => "()",
-        "mutation_idempotency_v1"
-        | "mutation_outbox_consumers_v1"
-        | "mutation_replay_nonces_v1"
+        "ledger_idempotency"
+        | "mutation_outbox_consumers"
+        | "mutation_replay_nonces"
         | "analytics_job_committed_results"
         | "job_idempotency_ledger"
         | "analytics_job_lease_by_worker" => "&str",
-        "mutation_store_root_v1"
-        | "mutation_scope_bindings_v1"
-        | "mutation_owner_manifest_v1"
-        | "mutation_batches_v1"
-        | "mutation_fences_v1"
-        | "mutation_outbox_v1"
-        | "mutation_private_payloads_v1"
-        | "mutation_outbox_deliveries_v1"
-        | "mutation_outbox_cursors_v1"
-        | "mutation_outbox_claim_cursors_v1"
-        | "mutation_outbox_fairness_v1"
-        | "mutation_replay_operations_v1"
-        | "mutation_classes_v1"
-        | "rbac_v1"
+        "mutation_store_root"
+        | "mutation_scope_bindings"
+        | "mutation_owner_manifest"
+        | "ledger_batches"
+        | "ledger_fences"
+        | "ledger_outbox"
+        | "ledger_private_payloads"
+        | "mutation_outbox_deliveries"
+        | "mutation_outbox_cursors"
+        | "mutation_outbox_claim_cursors"
+        | "mutation_outbox_fairness"
+        | "mutation_replay_operations"
+        | "mutation_classes"
+        | "rbac"
         | "analytics_jobs"
         | "job_intents"
         | "analytics_job_knowledge_batches"
@@ -282,21 +282,21 @@ fn value_type_id(name: &str) -> &'static str {
         | "cas_chunks"
         | "cas_blobs"
         | "cas_uploads"
-        | "semantic_bindings_v1"
-        | "semantic_stage_transitions_v1"
-        | "semantic_binding_state_transitions_v1"
-        | "semantic_source_progress_v1"
-        | "semantic_active_pointers_v1"
-        | "semantic_dead_letters_v1"
-        | "semantic_tombstones_v1"
-        | "semantic_sql_source_manifests_v1"
-        | "semantic_graph_projection_manifests_v1"
-        | "semantic_authorization_receipts_v1"
-        | "semantic_generation_checkpoints_v1"
-        | "semantic_lexical_manifests_v1"
-        | "semantic_ann_manifests_v1"
-        | "semantic_vectors_v1"
-        | "path_index_v1"
+        | "semantic_bindings"
+        | "semantic_stage_transitions"
+        | "semantic_binding_state_transitions"
+        | "semantic_source_progress"
+        | "semantic_active_pointers"
+        | "semantic_dead_letters"
+        | "semantic_tombstones"
+        | "semantic_sql_source_manifests"
+        | "semantic_graph_projection_manifests"
+        | "semantic_authorization_receipts"
+        | "semantic_generation_checkpoints"
+        | "semantic_lexical_manifests"
+        | "semantic_ann_manifests"
+        | "semantic_vectors"
+        | "path_index"
         | "eg_ann"
         | "eg_kvcache_cold"
         | "viz_provenance"
@@ -333,18 +333,18 @@ fn logical_codec_id(name: &str) -> &'static str {
         };
     }
     match name {
-        "mutation_private_payloads_v1" => "authenticated-sealed-bytes-v1",
+        "ledger_private_payloads" => "authenticated-sealed-bytes-v1",
         "eg_ann" | "eg_kvcache_cold" | "cold_graphs" => "raw-bytes-v1",
-        "path_index_v1" | "viz_provenance" | "tenant_catalog" | "node_info" | "node_info_meta"
+        "path_index" | "viz_provenance" | "tenant_catalog" | "node_info" | "node_info_meta"
         | "cluster_hierarchy" => "msgpack-v1",
-        "rbac_v1" => "json-utf8-v1",
+        "rbac" => "json-utf8-v1",
         "kv" | "cas_chunks" => "raw-bytes-v1",
         "series_chunks" => "packed-timeseries-chunk-v1",
-        "mutation_idempotency_v1"
-        | "mutation_versions_v1"
-        | "mutation_outbox_topic_index_v1"
-        | "mutation_outbox_consumers_v1"
-        | "mutation_replay_nonces_v1"
+        "ledger_idempotency"
+        | "ledger_versions"
+        | "mutation_outbox_topic_index"
+        | "mutation_outbox_consumers"
+        | "mutation_replay_nonces"
         | "analytics_job_committed_results"
         | "job_idempotency_ledger"
         | "analytics_job_scheduler_meta"
@@ -356,34 +356,34 @@ fn logical_codec_id(name: &str) -> &'static str {
         | "analytics_job_by_deadline"
         | "analytics_job_cancellation_reconcile"
         | "cas_refcount"
-        | "verified_request_replay_v2"
-        | "semantic_binding_heads_v1" => "redb-scalar-v1",
-        "semantic_bindings_v1"
-        | "semantic_stage_transitions_v1"
-        | "semantic_binding_state_transitions_v1"
-        | "semantic_source_progress_v1"
-        | "semantic_active_pointers_v1"
-        | "semantic_dead_letters_v1"
-        | "semantic_tombstones_v1"
-        | "semantic_sql_source_manifests_v1"
-        | "semantic_graph_projection_manifests_v1"
-        | "semantic_authorization_receipts_v1"
-        | "semantic_generation_checkpoints_v1"
-        | "semantic_lexical_manifests_v1"
-        | "semantic_ann_manifests_v1"
-        | "semantic_vectors_v1" => "semantic-index-bytes-v1",
-        "mutation_store_root_v1"
-        | "mutation_scope_bindings_v1"
-        | "mutation_owner_manifest_v1"
-        | "mutation_batches_v1"
-        | "mutation_fences_v1"
-        | "mutation_outbox_v1"
-        | "mutation_outbox_deliveries_v1"
-        | "mutation_outbox_cursors_v1"
-        | "mutation_outbox_claim_cursors_v1"
-        | "mutation_outbox_fairness_v1"
-        | "mutation_replay_operations_v1"
-        | "mutation_classes_v1"
+        | "verified_request_replay"
+        | "semantic_binding_heads" => "redb-scalar-v1",
+        "semantic_bindings"
+        | "semantic_stage_transitions"
+        | "semantic_binding_state_transitions"
+        | "semantic_source_progress"
+        | "semantic_active_pointers"
+        | "semantic_dead_letters"
+        | "semantic_tombstones"
+        | "semantic_sql_source_manifests"
+        | "semantic_graph_projection_manifests"
+        | "semantic_authorization_receipts"
+        | "semantic_generation_checkpoints"
+        | "semantic_lexical_manifests"
+        | "semantic_ann_manifests"
+        | "semantic_vectors" => "semantic-index-bytes-v1",
+        "mutation_store_root"
+        | "mutation_scope_bindings"
+        | "mutation_owner_manifest"
+        | "ledger_batches"
+        | "ledger_fences"
+        | "ledger_outbox"
+        | "mutation_outbox_deliveries"
+        | "mutation_outbox_cursors"
+        | "mutation_outbox_claim_cursors"
+        | "mutation_outbox_fairness"
+        | "mutation_replay_operations"
+        | "mutation_classes"
         | "analytics_jobs"
         | "job_intents"
         | "analytics_job_knowledge_batches"
@@ -403,39 +403,39 @@ fn table_capabilities(name: &str) -> u16 {
         return CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE;
     }
     match name {
-        "mutation_store_root_v1" | "mutation_owner_manifest_v1" => {
+        "mutation_store_root" | "mutation_owner_manifest" => {
             CAP_READ | CAP_INSERT | CAP_UPDATE
         }
-        "mutation_idempotency_v1"
-        | "mutation_outbox_v1"
+        "ledger_idempotency"
+        | "ledger_outbox"
         | "analytics_job_committed_results"
         | "job_idempotency_ledger"
         | "analytics_job_knowledge_batches"
         | "statechart_defs"
         | "viz_provenance" => CAP_READ | CAP_INSERT,
         "cas_chunks" | "cas_blobs" => CAP_READ | CAP_INSERT | CAP_DELETE,
-        "rbac_v1"
+        "rbac"
         | "analytics_jobs"
         | "job_intents"
         | "analytics_job_scheduler_meta"
         | "statechart_instances" => CAP_READ | CAP_INSERT | CAP_UPDATE,
-        "mutation_private_payloads_v1"
-        | "mutation_outbox_topic_index_v1"
+        "ledger_private_payloads"
+        | "mutation_outbox_topic_index"
         | "analytics_job_ready_by_priority"
         | "analytics_job_ready_by_capability"
         | "analytics_job_lease_by_worker"
         | "analytics_job_lease_by_expiry"
         | "analytics_job_by_deadline"
         | "analytics_job_cancellation_reconcile"
-        | "semantic_binding_heads_v1"
-        | "semantic_lexical_manifests_v1"
-        | "semantic_ann_manifests_v1"
-        | "semantic_vectors_v1"
-        | "verified_request_replay_v2" => CAP_READ | CAP_INSERT | CAP_DELETE,
-        "mutation_versions_v1" | "mutation_fences_v1" | "kv" | "cas_refcount" => {
+        | "semantic_binding_heads"
+        | "semantic_lexical_manifests"
+        | "semantic_ann_manifests"
+        | "semantic_vectors"
+        | "verified_request_replay" => CAP_READ | CAP_INSERT | CAP_DELETE,
+        "ledger_versions" | "ledger_fences" | "kv" | "cas_refcount" => {
             CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE | CAP_CAS
         }
-        "path_index_v1"
+        "path_index"
         | "eg_ann"
         | "eg_kvcache_cold"
         | "analytics_job_active_totals_by_tenant"
@@ -448,27 +448,27 @@ fn table_capabilities(name: &str) -> u16 {
         | "node_info_meta"
         | "cluster_hierarchy"
         | "cas_uploads" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
-        "mutation_scope_bindings_v1"
-        | "mutation_batches_v1"
-        | "mutation_outbox_consumers_v1"
-        | "mutation_outbox_deliveries_v1"
-        | "mutation_outbox_cursors_v1"
-        | "mutation_outbox_claim_cursors_v1"
-        | "mutation_outbox_fairness_v1"
-        | "mutation_replay_nonces_v1"
-        | "mutation_replay_operations_v1"
-        | "mutation_classes_v1"
-        | "semantic_bindings_v1"
-        | "semantic_stage_transitions_v1"
-        | "semantic_binding_state_transitions_v1"
-        | "semantic_source_progress_v1"
-        | "semantic_active_pointers_v1"
-        | "semantic_dead_letters_v1"
-        | "semantic_tombstones_v1"
-        | "semantic_sql_source_manifests_v1"
-        | "semantic_graph_projection_manifests_v1"
-        | "semantic_authorization_receipts_v1"
-        | "semantic_generation_checkpoints_v1" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
+        "mutation_scope_bindings"
+        | "ledger_batches"
+        | "mutation_outbox_consumers"
+        | "mutation_outbox_deliveries"
+        | "mutation_outbox_cursors"
+        | "mutation_outbox_claim_cursors"
+        | "mutation_outbox_fairness"
+        | "mutation_replay_nonces"
+        | "mutation_replay_operations"
+        | "mutation_classes"
+        | "semantic_bindings"
+        | "semantic_stage_transitions"
+        | "semantic_binding_state_transitions"
+        | "semantic_source_progress"
+        | "semantic_active_pointers"
+        | "semantic_dead_letters"
+        | "semantic_tombstones"
+        | "semantic_sql_source_manifests"
+        | "semantic_graph_projection_manifests"
+        | "semantic_authorization_receipts"
+        | "semantic_generation_checkpoints" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
         name => graph_shard::capabilities(name)
             .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),
     }

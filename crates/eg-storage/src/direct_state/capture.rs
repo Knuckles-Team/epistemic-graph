@@ -111,7 +111,7 @@ pub(super) fn physical_image_source(
     let content_sha256 = hash_physical_image(&capture_root, path, input, logical_bytes)?;
     let chunk_count = logical_bytes.saturating_add(MAX_DIRECT_STATE_CHUNK_BYTES as u64 - 1)
         / MAX_DIRECT_STATE_CHUNK_BYTES as u64;
-    let manifest = DirectStateSectionManifestV1 {
+    let manifest = DirectStateSectionManifest {
         schema_version: DIRECT_STATE_SCHEMA_VERSION,
         domain,
         scope: binding.scope.clone(),
@@ -282,7 +282,7 @@ impl Drop for PhysicalFileChunkStream {
 }
 
 impl DirectStateChunkStream for PhysicalFileChunkStream {
-    fn next_chunk(&mut self) -> Result<Option<DirectStateChunkV1>, String> {
+    fn next_chunk(&mut self) -> Result<Option<DirectStateChunk>, String> {
         if self.remaining == 0 {
             return Ok(None);
         }
@@ -292,7 +292,7 @@ impl DirectStateChunkStream for PhysicalFileChunkStream {
             .read_exact(&mut bytes)
             .map_err(|error| format!("read direct-state physical image chunk: {error}"))?;
         self.remaining -= expected as u64;
-        let chunk = DirectStateChunkV1 {
+        let chunk = DirectStateChunk {
             manifest_sha256: self.manifest_sha256.clone(),
             ordinal: self.ordinal,
             // Physical redb images are opaque byte streams, not logical row batches.

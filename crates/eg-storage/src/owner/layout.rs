@@ -1,7 +1,7 @@
 use crate::owner::contract::{expected_owner_table_contract, ledger_table_contract};
 use crate::owner::registry::owner_table_names;
 use crate::physical::manifest::hash_table_contract;
-use eg_types::mutation_batch::MutationDomain;
+use eg_types::mutation_batch::DurabilityDomain;
 use eg_types::MutationScopeIdentity;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -26,24 +26,24 @@ const OWNER_LAYOUT_NAMES: [&str; 17] = [
     "cluster_hierarchy",
     "graph_shard",
 ];
-pub(crate) const OWNER_LAYOUT_DOMAINS: [MutationDomain; 17] = [
-    MutationDomain::ControlPlane,
-    MutationDomain::ControlPlane,
-    MutationDomain::AnalyticsJob,
-    MutationDomain::Lifecycle,
-    MutationDomain::TimeSeries,
-    MutationDomain::KvStore,
-    MutationDomain::BlobStore,
-    MutationDomain::SemanticIndex,
-    MutationDomain::SqlCatalog,
-    MutationDomain::ControlPlane,
-    MutationDomain::ControlPlane,
-    MutationDomain::ControlPlane,
-    MutationDomain::ControlPlane,
-    MutationDomain::ControlPlane,
-    MutationDomain::ControlPlane,
-    MutationDomain::ControlPlane,
-    MutationDomain::GraphRows,
+pub(crate) const OWNER_LAYOUT_DOMAINS: [DurabilityDomain; 17] = [
+    DurabilityDomain::ControlPlane,
+    DurabilityDomain::ControlPlane,
+    DurabilityDomain::AnalyticsJob,
+    DurabilityDomain::Lifecycle,
+    DurabilityDomain::TimeSeries,
+    DurabilityDomain::KvStore,
+    DurabilityDomain::BlobStore,
+    DurabilityDomain::SemanticIndex,
+    DurabilityDomain::SqlCatalog,
+    DurabilityDomain::ControlPlane,
+    DurabilityDomain::ControlPlane,
+    DurabilityDomain::ControlPlane,
+    DurabilityDomain::ControlPlane,
+    DurabilityDomain::ControlPlane,
+    DurabilityDomain::ControlPlane,
+    DurabilityDomain::ControlPlane,
+    DurabilityDomain::GraphRows,
 ];
 
 /// Closed registry of physical owner-table layouts.
@@ -96,7 +96,7 @@ impl OwnerLayout {
     /// declared domain rather than off a hand-maintained pairing table:
     ///
     /// * a **native** scope binds to the layout that declares its exact
-    ///   `MutationDomain` (`Rbac`/`PathIndex` and the five root sidecars all
+    ///   `DurabilityDomain` (`Rbac`/`PathIndex` and the five root sidecars all
     ///   declare `ControlPlane`; they are distinct files, and `create_owner` /
     ///   `open_owner` are layout-typed, so the non-injectivity is not reachable
     ///   as an ambiguity);

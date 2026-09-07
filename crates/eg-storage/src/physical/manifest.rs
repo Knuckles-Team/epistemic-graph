@@ -3,7 +3,7 @@ use crate::owner::contract::expected_table_contracts;
 use crate::owner::identity::PhysicalStoreIdentity;
 use crate::owner::layout::{layout_domain_tag, OwnerLayout};
 use crate::physical::incarnation::{StoreIncarnation, STORAGE_KERNEL_SCHEMA_VERSION};
-use eg_types::mutation_batch::MutationDomain;
+use eg_types::mutation_batch::DurabilityDomain;
 use eg_types::IncarnationId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -64,7 +64,7 @@ pub(crate) struct TableContract {
     pub(crate) logical_schema_id: String,
     pub(crate) logical_codec_id: String,
     pub(crate) ownership: TableOwnership,
-    pub(crate) domain: Option<MutationDomain>,
+    pub(crate) domain: Option<DurabilityDomain>,
     pub(crate) scope: TableScope,
     pub(crate) capabilities: u16,
     pub(crate) index: bool,

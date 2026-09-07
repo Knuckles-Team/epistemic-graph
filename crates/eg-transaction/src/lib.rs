@@ -39,7 +39,7 @@ mod tables;
 
 pub use admitted::{AdmittedMutation, AdmittedOwnerWrite};
 pub use group::{AdmittedGroup, ScopedIntent};
-pub use kernel::MutationKernelV1;
+pub use kernel::MutationKernel;
 pub use maintenance::MaintenanceBatch;
 pub use participant::{
     decode_record, decode_record_key, encode_record, encode_record_key, is_sealed_payload,

@@ -54,7 +54,7 @@ use tokio::sync::RwLock;
 
 use super::super::compute::compute_off_lock;
 use super::super::state::ServerState;
-use crate::mutation_batch::{MutationDomain, MutationSurface};
+use crate::mutation_batch::{DurabilityDomain, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 
@@ -214,7 +214,7 @@ pub(crate) async fn try_handle(
                 },
                 &original_method,
                 MutationSurface::Other,
-                MutationDomain::TimeSeries,
+                DurabilityDomain::TimeSeries,
                 "timeseries_append",
             ) {
                 Ok(batch) => batch,
@@ -654,7 +654,7 @@ mod nested_payload_tests {
             },
             &method,
             MutationSurface::Other,
-            MutationDomain::TimeSeries,
+            DurabilityDomain::TimeSeries,
             "timeseries_append",
         )
         .expect("compile append batch");

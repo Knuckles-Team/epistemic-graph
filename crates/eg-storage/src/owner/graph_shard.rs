@@ -4,7 +4,7 @@
 //! hosts many graphs, so its serving scope is a [`MutationScope::Graph`] rather
 //! than a native domain scope: a graph scope binds to the shard file of its
 //! graph, and `OwnerLayout::accepts` admits it because the layout's declared
-//! domain (`MutationDomain::GraphRows`) is graph-authoritative and may own no
+//! domain (`DurabilityDomain::GraphRows`) is graph-authoritative and may own no
 //! native scope of its own.
 //!
 //! The census here is exact and is the manifest contract. Two deliberate
@@ -12,7 +12,7 @@
 //!
 //! * The eight `mutation_*` tables the shard declared for its own private
 //!   admit/idempotency/OCC/fence/outbox/projection ledger are **not** here.
-//!   RF-RULING-004 makes `eg-transaction::MutationKernelV1` the sole mutation
+//!   RF-RULING-004 makes `eg-transaction::MutationKernel` the sole mutation
 //!   owner, so declaring them as owner tables would put a second mutation
 //!   ledger in a kernel-owned file. They retire onto the kernel ledger and are
 //!   quarantined by name, not re-declared.
@@ -293,7 +293,7 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = &[
 /// every layout. It becomes a production quarantine entry when the shard's
 /// ledger code is deleted and these names join `RETIRED_PROTOTYPE_TABLES`.
 ///
-/// RF-RULING-004 gives `eg-transaction::MutationKernelV1` sole ownership of
+/// RF-RULING-004 gives `eg-transaction::MutationKernel` sole ownership of
 /// admission, idempotency, ordering, fencing, outbox and projection cursors, so
 /// these are not owner tables of any layout. They are named here so the
 /// quarantine list and its test have one source.

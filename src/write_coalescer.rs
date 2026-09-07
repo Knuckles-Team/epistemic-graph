@@ -301,21 +301,21 @@ impl Default for CoalescerConfig {
 /// Shared per-writer state: admission ordering, tuning, and counters are the same
 /// for the topology and routed durable workers even though their payloads differ.
 pub(crate) struct CoalescerState {
-    admission: Mutex<AdmissionState>,
+    admission: Mutex<CoalescerAdmissionState>,
     config: CoalescerConfig,
     stats: BatchStatsHandle,
     admission_error: &'static str,
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct AdmissionState {
+pub(crate) struct CoalescerAdmissionState {
     next_ticket: u64,
 }
 
 impl CoalescerState {
     pub(crate) fn new(config: CoalescerConfig, admission_error: &'static str) -> Self {
         Self {
-            admission: Mutex::new(AdmissionState::default()),
+            admission: Mutex::new(CoalescerAdmissionState::default()),
             config,
             stats: BatchStatsHandle::new(),
             admission_error,

@@ -22,7 +22,7 @@
 //! second migration.
 //!
 //! ## Invariants encoded here (GOC-10 "Authority and invariants")
-//! 1. [`TableSchemaVersionV1`] links each version to its predecessor
+//! 1. [`TableSchemaVersion`] links each version to its predecessor
 //!    (`previous_version`) in a strict, gapless chain — "changes create a new
 //!    version linked by derivation".
 //! 2. [`GovernanceMeta`] is embedded in every top-level record: tenant, owner,
@@ -34,13 +34,13 @@
 //!    vocabulary verbatim, so a durable participant can bind a catalog/table/lake
 //!    record to the SAME GOC-03 commit descriptor a graph/SQL mutation uses,
 //!    without inventing a second fencing scheme.
-//! 4. [`LakeSnapshotV1`] pins schema version + digest, partition-manifest
+//! 4. [`LakeSnapshot`] pins schema version + digest, partition-manifest
 //!    references (by digest — file bytes are immutable CAS/object refs, never
 //!    duplicated inline), commit sequence, quality, and a policy digest.
 //! 5. Carrier/barrier verification is NOT modeled here — it is enforced above this
 //!    pure-data layer (`server::lake::rest`, GOC-15/GOC-75 territory) before any of
 //!    these records are read or written.
-//! 6. [`TableChangeV1::validate`] enforces: the declared [`SchemaCompatibility`]
+//! 6. [`TableChange::validate`] enforces: the declared [`SchemaCompatibility`]
 //!    must match [`classify_schema_change`]'s classification of the declared
 //!    [`SchemaChangeKind`] (a caller cannot mislabel a destructive change as
 //!    additive), a `Destructive` change requires `approved_by`, and a destructive
@@ -69,7 +69,7 @@ pub struct RetentionPolicy {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retain_until_ms: Option<u64>,
     /// A legal hold freezes destructive schema/table/lake changes regardless of
-    /// policy approval (see [`TableChangeV1::validate`]).
+    /// policy approval (see [`TableChange::validate`]).
     pub legal_hold: bool,
     /// Epoch-ms a deletion was requested, if any. Distinct from `retain_until_ms`:
     /// this records an explicit request, not a schedule.
@@ -161,7 +161,7 @@ impl CommitFenceRef {
     }
 }
 
-/// A prior quality validation's outcome (GOC-10 invariant 4: `TableSnapshotV1`
+/// A prior quality validation's outcome (GOC-10 invariant 4: `TableSnapshot`
 /// pins "quality checks").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -241,12 +241,12 @@ pub enum SchemaCompatibility {
     Compatible,
     /// Data or reachability can be lost (a dropped column/table, a type change
     /// that a stored value may not coerce into). Requires policy approval and is
-    /// rejected outright under a legal hold (see [`TableChangeV1::validate`]).
+    /// rejected outright under a legal hold (see [`TableChange::validate`]).
     Destructive,
 }
 
 /// Classify a [`SchemaChangeKind`] (GOC-10 invariant 6). Pure and total — every
-/// variant maps to exactly one compatibility class, so [`TableChangeV1::validate`]
+/// variant maps to exactly one compatibility class, so [`TableChange::validate`]
 /// can always check a caller's claim against it.
 pub fn classify_schema_change(kind: SchemaChangeKind) -> SchemaCompatibility {
     match kind {
@@ -268,12 +268,12 @@ pub fn classify_schema_change(kind: SchemaChangeKind) -> SchemaCompatibility {
 }
 
 /// One durable schema version of one table (GOC-10 invariant 1 + invariant 2).
-/// Immutable once referenced by a [`LakeSnapshotV1`] — enforced by the future
+/// Immutable once referenced by a [`LakeSnapshot`] — enforced by the future
 /// durable store (GOC-10-W03), not by this value type; this struct only carries
 /// the derivation link (`previous_version`) that makes such enforcement possible.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TableSchemaVersionV1 {
+pub struct TableSchemaVersion {
     pub governance: GovernanceMeta,
     pub table: String,
     /// Monotonic, gapless per-table version counter starting at 0 (the `CREATE
@@ -289,7 +289,7 @@ pub struct TableSchemaVersionV1 {
     pub created_at_ms: u64,
 }
 
-impl TableSchemaVersionV1 {
+impl TableSchemaVersion {
     pub fn validate(&self) -> Result<(), String> {
         if self.table.trim().is_empty() {
             return Err("table schema version requires a non-empty table name".to_string());
@@ -339,7 +339,7 @@ impl ManifestFileRef {
 /// One partition's durable file manifest (GOC-10 invariant 4).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PartitionManifestV1 {
+pub struct PartitionManifest {
     pub governance: GovernanceMeta,
     pub table: String,
     pub partition_key: String,
@@ -350,7 +350,7 @@ pub struct PartitionManifestV1 {
     pub created_at_ms: u64,
 }
 
-impl PartitionManifestV1 {
+impl PartitionManifest {
     pub fn validate(&self) -> Result<(), String> {
         if self.table.trim().is_empty() {
             return Err("partition manifest requires a non-empty table name".to_string());
@@ -372,8 +372,8 @@ impl PartitionManifestV1 {
     }
 }
 
-/// A lightweight reference into a [`PartitionManifestV1`], used inside
-/// [`LakeSnapshotV1`] so a snapshot never duplicates the full file list inline
+/// A lightweight reference into a [`PartitionManifest`], used inside
+/// [`LakeSnapshot`] so a snapshot never duplicates the full file list inline
 /// (GOC-10 invariant 4).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -383,13 +383,13 @@ pub struct PartitionManifestRef {
 }
 
 /// An immutable, pinned analytical snapshot of one table (GOC-10 invariant 4:
-/// "`TableSnapshotV1` pins table/catalog versions, partition/file manifests,
+/// "`TableSnapshot` pins table/catalog versions, partition/file manifests,
 /// commit sequence, quality checks, and policy digest"). Consumed by GOC-11
 /// (analytics jobs) and GOC-12 (cross-modal predicate pushdown reads the schema
 /// digest + quality status, never a raw partition scan).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LakeSnapshotV1 {
+pub struct LakeSnapshot {
     pub governance: GovernanceMeta,
     pub table: String,
     pub snapshot_id: String,
@@ -408,7 +408,7 @@ pub struct LakeSnapshotV1 {
     pub pinned_at_ms: u64,
 }
 
-impl LakeSnapshotV1 {
+impl LakeSnapshot {
     pub fn validate(&self) -> Result<(), String> {
         if self.table.trim().is_empty() {
             return Err("lake snapshot requires a non-empty table name".to_string());
@@ -444,7 +444,7 @@ impl LakeSnapshotV1 {
 /// authority, not a standalone `BTreeMap`").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CatalogEntryV1 {
+pub struct CatalogEntry {
     pub governance: GovernanceMeta,
     pub namespace: String,
     pub table: String,
@@ -458,7 +458,7 @@ pub struct CatalogEntryV1 {
     pub updated_at_ms: u64,
 }
 
-impl CatalogEntryV1 {
+impl CatalogEntry {
     pub fn validate(&self) -> Result<(), String> {
         if self.namespace.trim().is_empty() {
             return Err("catalog entry requires a non-empty namespace".to_string());
@@ -482,7 +482,7 @@ impl CatalogEntryV1 {
 /// policy approval").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TableChangeV1 {
+pub struct TableChange {
     pub governance: GovernanceMeta,
     pub table: String,
     pub change: SchemaChangeKind,
@@ -500,7 +500,7 @@ pub struct TableChangeV1 {
     pub recorded_at_ms: u64,
 }
 
-impl TableChangeV1 {
+impl TableChange {
     pub fn validate(&self) -> Result<(), String> {
         if self.table.trim().is_empty() {
             return Err("table change requires a non-empty table name".to_string());
@@ -579,7 +579,7 @@ mod tests {
 
     #[test]
     fn schema_version_round_trips_over_the_wire() {
-        let version = TableSchemaVersionV1 {
+        let version = TableSchemaVersion {
             governance: governance(),
             table: "metrics".to_string(),
             version: 1,
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn schema_version_zero_must_not_declare_a_predecessor() {
-        let mut version = TableSchemaVersionV1 {
+        let mut version = TableSchemaVersion {
             governance: governance(),
             table: "metrics".to_string(),
             version: 0,
@@ -611,7 +611,7 @@ mod tests {
     #[test]
     fn schema_version_rejects_a_broken_chain() {
         // Known-bad input: version 3 claiming predecessor 0 skips 1 and 2.
-        let version = TableSchemaVersionV1 {
+        let version = TableSchemaVersion {
             governance: governance(),
             table: "metrics".to_string(),
             version: 3,
@@ -626,7 +626,7 @@ mod tests {
 
     #[test]
     fn schema_version_rejects_a_malformed_digest() {
-        let version = TableSchemaVersionV1 {
+        let version = TableSchemaVersion {
             governance: governance(),
             table: "metrics".to_string(),
             version: 0,
@@ -676,8 +676,8 @@ mod tests {
         );
     }
 
-    fn change(kind: SchemaChangeKind, compatibility: SchemaCompatibility) -> TableChangeV1 {
-        TableChangeV1 {
+    fn change(kind: SchemaChangeKind, compatibility: SchemaCompatibility) -> TableChange {
+        TableChange {
             governance: governance(),
             table: "metrics".to_string(),
             change: kind,
@@ -759,7 +759,7 @@ mod tests {
 
     #[test]
     fn partition_manifest_round_trips_over_the_wire() {
-        let manifest = PartitionManifestV1 {
+        let manifest = PartitionManifest {
             governance: governance(),
             table: "metrics".to_string(),
             partition_key: "dt=2026-08-16".to_string(),
@@ -775,7 +775,7 @@ mod tests {
     #[test]
     fn partition_manifest_rejects_an_empty_file_list() {
         // Known-bad input: a manifest that references zero files.
-        let manifest = PartitionManifestV1 {
+        let manifest = PartitionManifest {
             governance: governance(),
             table: "metrics".to_string(),
             partition_key: "dt=2026-08-16".to_string(),
@@ -798,8 +798,8 @@ mod tests {
 
     // ── snapshot / catalog entry ──────────────────────────────────────────
 
-    fn snapshot() -> LakeSnapshotV1 {
-        LakeSnapshotV1 {
+    fn snapshot() -> LakeSnapshot {
+        LakeSnapshot {
             governance: governance(),
             table: "metrics".to_string(),
             snapshot_id: "snap-1".to_string(),
@@ -852,7 +852,7 @@ mod tests {
 
     #[test]
     fn catalog_entry_round_trips_over_the_wire() {
-        let entry = CatalogEntryV1 {
+        let entry = CatalogEntry {
             governance: governance(),
             namespace: "analytics".to_string(),
             table: "metrics".to_string(),
@@ -870,7 +870,7 @@ mod tests {
     #[test]
     fn catalog_entry_rejects_updated_before_created() {
         // Known-bad input: updated_at_ms precedes created_at_ms.
-        let entry = CatalogEntryV1 {
+        let entry = CatalogEntry {
             governance: governance(),
             namespace: "analytics".to_string(),
             table: "metrics".to_string(),

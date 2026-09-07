@@ -220,12 +220,12 @@ pub enum ModalityRowOperation {
     Reindexed,
 }
 
-/// `ModalityEventV1` (lane doc "Storage schema"): operation, object id, prior
+/// `ModalityEvent` (lane doc "Storage schema"): operation, object id, prior
 /// digest, resulting digest, sequence, commit reference, actor, policy digest,
 /// and idempotency key. `commit_id` is carried opaquely — see module docs on
 /// why this does not yet bind to a concrete GOC-03 descriptor type.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModalityEventV1 {
+pub struct ModalityEvent {
     pub schema_version: u16,
     /// Contiguous per-modality sequence (invariant 3: starts at 1).
     pub sequence: u64,
@@ -241,7 +241,7 @@ pub struct ModalityEventV1 {
     pub idempotency_key: OpaqueRef,
 }
 
-impl ModalityEventV1 {
+impl ModalityEvent {
     pub fn validate(&self) -> Result<(), RowSchemaError> {
         if self.schema_version != MODALITY_ROW_SCHEMA_VERSION {
             return Err(RowSchemaError::UnsupportedVersion);
@@ -268,20 +268,20 @@ impl ModalityEventV1 {
 /// contiguous starting at 1 — the acceptance-gate check "restart reconstruction
 /// ... validates event contiguity" reduces to this pure predicate so the real
 /// recovery path (GOC-04-W04) can reuse it without re-deriving the rule.
-pub fn events_are_contiguous(events: &[ModalityEventV1]) -> bool {
+pub fn events_are_contiguous(events: &[ModalityEvent]) -> bool {
     events
         .iter()
         .enumerate()
         .all(|(index, event)| event.sequence == index as u64 + 1)
 }
 
-/// `ChunkManifestV1` (lane doc "Storage schema"): total length, chunk size,
+/// `ChunkManifest` (lane doc "Storage schema"): total length, chunk size,
 /// ordered chunk refs, codec/MIME, classification, and a manifest digest
 /// binding all of it together. Never carries raw bytes — `chunk_refs` are CAS
 /// references only (lane doc "Non-goals": "Storing source bytes in rows ...
 /// large content is CAS/chunk referenced").
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ChunkManifestV1 {
+pub struct ChunkManifest {
     pub schema_version: u16,
     pub tenant_ref: OpaqueRef,
     pub total_len: u64,
@@ -292,7 +292,7 @@ pub struct ChunkManifestV1 {
     pub manifest_digest: [u8; 32],
 }
 
-impl ChunkManifestV1 {
+impl ChunkManifest {
     /// Build and self-certify a manifest: rejects a chunk count that does not
     /// match `ceil(total_len / chunk_size)` (a malformed/truncated/duplicated
     /// chunk list) and computes the binding digest itself, so a caller cannot
@@ -454,10 +454,10 @@ mod tests {
         );
     }
 
-    // ── ModalityEventV1 ─────────────────────────────────────────────────────
+    // ── ModalityEvent ─────────────────────────────────────────────────────
 
-    fn sample_event(sequence: u64) -> ModalityEventV1 {
-        ModalityEventV1 {
+    fn sample_event(sequence: u64) -> ModalityEvent {
+        ModalityEvent {
             schema_version: MODALITY_ROW_SCHEMA_VERSION,
             sequence,
             tenant_ref: tenant(1),
@@ -476,7 +476,7 @@ mod tests {
     fn modality_event_round_trips() {
         let event = sample_event(1);
         let encoded = event.encode().unwrap();
-        assert_eq!(ModalityEventV1::decode(&encoded).unwrap(), event);
+        assert_eq!(ModalityEvent::decode(&encoded).unwrap(), event);
     }
 
     #[test]
@@ -496,11 +496,11 @@ mod tests {
         assert!(!events_are_contiguous(&out_of_order));
     }
 
-    // ── ChunkManifestV1 ─────────────────────────────────────────────────────
+    // ── ChunkManifest ─────────────────────────────────────────────────────
 
     #[test]
     fn chunk_manifest_round_trips_and_self_certifies() {
-        let manifest = ChunkManifestV1::new(
+        let manifest = ChunkManifest::new(
             tenant(1),
             10,
             4,
@@ -511,12 +511,12 @@ mod tests {
         .expect("10 bytes at chunk size 4 needs ceil(10/4)=3 chunks");
         manifest.verify().expect("freshly built manifest verifies");
         let encoded = manifest.encode().unwrap();
-        assert_eq!(ChunkManifestV1::decode(&encoded).unwrap(), manifest);
+        assert_eq!(ChunkManifest::decode(&encoded).unwrap(), manifest);
     }
 
     #[test]
     fn chunk_manifest_allows_zero_length_with_no_chunks() {
-        let manifest = ChunkManifestV1::new(
+        let manifest = ChunkManifest::new(
             tenant(1),
             0,
             0,
@@ -530,7 +530,7 @@ mod tests {
 
     #[test]
     fn chunk_manifest_rejects_a_chunk_count_that_does_not_match_total_len() {
-        let result = ChunkManifestV1::new(
+        let result = ChunkManifest::new(
             tenant(1),
             10,
             4,
@@ -543,7 +543,7 @@ mod tests {
 
     #[test]
     fn chunk_manifest_rejects_nonzero_length_with_zero_chunk_size() {
-        let result = ChunkManifestV1::new(
+        let result = ChunkManifest::new(
             tenant(1),
             10,
             0,
@@ -556,7 +556,7 @@ mod tests {
 
     #[test]
     fn chunk_manifest_decode_rejects_a_tampered_digest() {
-        let manifest = ChunkManifestV1::new(
+        let manifest = ChunkManifest::new(
             tenant(1),
             10,
             4,
@@ -573,17 +573,17 @@ mod tests {
             serde_json::json!(value["manifest_digest"][0].as_u64().unwrap() ^ 0xFF);
         let tampered = serde_json::to_vec(&value).unwrap();
         assert_eq!(
-            ChunkManifestV1::decode(&tampered),
+            ChunkManifest::decode(&tampered),
             Err(RowSchemaError::ManifestDigestMismatch)
         );
     }
 
     #[test]
     fn chunk_manifest_never_carries_raw_bytes() {
-        // Structural guarantee, not a runtime check: `ChunkManifestV1` has no
+        // Structural guarantee, not a runtime check: `ChunkManifest` has no
         // byte-payload field at all, only `OpaqueRef` chunk references. This
         // test exists so a future edit that adds one is forced to touch it.
-        let manifest = ChunkManifestV1::new(
+        let manifest = ChunkManifest::new(
             tenant(1),
             4,
             4,

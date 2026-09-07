@@ -335,12 +335,12 @@ fn rdf_adapter_marks_rdf_surface() {
 // Durability-domain classification golden (RF-RULING-007 / B13)
 // ---------------------------------------------------------------------------
 
-/// Every explicit `Method -> MutationDomain` arm of `canonical::domain_for`, in
+/// Every explicit `Method -> DurabilityDomain` arm of `canonical::domain_for`, in
 /// source order, plus its two fall-through arms as `("_", ..)`.
 ///
 /// This is the golden: a method's durability domain decides which authority owns
 /// its state and its version counter, so a silent reclassification moves a write
-/// to a different store. `MutationDomain` is not enumerable from a method NAME
+/// to a different store. `DurabilityDomain` is not enumerable from a method NAME
 /// (classification needs a `Method` VALUE, and the protocol has 400+ variants
 /// with non-trivial payloads), so the map is read back out of the classifier's
 /// own source and compared here. `classifier_source_map_agrees_with_domain_for`
@@ -412,12 +412,12 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
     ("_", "GraphSnapshot"),
 ];
 
-/// Read the `Method -> MutationDomain` arms back out of `canonical.rs`.
+/// Read the `Method -> DurabilityDomain` arms back out of `canonical.rs`.
 ///
 /// Deliberately a reader over the classifier's own text rather than a second
 /// hand-maintained table: a second table would drift, and a hash over the file
 /// would fail on a comment. Arms accumulate `Method::Name` tokens until the arm's
-/// `MutationDomain::Name` is reached; a wildcard arm names no method and is
+/// `DurabilityDomain::Name` is reached; a wildcard arm names no method and is
 /// recorded as `_`.
 fn classification_map_from_source() -> Vec<(String, String)> {
     let source = include_str!("canonical.rs");
@@ -436,8 +436,8 @@ fn classification_map_from_source() -> Vec<(String, String)> {
         for token in line.match_indices("Method::") {
             pending.push(identifier_after(line, token.0 + "Method::".len()));
         }
-        if let Some(at) = line.find("MutationDomain::") {
-            let domain = identifier_after(line, at + "MutationDomain::".len());
+        if let Some(at) = line.find("DurabilityDomain::") {
+            let domain = identifier_after(line, at + "DurabilityDomain::".len());
             if pending.is_empty() {
                 map.push(("_".to_string(), domain));
             } else {
@@ -475,7 +475,7 @@ fn durability_domain_classification_matches_the_golden() {
 
 #[test]
 fn classifier_source_map_agrees_with_domain_for() {
-    use crate::mutation_batch::MutationDomain;
+    use crate::mutation_batch::DurabilityDomain;
     use crate::server::mutation_batch::domain_for;
 
     let map = classification_map_from_source();
@@ -488,7 +488,7 @@ fn classifier_source_map_agrees_with_domain_for() {
     // Constructed methods, classified by the COMPILED function, compared with the
     // map the golden is read from -- so a reader that silently stopped matching
     // cannot make the golden vacuous.
-    let check = |method: Method, expected: MutationDomain, name: &str| {
+    let check = |method: Method, expected: DurabilityDomain, name: &str| {
         assert_eq!(domain_for(&method, MutationSurface::Graph), expected);
         assert_eq!(lookup(name), format!("{expected:?}"));
     };
@@ -497,7 +497,7 @@ fn classifier_source_map_agrees_with_domain_for() {
             graph_name: "g".into(),
             graph_type: crate::protocol::GraphType::Global,
         },
-        MutationDomain::Lifecycle,
+        DurabilityDomain::Lifecycle,
         "CreateGraph",
     );
     #[cfg(feature = "kv")]
@@ -506,13 +506,13 @@ fn classifier_source_map_agrees_with_domain_for() {
             namespace: "ns".into(),
             key: "k".into(),
         },
-        MutationDomain::KvStore,
+        DurabilityDomain::KvStore,
         "KvDelete",
     );
     #[cfg(feature = "rdf")]
     check(
         Method::DropNamedGraph,
-        MutationDomain::RdfDataset,
+        DurabilityDomain::RdfDataset,
         "DropNamedGraph",
     );
     // The two tail arms, which no explicit name reaches.
@@ -524,7 +524,7 @@ fn classifier_source_map_agrees_with_domain_for() {
             },
             MutationSurface::Transaction,
         ),
-        MutationDomain::GraphRows,
+        DurabilityDomain::GraphRows,
     );
     assert_eq!(
         domain_for(
@@ -534,7 +534,7 @@ fn classifier_source_map_agrees_with_domain_for() {
             },
             MutationSurface::Graph,
         ),
-        MutationDomain::GraphSnapshot,
+        DurabilityDomain::GraphSnapshot,
     );
 }
 
@@ -694,7 +694,7 @@ fn owner_store_batch_names_the_serving_principal_and_carries_the_caller_actor() 
             key: "k".into(),
         },
         MutationSurface::Other,
-        crate::mutation_batch::MutationDomain::KvStore,
+        crate::mutation_batch::DurabilityDomain::KvStore,
         "kv_operation",
     )
     .unwrap();
@@ -721,26 +721,26 @@ fn owner_store_batch_names_the_serving_principal_and_carries_the_caller_actor() 
 #[cfg(all(feature = "kv", feature = "redb"))]
 #[test]
 fn served_owner_store_batch_commits_and_its_actor_survives_in_the_ledger() {
-    use eg_storage::{KvOwner, PhysicalStoreIdentity, StorageKernelV1};
-    use eg_transaction::{Begin, MutationKernelV1};
+    use eg_storage::{KvOwner, PhysicalStoreIdentity, StorageKernel};
+    use eg_transaction::{Begin, MutationKernel};
 
     let dir = crate::test_support::temp_dir("eg-mb", "owner-principal");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("kv.redb");
 
     let authority = crate::store_authority::process_authority();
-    let kernel = StorageKernelV1::create_owner::<KvOwner>(
+    let kernel = StorageKernel::create_owner::<KvOwner>(
         &path,
         PhysicalStoreIdentity::new("epistemic-graph:mutation-batch-owner-principal-test").unwrap(),
         None,
     )
     .unwrap();
     let (kernel, owner_authority) = kernel.into_read_and_mutation_authority().unwrap();
-    let mutations = MutationKernelV1::new(owner_authority);
+    let mutations = MutationKernel::new(owner_authority);
 
     let identity = eg_types::MutationScopeIdentity::native(
-        eg_types::TenantId::new("tenant-a".to_string()).unwrap(),
-        crate::mutation_batch::MutationDomain::KvStore,
+        eg_types::ScopeTenantId::new("tenant-a".to_string()).unwrap(),
+        crate::mutation_batch::DurabilityDomain::KvStore,
         eg_types::LogicalName::new("kv-scope-a".to_string()).unwrap(),
         eg_types::IncarnationId::new(
             crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
@@ -779,7 +779,7 @@ fn served_owner_store_batch_commits_and_its_actor_survives_in_the_ledger() {
             key: "k".into(),
         },
         MutationSurface::Other,
-        crate::mutation_batch::MutationDomain::KvStore,
+        crate::mutation_batch::DurabilityDomain::KvStore,
         "kv_operation",
     )
     .unwrap();

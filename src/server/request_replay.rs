@@ -66,7 +66,7 @@ impl ReplayLedger for ReplayCache {
 
 #[cfg(feature = "security")]
 const REPLAY_TABLE: redb::TableDefinition<&str, u64> =
-    redb::TableDefinition::new("verified_request_replay_v2");
+    redb::TableDefinition::new("verified_request_replay");
 #[cfg(feature = "security")]
 const REPLAY_PHYSICAL_STORE: &str = "epistemic-graph:request-replay";
 #[cfg(feature = "security")]
@@ -77,7 +77,7 @@ const REPLAY_SCOPE_INCARNATION: &str = "request-replay:v1";
 /// Durable replay adapter used by secure mode. A successful `check_and_record`
 /// commits before the request is dispatched, so a process restart cannot make
 /// a previously accepted nonce usable again; durability itself belongs to the
-/// kernel (`eg_transaction::MutationKernelV1::commit`, reached through
+/// kernel (`eg_transaction::MutationKernel::commit`, reached through
 /// `sidecar_store::SidecarStore::maintain`), not a `redb::Durability` this
 /// file sets on its own transaction.
 ///

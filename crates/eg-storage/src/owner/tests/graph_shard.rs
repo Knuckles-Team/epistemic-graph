@@ -10,7 +10,7 @@ use crate::owner::layout::{OwnerLayout, OWNER_LAYOUT_DOMAINS};
 use crate::owner::registry::{owner_layouts, owner_table_names};
 use crate::owner::table_api::{owner_table_access, OwnerTableAccess};
 use crate::physical::manifest::{OwnerManifest, TableScope};
-use eg_types::mutation_batch::{IncarnationId, LogicalName, MutationDomain, TenantId};
+use eg_types::mutation_batch::{IncarnationId, LogicalName, DurabilityDomain, ScopeTenantId};
 use eg_types::MutationScopeIdentity;
 
 /// The shard census is exact, and the eight private-ledger tables are absent.
@@ -106,7 +106,7 @@ fn the_graph_shard_census_is_exact_and_carries_no_private_mutation_ledger() {
             (key, value),
             "{name}"
         );
-        assert_eq!(table.domain, Some(MutationDomain::GraphRows), "{name}");
+        assert_eq!(table.domain, Some(DurabilityDomain::GraphRows), "{name}");
         assert_eq!(
             owner_table_access(name),
             OwnerTableAccess::DomainService,
@@ -115,7 +115,7 @@ fn the_graph_shard_census_is_exact_and_carries_no_private_mutation_ledger() {
     }
 
     // RF-RULING-004: the shard's own admit/idempotency/OCC/fence/outbox/
-    // projection ledger belongs to `MutationKernelV1`, so none of its eight
+    // projection ledger belongs to `MutationKernel`, so none of its eight
     // tables is an owner table of any layout.
     for retired in crate::owner::graph_shard::RETIRED_SHARD_LEDGER_TABLES {
         assert!(
@@ -183,17 +183,17 @@ fn only_the_shard_layout_accepts_a_graph_scope() {
     // The pairing `accepts` used to spell out by hand, asserted as a whole: a
     // native scope binds to exactly the layouts whose declared domain it names.
     for domain in [
-        MutationDomain::ControlPlane,
-        MutationDomain::AnalyticsJob,
-        MutationDomain::Lifecycle,
-        MutationDomain::TimeSeries,
-        MutationDomain::KvStore,
-        MutationDomain::BlobStore,
-        MutationDomain::SemanticIndex,
-        MutationDomain::SqlCatalog,
+        DurabilityDomain::ControlPlane,
+        DurabilityDomain::AnalyticsJob,
+        DurabilityDomain::Lifecycle,
+        DurabilityDomain::TimeSeries,
+        DurabilityDomain::KvStore,
+        DurabilityDomain::BlobStore,
+        DurabilityDomain::SemanticIndex,
+        DurabilityDomain::SqlCatalog,
     ] {
         let identity = MutationScopeIdentity::native(
-            TenantId::new("tenant-a").unwrap(),
+            ScopeTenantId::new("tenant-a").unwrap(),
             domain,
             LogicalName::new("resource-a").unwrap(),
             IncarnationId::new("inc-1").unwrap(),
@@ -256,8 +256,8 @@ fn many_graph_scopes_bind_to_one_shard_file() {
 
     // A native scope has no shard file to bind to, whatever the verifier says.
     let native = MutationScopeIdentity::native(
-        TenantId::new("tenant-a").unwrap(),
-        MutationDomain::KvStore,
+        ScopeTenantId::new("tenant-a").unwrap(),
+        DurabilityDomain::KvStore,
         LogicalName::new("kv-catalog").unwrap(),
         IncarnationId::new("inc-1").unwrap(),
     )

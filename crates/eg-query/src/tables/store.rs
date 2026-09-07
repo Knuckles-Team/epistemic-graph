@@ -45,7 +45,7 @@ use std::sync::{Arc, RwLock};
 use eg_storage::ScopeGrantVerifier;
 use eg_transaction::Begin;
 use eg_types::mutation_batch::{
-    MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationDomain, MutationOutboxRecord,
+    MutationBatch, MutationBatchCommit, MutationBatchRecord, DurabilityDomain, MutationOutboxRecord,
     MutationScope, MutationScopeIdentity,
 };
 use redb::{ReadableTable, TableDefinition};
@@ -562,11 +562,11 @@ impl TableStore {
     ) -> Result<Self, String> {
         let tenant_scope = tenant_scope.into();
         // The owner scope is now the mutation TENANT of this store's bootstrap
-        // scope, so it has to be a valid `TenantId` -- non-empty, NUL-free, and
+        // scope, so it has to be a valid `ScopeTenantId` -- non-empty, NUL-free, and
         // free of the path- and address-shaped text `eg-types` refuses to
         // persist. Checked here so the failure names the argument rather than
         // surfacing from inside the storage kernel.
-        eg_types::mutation_batch::TenantId::new(&tenant_scope)
+        eg_types::mutation_batch::ScopeTenantId::new(&tenant_scope)
             .map_err(|error| format!("SQL table-store tenant scope is invalid: {error}"))?;
         let authority =
             SqlAuthority::open(path.as_ref(), &tenant_scope, verifier, principal, proof)?;
@@ -1988,12 +1988,12 @@ impl TableStore {
     /// batch, changes owner rows inside the admitted write, and finishes.
     ///
     /// **Replay identity.** RF-RULING-004's two-identity contract
-    /// (`OperationReplayIdentityV1` + `NonceReplayKeyV1`) is not reachable from
+    /// (`OperationReplayIdentity` + `NonceReplayKey`) is not reachable from
     /// here: `MutationRequestContext` carries no attempt nonce, no canonical
-    /// payload digest, no `MethodIdV1`/`SchemaIdV1` and no policy epoch, so a
+    /// payload digest, no `MethodId`/`SchemaId` and no policy epoch, so a
     /// SQL statement cannot be mapped onto an operation replay identity from
     /// what its batch holds. That is K2's blocker 1 and belongs to the
-    /// `MutationEnvelopeV1` cutover. Until then a SQL statement is admitted as
+    /// `MutationEnvelope` cutover. Until then a SQL statement is admitted as
     /// an operation with the identity its context CAN provide -- the batch's own
     /// `idempotency_key` -- and the kernel's accepted `MutationBatch` replay
     /// path decides it, byte-for-byte, exactly as the retired private ledger
@@ -2175,7 +2175,7 @@ fn verify_batch_is_sql_catalog_only(batch: &MutationBatch) -> Result<(), String>
     if batch
         .operations
         .iter()
-        .any(|operation| operation.domain != MutationDomain::SqlCatalog)
+        .any(|operation| operation.domain != DurabilityDomain::SqlCatalog)
     {
         return Err("SQL MutationBatch contains a non-SqlCatalog operation".to_string());
     }
@@ -6810,7 +6810,7 @@ mod tests {
     // imports these; the fixtures that build a `MutationBatch` still need them.
     use eg_types::mutation_batch::{
         IncarnationId, LogicalName, MutationBatchStatus, MutationOperation, MutationOutboxIntent,
-        MutationRequestContext, MutationSurface, TenantId, VersionExpectation,
+        MutationRequestContext, MutationSurface, ScopeTenantId, VersionExpectation,
         COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
     };
 
@@ -7514,8 +7514,8 @@ mod tests {
                 verified_capabilities: Default::default(),
             },
             identity: MutationScopeIdentity::native(
-                TenantId::new("tenant-a").unwrap(),
-                MutationDomain::SqlCatalog,
+                ScopeTenantId::new("tenant-a").unwrap(),
+                DurabilityDomain::SqlCatalog,
                 LogicalName::new("graph-a").unwrap(),
                 IncarnationId::new(COMPILED_BATCH_INCARNATION).unwrap(),
             )
@@ -7528,7 +7528,7 @@ mod tests {
             operations: vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Query,
-                domain: MutationDomain::SqlCatalog,
+                domain: DurabilityDomain::SqlCatalog,
                 method: eg_types::protocol::Method::ApplyMutation {
                     event_type: "sql_catalog_operation".to_string(),
                     query:
@@ -7550,9 +7550,9 @@ mod tests {
     ///
     /// The retired private ledger decoded its own receipts and re-checked, on
     /// every read, that each one named this store, a native SQL scope and a
-    /// terminal status. `MutationKernelV1` owns the receipt now, so those
+    /// terminal status. `MutationKernel` owns the receipt now, so those
     /// properties move to where a batch is admitted: the SQL layout accepts only
-    /// `MutationDomain::SqlCatalog`, a graph-scoped batch has no native resource
+    /// `DurabilityDomain::SqlCatalog`, a graph-scoped batch has no native resource
     /// name to bind, and a receipt is only ever written by `finish`, which is
     /// only reachable for a terminally committing batch.
     #[test]
@@ -7562,7 +7562,7 @@ mod tests {
         // A graph scope has no native resource, so there is no SQL scope to bind.
         let mut graph_scoped = sql_batch("graph-scoped");
         graph_scoped.identity = MutationScopeIdentity::graph(
-            TenantId::new("tenant-a").unwrap(),
+            ScopeTenantId::new("tenant-a").unwrap(),
             LogicalName::new("graph-a").unwrap(),
             IncarnationId::new(COMPILED_BATCH_INCARNATION).unwrap(),
         );
@@ -7575,7 +7575,7 @@ mod tests {
         // A non-SqlCatalog operation is refused before anything is admitted.
         let mut wrong_domain = sql_batch("wrong-domain");
         for operation in &mut wrong_domain.operations {
-            operation.domain = MutationDomain::KvStore;
+            operation.domain = DurabilityDomain::KvStore;
         }
         // `MutationBatch::validate_write_budget` refuses it first: a native
         // scope's domain must equal every operation's.
@@ -7904,7 +7904,7 @@ mod tests {
             .is_some());
         // ONE row, not two. The retired private ledger synthesized an extra
         // `engine.mutation.committed` intent per operation on top of the batch's
-        // declared `outbox`; `MutationKernelV1` emits exactly the intents the
+        // declared `outbox`; `MutationKernel` emits exactly the intents the
         // batch declares, which is the one outbox protocol RF-RULING-007 puts in
         // `eg-transaction`.
         assert_eq!(
@@ -7933,11 +7933,11 @@ mod tests {
 
         // A rebuilt retry that observed the incremented version is now an
         // IDEMPOTENCY_CONFLICT, not a replay. The retired private ledger
-        // tolerated exactly that one field differing; `MutationKernelV1`'s
+        // tolerated exactly that one field differing; `MutationKernel`'s
         // `MutationBatch` replay rule is byte-identity of the whole batch, and
         // RF-RULING-006 makes the kernel's rule the SQL rule. The tolerance is
-        // what `OperationReplayIdentityV1` restores for free -- it excludes the
-        // version expectation -- and that path needs `MutationEnvelopeV1`
+        // what `OperationReplayIdentity` restores for free -- it excludes the
+        // version expectation -- and that path needs `MutationEnvelope`
         // (K2 blocker 1), which no SQL caller emits yet.
         let mut rederived = batch.clone();
         rederived.version_expectation = eg_types::mutation_batch::VersionExpectation::Native(1);
@@ -7996,8 +7996,8 @@ mod tests {
         // property `mutation_version(tenant, ONE_graph)` cannot offer on its own.
         let mut batch_b = sql_batch("fp-b");
         batch_b.identity = eg_types::mutation_batch::MutationScopeIdentity::native(
-            eg_types::mutation_batch::TenantId::new("tenant-a").unwrap(),
-            MutationDomain::SqlCatalog,
+            eg_types::mutation_batch::ScopeTenantId::new("tenant-a").unwrap(),
+            DurabilityDomain::SqlCatalog,
             eg_types::mutation_batch::LogicalName::new("graph-b").unwrap(),
             eg_types::mutation_batch::IncarnationId::new(COMPILED_BATCH_INCARNATION).unwrap(),
         )

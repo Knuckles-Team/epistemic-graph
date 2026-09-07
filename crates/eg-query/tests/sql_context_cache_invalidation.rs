@@ -35,8 +35,8 @@ use eg_query::{
     TxnOp, TypedQueryResult,
 };
 use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
-    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface, TenantId,
+    IncarnationId, LogicalName, MutationBatch, DurabilityDomain, MutationOperation,
+    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface, ScopeTenantId,
     VersionExpectation, COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
 };
 use serde_json::json;
@@ -87,7 +87,7 @@ fn commit(store: &TableStore, tenant: &str, graph: &str, seq: &mut u64, txn: Tab
             trace_id: None,
             verified_capabilities: Default::default(),
         },
-        // `MutationDomain::SqlCatalog` is a non-graph domain -> native scope
+        // `DurabilityDomain::SqlCatalog` is a non-graph domain -> native scope
         // (mirrors `commit_txn_batch_inner.rs`'s `batch()` fixture, the SAME
         // crate's identical shape). `graph` here is the native `resource` name,
         // not a graph name -- property 5 deliberately passes
@@ -98,8 +98,8 @@ fn commit(store: &TableStore, tenant: &str, graph: &str, seq: &mut u64, txn: Tab
         // commits to the SAME scope within one test binding to the SAME identity
         // while still giving each distinct scope its own.
         identity: MutationScopeIdentity::native(
-            TenantId::new(tenant).expect("valid tenant id"),
-            MutationDomain::SqlCatalog,
+            ScopeTenantId::new(tenant).expect("valid tenant id"),
+            DurabilityDomain::SqlCatalog,
             LogicalName::new(graph).expect("valid resource name"),
             IncarnationId::new(COMPILED_BATCH_INCARNATION).expect("valid incarnation id"),
         )
@@ -112,7 +112,7 @@ fn commit(store: &TableStore, tenant: &str, graph: &str, seq: &mut u64, txn: Tab
         operations: vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Query,
-            domain: MutationDomain::SqlCatalog,
+            domain: DurabilityDomain::SqlCatalog,
             method: eg_types::protocol::Method::ApplyMutation {
                 event_type: "sql_catalog_operation".to_string(),
                 query: "sha256:0000000000000000000000000000000000000000000000000000000000000000"

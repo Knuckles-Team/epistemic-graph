@@ -288,7 +288,7 @@ pub struct GraphSlice {
     /// validate_consensus_participant_placement`] already checks for the separate
     /// consensus-transaction path, reused here rather than inventing a second
     /// fencing vocabulary). `0` is the sentinel "no placement authority was
-    /// consulted" (the same 0-means-absent convention `CommitDescriptorV1::
+    /// consulted" (the same 0-means-absent convention `CommitDescriptor::
     /// source_graph_version` uses) — a caller that never routed through
     /// [`super::multi::MultiRaft::route_graph`] (an in-process/non-clustered
     /// harness, or a pre-fencing durable prepare record from an older binary)

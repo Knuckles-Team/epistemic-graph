@@ -16,7 +16,7 @@ use eg_query::tables::{
 use serde_json::json;
 
 // The store's owner scope is now the mutation TENANT of its bootstrap scope
-// (RF-RULING-004), and `TenantId` rejects path semantics as a persistence-privacy
+// (RF-RULING-004), and `ScopeTenantId` rejects path semantics as a persistence-privacy
 // rule, so a `/`-bearing scope is no longer expressible. The dot keeps the
 // structured, non-bare-word shape this fixture is testing against.
 const TENANT: &str = "tenant.acme";

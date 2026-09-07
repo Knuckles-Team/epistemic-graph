@@ -65,12 +65,12 @@ where
 /// domains and the final applied-index barrier are durable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DirectStateInstallJournalV1 {
+pub struct DirectStateInstallJournal {
     pub schema_version: u16,
     pub snapshot_sha256: String,
     pub scope: DirectStateScope,
     pub phase: DirectStateInstallPhase,
-    pub sections: Vec<DirectStateInstallSectionV1>,
+    pub sections: Vec<DirectStateInstallSection>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,12 +82,12 @@ pub enum DirectStateInstallPhase {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DirectStateInstallSectionV1 {
+pub struct DirectStateInstallSection {
     /// Immutable received authority retained until this install becomes Current.
-    pub source_manifest: DirectStateSectionManifestV1,
+    pub source_manifest: DirectStateSectionManifest,
     /// Basename relative to the provider's private incoming/spool directory.
     pub incoming_file: String,
-    pub generation_manifest: DirectStateGenerationManifestV1,
+    pub generation_manifest: DirectStateGenerationManifest,
     /// Basename relative to the coordinator-owned generation directory.
     pub generation_file: String,
 }
@@ -97,7 +97,7 @@ pub struct DirectStateInstallSectionV1 {
 /// opening and ordinary writes mutate the live file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DirectStateGenerationManifestV1 {
+pub struct DirectStateGenerationManifest {
     pub schema_version: u16,
     pub domain: DirectStateDomain,
     pub scope: DirectStateScope,
@@ -113,7 +113,7 @@ pub struct DirectStateGenerationManifestV1 {
     pub install_evidence_sha256: [u8; 32],
 }
 
-impl DirectStateGenerationManifestV1 {
+impl DirectStateGenerationManifest {
     pub fn validate(&self, configured_max_bytes: u64) -> Result<(), String> {
         if self.schema_version != DIRECT_STATE_SCHEMA_VERSION {
             return Err("unsupported direct-state generation manifest schema".into());
@@ -152,25 +152,25 @@ impl DirectStateGenerationManifestV1 {
 /// this authority.  All seven sections advance together by atomic pointer replace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DirectStateCurrentImageV1 {
+pub struct DirectStateCurrentImage {
     pub schema_version: u16,
     pub snapshot_sha256: String,
     pub scope: DirectStateScope,
-    pub sections: Vec<DirectStateInstallSectionV1>,
+    pub sections: Vec<DirectStateInstallSection>,
 }
 
 pub(super) fn section_for_domain(
-    sections: &[DirectStateInstallSectionV1],
+    sections: &[DirectStateInstallSection],
     domain: DirectStateDomain,
-) -> Option<&DirectStateInstallSectionV1> {
+) -> Option<&DirectStateInstallSection> {
     sections
         .iter()
         .find(|row| row.generation_manifest.domain == domain)
 }
 
-impl DirectStateCurrentImageV1 {
+impl DirectStateCurrentImage {
     pub fn validate(&self) -> Result<(), String> {
-        DirectStateInstallJournalV1 {
+        DirectStateInstallJournal {
             schema_version: self.schema_version,
             snapshot_sha256: self.snapshot_sha256.clone(),
             scope: self.scope.clone(),
@@ -189,10 +189,10 @@ impl DirectStateCurrentImageV1 {
 }
 
 pub(super) fn current_image_from_journal(
-    journal: &DirectStateInstallJournalV1,
-) -> Result<DirectStateCurrentImageV1, String> {
+    journal: &DirectStateInstallJournal,
+) -> Result<DirectStateCurrentImage, String> {
     journal.validate()?;
-    let current = DirectStateCurrentImageV1 {
+    let current = DirectStateCurrentImage {
         schema_version: journal.schema_version,
         snapshot_sha256: journal.snapshot_sha256.clone(),
         scope: journal.scope.clone(),
@@ -202,7 +202,7 @@ pub(super) fn current_image_from_journal(
     Ok(current)
 }
 
-pub(super) fn sections_sha256(sections: &[DirectStateInstallSectionV1]) -> Result<String, String> {
+pub(super) fn sections_sha256(sections: &[DirectStateInstallSection]) -> Result<String, String> {
     let bytes = rmp_serde::to_vec_named(sections)
         .map_err(|error| format!("encode direct-state section set: {error}"))?;
     if bytes.len() > MAX_DIRECT_STATE_MANIFEST_BYTES {
@@ -241,7 +241,7 @@ pub enum DurablePendingJournal<'a> {
 }
 
 impl DurablePendingJournal<'_> {
-    pub(super) fn journal(&self) -> &DirectStateInstallJournalV1 {
+    pub(super) fn journal(&self) -> &DirectStateInstallJournal {
         match self {
             Self::Prepared(token) => &token.journal,
             Self::Published(token) => &token.journal,
@@ -296,7 +296,7 @@ impl DurablePendingJournal<'_> {
     }
 }
 
-impl DirectStateInstallJournalV1 {
+impl DirectStateInstallJournal {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != DIRECT_STATE_SCHEMA_VERSION {
             return Err("unsupported direct-state install journal schema".to_string());
@@ -345,7 +345,7 @@ impl DirectStateInstallJournalV1 {
 fn validate_section_authority(
     expected_domain: DirectStateDomain,
     scope: &DirectStateScope,
-    section: &DirectStateInstallSectionV1,
+    section: &DirectStateInstallSection,
 ) -> Result<(), String> {
     if section.generation_manifest.domain != expected_domain {
         return Err("direct-state install journal domain set is incomplete or reordered".into());
@@ -371,7 +371,7 @@ fn validate_section_authority(
 }
 
 fn validate_section_set<'a>(
-    section: &'a DirectStateInstallSectionV1,
+    section: &'a DirectStateInstallSection,
     previous: &mut Option<DirectStateDomain>,
     capture_set_sha256: &mut Option<&'a str>,
     source_generation_sha256: &mut Option<&'a str>,
@@ -392,7 +392,7 @@ fn validate_section_set<'a>(
     Ok(())
 }
 
-fn validate_section_names(section: &DirectStateInstallSectionV1) -> Result<(), String> {
+fn validate_section_names(section: &DirectStateInstallSection) -> Result<(), String> {
     validate_relative_basename(&section.incoming_file)?;
     let expected_incoming = incoming_file_name(
         section.source_manifest.domain,

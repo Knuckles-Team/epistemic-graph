@@ -4,24 +4,24 @@ use super::budget::{
     deserialize_and_charge, MutationBudgetCharge, MutationBudgetDeserialize, StructuralBudget,
     PRECONDITION_FIXED_BUDGET,
 };
-use super::MutationDomainV1;
-use crate::authority::AuthorityScopeV1;
-use crate::contract::{Digest256V1, ResourceIdV1, SchemaIdV1, TenantIdV1};
+use super::MutationDomain;
+use crate::authority::AuthorityScope;
+use crate::contract::{Digest256, ResourceId, SchemaId, TenantId};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RecordTargetV1 {
-    pub tenant: TenantIdV1,
-    pub scope_digest: Digest256V1,
-    pub domain: MutationDomainV1,
-    pub schema_id: SchemaIdV1,
-    pub record_id: ResourceIdV1,
+pub struct RecordTarget {
+    pub tenant: TenantId,
+    pub scope_digest: Digest256,
+    pub domain: MutationDomain,
+    pub schema_id: SchemaId,
+    pub record_id: ResourceId,
 }
 
-impl RecordTargetV1 {
+impl RecordTarget {
     pub(super) fn validate_for_scope(
         &self,
-        tenant: &TenantIdV1,
-        scope: &AuthorityScopeV1,
+        tenant: &TenantId,
+        scope: &AuthorityScope,
     ) -> Result<(), String> {
         let authorized_scope_digest = scope.digest()?;
         if &self.tenant != tenant
@@ -33,8 +33,8 @@ impl RecordTargetV1 {
         Ok(())
     }
 
-    pub(super) fn digest(&self) -> Result<Digest256V1, String> {
-        Digest256V1::framed(
+    pub(super) fn digest(&self) -> Result<Digest256, String> {
+        Digest256::framed(
             b"eg/record-target/v1",
             &[
                 self.tenant.as_str().as_bytes(),
@@ -49,13 +49,13 @@ impl RecordTargetV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum MutationPreconditionV1 {
+pub enum MutationPrecondition {
     RecordAbsent {
-        target: RecordTargetV1,
+        target: RecordTarget,
     },
     RecordDigestEquals {
-        target: RecordTargetV1,
-        expected_digest: Digest256V1,
+        target: RecordTarget,
+        expected_digest: Digest256,
     },
     ScopeVersionEquals {
         expected_version: u64,
@@ -68,11 +68,11 @@ pub enum MutationPreconditionV1 {
     },
 }
 
-impl MutationPreconditionV1 {
+impl MutationPrecondition {
     pub(super) fn validate_for_scope(
         &self,
-        tenant: &TenantIdV1,
-        scope: &AuthorityScopeV1,
+        tenant: &TenantId,
+        scope: &AuthorityScope,
     ) -> Result<(), String> {
         match self {
             Self::RecordAbsent { target } | Self::RecordDigestEquals { target, .. } => {
@@ -84,11 +84,11 @@ impl MutationPreconditionV1 {
         }
     }
 
-    pub(super) fn digest(&self) -> Result<Digest256V1, String> {
+    pub(super) fn digest(&self) -> Result<Digest256, String> {
         match self {
             Self::RecordAbsent { target } => {
                 let target = target.digest()?;
-                Digest256V1::framed(
+                Digest256::framed(
                     b"eg/mutation-precondition/v1",
                     &[b"record_absent", target.as_bytes()],
                 )
@@ -98,7 +98,7 @@ impl MutationPreconditionV1 {
                 expected_digest,
             } => {
                 let target = target.digest()?;
-                Digest256V1::framed(
+                Digest256::framed(
                     b"eg/mutation-precondition/v1",
                     &[
                         b"record_digest_equals",
@@ -107,15 +107,15 @@ impl MutationPreconditionV1 {
                     ],
                 )
             }
-            Self::ScopeVersionEquals { expected_version } => Digest256V1::framed(
+            Self::ScopeVersionEquals { expected_version } => Digest256::framed(
                 b"eg/mutation-precondition/v1",
                 &[b"scope_version_equals", &expected_version.to_be_bytes()],
             ),
-            Self::FenceEquals { expected_fence } => Digest256V1::framed(
+            Self::FenceEquals { expected_fence } => Digest256::framed(
                 b"eg/mutation-precondition/v1",
                 &[b"fence_equals", &expected_fence.to_be_bytes()],
             ),
-            Self::PlacementEpochEquals { expected_epoch } => Digest256V1::framed(
+            Self::PlacementEpochEquals { expected_epoch } => Digest256::framed(
                 b"eg/mutation-precondition/v1",
                 &[b"placement_epoch_equals", &expected_epoch.to_be_bytes()],
             ),
@@ -123,7 +123,7 @@ impl MutationPreconditionV1 {
     }
 }
 
-impl MutationBudgetCharge for MutationPreconditionV1 {
+impl MutationBudgetCharge for MutationPrecondition {
     fn mutation_budget_charge(&self) -> Result<usize, String> {
         let mut total = PRECONDITION_FIXED_BUDGET;
         if let Self::RecordAbsent { target } | Self::RecordDigestEquals { target, .. } = self {
@@ -142,7 +142,7 @@ impl MutationBudgetCharge for MutationPreconditionV1 {
     }
 }
 
-impl<'de> MutationBudgetDeserialize<'de> for MutationPreconditionV1 {
+impl<'de> MutationBudgetDeserialize<'de> for MutationPrecondition {
     fn deserialize_budgeted<D>(
         deserializer: D,
         budget: &mut StructuralBudget,

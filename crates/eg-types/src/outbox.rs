@@ -3,37 +3,37 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::authority::AuthorityScopeV1;
+use crate::authority::AuthorityScope;
 use crate::contract::{
-    BoundedVecV1, Digest256V1, OpaqueIdV1, RecordBytesV1, ResourceIdV1, TenantIdV1, UtcUnixNanosV1,
+    BoundedVec, Digest256, OpaqueId, RecordBytes, ResourceId, TenantId, UtcUnixNanos,
 };
-use crate::mutation::{MutationEnvelopeV1, MutationReceiptV1};
+use crate::mutation::{MutationEnvelope, MutationReceipt};
 
 pub const MAX_OUTBOX_HEADERS: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct OutboxHeaderV1 {
-    pub name: ResourceIdV1,
-    pub value: OpaqueIdV1,
+pub struct OutboxHeader {
+    pub name: ResourceId,
+    pub value: OpaqueId,
 }
 
 /// An event requested by a domain mutation. The mutation kernel assigns its
 /// immutable event identity and commit binding; domains cannot mark delivery.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct OutboxIntentV1 {
-    pub tenant: TenantIdV1,
-    pub destination_scope_digest: Digest256V1,
-    pub topic: ResourceIdV1,
-    pub partition_key: ResourceIdV1,
-    pub event_schema: ResourceIdV1,
-    pub payload: RecordBytesV1,
-    pub payload_digest: Digest256V1,
-    pub headers: BoundedVecV1<OutboxHeaderV1, MAX_OUTBOX_HEADERS>,
+pub struct OutboxIntent {
+    pub tenant: TenantId,
+    pub destination_scope_digest: Digest256,
+    pub topic: ResourceId,
+    pub partition_key: ResourceId,
+    pub event_schema: ResourceId,
+    pub payload: RecordBytes,
+    pub payload_digest: Digest256,
+    pub headers: BoundedVec<OutboxHeader, MAX_OUTBOX_HEADERS>,
 }
 
-impl OutboxIntentV1 {
+impl OutboxIntent {
     pub fn validate(&self) -> Result<(), String> {
         if self.payload.digest()? != self.payload_digest {
             return Err("outbox payload digest does not match its bytes".into());
@@ -50,8 +50,8 @@ impl OutboxIntentV1 {
 
     pub(crate) fn validate_for_scope(
         &self,
-        tenant: &TenantIdV1,
-        scope: &AuthorityScopeV1,
+        tenant: &TenantId,
+        scope: &AuthorityScope,
     ) -> Result<(), String> {
         self.validate()?;
         if &self.tenant != tenant
@@ -63,7 +63,7 @@ impl OutboxIntentV1 {
         Ok(())
     }
 
-    pub fn digest(&self) -> Result<Digest256V1, String> {
+    pub fn digest(&self) -> Result<Digest256, String> {
         self.validate()?;
         let payload_digest = self.payload.digest()?;
         let mut fields: Vec<&[u8]> = Vec::with_capacity(self.headers.len() * 2 + 6);
@@ -77,13 +77,13 @@ impl OutboxIntentV1 {
             fields.push(header.name.as_str().as_bytes());
             fields.push(header.value.as_str().as_bytes());
         }
-        Digest256V1::framed(b"eg/outbox-intent/v1", &fields)
+        Digest256::framed(b"eg/outbox-intent/v1", &fields)
     }
 
     /// Exact policy-facing egress destination, excluding payload and headers.
     /// The enclosing authority evidence binds the ordered set of these values.
-    pub fn destination_authorization_digest(&self) -> Result<Digest256V1, String> {
-        Digest256V1::framed(
+    pub fn destination_authorization_digest(&self) -> Result<Digest256, String> {
+        Digest256::framed(
             b"eg/outbox-destination-authorization/v1",
             &[
                 self.tenant.as_str().as_bytes(),
@@ -98,7 +98,7 @@ impl OutboxIntentV1 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum OutboxDeliveryStateV1 {
+pub enum OutboxDeliveryState {
     Pending,
     Leased,
     Delivered,
@@ -109,25 +109,25 @@ pub enum OutboxDeliveryStateV1 {
 /// Durable outbox row committed atomically with its canonical mutation effect.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct OutboxRecordV1 {
-    pub event_id: OpaqueIdV1,
-    pub mutation_id: OpaqueIdV1,
+pub struct OutboxRecord {
+    pub event_id: OpaqueId,
+    pub mutation_id: OpaqueId,
     pub ordinal: u32,
     pub event_ordinal: u64,
-    pub scope: AuthorityScopeV1,
-    pub authority_receipt_id: OpaqueIdV1,
-    pub authority_evidence_digest: Digest256V1,
-    pub operation_replay_digest: Digest256V1,
-    pub nonce_replay_digest: Digest256V1,
-    pub effect_digest: Digest256V1,
-    pub envelope_digest: Digest256V1,
-    pub commit_id: OpaqueIdV1,
-    pub intent: OutboxIntentV1,
-    pub state: OutboxDeliveryStateV1,
-    pub committed_at: UtcUnixNanosV1,
+    pub scope: AuthorityScope,
+    pub authority_receipt_id: OpaqueId,
+    pub authority_evidence_digest: Digest256,
+    pub operation_replay_digest: Digest256,
+    pub nonce_replay_digest: Digest256,
+    pub effect_digest: Digest256,
+    pub envelope_digest: Digest256,
+    pub commit_id: OpaqueId,
+    pub intent: OutboxIntent,
+    pub state: OutboxDeliveryState,
+    pub committed_at: UtcUnixNanos,
 }
 
-impl OutboxRecordV1 {
+impl OutboxRecord {
     pub fn validate(&self) -> Result<(), String> {
         self.scope.validate()?;
         let tenant = self
@@ -136,17 +136,17 @@ impl OutboxRecordV1 {
             .as_ref()
             .ok_or_else(|| "outbox record requires a tenant-scoped destination".to_string())?;
         self.intent.validate_for_scope(tenant, &self.scope)?;
-        if self.state != OutboxDeliveryStateV1::Pending {
+        if self.state != OutboxDeliveryState::Pending {
             return Err("a newly committed outbox record must start pending".into());
         }
         Ok(())
     }
 
-    pub fn digest(&self) -> Result<Digest256V1, String> {
+    pub fn digest(&self) -> Result<Digest256, String> {
         self.validate()?;
         let scope = self.scope.digest()?;
         let intent = self.intent.digest()?;
-        Digest256V1::framed(
+        Digest256::framed(
             b"eg/outbox-record/v1",
             &[
                 self.event_id.as_str().as_bytes(),
@@ -170,8 +170,8 @@ impl OutboxRecordV1 {
 
     pub fn validate_against(
         &self,
-        envelope: &MutationEnvelopeV1,
-        mutation_receipt: &MutationReceiptV1,
+        envelope: &MutationEnvelope,
+        mutation_receipt: &MutationReceipt,
         intent_index: usize,
     ) -> Result<(), String> {
         self.validate()?;
@@ -188,8 +188,8 @@ impl OutboxRecordV1 {
 
     fn validate_envelope_binding(
         &self,
-        envelope: &MutationEnvelopeV1,
-        intent: &OutboxIntentV1,
+        envelope: &MutationEnvelope,
+        intent: &OutboxIntent,
         expected_ordinal: u32,
     ) -> Result<(), String> {
         if &self.mutation_id != envelope.mutation_id()
@@ -212,7 +212,7 @@ impl OutboxRecordV1 {
 
     fn validate_mutation_receipt_binding(
         &self,
-        mutation_receipt: &MutationReceiptV1,
+        mutation_receipt: &MutationReceipt,
     ) -> Result<(), String> {
         if Some(self.effect_digest) != mutation_receipt.effect_digest
             || Some(&self.commit_id) != mutation_receipt.commit_id.as_ref()
@@ -224,7 +224,7 @@ impl OutboxRecordV1 {
     }
 }
 
-fn validate_original_mutation_commit(receipt: &MutationReceiptV1) -> Result<(), String> {
+fn validate_original_mutation_commit(receipt: &MutationReceipt) -> Result<(), String> {
     receipt.validate()?;
     if receipt.disposition.as_str() != "committed" {
         return Err("outbox records can only be minted by the original mutation commit".into());
@@ -236,36 +236,36 @@ fn validate_original_mutation_commit(receipt: &MutationReceiptV1) -> Result<(), 
 /// event or mutation identity and cannot advance a projection cursor by itself.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct OutboxDeliveryReceiptV1 {
-    pub receipt_id: OpaqueIdV1,
-    pub event_id: OpaqueIdV1,
-    pub mutation_id: OpaqueIdV1,
-    pub scope: AuthorityScopeV1,
-    pub effect_digest: Digest256V1,
-    pub commit_id: OpaqueIdV1,
-    pub outbox_record_digest: Digest256V1,
-    pub consumer_id: ResourceIdV1,
-    pub previous_receipt_id: Option<OpaqueIdV1>,
+pub struct OutboxDeliveryReceipt {
+    pub receipt_id: OpaqueId,
+    pub event_id: OpaqueId,
+    pub mutation_id: OpaqueId,
+    pub scope: AuthorityScope,
+    pub effect_digest: Digest256,
+    pub commit_id: OpaqueId,
+    pub outbox_record_digest: Digest256,
+    pub consumer_id: ResourceId,
+    pub previous_receipt_id: Option<OpaqueId>,
     pub lease_epoch: u64,
     pub attempt: u32,
-    pub state: OutboxDeliveryStateV1,
-    pub result_digest: Option<Digest256V1>,
-    pub recorded_at: UtcUnixNanosV1,
+    pub state: OutboxDeliveryState,
+    pub result_digest: Option<Digest256>,
+    pub recorded_at: UtcUnixNanos,
 }
 
-impl OutboxDeliveryReceiptV1 {
+impl OutboxDeliveryReceipt {
     pub fn validate(&self) -> Result<(), String> {
         if self.previous_receipt_id.as_ref() == Some(&self.receipt_id) {
             return Err("outbox delivery receipt cannot reference itself".into());
         }
         match (self.state, self.result_digest.is_some()) {
-            (OutboxDeliveryStateV1::Pending, _) => {
+            (OutboxDeliveryState::Pending, _) => {
                 Err("a delivery receipt cannot use the record-only pending state".into())
             }
-            (OutboxDeliveryStateV1::Leased, true) => {
+            (OutboxDeliveryState::Leased, true) => {
                 Err("nonterminal outbox delivery cannot carry a result digest".into())
             }
-            (OutboxDeliveryStateV1::Delivered, false) => {
+            (OutboxDeliveryState::Delivered, false) => {
                 Err("delivered outbox event requires a result digest".into())
             }
             _ => Ok(()),
@@ -274,7 +274,7 @@ impl OutboxDeliveryReceiptV1 {
 
     pub fn validate_against(
         &self,
-        record: &OutboxRecordV1,
+        record: &OutboxRecord,
         previous: Option<&Self>,
     ) -> Result<(), String> {
         self.validate()?;
@@ -287,7 +287,7 @@ impl OutboxDeliveryReceiptV1 {
         }
     }
 
-    fn validate_record_time(&self, record: &OutboxRecordV1) -> Result<(), String> {
+    fn validate_record_time(&self, record: &OutboxRecord) -> Result<(), String> {
         if self.recorded_at < record.committed_at {
             return Err("delivery receipt predates its committed outbox record".into());
         }
@@ -298,7 +298,7 @@ impl OutboxDeliveryReceiptV1 {
         if self.previous_receipt_id.is_some()
             || self.attempt != 1
             || self.lease_epoch == 0
-            || self.state != OutboxDeliveryStateV1::Leased
+            || self.state != OutboxDeliveryState::Leased
         {
             return Err("first delivery receipt must be the first lease".into());
         }
@@ -307,7 +307,7 @@ impl OutboxDeliveryReceiptV1 {
 
     fn validate_successor_receipt(
         &self,
-        record: &OutboxRecordV1,
+        record: &OutboxRecord,
         previous: &Self,
     ) -> Result<(), String> {
         previous.validate()?;
@@ -332,12 +332,12 @@ impl OutboxDeliveryReceiptV1 {
 
     fn validate_state_transition(&self, previous: &Self) -> Result<(), String> {
         match (previous.state, self.state) {
-            (OutboxDeliveryStateV1::Leased, OutboxDeliveryStateV1::Delivered)
-            | (OutboxDeliveryStateV1::Leased, OutboxDeliveryStateV1::FailedRetryable)
-            | (OutboxDeliveryStateV1::Leased, OutboxDeliveryStateV1::FailedTerminal) => {
+            (OutboxDeliveryState::Leased, OutboxDeliveryState::Delivered)
+            | (OutboxDeliveryState::Leased, OutboxDeliveryState::FailedRetryable)
+            | (OutboxDeliveryState::Leased, OutboxDeliveryState::FailedTerminal) => {
                 self.validate_same_attempt_transition(previous)
             }
-            (OutboxDeliveryStateV1::FailedRetryable, OutboxDeliveryStateV1::Leased) => {
+            (OutboxDeliveryState::FailedRetryable, OutboxDeliveryState::Leased) => {
                 self.validate_retry_transition(previous)
             }
             _ => Err("invalid outbox delivery state transition".into()),
@@ -362,7 +362,7 @@ impl OutboxDeliveryReceiptV1 {
         Ok(())
     }
 
-    fn validate_binding(&self, record: &OutboxRecordV1) -> Result<(), String> {
+    fn validate_binding(&self, record: &OutboxRecord) -> Result<(), String> {
         if self.event_id != record.event_id
             || self.mutation_id != record.mutation_id
             || self.scope != record.scope
@@ -380,24 +380,24 @@ impl OutboxDeliveryReceiptV1 {
 /// successful delivery.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct OutboxProjectionCursorV1 {
-    pub projection_id: ResourceIdV1,
-    pub scope: AuthorityScopeV1,
-    pub event_id: OpaqueIdV1,
+pub struct OutboxProjectionCursor {
+    pub projection_id: ResourceId,
+    pub scope: AuthorityScope,
+    pub event_id: OpaqueId,
     pub event_ordinal: u64,
-    pub delivery_receipt_id: OpaqueIdV1,
-    pub commit_id: OpaqueIdV1,
-    pub outbox_record_digest: Digest256V1,
-    pub advanced_at: UtcUnixNanosV1,
+    pub delivery_receipt_id: OpaqueId,
+    pub commit_id: OpaqueId,
+    pub outbox_record_digest: Digest256,
+    pub advanced_at: UtcUnixNanos,
 }
 
-impl OutboxProjectionCursorV1 {
+impl OutboxProjectionCursor {
     pub fn validate_successor(
         &self,
         previous: Option<&Self>,
-        record: &OutboxRecordV1,
-        delivery: &OutboxDeliveryReceiptV1,
-        delivery_predecessor: &OutboxDeliveryReceiptV1,
+        record: &OutboxRecord,
+        delivery: &OutboxDeliveryReceipt,
+        delivery_predecessor: &OutboxDeliveryReceipt,
     ) -> Result<(), String> {
         self.scope.validate()?;
         delivery.validate_against(record, Some(delivery_predecessor))?;
@@ -406,7 +406,7 @@ impl OutboxProjectionCursorV1 {
         self.validate_cursor_position(previous)
     }
 
-    fn validate_record_binding(&self, record: &OutboxRecordV1) -> Result<(), String> {
+    fn validate_record_binding(&self, record: &OutboxRecord) -> Result<(), String> {
         if self.scope != record.scope
             || self.event_id != record.event_id
             || self.event_ordinal != record.event_ordinal
@@ -420,10 +420,10 @@ impl OutboxProjectionCursorV1 {
 
     fn validate_delivery_binding(
         &self,
-        record: &OutboxRecordV1,
-        delivery: &OutboxDeliveryReceiptV1,
+        record: &OutboxRecord,
+        delivery: &OutboxDeliveryReceipt,
     ) -> Result<(), String> {
-        if delivery.state != OutboxDeliveryStateV1::Delivered
+        if delivery.state != OutboxDeliveryState::Delivered
             || self.delivery_receipt_id != delivery.receipt_id
             || self.outbox_record_digest != delivery.outbox_record_digest
             || self.projection_id != delivery.consumer_id
@@ -476,120 +476,120 @@ impl OutboxProjectionCursorV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::authority::ScopeKindV1;
-    use crate::contract::{MutationDispositionV1, TenantIdV1, MAX_SCOPE_COMPONENTS};
-    use crate::mutation::{MutationReceiptV1, MutationResultV1};
+    use crate::authority::ScopeKind;
+    use crate::contract::{MutationDisposition, TenantId, MAX_SCOPE_COMPONENTS};
+    use crate::mutation::{MutationReceipt, MutationResult};
 
-    fn digest(byte: u8) -> Digest256V1 {
-        Digest256V1::from_bytes([byte; 32])
+    fn digest(byte: u8) -> Digest256 {
+        Digest256::from_bytes([byte; 32])
     }
 
-    fn scope() -> AuthorityScopeV1 {
-        AuthorityScopeV1 {
-            kind: ScopeKindV1::new("graph").unwrap(),
-            scope_id: ResourceIdV1::new("graph:tenant:a/g").unwrap(),
-            tenant: Some(TenantIdV1::new("tenant:a").unwrap()),
-            parent_scope_ids: BoundedVecV1::<ResourceIdV1, MAX_SCOPE_COMPONENTS>::new(vec![
-                ResourceIdV1::new("tenant:a").unwrap(),
+    fn scope() -> AuthorityScope {
+        AuthorityScope {
+            kind: ScopeKind::new("graph").unwrap(),
+            scope_id: ResourceId::new("graph:tenant:a/g").unwrap(),
+            tenant: Some(TenantId::new("tenant:a").unwrap()),
+            parent_scope_ids: BoundedVec::<ResourceId, MAX_SCOPE_COMPONENTS>::new(vec![
+                ResourceId::new("tenant:a").unwrap(),
             ])
             .unwrap(),
             graph_incarnation: None,
         }
     }
 
-    fn intent() -> OutboxIntentV1 {
-        let payload = RecordBytesV1::new(vec![1, 2, 3]).unwrap();
-        OutboxIntentV1 {
-            tenant: TenantIdV1::new("tenant:a").unwrap(),
+    fn intent() -> OutboxIntent {
+        let payload = RecordBytes::new(vec![1, 2, 3]).unwrap();
+        OutboxIntent {
+            tenant: TenantId::new("tenant:a").unwrap(),
             destination_scope_digest: scope().digest().unwrap(),
-            topic: ResourceIdV1::new("topic").unwrap(),
-            partition_key: ResourceIdV1::new("key").unwrap(),
-            event_schema: ResourceIdV1::new("event.v1").unwrap(),
+            topic: ResourceId::new("topic").unwrap(),
+            partition_key: ResourceId::new("key").unwrap(),
+            event_schema: ResourceId::new("event.v1").unwrap(),
             payload_digest: payload.digest().unwrap(),
             payload,
-            headers: BoundedVecV1::new(vec![]).unwrap(),
+            headers: BoundedVec::new(vec![]).unwrap(),
         }
     }
 
-    fn record() -> OutboxRecordV1 {
-        OutboxRecordV1 {
-            event_id: OpaqueIdV1::new("event:1").unwrap(),
-            mutation_id: OpaqueIdV1::new("mutation:1").unwrap(),
+    fn record() -> OutboxRecord {
+        OutboxRecord {
+            event_id: OpaqueId::new("event:1").unwrap(),
+            mutation_id: OpaqueId::new("mutation:1").unwrap(),
             ordinal: 0,
             event_ordinal: 0,
             scope: scope(),
-            authority_receipt_id: OpaqueIdV1::new("authority:1").unwrap(),
+            authority_receipt_id: OpaqueId::new("authority:1").unwrap(),
             authority_evidence_digest: digest(9),
             operation_replay_digest: digest(1),
             nonce_replay_digest: digest(2),
             effect_digest: digest(3),
             envelope_digest: digest(8),
-            commit_id: OpaqueIdV1::new("commit:1").unwrap(),
+            commit_id: OpaqueId::new("commit:1").unwrap(),
             intent: intent(),
-            state: OutboxDeliveryStateV1::Pending,
-            committed_at: UtcUnixNanosV1::new(10),
+            state: OutboxDeliveryState::Pending,
+            committed_at: UtcUnixNanos::new(10),
         }
     }
 
-    fn lease(record: &OutboxRecordV1) -> OutboxDeliveryReceiptV1 {
-        OutboxDeliveryReceiptV1 {
-            receipt_id: OpaqueIdV1::new("delivery:lease").unwrap(),
+    fn lease(record: &OutboxRecord) -> OutboxDeliveryReceipt {
+        OutboxDeliveryReceipt {
+            receipt_id: OpaqueId::new("delivery:lease").unwrap(),
             event_id: record.event_id.clone(),
             mutation_id: record.mutation_id.clone(),
             scope: record.scope.clone(),
             effect_digest: record.effect_digest,
             commit_id: record.commit_id.clone(),
             outbox_record_digest: record.digest().unwrap(),
-            consumer_id: ResourceIdV1::new("projection:a").unwrap(),
+            consumer_id: ResourceId::new("projection:a").unwrap(),
             previous_receipt_id: None,
             lease_epoch: 1,
             attempt: 1,
-            state: OutboxDeliveryStateV1::Leased,
+            state: OutboxDeliveryState::Leased,
             result_digest: None,
-            recorded_at: UtcUnixNanosV1::new(11),
+            recorded_at: UtcUnixNanos::new(11),
         }
     }
 
-    fn delivered(lease: &OutboxDeliveryReceiptV1) -> OutboxDeliveryReceiptV1 {
-        OutboxDeliveryReceiptV1 {
-            receipt_id: OpaqueIdV1::new("delivery:done").unwrap(),
+    fn delivered(lease: &OutboxDeliveryReceipt) -> OutboxDeliveryReceipt {
+        OutboxDeliveryReceipt {
+            receipt_id: OpaqueId::new("delivery:done").unwrap(),
             previous_receipt_id: Some(lease.receipt_id.clone()),
-            state: OutboxDeliveryStateV1::Delivered,
+            state: OutboxDeliveryState::Delivered,
             result_digest: Some(digest(4)),
-            recorded_at: UtcUnixNanosV1::new(12),
+            recorded_at: UtcUnixNanos::new(12),
             ..lease.clone()
         }
     }
 
     #[test]
     fn outbox_headers_are_ordered_and_payload_is_bound() {
-        let payload = RecordBytesV1::new(vec![1, 2, 3]).unwrap();
-        let intent = OutboxIntentV1 {
-            tenant: TenantIdV1::new("tenant:a").unwrap(),
+        let payload = RecordBytes::new(vec![1, 2, 3]).unwrap();
+        let intent = OutboxIntent {
+            tenant: TenantId::new("tenant:a").unwrap(),
             destination_scope_digest: scope().digest().unwrap(),
-            topic: ResourceIdV1::new("topic").unwrap(),
-            partition_key: ResourceIdV1::new("key").unwrap(),
-            event_schema: ResourceIdV1::new("event.v1").unwrap(),
+            topic: ResourceId::new("topic").unwrap(),
+            partition_key: ResourceId::new("key").unwrap(),
+            event_schema: ResourceId::new("event.v1").unwrap(),
             payload_digest: payload.digest().unwrap(),
             payload,
-            headers: BoundedVecV1::new(vec![
-                OutboxHeaderV1 {
-                    name: ResourceIdV1::new("a").unwrap(),
-                    value: OpaqueIdV1::new("1").unwrap(),
+            headers: BoundedVec::new(vec![
+                OutboxHeader {
+                    name: ResourceId::new("a").unwrap(),
+                    value: OpaqueId::new("1").unwrap(),
                 },
-                OutboxHeaderV1 {
-                    name: ResourceIdV1::new("b").unwrap(),
-                    value: OpaqueIdV1::new("2").unwrap(),
+                OutboxHeader {
+                    name: ResourceId::new("b").unwrap(),
+                    value: OpaqueId::new("2").unwrap(),
                 },
             ])
             .unwrap(),
         };
         assert!(intent.validate().is_ok());
         assert!(intent
-            .validate_for_scope(&TenantIdV1::new("tenant:a").unwrap(), &scope())
+            .validate_for_scope(&TenantId::new("tenant:a").unwrap(), &scope())
             .is_ok());
         assert!(intent
-            .validate_for_scope(&TenantIdV1::new("tenant:b").unwrap(), &scope())
+            .validate_for_scope(&TenantId::new("tenant:b").unwrap(), &scope())
             .is_err());
     }
 
@@ -602,7 +602,7 @@ mod tests {
         altered_record.ordinal = 1;
         assert!(lease.validate_against(&altered_record, None).is_err());
         let mut early_lease = lease.clone();
-        early_lease.recorded_at = UtcUnixNanosV1::new(9);
+        early_lease.recorded_at = UtcUnixNanos::new(9);
         assert!(early_lease.validate_against(&record, None).is_err());
         let delivered_after_early_lease = delivered(&early_lease);
         assert!(delivered_after_early_lease
@@ -611,22 +611,22 @@ mod tests {
         let delivered = delivered(&lease);
         assert!(delivered.validate_against(&record, Some(&lease)).is_ok());
         assert!(delivered.validate_against(&record, None).is_err());
-        let cursor = OutboxProjectionCursorV1 {
-            projection_id: ResourceIdV1::new("projection:a").unwrap(),
+        let cursor = OutboxProjectionCursor {
+            projection_id: ResourceId::new("projection:a").unwrap(),
             scope: record.scope.clone(),
             event_id: record.event_id.clone(),
             event_ordinal: 0,
             delivery_receipt_id: delivered.receipt_id.clone(),
             commit_id: record.commit_id.clone(),
             outbox_record_digest: record.digest().unwrap(),
-            advanced_at: UtcUnixNanosV1::new(13),
+            advanced_at: UtcUnixNanos::new(13),
         };
         assert!(cursor
             .validate_successor(None, &record, &delivered, &lease)
             .is_ok());
 
         let mut early_cursor = cursor.clone();
-        early_cursor.advanced_at = UtcUnixNanosV1::new(11);
+        early_cursor.advanced_at = UtcUnixNanos::new(11);
         assert!(early_cursor
             .validate_successor(None, &record, &delivered, &lease)
             .is_err());
@@ -638,13 +638,13 @@ mod tests {
             .is_err());
 
         let mut altered_predecessor = lease.clone();
-        altered_predecessor.receipt_id = OpaqueIdV1::new("delivery:other-lease").unwrap();
+        altered_predecessor.receipt_id = OpaqueId::new("delivery:other-lease").unwrap();
         assert!(cursor
             .validate_successor(None, &record, &delivered, &altered_predecessor)
             .is_err());
 
         let mut substituted_delivery = delivered;
-        substituted_delivery.commit_id = OpaqueIdV1::new("commit:other").unwrap();
+        substituted_delivery.commit_id = OpaqueId::new("commit:other").unwrap();
         assert!(cursor
             .validate_successor(None, &record, &substituted_delivery, &lease)
             .is_err());
@@ -654,47 +654,47 @@ mod tests {
     fn retry_delivery_requires_the_exact_immediate_lease() {
         let record = record();
         let first_lease = lease(&record);
-        let retryable = OutboxDeliveryReceiptV1 {
-            receipt_id: OpaqueIdV1::new("delivery:retryable").unwrap(),
+        let retryable = OutboxDeliveryReceipt {
+            receipt_id: OpaqueId::new("delivery:retryable").unwrap(),
             previous_receipt_id: Some(first_lease.receipt_id.clone()),
-            state: OutboxDeliveryStateV1::FailedRetryable,
+            state: OutboxDeliveryState::FailedRetryable,
             result_digest: Some(digest(5)),
-            recorded_at: UtcUnixNanosV1::new(12),
+            recorded_at: UtcUnixNanos::new(12),
             ..first_lease.clone()
         };
         assert!(retryable
             .validate_against(&record, Some(&first_lease))
             .is_ok());
-        let retry_lease = OutboxDeliveryReceiptV1 {
-            receipt_id: OpaqueIdV1::new("delivery:retry-lease").unwrap(),
+        let retry_lease = OutboxDeliveryReceipt {
+            receipt_id: OpaqueId::new("delivery:retry-lease").unwrap(),
             previous_receipt_id: Some(retryable.receipt_id.clone()),
             lease_epoch: 2,
             attempt: 2,
-            state: OutboxDeliveryStateV1::Leased,
+            state: OutboxDeliveryState::Leased,
             result_digest: None,
-            recorded_at: UtcUnixNanosV1::new(13),
+            recorded_at: UtcUnixNanos::new(13),
             ..retryable.clone()
         };
         assert!(retry_lease
             .validate_against(&record, Some(&retryable))
             .is_ok());
-        let retried_delivery = OutboxDeliveryReceiptV1 {
-            receipt_id: OpaqueIdV1::new("delivery:retry-done").unwrap(),
+        let retried_delivery = OutboxDeliveryReceipt {
+            receipt_id: OpaqueId::new("delivery:retry-done").unwrap(),
             previous_receipt_id: Some(retry_lease.receipt_id.clone()),
-            state: OutboxDeliveryStateV1::Delivered,
+            state: OutboxDeliveryState::Delivered,
             result_digest: Some(digest(6)),
-            recorded_at: UtcUnixNanosV1::new(14),
+            recorded_at: UtcUnixNanos::new(14),
             ..retry_lease.clone()
         };
-        let cursor = OutboxProjectionCursorV1 {
-            projection_id: ResourceIdV1::new("projection:a").unwrap(),
+        let cursor = OutboxProjectionCursor {
+            projection_id: ResourceId::new("projection:a").unwrap(),
             scope: record.scope.clone(),
             event_id: record.event_id.clone(),
             event_ordinal: 0,
             delivery_receipt_id: retried_delivery.receipt_id.clone(),
             commit_id: record.commit_id.clone(),
             outbox_record_digest: record.digest().unwrap(),
-            advanced_at: UtcUnixNanosV1::new(15),
+            advanced_at: UtcUnixNanos::new(15),
         };
         assert!(cursor
             .validate_successor(None, &record, &retried_delivery, &retry_lease)
@@ -726,23 +726,23 @@ mod tests {
     #[test]
     fn replayed_mutation_cannot_mint_another_outbox_record() {
         let record = record();
-        let result = MutationResultV1::ReceiptOnly;
-        let replayed = MutationReceiptV1 {
-            receipt_id: OpaqueIdV1::new("receipt:replayed").unwrap(),
+        let result = MutationResult::ReceiptOnly;
+        let replayed = MutationReceipt {
+            receipt_id: OpaqueId::new("receipt:replayed").unwrap(),
             mutation_id: record.mutation_id.clone(),
             scope: record.scope.clone(),
             authority_receipt_id: record.authority_receipt_id.clone(),
             authority_evidence_digest: record.authority_evidence_digest,
-            disposition: MutationDispositionV1::new("replayed").unwrap(),
+            disposition: MutationDisposition::new("replayed").unwrap(),
             operation_replay_digest: record.operation_replay_digest,
             nonce_replay_digest: record.nonce_replay_digest,
             envelope_digest: record.envelope_digest,
-            effect_id: Some(OpaqueIdV1::new("effect:1").unwrap()),
+            effect_id: Some(OpaqueId::new("effect:1").unwrap()),
             effect_digest: Some(record.effect_digest),
             result_digest: result.digest().unwrap(),
             commit_id: Some(record.commit_id.clone()),
             result,
-            recorded_at: UtcUnixNanosV1::new(10),
+            recorded_at: UtcUnixNanos::new(10),
         };
         assert!(replayed.validate().is_ok());
         assert!(validate_original_mutation_commit(&replayed).is_err());

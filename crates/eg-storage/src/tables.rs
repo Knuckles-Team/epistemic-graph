@@ -11,13 +11,13 @@
 //!
 //! Every ledger table is keyed, in its first key position, by the one
 //! [`crate::ledger_scope_key`] -- the scope *binding* digest, the same key
-//! `mutation_scope_bindings_v1` and `mutation_versions_v1` use. Every ledger
+//! `mutation_scope_bindings` and `ledger_versions` use. Every ledger
 //! row additionally *carries* the exact
 //! [`eg_types::MutationScopeIdentity`] it was written under, either directly
-//! (`mutation_batches_v1`, `mutation_outbox_v1`, `mutation_fences_v1` via
-//! [`ScopeFence`], `mutation_replay_operations_v1`) or through the receipt its
-//! key points at (`mutation_idempotency_v1`,
-//! `mutation_private_payloads_v1`, `mutation_replay_nonces_v1`).
+//! (`ledger_batches`, `ledger_outbox`, `ledger_fences` via
+//! [`ScopeFence`], `mutation_replay_operations`) or through the receipt its
+//! key points at (`ledger_idempotency`,
+//! `ledger_private_payloads`, `mutation_replay_nonces`).
 //!
 //! Recovery validation therefore resolves a row's binding by the row's own key
 //! and then requires the stamped identity to equal the bound identity. Under
@@ -25,51 +25,51 @@
 //! bindings were keyed by the *binding* digest, so the lookup could never
 //! succeed and any store with one committed batch failed validation.
 
-use eg_types::contract::Digest256V1;
-use eg_types::mutation::MutationReceiptV1;
+use eg_types::contract::Digest256;
+use eg_types::mutation::MutationReceipt;
 use eg_types::MutationScopeIdentity;
 use redb::{TableDefinition, TableHandle};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const STORE_ROOT: TableDefinition<'static, &str, &[u8]> =
-    TableDefinition::new("mutation_store_root_v1");
+    TableDefinition::new("mutation_store_root");
 pub(crate) const SCOPE_BINDINGS: TableDefinition<'static, &str, &[u8]> =
-    TableDefinition::new("mutation_scope_bindings_v1");
+    TableDefinition::new("mutation_scope_bindings");
 pub(crate) const OWNER_MANIFEST: TableDefinition<'static, &str, &[u8]> =
-    TableDefinition::new("mutation_owner_manifest_v1");
+    TableDefinition::new("mutation_owner_manifest");
 pub(crate) const BATCHES: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_batches_v1");
+    TableDefinition::new("ledger_batches");
 pub(crate) const IDEMPOTENCY: TableDefinition<'static, (&str, &str), &str> =
-    TableDefinition::new("mutation_idempotency_v1");
+    TableDefinition::new("ledger_idempotency");
 pub(crate) const VERSIONS: TableDefinition<'static, &str, u64> =
-    TableDefinition::new("mutation_versions_v1");
+    TableDefinition::new("ledger_versions");
 pub(crate) const FENCES: TableDefinition<'static, &str, &[u8]> =
-    TableDefinition::new("mutation_fences_v1");
+    TableDefinition::new("ledger_fences");
 pub(crate) const OUTBOX: TableDefinition<'static, (&str, &str, u32), &[u8]> =
-    TableDefinition::new("mutation_outbox_v1");
+    TableDefinition::new("ledger_outbox");
 pub(crate) const OUTBOX_TOPIC_INDEX: TableDefinition<
     'static,
     (&str, &str, u64, u64, &str, u32),
     (),
-> = TableDefinition::new("mutation_outbox_topic_index_v1");
+> = TableDefinition::new("mutation_outbox_topic_index");
 pub(crate) const PRIVATE_PAYLOADS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_private_payloads_v1");
+    TableDefinition::new("ledger_private_payloads");
 pub(crate) const OUTBOX_CONSUMERS: TableDefinition<'static, (&str, &str), &str> =
-    TableDefinition::new("mutation_outbox_consumers_v1");
+    TableDefinition::new("mutation_outbox_consumers");
 pub(crate) const OUTBOX_DELIVERIES: TableDefinition<'static, (&str, &str, &str, u32), &[u8]> =
-    TableDefinition::new("mutation_outbox_deliveries_v1");
+    TableDefinition::new("mutation_outbox_deliveries");
 pub(crate) const OUTBOX_CURSORS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_outbox_cursors_v1");
+    TableDefinition::new("mutation_outbox_cursors");
 pub(crate) const OUTBOX_CLAIM_CURSORS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_outbox_claim_cursors_v1");
+    TableDefinition::new("mutation_outbox_claim_cursors");
 pub(crate) const OUTBOX_FAIRNESS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_outbox_fairness_v1");
+    TableDefinition::new("mutation_outbox_fairness");
 pub(crate) const REPLAY_NONCES: TableDefinition<'static, (&str, &str), &str> =
-    TableDefinition::new("mutation_replay_nonces_v1");
+    TableDefinition::new("mutation_replay_nonces");
 pub(crate) const REPLAY_OPERATIONS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_replay_operations_v1");
+    TableDefinition::new("mutation_replay_operations");
 pub(crate) const CLASSES: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_classes_v1");
+    TableDefinition::new("mutation_classes");
 
 /// Durable route fence for one serving scope, stamped with the exact scope
 /// identity it was written under.
@@ -87,7 +87,7 @@ pub struct ScopeFence {
 
 /// The class of one admitted mutation.
 ///
-/// RF-RULING-004 makes `MutationKernelV1` the only committer of owner rows, so
+/// RF-RULING-004 makes `MutationKernel` the only committer of owner rows, so
 /// an owner write that carries no caller identity -- compaction, retention,
 /// index initialization, a content-addressed definition insert -- cannot be an
 /// un-ledgered second authority. It is admitted, ledgered and version-bumping
@@ -96,7 +96,7 @@ pub struct ScopeFence {
 #[serde(rename_all = "snake_case")]
 pub enum MutationClass {
     /// A caller-originated operation. It may carry an
-    /// [`eg_types::authority::OperationReplayIdentityV1`] and participates in
+    /// [`eg_types::authority::OperationReplayIdentity`] and participates in
     /// operation-replay resolution.
     Operation,
     /// An owner-maintenance write with no caller operation identity. It is
@@ -105,7 +105,7 @@ pub enum MutationClass {
     /// operation-replay conflict semantics entirely.
     ///
     /// The label is chosen by the admission path
-    /// (`MutationKernelV1::admit_maintenance`), not derived from the batch, so
+    /// (`MutationKernel::admit_maintenance`), not derived from the batch, so
     /// it is an assertion the kernel then *holds the caller to*: recording
     /// replay evidence inside a maintenance write is refused, and recovery
     /// rejects a maintenance batch whose idempotency key names a recorded
@@ -115,7 +115,7 @@ pub enum MutationClass {
 }
 
 /// The durable class label of one committed batch. Exactly one row exists per
-/// `mutation_batches_v1` row, so a batch's class is explicit rather than
+/// `ledger_batches` row, so a batch's class is explicit rather than
 /// inferred from the absence of evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -130,8 +130,8 @@ pub struct MutationClassRow {
 /// Keyed by `(ledger_scope_key, idempotency_key)` so that a *changed* payload,
 /// scope, policy or method under the same idempotency key is a conflict rather
 /// than a second row: the stored `operation_replay_digest` is compared against
-/// the digest of the proposed [`eg_types::authority::OperationReplayIdentityV1`].
-/// `mutation_replay_nonces_v1` maps one attempt nonce digest to the idempotency
+/// the digest of the proposed [`eg_types::authority::OperationReplayIdentity`].
+/// `mutation_replay_nonces` maps one attempt nonce digest to the idempotency
 /// key it consumed, so the same nonce is always rejected while a fresh nonce
 /// over the same stable identity replays `receipt`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,9 +139,9 @@ pub struct MutationClassRow {
 pub struct OperationReplayRow {
     pub identity: MutationScopeIdentity,
     pub idempotency_key: String,
-    pub operation_replay_digest: Digest256V1,
-    pub nonce_replay_digest: Digest256V1,
-    pub receipt: MutationReceiptV1,
+    pub operation_replay_digest: Digest256,
+    pub nonce_replay_digest: Digest256,
+    pub receipt: MutationReceipt,
 }
 
 /// The one authoritative ledger-table list.
@@ -197,8 +197,8 @@ macro_rules! visit_ledger_content_tables {
 }
 
 /// Every ledger table whose first key component is the
-/// [`crate::ledger_scope_key`]. Only `mutation_store_root_v1` and
-/// `mutation_owner_manifest_v1` are outside it, because they are the file's
+/// [`crate::ledger_scope_key`]. Only `mutation_store_root` and
+/// `mutation_owner_manifest` are outside it, because they are the file's
 /// identity rather than one scope's rows.
 macro_rules! visit_scoped_ledger_tables {
     ($visit:ident) => {{

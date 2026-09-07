@@ -150,7 +150,7 @@ class RequestContextClaims(_RequiredRequestContextClaims, total=False):
     verified external identity. Unlike ``node``/``priority`` it does NOT ride
     the canonical MAC-covered claim set -- it is carried as a SIBLING top-level
     field on the wire envelope (``{"context": {...}, "oidc_token": "...",
-    ...}``), matching the Rust decode shape (``EnvelopeV2.oidc_token`` in
+    ...}``), matching the Rust decode shape (``Envelope.oidc_token`` in
     ``src/server/auth.rs``, deliberately kept out of ``build_envelope_v2_bytes``
     since the token's own RSA/JWKS signature is the trust anchor, not MAC
     coverage -- a holder of the HMAC secret gains nothing by swapping it, since
@@ -14723,7 +14723,7 @@ class EpistemicGraphClient:
         # ADR-4 decision 5: the optional OIDC bearer/assertion. Deliberately NOT
         # folded into the canonical MAC bytes (no tag-3 trailer) -- it rides as
         # a SIBLING top-level envelope field, matching the Rust decode shape
-        # (`EnvelopeV2.oidc_token`) and its own documented rationale: the
+        # (`Envelope.oidc_token`) and its own documented rationale: the
         # token's own RSA/JWKS signature is the trust anchor, and the engine's
         # `bind_verified_identity` independently cross-checks its subject/
         # tenant against this SAME `context`, so MAC coverage would add no

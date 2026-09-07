@@ -2,7 +2,7 @@ use super::{authority::*, capture::*, contract::*, filesystem::*, generation::*,
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DirectStateChunkV1 {
+pub struct DirectStateChunk {
     pub manifest_sha256: String,
     pub ordinal: u64,
     pub item_count: u64,
@@ -14,14 +14,14 @@ pub struct DirectStateChunkV1 {
 /// Object-safe pull stream.  It keeps full physical images out of RAM and permits
 /// snapshot transport to spool to private files before redb validation/open.
 pub trait DirectStateChunkStream: Send {
-    fn next_chunk(&mut self) -> Result<Option<DirectStateChunkV1>, String>;
+    fn next_chunk(&mut self) -> Result<Option<DirectStateChunk>, String>;
 }
 
 impl<I> DirectStateChunkStream for I
 where
-    I: Iterator<Item = Result<DirectStateChunkV1, String>> + Send,
+    I: Iterator<Item = Result<DirectStateChunk, String>> + Send,
 {
-    fn next_chunk(&mut self) -> Result<Option<DirectStateChunkV1>, String> {
+    fn next_chunk(&mut self) -> Result<Option<DirectStateChunk>, String> {
         self.next().transpose()
     }
 }
@@ -29,7 +29,7 @@ where
 pub struct DirectStateSectionSource {
     pub(super) authority_identity: Arc<StateImageAuthorityIdentity>,
     pub(super) registry_identity: Arc<DirectStateRegistryIdentity>,
-    pub(super) manifest: DirectStateSectionManifestV1,
+    pub(super) manifest: DirectStateSectionManifest,
     pub(super) chunks: Box<dyn DirectStateChunkStream>,
     pub(super) capture_root: Option<PinnedPrivateDirectory>,
 }
@@ -38,7 +38,7 @@ impl DirectStateSectionSource {
     pub(super) fn new(
         permit: &StateImageWritePermit,
         registry_identity: Arc<DirectStateRegistryIdentity>,
-        manifest: DirectStateSectionManifestV1,
+        manifest: DirectStateSectionManifest,
         chunks: Box<dyn DirectStateChunkStream>,
         capture_root: PinnedPrivateDirectory,
     ) -> Self {
@@ -51,7 +51,7 @@ impl DirectStateSectionSource {
         }
     }
 
-    pub fn manifest(&self) -> &DirectStateSectionManifestV1 {
+    pub fn manifest(&self) -> &DirectStateSectionManifest {
         &self.manifest
     }
 
@@ -60,7 +60,7 @@ impl DirectStateSectionSource {
     pub(super) fn received(
         permit: &StateImageInstallPermit,
         registry_identity: &Arc<DirectStateRegistryIdentity>,
-        manifest: DirectStateSectionManifestV1,
+        manifest: DirectStateSectionManifest,
         chunks: Box<dyn DirectStateChunkStream>,
     ) -> Self {
         Self {
@@ -79,7 +79,7 @@ impl DirectStateSectionSource {
     pub fn into_parts(
         self,
     ) -> (
-        DirectStateSectionManifestV1,
+        DirectStateSectionManifest,
         Box<dyn DirectStateChunkStream>,
     ) {
         (self.manifest, self.chunks)
@@ -88,7 +88,7 @@ impl DirectStateSectionSource {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DirectStateTransportHeaderV1 {
+pub struct DirectStateTransportHeader {
     pub(super) schema_version: u16,
     pub(super) registry_contract_sha256: String,
     pub(super) capture_set_sha256: String,
@@ -102,7 +102,7 @@ pub struct DirectStateTransportHeaderV1 {
 pub struct DirectStateTransportGeneration {
     pub(super) authority_identity: Arc<StateImageAuthorityIdentity>,
     pub(super) registry_identity: Arc<DirectStateRegistryIdentity>,
-    pub(super) header: DirectStateTransportHeaderV1,
+    pub(super) header: DirectStateTransportHeader,
     pub(super) sources: Vec<DirectStateSectionSource>,
 }
 
@@ -110,19 +110,19 @@ pub struct DirectStateTransportGeneration {
 /// registry capability; only `DirectStateRegistry::receive_authenticated_remote`
 /// may bind it to a destination after the outer Raft snapshot envelope has been
 /// authenticated.
-pub struct DirectStateRemoteTransportV1 {
-    pub(super) header: DirectStateTransportHeaderV1,
+pub struct DirectStateRemoteTransport {
+    pub(super) header: DirectStateTransportHeader,
     pub(super) sections: Vec<(
-        DirectStateSectionManifestV1,
+        DirectStateSectionManifest,
         Box<dyn DirectStateChunkStream>,
     )>,
 }
 
-impl DirectStateRemoteTransportV1 {
+impl DirectStateRemoteTransport {
     pub fn from_wire_parts(
-        header: DirectStateTransportHeaderV1,
+        header: DirectStateTransportHeader,
         sections: Vec<(
-            DirectStateSectionManifestV1,
+            DirectStateSectionManifest,
             Box<dyn DirectStateChunkStream>,
         )>,
     ) -> Self {
@@ -132,9 +132,9 @@ impl DirectStateRemoteTransportV1 {
     pub fn into_wire_parts(
         self,
     ) -> (
-        DirectStateTransportHeaderV1,
+        DirectStateTransportHeader,
         Vec<(
-            DirectStateSectionManifestV1,
+            DirectStateSectionManifest,
             Box<dyn DirectStateChunkStream>,
         )>,
     ) {
@@ -143,8 +143,8 @@ impl DirectStateRemoteTransportV1 {
 }
 
 impl DirectStateTransportGeneration {
-    pub fn into_authenticated_remote_wire(self) -> DirectStateRemoteTransportV1 {
-        DirectStateRemoteTransportV1 {
+    pub fn into_authenticated_remote_wire(self) -> DirectStateRemoteTransport {
+        DirectStateRemoteTransport {
             header: self.header,
             sections: self
                 .sources
@@ -158,9 +158,9 @@ impl DirectStateTransportGeneration {
         permit: &StateImageInstallPermit,
         registry_identity: &Arc<DirectStateRegistryIdentity>,
         expected_contract_sha256: &str,
-        header: DirectStateTransportHeaderV1,
+        header: DirectStateTransportHeader,
         sections: Vec<(
-            DirectStateSectionManifestV1,
+            DirectStateSectionManifest,
             Box<dyn DirectStateChunkStream>,
         )>,
     ) -> Result<Self, String> {
@@ -252,7 +252,7 @@ impl CapturedWholeGeneration {
         DirectStateTransportGeneration {
             authority_identity: self.authority_identity,
             registry_identity: self.registry_identity,
-            header: DirectStateTransportHeaderV1 {
+            header: DirectStateTransportHeader {
                 schema_version: DIRECT_STATE_SCHEMA_VERSION,
                 registry_contract_sha256: self.registry_contract_sha256,
                 capture_set_sha256: self.capture_set_sha256,
@@ -302,7 +302,7 @@ pub struct ValidatingDirectStateChunks {
 }
 
 impl ValidatingDirectStateChunks {
-    pub fn next_chunk(&mut self) -> Result<Option<DirectStateChunkV1>, String> {
+    pub fn next_chunk(&mut self) -> Result<Option<DirectStateChunk>, String> {
         let Some(chunk) = self.chunks.next_chunk()? else {
             return Ok(None);
         };
@@ -387,7 +387,7 @@ impl ValidatingDirectStateChunks {
 
 fn validate_chunk_header(
     stream: &ValidatingDirectStateChunks,
-    chunk: &DirectStateChunkV1,
+    chunk: &DirectStateChunk,
 ) -> Result<(), String> {
     if stream.next_ordinal >= stream.expected_chunks || chunk.ordinal != stream.next_ordinal {
         return Err("direct-state chunk ordinal is missing, duplicated, or reordered".into());
@@ -398,7 +398,7 @@ fn validate_chunk_header(
     Ok(())
 }
 
-fn validate_chunk_payload(chunk: &DirectStateChunkV1) -> Result<(), String> {
+fn validate_chunk_payload(chunk: &DirectStateChunk) -> Result<(), String> {
     validate_sha256("direct-state chunk", &chunk.sha256)?;
     if chunk.bytes.is_empty() || chunk.bytes.len() > MAX_DIRECT_STATE_CHUNK_BYTES {
         return Err("direct-state chunk byte length is outside bounds".into());

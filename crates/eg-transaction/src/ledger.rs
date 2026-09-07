@@ -23,7 +23,7 @@ pub(crate) fn idempotency_batch_id<D: OwnerDomain>(
 }
 
 /// The authoritative version of one bound scope, read inside an already-held
-/// write transaction. Used by [`crate::MutationKernelV1::admit_current`] so a
+/// write transaction. Used by [`crate::MutationKernel::admit_current`] so a
 /// batch's version expectation cannot be stale by construction.
 pub(crate) fn bound_scope_version<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,

@@ -30,9 +30,9 @@ use std::sync::Arc;
 /// opens one: they are written only by the storage kernel's own create, bind,
 /// adopt and backup paths.
 const IDENTITY_TABLES: [&str; 3] = [
-    "mutation_store_root_v1",
-    "mutation_scope_bindings_v1",
-    "mutation_owner_manifest_v1",
+    "mutation_store_root",
+    "mutation_scope_bindings",
+    "mutation_owner_manifest",
 ];
 
 /// A capability may open exactly the tables this owner file declares, minus the
@@ -361,7 +361,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     /// Retire **this capability's own** scope: its binding and its
     /// authoritative version row.
     ///
-    /// `mutation_scope_bindings_v1` is physical identity, so the storage kernel
+    /// `mutation_scope_bindings` is physical identity, so the storage kernel
     /// owns this write; the mutation owner clears its own ledger rows and then
     /// asks for retirement inside the same transaction. Like
     /// [`Self::purge_scoped_rows`], the scope comes from the capability and is

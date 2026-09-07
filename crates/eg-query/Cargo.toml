@@ -103,7 +103,7 @@ eg-text = { path = "../eg-text", optional = true }
 eg-ann = { path = "../eg-ann", optional = true }
 # RF-RULING-004/006: `eg-storage` is the sole physical authority for the SQL
 # owner file and `eg-transaction` its sole writer. `TableStore` opens through
-# `StorageKernelV1` under `OwnerLayout::Sql` and every write it makes is an
+# `StorageKernel` under `OwnerLayout::Sql` and every write it makes is an
 # admitted mutation. Both are optional under `sql` for the same reason `redb`
 # is: a lean Pi/`cypher`-only build links neither.
 eg-storage = { path = "../eg-storage", optional = true }

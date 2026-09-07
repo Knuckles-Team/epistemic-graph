@@ -244,7 +244,7 @@ async fn begin_control_saga(
         req_id,
         caller,
         method,
-        crate::mutation_batch::MutationDomain::ControlPlane,
+        crate::mutation_batch::DurabilityDomain::ControlPlane,
     )?;
     Ok(ControlSaga { backend, saga })
 }

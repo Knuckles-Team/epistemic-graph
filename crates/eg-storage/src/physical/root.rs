@@ -38,7 +38,7 @@ const RETIRED_PROTOTYPE_TABLES: &[&str] = &[
     "mutation_outbox_v3",
     "mutation_private_payloads_v3",
     // The SQL `TableStore`'s private mutation ledger, retired onto
-    // `MutationKernelV1`'s by RF-RULING-006. Unlike the bare
+    // `MutationKernel`'s by RF-RULING-006. Unlike the bare
     // `mutation_batches`/`mutation_idempotency`/`mutation_outbox` names above,
     // these five are unambiguous: no live subsystem writes a `__sql_mutation_*__`
     // table, and only `eg-query`'s retired second ledger ever did. A file still

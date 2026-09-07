@@ -24,8 +24,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
-use eg_storage::{KvOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopedRead, StorageKernelV1};
-use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernelV1};
+use eg_storage::{KvOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopedRead, StorageKernel};
+use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
 use eg_types::MutationScopeIdentity;
 use parking_lot::Mutex;
 use redb::{ReadableTable, ReadableTableMetadata, TableDefinition};
@@ -33,7 +33,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use tokio::sync::RwLock;
 
 use super::state::ServerState;
-use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
+use crate::mutation_batch::{MutationBatch, DurabilityDomain, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::mutation_batch::COMPILED_BATCH_INCARNATION;
@@ -105,15 +105,15 @@ fn kv_bootstrap_identity() -> Result<MutationScopeIdentity, String> {
 /// `resource` must be EXACTLY the string `compile_kv_batch` passes as
 /// `CompileBatch::graph` for the same write: `crate::server::mutation_batch::finish_batch`
 /// builds the batch's authoritative `identity` from that identical (tenant, graph) pair,
-/// the SAME `MutationDomain::KvStore` domain (also the only native domain
+/// the SAME `DurabilityDomain::KvStore` domain (also the only native domain
 /// `OwnerLayout::Kv` accepts) and the SAME `COMPILED_BATCH_INCARNATION`. The kernel's
 /// binding validator rejects any mismatch, so drift on any of the three fails closed.
 fn kv_scope_identity(tenant: &str, resource: &str) -> Result<MutationScopeIdentity, String> {
-    let tenant = eg_types::TenantId::new(tenant)?;
+    let tenant = eg_types::ScopeTenantId::new(tenant)?;
     let resource = eg_types::LogicalName::new(resource)?;
     let incarnation_id = eg_types::IncarnationId::new(COMPILED_BATCH_INCARNATION)
         .map_err(|e| format!("invalid KV scope incarnation id: {e}"))?;
-    MutationScopeIdentity::native(tenant, MutationDomain::KvStore, resource, incarnation_id)
+    MutationScopeIdentity::native(tenant, DurabilityDomain::KvStore, resource, incarnation_id)
 }
 
 /// Accumulate one scanned row under the response-size bound; `false` once `limit` rows
@@ -141,7 +141,7 @@ type KvHandle = Arc<OwnedStoreHandle<KvOwner>>;
 
 /// Authenticate and bind ONE logical serving scope on `kv.redb`. The proof bytes are
 /// the composition root's; this module supplies only the identity and the layout.
-fn bind_scope(kernel: &StorageKernelV1, scope: &MutationScopeIdentity) -> Result<KvHandle, String> {
+fn bind_scope(kernel: &StorageKernel, scope: &MutationScopeIdentity) -> Result<KvHandle, String> {
     let authority = crate::store_authority::process_authority();
     let grant = kernel.authenticate_scope::<KvOwner>(
         authority.as_ref(),
@@ -219,8 +219,8 @@ enum Backend {
 /// mutation kernel it issued, the bootstrap scope every cross-namespace read and
 /// caller-less write runs on, and the per-namespace scopes bound on first use.
 struct RedbBackend {
-    kernel: StorageKernelV1,
-    mutations: MutationKernelV1,
+    kernel: StorageKernel,
+    mutations: MutationKernel,
     bootstrap: KvHandle,
     /// Bound serving scopes, keyed by `identity.binding_digest().to_hex()`.
     scopes: Mutex<HashMap<String, KvHandle>>,
@@ -233,12 +233,12 @@ impl RedbBackend {
     fn open(path: &Path) -> Result<Self, String> {
         let physical = PhysicalStoreIdentity::new(KV_PHYSICAL_STORE)?;
         let kernel = if path.exists() {
-            StorageKernelV1::open_owner::<KvOwner>(path, physical, None)
+            StorageKernel::open_owner::<KvOwner>(path, physical, None)
         } else {
-            StorageKernelV1::create_owner::<KvOwner>(path, physical, None)
+            StorageKernel::create_owner::<KvOwner>(path, physical, None)
         }?;
         let (kernel, authority) = kernel.into_read_and_mutation_authority()?;
-        let mutations = MutationKernelV1::new(authority);
+        let mutations = MutationKernel::new(authority);
         let bootstrap = bind_scope(&kernel, &kv_bootstrap_identity()?)?;
         mutations.bootstrap_ledger(&bootstrap)?;
         Ok(Self {
@@ -292,7 +292,7 @@ impl RedbBackend {
         T: Serialize + DeserializeOwned,
         F: FnOnce(&AdmittedOwnerWrite<'_, KvOwner>) -> Result<(T, bool), String>,
     {
-        let write = MaintenanceBatch::new(MutationDomain::KvStore, event, subject);
+        let write = MaintenanceBatch::new(DurabilityDomain::KvStore, event, subject);
         let bootstrap = self.bootstrap.as_ref();
         let (txn, batch, begun) = self.mutations.admit_current(
             bootstrap,
@@ -781,7 +781,7 @@ fn compile_kv_batch(
         },
         method,
         MutationSurface::Other,
-        MutationDomain::KvStore,
+        DurabilityDomain::KvStore,
         "kv_operation",
     )?;
     Ok((batch, now))

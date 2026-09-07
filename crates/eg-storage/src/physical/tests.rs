@@ -24,7 +24,7 @@ use crate::recovery::evidence::{backup_strict_recovery_store_of, strict_evidence
 use crate::recovery::evidence::strict_recovery_evidence;
 use crate::recovery::validate::{validate_live_recovery_store, validate_recovery_store_read_only};
 use crate::tables::{OWNER_MANIFEST, SCOPE_BINDINGS, STORE_ROOT, VERSIONS};
-use eg_types::mutation_batch::{IncarnationId, LogicalName, MutationDomain, TenantId};
+use eg_types::mutation_batch::{IncarnationId, LogicalName, DurabilityDomain, ScopeTenantId};
 use eg_types::MutationScopeIdentity;
 use redb::{
     Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition, TableHandle,
@@ -77,7 +77,7 @@ impl ScopeGrantVerifier for TestScopeVerifier {
 fn native_identity(tenant: &str, incarnation: &str) -> MutationScopeIdentity {
     domain_identity(
         tenant,
-        MutationDomain::BlobStore,
+        DurabilityDomain::BlobStore,
         "blob-catalog",
         incarnation,
     )
@@ -85,12 +85,12 @@ fn native_identity(tenant: &str, incarnation: &str) -> MutationScopeIdentity {
 
 fn domain_identity(
     tenant: &str,
-    domain: MutationDomain,
+    domain: DurabilityDomain,
     resource: &str,
     incarnation: &str,
 ) -> MutationScopeIdentity {
     MutationScopeIdentity::native(
-        TenantId::new(tenant).unwrap(),
+        ScopeTenantId::new(tenant).unwrap(),
         domain,
         LogicalName::new(resource).unwrap(),
         IncarnationId::new(incarnation).unwrap(),
@@ -99,7 +99,7 @@ fn domain_identity(
 }
 
 fn kv_identity(tenant: &str, incarnation: &str) -> MutationScopeIdentity {
-    domain_identity(tenant, MutationDomain::KvStore, "kv-catalog", incarnation)
+    domain_identity(tenant, DurabilityDomain::KvStore, "kv-catalog", incarnation)
 }
 
 /// Create a ledger-only owner file and bind one serving scope to it.
@@ -399,8 +399,8 @@ fn adoption_streams_more_than_one_hundred_thousand_scope_bindings() {
         let mut versions = write.open_table(VERSIONS).unwrap();
         for ordinal in 0..BINDING_ROWS {
             let identity = MutationScopeIdentity::native(
-                TenantId::new("tenant-many-bindings").unwrap(),
-                MutationDomain::BlobStore,
+                ScopeTenantId::new("tenant-many-bindings").unwrap(),
+                DurabilityDomain::BlobStore,
                 LogicalName::new(format!("bulk-binding-{ordinal}")).unwrap(),
                 IncarnationId::new("incarnation:bulk-binding:test").unwrap(),
             )
@@ -661,7 +661,7 @@ fn statechart_staged_inspection_requires_its_one_fixed_serving_scope() {
     };
     let fixed = domain_identity(
         "native",
-        MutationDomain::Lifecycle,
+        DurabilityDomain::Lifecycle,
         "statechart-instances",
         "incarnation:eg-statechart:statechart-instances:1",
     );
@@ -689,7 +689,7 @@ fn statechart_staged_inspection_requires_its_one_fixed_serving_scope() {
     let store = open_physical(&path, physical.clone(), None, OwnerLayout::Statechart).unwrap();
     let extra = domain_identity(
         "native",
-        MutationDomain::Lifecycle,
+        DurabilityDomain::Lifecycle,
         "statechart-other",
         "incarnation:eg-statechart:statechart-other:1",
     );

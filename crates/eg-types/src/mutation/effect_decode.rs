@@ -6,10 +6,10 @@ use serde::{Deserialize, Deserializer};
 use super::budget::{
     read_map_value_once, BorrowedRecordBytesSeed, MutationBudgetDeserialize, StructuralBudget,
 };
-use super::effects::{MutationEffectV1, RecordMutationV1};
-use super::targets::RecordTargetV1;
+use super::effects::{MutationEffect, RecordMutation};
+use super::targets::RecordTarget;
 use super::EFFECT_FIXED_BUDGET;
-use crate::contract::{Digest256V1, RecordBytesV1};
+use crate::contract::{Digest256, RecordBytes};
 
 #[derive(Deserialize)]
 #[serde(field_identifier, rename_all = "snake_case")]
@@ -27,13 +27,13 @@ enum RecordMutationKind {
     Delete,
 }
 
-enum BorrowedRecordMutationV1<'de> {
+enum BorrowedRecordMutation<'de> {
     Put {
         payload: &'de [u8],
-        payload_digest: Digest256V1,
+        payload_digest: Digest256,
     },
     Delete {
-        expected_record_digest: Digest256V1,
+        expected_record_digest: Digest256,
     },
 }
 
@@ -42,8 +42,8 @@ struct BorrowedRecordMutationSeed;
 struct BorrowedRecordMutationFields<'de> {
     kind: Option<RecordMutationKind>,
     payload: Option<&'de [u8]>,
-    payload_digest: Option<Digest256V1>,
-    expected_record_digest: Option<Digest256V1>,
+    payload_digest: Option<Digest256>,
+    expected_record_digest: Option<Digest256>,
 }
 
 impl BorrowedRecordMutationFields<'_> {
@@ -95,14 +95,14 @@ where
 
 fn finish_put<E>(
     fields: BorrowedRecordMutationFields<'_>,
-) -> Result<BorrowedRecordMutationV1<'_>, E>
+) -> Result<BorrowedRecordMutation<'_>, E>
 where
     E: serde::de::Error,
 {
     if fields.expected_record_digest.is_some() {
         return Err(E::custom("record mutation fields do not match its kind"));
     }
-    Ok(BorrowedRecordMutationV1::Put {
+    Ok(BorrowedRecordMutation::Put {
         payload: fields.payload.ok_or_else(|| E::missing_field("payload"))?,
         payload_digest: fields
             .payload_digest
@@ -112,14 +112,14 @@ where
 
 fn finish_delete<E>(
     fields: BorrowedRecordMutationFields<'_>,
-) -> Result<BorrowedRecordMutationV1<'_>, E>
+) -> Result<BorrowedRecordMutation<'_>, E>
 where
     E: serde::de::Error,
 {
     if fields.payload.is_some() || fields.payload_digest.is_some() {
         return Err(E::custom("record mutation fields do not match its kind"));
     }
-    Ok(BorrowedRecordMutationV1::Delete {
+    Ok(BorrowedRecordMutation::Delete {
         expected_record_digest: fields
             .expected_record_digest
             .ok_or_else(|| E::missing_field("expected_record_digest"))?,
@@ -128,7 +128,7 @@ where
 
 fn finish_record_mutation<E>(
     fields: BorrowedRecordMutationFields<'_>,
-) -> Result<BorrowedRecordMutationV1<'_>, E>
+) -> Result<BorrowedRecordMutation<'_>, E>
 where
     E: serde::de::Error,
 {
@@ -140,7 +140,7 @@ where
 }
 
 impl<'de> Visitor<'de> for BorrowedRecordMutationSeed {
-    type Value = BorrowedRecordMutationV1<'de>;
+    type Value = BorrowedRecordMutation<'de>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a named record mutation")
@@ -159,7 +159,7 @@ impl<'de> Visitor<'de> for BorrowedRecordMutationSeed {
 }
 
 impl<'de> DeserializeSeed<'de> for BorrowedRecordMutationSeed {
-    type Value = BorrowedRecordMutationV1<'de>;
+    type Value = BorrowedRecordMutation<'de>;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
@@ -183,8 +183,8 @@ struct BudgetedMutationEffectVisitor<'a> {
 
 struct MutationEffectFields<'de> {
     ordinal: Option<u32>,
-    target: Option<RecordTargetV1>,
-    mutation: Option<BorrowedRecordMutationV1<'de>>,
+    target: Option<RecordTarget>,
+    mutation: Option<BorrowedRecordMutation<'de>>,
 }
 
 impl MutationEffectFields<'_> {
@@ -226,16 +226,16 @@ where
     }
 }
 
-fn payload_bytes(mutation: &BorrowedRecordMutationV1<'_>) -> usize {
+fn payload_bytes(mutation: &BorrowedRecordMutation<'_>) -> usize {
     match mutation {
-        BorrowedRecordMutationV1::Put { payload, .. } => payload.len(),
-        BorrowedRecordMutationV1::Delete { .. } => 0,
+        BorrowedRecordMutation::Put { payload, .. } => payload.len(),
+        BorrowedRecordMutation::Delete { .. } => 0,
     }
 }
 
 fn effect_charge<E>(
-    target: &RecordTargetV1,
-    mutation: &BorrowedRecordMutationV1<'_>,
+    target: &RecordTarget,
+    mutation: &BorrowedRecordMutation<'_>,
 ) -> Result<usize, E>
 where
     E: serde::de::Error,
@@ -253,21 +253,21 @@ where
     .ok_or_else(|| E::custom("mutation structural budget overflow"))
 }
 
-fn own_record_mutation<E>(mutation: BorrowedRecordMutationV1<'_>) -> Result<RecordMutationV1, E>
+fn own_record_mutation<E>(mutation: BorrowedRecordMutation<'_>) -> Result<RecordMutation, E>
 where
     E: serde::de::Error,
 {
     match mutation {
-        BorrowedRecordMutationV1::Put {
+        BorrowedRecordMutation::Put {
             payload,
             payload_digest,
-        } => Ok(RecordMutationV1::Put {
-            payload: RecordBytesV1::new(payload.to_vec()).map_err(E::custom)?,
+        } => Ok(RecordMutation::Put {
+            payload: RecordBytes::new(payload.to_vec()).map_err(E::custom)?,
             payload_digest,
         }),
-        BorrowedRecordMutationV1::Delete {
+        BorrowedRecordMutation::Delete {
             expected_record_digest,
-        } => Ok(RecordMutationV1::Delete {
+        } => Ok(RecordMutation::Delete {
             expected_record_digest,
         }),
     }
@@ -276,7 +276,7 @@ where
 fn finish_effect<E>(
     fields: MutationEffectFields<'_>,
     budget: &mut StructuralBudget,
-) -> Result<MutationEffectV1, E>
+) -> Result<MutationEffect, E>
 where
     E: serde::de::Error,
 {
@@ -287,7 +287,7 @@ where
     let charge = effect_charge::<E>(&target, &borrowed_mutation)?;
     budget.charge(charge).map_err(E::custom)?;
     let mutation = own_record_mutation::<E>(borrowed_mutation)?;
-    Ok(MutationEffectV1 {
+    Ok(MutationEffect {
         ordinal: fields.ordinal.ok_or_else(|| E::missing_field("ordinal"))?,
         target,
         mutation,
@@ -295,7 +295,7 @@ where
 }
 
 impl<'de> Visitor<'de> for BudgetedMutationEffectVisitor<'_> {
-    type Value = MutationEffectV1;
+    type Value = MutationEffect;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a named mutation effect")
@@ -313,7 +313,7 @@ impl<'de> Visitor<'de> for BudgetedMutationEffectVisitor<'_> {
     }
 }
 
-impl<'de> MutationBudgetDeserialize<'de> for MutationEffectV1 {
+impl<'de> MutationBudgetDeserialize<'de> for MutationEffect {
     fn deserialize_budgeted<D>(
         deserializer: D,
         budget: &mut StructuralBudget,

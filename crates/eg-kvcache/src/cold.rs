@@ -112,8 +112,8 @@ impl ColdKey for u64 {
 /// the capabilities they issue and never opens a database.
 #[cfg(feature = "durable")]
 pub struct RedbColdStore {
-    kernel: eg_storage::StorageKernelV1,
-    mutations: eg_transaction::MutationKernelV1,
+    kernel: eg_storage::StorageKernel,
+    mutations: eg_transaction::MutationKernel,
     owner: eg_storage::OwnedStoreHandle<eg_storage::KvOwner>,
 }
 
@@ -134,7 +134,7 @@ const COLD_SCOPE_INCARNATION: &str = "kvcache-cold:v1";
 fn cold_scope_identity() -> io::Result<eg_types::MutationScopeIdentity> {
     eg_types::MutationScopeIdentity::fixed_native(
         COLD_SCOPE_TENANT,
-        eg_types::mutation_batch::MutationDomain::KvStore,
+        eg_types::mutation_batch::DurabilityDomain::KvStore,
         COLD_SCOPE_RESOURCE,
         COLD_SCOPE_INCARNATION,
     )
@@ -176,7 +176,7 @@ fn cold_batch(
         operations: vec![eg_types::MutationOperation {
             ordinal: 0,
             surface: eg_types::MutationSurface::Other,
-            domain: eg_types::mutation_batch::MutationDomain::KvStore,
+            domain: eg_types::mutation_batch::DurabilityDomain::KvStore,
             method: eg_types::protocol::Method::ApplyMutation {
                 event_type: format!("kvcache_cold_{kind}"),
                 query: batch_id,
@@ -210,15 +210,15 @@ impl RedbColdStore {
         // re-validates it on every open, so a first `get` before any `put`
         // succeeds without this crate opening a table itself.
         let kernel = if path.exists() {
-            eg_storage::StorageKernelV1::open_owner::<eg_storage::KvOwner>(path, physical, None)
+            eg_storage::StorageKernel::open_owner::<eg_storage::KvOwner>(path, physical, None)
         } else {
-            eg_storage::StorageKernelV1::create_owner::<eg_storage::KvOwner>(path, physical, None)
+            eg_storage::StorageKernel::create_owner::<eg_storage::KvOwner>(path, physical, None)
         }
         .map_err(io::Error::other)?;
         let (kernel, authority) = kernel
             .into_read_and_mutation_authority()
             .map_err(io::Error::other)?;
-        let mutations = eg_transaction::MutationKernelV1::new(authority);
+        let mutations = eg_transaction::MutationKernel::new(authority);
         let grant = kernel
             .authenticate_scope::<eg_storage::KvOwner>(
                 verifier,

@@ -2,11 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::context::{AuthorityContextV1, AUTHORITY_PROTOCOL_V1};
-use super::replay::{NonceReplayKeyV1, OperationReplayIdentityV1, ReplayReceiptV1};
+use super::context::{AuthorityContext, AUTHORITY_PROTOCOL_V1};
+use super::replay::{NonceReplayKey, OperationReplayIdentity, ReplayReceipt};
 use crate::contract::{
-    AdmissionStateV1, DecisionOutcomeV1, Digest256V1, Ed25519SignatureV1, MethodIdV1, OpaqueIdV1,
-    ResourceIdV1, SchemaIdV1, UtcUnixNanosV1, VerificationStatusV1,
+    AdmissionOutcome, DecisionOutcome, Digest256, Ed25519Signature, MethodId, OpaqueId,
+    ResourceId, SchemaId, UtcUnixNanos, VerificationStatus,
 };
 
 /// Immutable signed-envelope evidence. Validation proves only canonical field
@@ -14,25 +14,25 @@ use crate::contract::{
 /// deliberately request-boundary responsibilities.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SignedAuthorityEnvelopeEvidenceV1 {
-    pub protocol_id: crate::contract::ProtocolIdV1,
-    pub schema_version: ResourceIdV1,
-    pub catalog_digest: Digest256V1,
-    pub context_digest: Digest256V1,
-    pub payload_digest: Digest256V1,
-    pub audience: crate::contract::AudienceIdV1,
-    pub issued_at: UtcUnixNanosV1,
-    pub expires_at: UtcUnixNanosV1,
-    pub signer_key_id: OpaqueIdV1,
+pub struct SignedAuthorityEnvelopeEvidence {
+    pub protocol_id: crate::contract::ProtocolId,
+    pub schema_version: ResourceId,
+    pub catalog_digest: Digest256,
+    pub context_digest: Digest256,
+    pub payload_digest: Digest256,
+    pub audience: crate::contract::AudienceId,
+    pub issued_at: UtcUnixNanos,
+    pub expires_at: UtcUnixNanos,
+    pub signer_key_id: OpaqueId,
     pub signer_key_version: u64,
-    pub signature_algorithm: ResourceIdV1,
-    pub canonicalization: ResourceIdV1,
-    pub unsigned_message_digest: Digest256V1,
-    pub signature: Ed25519SignatureV1,
-    pub envelope_digest: Digest256V1,
+    pub signature_algorithm: ResourceId,
+    pub canonicalization: ResourceId,
+    pub unsigned_message_digest: Digest256,
+    pub signature: Ed25519Signature,
+    pub envelope_digest: Digest256,
 }
 
-impl SignedAuthorityEnvelopeEvidenceV1 {
+impl SignedAuthorityEnvelopeEvidence {
     pub fn validate(&self) -> Result<(), String> {
         if self.protocol_id.as_str() != AUTHORITY_PROTOCOL_V1
             || self.schema_version.as_str() != "signed-authority-envelope.v1"
@@ -53,8 +53,8 @@ impl SignedAuthorityEnvelopeEvidenceV1 {
 
     /// Digest of the complete canonical unsigned message. A trusted verifier
     /// verifies `signature` over this digest after resolving the pinned key.
-    pub fn recompute_unsigned_message_digest(&self) -> Result<Digest256V1, String> {
-        Digest256V1::framed(
+    pub fn recompute_unsigned_message_digest(&self) -> Result<Digest256, String> {
+        Digest256::framed(
             b"eg/signed-authority-unsigned-message/v1",
             &[
                 self.protocol_id.as_str().as_bytes(),
@@ -73,8 +73,8 @@ impl SignedAuthorityEnvelopeEvidenceV1 {
         )
     }
 
-    pub fn recompute_envelope_digest(&self) -> Result<Digest256V1, String> {
-        Digest256V1::framed(
+    pub fn recompute_envelope_digest(&self) -> Result<Digest256, String> {
+        Digest256::framed(
             b"eg/signed-authority-envelope/v1",
             &[
                 self.unsigned_message_digest.as_bytes(),
@@ -90,64 +90,64 @@ impl SignedAuthorityEnvelopeEvidenceV1 {
 /// The future `eg-transaction` boundary must consume this evidence only after
 /// signature/key-registry/current-time/policy/replay verification and mint a
 /// crate-private, non-`Deserialize`, non-`Clone` admitted token with no public
-/// constructor. `MutationKernelV1` must require that token, never this DTO.
+/// constructor. `MutationKernel` must require that token, never this DTO.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct VerifiedAuthorityV1 {
-    pub receipt_id: OpaqueIdV1,
-    pub context: AuthorityContextV1,
-    pub signed_envelope: SignedAuthorityEnvelopeEvidenceV1,
-    pub verification_receipt_id: OpaqueIdV1,
-    pub verification_status: VerificationStatusV1,
-    pub envelope_digest: Digest256V1,
-    pub verified_context_digest: Digest256V1,
-    pub verified_payload_digest: Digest256V1,
-    pub verified_catalog_digest: Digest256V1,
-    pub verified_method: MethodIdV1,
-    pub verified_method_schema_id: SchemaIdV1,
-    pub verified_method_schema_digest: Digest256V1,
-    pub signer_key_id: OpaqueIdV1,
-    pub verified_at: UtcUnixNanosV1,
-    pub verification_valid_until: UtcUnixNanosV1,
-    pub admission_receipt_id: OpaqueIdV1,
-    pub admission_decision_id: OpaqueIdV1,
-    pub admission_manifest_digest: Digest256V1,
-    pub admission_catalog_digest: Digest256V1,
-    pub admission_context_digest: Digest256V1,
-    pub admission_operation_replay_digest: Digest256V1,
-    pub admission_nonce_replay_digest: Digest256V1,
-    pub admission_policy_digest: Digest256V1,
-    pub admission_egress_authorization_digest: Digest256V1,
+pub struct VerifiedAuthority {
+    pub receipt_id: OpaqueId,
+    pub context: AuthorityContext,
+    pub signed_envelope: SignedAuthorityEnvelopeEvidence,
+    pub verification_receipt_id: OpaqueId,
+    pub verification_status: VerificationStatus,
+    pub envelope_digest: Digest256,
+    pub verified_context_digest: Digest256,
+    pub verified_payload_digest: Digest256,
+    pub verified_catalog_digest: Digest256,
+    pub verified_method: MethodId,
+    pub verified_method_schema_id: SchemaId,
+    pub verified_method_schema_digest: Digest256,
+    pub signer_key_id: OpaqueId,
+    pub verified_at: UtcUnixNanos,
+    pub verification_valid_until: UtcUnixNanos,
+    pub admission_receipt_id: OpaqueId,
+    pub admission_decision_id: OpaqueId,
+    pub admission_manifest_digest: Digest256,
+    pub admission_catalog_digest: Digest256,
+    pub admission_context_digest: Digest256,
+    pub admission_operation_replay_digest: Digest256,
+    pub admission_nonce_replay_digest: Digest256,
+    pub admission_policy_digest: Digest256,
+    pub admission_egress_authorization_digest: Digest256,
     pub admission_durable_identity_epoch: u64,
     pub admission_policy_epoch: u64,
-    pub admission_state: AdmissionStateV1,
-    pub admission_issued_at: UtcUnixNanosV1,
-    pub admission_expires_at: UtcUnixNanosV1,
-    pub replay_receipt: ReplayReceiptV1,
-    pub valid_until: UtcUnixNanosV1,
+    pub admission_state: AdmissionOutcome,
+    pub admission_issued_at: UtcUnixNanos,
+    pub admission_expires_at: UtcUnixNanos,
+    pub replay_receipt: ReplayReceipt,
+    pub valid_until: UtcUnixNanos,
     pub durable_identity_epoch: u64,
-    pub decision_id: OpaqueIdV1,
-    pub parent_decision_id: Option<OpaqueIdV1>,
-    pub decision_outcome: DecisionOutcomeV1,
-    pub decision_context_digest: Digest256V1,
-    pub decision_policy_digest: Digest256V1,
-    pub decision_egress_authorization_digest: Digest256V1,
+    pub decision_id: OpaqueId,
+    pub parent_decision_id: Option<OpaqueId>,
+    pub decision_outcome: DecisionOutcome,
+    pub decision_context_digest: Digest256,
+    pub decision_policy_digest: Digest256,
+    pub decision_egress_authorization_digest: Digest256,
     pub decision_policy_epoch: u64,
-    pub decision_reason_code: ResourceIdV1,
+    pub decision_reason_code: ResourceId,
     pub decision_retryable: bool,
-    pub operation_replay_digest: Digest256V1,
-    pub nonce_replay_digest: Digest256V1,
-    pub evidence_digest: Digest256V1,
+    pub operation_replay_digest: Digest256,
+    pub nonce_replay_digest: Digest256,
+    pub evidence_digest: Digest256,
 }
 
-impl VerifiedAuthorityV1 {
+impl VerifiedAuthority {
     /// Structural evidence validation only. This does not verify a signature,
     /// consult a key registry or policy store, consume replay state, compare a
     /// trusted clock, or admit execution.
     pub(crate) fn validate_evidence_bindings(
         &self,
-        operation_identity: &OperationReplayIdentityV1,
-        nonce_key: &NonceReplayKeyV1,
+        operation_identity: &OperationReplayIdentity,
+        nonce_key: &NonceReplayKey,
     ) -> Result<(), String> {
         self.context.validate()?;
         self.signed_envelope.validate()?;
@@ -216,7 +216,7 @@ impl VerifiedAuthorityV1 {
     /// Complete immutable evidence commitment. It is not a verification or
     /// admission operation; the trusted boundary must independently verify the
     /// evidence before minting its private executable token.
-    pub fn recompute_evidence_digest(&self) -> Result<Digest256V1, String> {
+    pub fn recompute_evidence_digest(&self) -> Result<Digest256, String> {
         self.context.validate()?;
         self.signed_envelope.validate()?;
         let replay = self.replay_receipt.evidence_digest()?;
@@ -243,7 +243,7 @@ impl VerifiedAuthorityV1 {
         fields.push(&valid_until);
         fields.push(&identity_epoch);
         self.push_decision_fields(&mut fields, &decision_policy_epoch, &decision_retryable);
-        Digest256V1::framed(b"eg/verified-authority-evidence/v1", &fields)
+        Digest256::framed(b"eg/verified-authority-evidence/v1", &fields)
     }
 
     fn push_verification_fields<'a>(
@@ -321,20 +321,20 @@ fn require(invariant: bool, message: &str) -> Result<(), String> {
     }
 }
 
-fn verification_time_is_valid(authority: &VerifiedAuthorityV1) -> bool {
+fn verification_time_is_valid(authority: &VerifiedAuthority) -> bool {
     authority.verification_valid_until > authority.verified_at
         && authority.verified_at >= authority.context.issued_at
         && authority.verification_valid_until <= authority.context.expires_at
 }
 
-fn admission_time_is_valid(authority: &VerifiedAuthorityV1) -> bool {
+fn admission_time_is_valid(authority: &VerifiedAuthority) -> bool {
     authority.admission_expires_at > authority.admission_issued_at
         && authority.admission_issued_at >= authority.verified_at
         && authority.admission_expires_at <= authority.context.expires_at
         && authority.valid_until >= authority.admission_issued_at
 }
 
-fn replay_time_is_valid(authority: &VerifiedAuthorityV1) -> bool {
+fn replay_time_is_valid(authority: &VerifiedAuthority) -> bool {
     authority.replay_receipt.recorded_at >= authority.admission_issued_at
         && authority.replay_receipt.recorded_at <= authority.valid_until
         && authority
@@ -346,7 +346,7 @@ fn replay_time_is_valid(authority: &VerifiedAuthorityV1) -> bool {
             })
 }
 
-fn authority_state_is_admitted(authority: &VerifiedAuthorityV1) -> bool {
+fn authority_state_is_admitted(authority: &VerifiedAuthority) -> bool {
     authority.verification_status.as_str() == "verified"
         && authority.admission_state.as_str() == "admitted"
         && authority.decision_outcome.as_str() == "allow"
@@ -357,9 +357,9 @@ fn authority_state_is_admitted(authority: &VerifiedAuthorityV1) -> bool {
 }
 
 fn operation_identity_matches_context(
-    authority: &VerifiedAuthorityV1,
-    operation: &OperationReplayIdentityV1,
-    nonce: &NonceReplayKeyV1,
+    authority: &VerifiedAuthority,
+    operation: &OperationReplayIdentity,
+    nonce: &NonceReplayKey,
 ) -> bool {
     operation_principal_matches(authority, operation)
         && operation_contract_matches(authority, operation)
@@ -367,8 +367,8 @@ fn operation_identity_matches_context(
 }
 
 fn operation_principal_matches(
-    authority: &VerifiedAuthorityV1,
-    operation: &OperationReplayIdentityV1,
+    authority: &VerifiedAuthority,
+    operation: &OperationReplayIdentity,
 ) -> bool {
     operation.tenant == authority.context.tenant
         && operation.protocol_id == authority.context.protocol_id
@@ -379,8 +379,8 @@ fn operation_principal_matches(
 }
 
 fn operation_contract_matches(
-    authority: &VerifiedAuthorityV1,
-    operation: &OperationReplayIdentityV1,
+    authority: &VerifiedAuthority,
+    operation: &OperationReplayIdentity,
 ) -> bool {
     operation.operation == authority.context.operation
         && operation.purpose_kind == authority.context.purpose_kind
@@ -391,7 +391,7 @@ fn operation_contract_matches(
         && Some(&operation.idempotency_key) == authority.context.idempotency_key.as_ref()
 }
 
-fn nonce_identity_matches(authority: &VerifiedAuthorityV1, nonce: &NonceReplayKeyV1) -> bool {
+fn nonce_identity_matches(authority: &VerifiedAuthority, nonce: &NonceReplayKey) -> bool {
     nonce.protocol_id == authority.context.protocol_id
         && nonce.catalog_digest == authority.context.catalog_digest
         && nonce.audience == authority.context.audience
@@ -401,8 +401,8 @@ fn nonce_identity_matches(authority: &VerifiedAuthorityV1, nonce: &NonceReplayKe
 }
 
 fn signed_envelope_matches(
-    authority: &VerifiedAuthorityV1,
-    operation: &OperationReplayIdentityV1,
+    authority: &VerifiedAuthority,
+    operation: &OperationReplayIdentity,
 ) -> bool {
     authority.verified_context_digest == authority.context.context_digest
         && authority.signed_envelope.protocol_id == authority.context.protocol_id
@@ -417,8 +417,8 @@ fn signed_envelope_matches(
 }
 
 fn verification_receipt_matches(
-    authority: &VerifiedAuthorityV1,
-    operation: &OperationReplayIdentityV1,
+    authority: &VerifiedAuthority,
+    operation: &OperationReplayIdentity,
 ) -> bool {
     authority.verified_catalog_digest == authority.context.catalog_digest
         && authority.verified_payload_digest == operation.canonical_payload_digest
@@ -427,7 +427,7 @@ fn verification_receipt_matches(
         && authority.verified_method_schema_digest == operation.method_schema_digest
 }
 
-fn admission_decision_matches(authority: &VerifiedAuthorityV1) -> bool {
+fn admission_decision_matches(authority: &VerifiedAuthority) -> bool {
     authority.admission_decision_id == authority.context.policy_decision_id
         && authority.decision_id == authority.context.policy_decision_id
         && authority.admission_catalog_digest == authority.context.catalog_digest
@@ -435,9 +435,9 @@ fn admission_decision_matches(authority: &VerifiedAuthorityV1) -> bool {
 }
 
 fn admission_replay_matches(
-    authority: &VerifiedAuthorityV1,
-    operation_digest: Digest256V1,
-    nonce_digest: Digest256V1,
+    authority: &VerifiedAuthority,
+    operation_digest: Digest256,
+    nonce_digest: Digest256,
 ) -> bool {
     authority.admission_operation_replay_digest == operation_digest
         && authority.admission_nonce_replay_digest == nonce_digest
@@ -448,7 +448,7 @@ fn admission_replay_matches(
         && authority.admission_policy_epoch == authority.context.policy_epoch
 }
 
-fn decision_matches(authority: &VerifiedAuthorityV1) -> bool {
+fn decision_matches(authority: &VerifiedAuthority) -> bool {
     authority.decision_policy_digest == authority.context.policy_digest
         && authority.decision_policy_epoch == authority.context.policy_epoch
         && authority.decision_context_digest == authority.context.context_digest
@@ -456,9 +456,9 @@ fn decision_matches(authority: &VerifiedAuthorityV1) -> bool {
 }
 
 fn replay_receipt_matches(
-    authority: &VerifiedAuthorityV1,
-    operation_digest: Digest256V1,
-    nonce_digest: Digest256V1,
+    authority: &VerifiedAuthority,
+    operation_digest: Digest256,
+    nonce_digest: Digest256,
 ) -> bool {
     authority.replay_receipt.context_digest == authority.context.context_digest
         && authority.operation_replay_digest == operation_digest
@@ -467,6 +467,6 @@ fn replay_receipt_matches(
         && authority.replay_receipt.nonce_replay_digest == nonce_digest
 }
 
-fn optional_opaque_bytes(value: Option<&OpaqueIdV1>) -> &[u8] {
+fn optional_opaque_bytes(value: Option<&OpaqueId>) -> &[u8] {
     value.map_or(b"".as_slice(), |item| item.as_str().as_bytes())
 }

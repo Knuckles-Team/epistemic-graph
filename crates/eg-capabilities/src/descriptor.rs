@@ -154,10 +154,10 @@ impl SchemaProvenance {
 /// RF-RULING-004's replay identities, as they apply to one method.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReplayClass {
-    /// A durable mutation admitted through `MutationKernelV1`: a fresh nonce plus the
-    /// exact `OperationReplayIdentityV1` replays the prior result.
+    /// A durable mutation admitted through `MutationKernel`: a fresh nonce plus the
+    /// exact `OperationReplayIdentity` replays the prior result.
     OperationIdentity,
-    /// A state transition that consumes a `NonceReplayKeyV1` but owns no durable
+    /// A state transition that consumes a `NonceReplayKey` but owns no durable
     /// operation identity (process/session-scoped staging and lifecycle).
     NonceOnly,
     /// No mutation to replay.
@@ -317,9 +317,9 @@ pub const fn error_set_for(policy: &MethodPolicy) -> &'static [&'static str] {
 
 /// RF-RULING-004 replay class, derived from the policy's durability.
 ///
-/// A durable mutation is admitted by `MutationKernelV1` and therefore carries a stable
-/// `OperationReplayIdentityV1`. An explicitly volatile transition consumes only a
-/// `NonceReplayKeyV1`. A read mutates nothing and is never replayed.
+/// A durable mutation is admitted by `MutationKernel` and therefore carries a stable
+/// `OperationReplayIdentity`. An explicitly volatile transition consumes only a
+/// `NonceReplayKey`. A read mutates nothing and is never replayed.
 pub const fn replay_class_for(policy: &MethodPolicy) -> ReplayClass {
     if !policy.mutates {
         return ReplayClass::NotReplayable;
@@ -348,7 +348,7 @@ const CONTROL_FORMATS: &[&str] = &[
     "RBAC_SCOPE_INCARNATION",
     "CONSENSUS_TRANSACTION_SCHEMA_VERSION",
 ];
-/// Every other durable store is opened and identified by `StorageKernelV1` alone
+/// Every other durable store is opened and identified by `StorageKernel` alone
 /// (RF-RULING-004), which owns no second per-domain format constant in this tree.
 const STORE_FORMATS: &[&str] = &["STORAGE_KERNEL_SCHEMA_VERSION"];
 const NO_FORMATS: &[&str] = &[];

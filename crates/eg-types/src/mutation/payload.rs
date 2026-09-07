@@ -1,21 +1,21 @@
 use super::budget::{MutationBudgetCharge, StructuralBudget};
-use super::effects::MutationEffectV1;
-use super::outbox_decode::ProvenanceBindingV1;
-use super::targets::MutationPreconditionV1;
+use super::effects::MutationEffect;
+use super::outbox_decode::ProvenanceBinding;
+use super::targets::MutationPrecondition;
 use super::{MAX_MUTATION_PRECONDITIONS, MAX_PROVENANCE_REFS};
-use crate::authority::AuthorityScopeV1;
+use crate::authority::AuthorityScope;
 use crate::contract::{
-    BoundedVecV1, Digest256V1, OpaqueIdV1, RequestedMutationResultV1, TenantIdV1,
+    BoundedVec, Digest256, OpaqueId, RequestedMutationResult, TenantId,
     MAX_MUTATION_EFFECTS, MAX_OUTBOX_INTENTS,
 };
-use crate::outbox::OutboxIntentV1;
+use crate::outbox::OutboxIntent;
 pub(super) fn validate_payload_shape_and_scope(
-    tenant: &TenantIdV1,
-    scope: &AuthorityScopeV1,
-    preconditions: &BoundedVecV1<MutationPreconditionV1, MAX_MUTATION_PRECONDITIONS>,
-    effects: &BoundedVecV1<MutationEffectV1, MAX_MUTATION_EFFECTS>,
-    outbox: &BoundedVecV1<OutboxIntentV1, MAX_OUTBOX_INTENTS>,
-    provenance: &BoundedVecV1<ProvenanceBindingV1, MAX_PROVENANCE_REFS>,
+    tenant: &TenantId,
+    scope: &AuthorityScope,
+    preconditions: &BoundedVec<MutationPrecondition, MAX_MUTATION_PRECONDITIONS>,
+    effects: &BoundedVec<MutationEffect, MAX_MUTATION_EFFECTS>,
+    outbox: &BoundedVec<OutboxIntent, MAX_OUTBOX_INTENTS>,
+    provenance: &BoundedVec<ProvenanceBinding, MAX_PROVENANCE_REFS>,
 ) -> Result<(), String> {
     if effects.is_empty() {
         return Err("mutation must contain 1..=4096 effects".into());
@@ -46,10 +46,10 @@ pub(super) fn validate_payload_shape_and_scope(
 }
 
 pub(super) fn validate_payload_byte_budget(
-    preconditions: &BoundedVecV1<MutationPreconditionV1, MAX_MUTATION_PRECONDITIONS>,
-    effects: &BoundedVecV1<MutationEffectV1, MAX_MUTATION_EFFECTS>,
-    outbox: &BoundedVecV1<OutboxIntentV1, MAX_OUTBOX_INTENTS>,
-    provenance: &BoundedVecV1<ProvenanceBindingV1, MAX_PROVENANCE_REFS>,
+    preconditions: &BoundedVec<MutationPrecondition, MAX_MUTATION_PRECONDITIONS>,
+    effects: &BoundedVec<MutationEffect, MAX_MUTATION_EFFECTS>,
+    outbox: &BoundedVec<OutboxIntent, MAX_OUTBOX_INTENTS>,
+    provenance: &BoundedVec<ProvenanceBinding, MAX_PROVENANCE_REFS>,
 ) -> Result<(), String> {
     // Conservative upper bound over the named MessagePack representation: the
     // fixed charge covers authority/evidence scalars and map keys; repeated
@@ -71,32 +71,32 @@ pub(super) fn validate_payload_byte_budget(
 }
 
 pub(super) fn recompute_canonical_payload_digest(
-    mutation_id: &OpaqueIdV1,
-    scope: &AuthorityScopeV1,
-    preconditions: &BoundedVecV1<MutationPreconditionV1, MAX_MUTATION_PRECONDITIONS>,
-    effects: &BoundedVecV1<MutationEffectV1, MAX_MUTATION_EFFECTS>,
-    outbox: &BoundedVecV1<OutboxIntentV1, MAX_OUTBOX_INTENTS>,
-    provenance: &BoundedVecV1<ProvenanceBindingV1, MAX_PROVENANCE_REFS>,
-    requested_result: &RequestedMutationResultV1,
-) -> Result<Digest256V1, String> {
+    mutation_id: &OpaqueId,
+    scope: &AuthorityScope,
+    preconditions: &BoundedVec<MutationPrecondition, MAX_MUTATION_PRECONDITIONS>,
+    effects: &BoundedVec<MutationEffect, MAX_MUTATION_EFFECTS>,
+    outbox: &BoundedVec<OutboxIntent, MAX_OUTBOX_INTENTS>,
+    provenance: &BoundedVec<ProvenanceBinding, MAX_PROVENANCE_REFS>,
+    requested_result: &RequestedMutationResult,
+) -> Result<Digest256, String> {
     let preconditions = digest_sequence(
         b"eg/mutation-preconditions/v1",
-        preconditions.iter().map(MutationPreconditionV1::digest),
+        preconditions.iter().map(MutationPrecondition::digest),
     )?;
     let effects = digest_sequence(
         b"eg/mutation-effects/v1",
-        effects.iter().map(MutationEffectV1::digest),
+        effects.iter().map(MutationEffect::digest),
     )?;
     let outbox = digest_sequence(
         b"eg/mutation-outbox/v1",
-        outbox.iter().map(OutboxIntentV1::digest),
+        outbox.iter().map(OutboxIntent::digest),
     )?;
     let provenance = digest_sequence(
         b"eg/mutation-provenance/v1",
-        provenance.iter().map(ProvenanceBindingV1::digest),
+        provenance.iter().map(ProvenanceBinding::digest),
     )?;
     let scope = scope.digest()?;
-    Digest256V1::framed(
+    Digest256::framed(
         b"eg/mutation-canonical-payload/v1",
         &[
             mutation_id.as_str().as_bytes(),
@@ -111,24 +111,24 @@ pub(super) fn recompute_canonical_payload_digest(
 }
 
 pub(super) fn recompute_egress_authorization_digest(
-    outbox: &BoundedVecV1<OutboxIntentV1, MAX_OUTBOX_INTENTS>,
-) -> Result<Digest256V1, String> {
+    outbox: &BoundedVec<OutboxIntent, MAX_OUTBOX_INTENTS>,
+) -> Result<Digest256, String> {
     digest_sequence(
         b"eg/mutation-egress-authorization/v1",
         outbox
             .iter()
-            .map(OutboxIntentV1::destination_authorization_digest),
+            .map(OutboxIntent::destination_authorization_digest),
     )
 }
 
 pub(super) fn digest_sequence(
     domain: &[u8],
-    digests: impl Iterator<Item = Result<Digest256V1, String>>,
-) -> Result<Digest256V1, String> {
-    let digests: Vec<Digest256V1> = digests.collect::<Result<_, _>>()?;
+    digests: impl Iterator<Item = Result<Digest256, String>>,
+) -> Result<Digest256, String> {
+    let digests: Vec<Digest256> = digests.collect::<Result<_, _>>()?;
     let fields: Vec<&[u8]> = digests
         .iter()
         .map(|digest| digest.as_bytes().as_slice())
         .collect();
-    Digest256V1::framed(domain, &fields)
+    Digest256::framed(domain, &fields)
 }

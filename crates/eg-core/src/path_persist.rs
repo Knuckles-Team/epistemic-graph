@@ -127,7 +127,7 @@ fn path_index_batch(
     let operation = eg_types::MutationOperation {
         ordinal: 0,
         surface: eg_types::MutationSurface::Other,
-        domain: eg_types::mutation_batch::MutationDomain::ControlPlane,
+        domain: eg_types::mutation_batch::DurabilityDomain::ControlPlane,
         method: eg_types::protocol::Method::ApplyMutation {
             event_type: "path_index_snapshot".to_string(),
             query: batch_id.clone(),
@@ -171,14 +171,14 @@ mod redb_store {
 
     use eg_storage::{
         OwnedStoreHandle, PathIndexOwner, PhysicalStoreIdentity, ScopeGrantVerifier,
-        StorageKernelV1,
+        StorageKernel,
     };
-    use eg_transaction::{Begin, MutationKernelV1};
+    use eg_transaction::{Begin, MutationKernel};
     use redb::TableDefinition;
 
     /// `key → serde_json bytes`. One table, one well-known key (`snapshot`), written
     /// in a single durable transaction (CONCEPT:EG-KG.storage.path-index-store).
-    const PATH_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("path_index_v1");
+    const PATH_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("path_index");
     const SNAPSHOT_KEY: &str = "snapshot";
 
     /// Operator-facing identity of the ONE physical `path_index.redb` owner file.
@@ -194,7 +194,7 @@ mod redb_store {
     fn path_scope_identity() -> Result<eg_types::MutationScopeIdentity, PathPersistError> {
         eg_types::MutationScopeIdentity::fixed_native(
             PATH_SCOPE_TENANT,
-            eg_types::mutation_batch::MutationDomain::ControlPlane,
+            eg_types::mutation_batch::DurabilityDomain::ControlPlane,
             PATH_SCOPE_RESOURCE,
             PATH_SCOPE_INCARNATION,
         )
@@ -242,11 +242,11 @@ mod redb_store {
     ///
     /// RF-RULING-004: `eg-storage` is the sole physical owner of
     /// `path_index.redb` under `OwnerLayout::PathIndex`, whose one owner table is
-    /// `path_index_v1`; `eg-transaction` is the sole writer. This crate holds only
+    /// `path_index`; `eg-transaction` is the sole writer. This crate holds only
     /// the capabilities they issue.
     pub struct RedbPathIndexStore {
-        kernel: StorageKernelV1,
-        mutations: MutationKernelV1,
+        kernel: StorageKernel,
+        mutations: MutationKernel,
         owner: OwnedStoreHandle<PathIndexOwner>,
     }
 
@@ -272,15 +272,15 @@ mod redb_store {
             let physical = PhysicalStoreIdentity::new(PATH_PHYSICAL_STORE)
                 .map_err(PathPersistError::Redb)?;
             let kernel = if path.exists() {
-                StorageKernelV1::open_owner::<PathIndexOwner>(&path, physical, None)
+                StorageKernel::open_owner::<PathIndexOwner>(&path, physical, None)
             } else {
-                StorageKernelV1::create_owner::<PathIndexOwner>(&path, physical, None)
+                StorageKernel::create_owner::<PathIndexOwner>(&path, physical, None)
             }
             .map_err(PathPersistError::Redb)?;
             let (kernel, authority) = kernel
                 .into_read_and_mutation_authority()
                 .map_err(PathPersistError::Redb)?;
-            let mutations = MutationKernelV1::new(authority);
+            let mutations = MutationKernel::new(authority);
             let grant = kernel
                 .authenticate_scope::<PathIndexOwner>(
                     verifier,

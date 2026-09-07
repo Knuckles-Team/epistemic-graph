@@ -1,4 +1,4 @@
-use crate::kernel::{create_physical, open_physical, StorageKernelV1};
+use crate::kernel::{create_physical, open_physical, StorageKernel};
 use crate::owner::contract::{CAP_CAS, CAP_DELETE, CAP_INSERT, CAP_READ, CAP_UPDATE};
 use crate::owner::domain::SqlOwner;
 use crate::owner::identity::PhysicalStoreIdentity;
@@ -19,9 +19,9 @@ mod graph_shard;
 fn owner_layout_registry_has_frozen_cardinality() {
     // The physical ledger has exactly 18 tables total. OWNER_MANIFEST is one
     // of those 18; it is not a nineteenth table. Ledger format v2 added the two
-    // replay tables (`mutation_replay_nonces_v1`,
-    // `mutation_replay_operations_v1`) and the mutation-class label
-    // (`mutation_classes_v1`, which makes a maintenance write explicit) to the
+    // replay tables (`mutation_replay_nonces`,
+    // `mutation_replay_operations`) and the mutation-class label
+    // (`mutation_classes`, which makes a maintenance write explicit) to the
     // closed census.
     assert_eq!(ledger_table_names().len(), 18);
     assert_eq!(owner_table_names(OwnerLayout::LedgerOnly).len(), 0);
@@ -38,7 +38,7 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // 17: the 20 the cutover inherited, PLUS the two SQL/PGQ property-graph
     // catalog tables `eg-query` wrote without declaring, MINUS the five
     // `__sql_mutation_*__` tables of the private ledger RF-RULING-006 retired
-    // onto `MutationKernelV1`'s.
+    // onto `MutationKernel`'s.
     assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 17);
     assert_eq!(owner_table_names(OwnerLayout::PathIndex).len(), 1);
     // Six root-binary sidecar layouts. Each is one physical file with one
@@ -57,7 +57,7 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // `raft_meta` and `encryption_canary` from `redb_backend.rs`, and the three
     // `series_*` tables the cross-modal atomic commit writes into the same
     // transaction) MINUS the eight `mutation_*` tables of the shard's retired
-    // private ledger, which RF-RULING-004 gives to `MutationKernelV1` alone:
+    // private ledger, which RF-RULING-004 gives to `MutationKernel` alone:
     // 39 + 4 + 3 + 10 + 2 + 3 - 8 = 53.
     assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 53);
     assert_eq!(owner_layouts().len(), 17);
@@ -95,7 +95,7 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
         .count();
     // 66 owner tables across the sixteen layouts: RF-RULING-004 puts the
     // complete physical registry in the storage kernel, so the consumer-owned
-    // tables (`path_index_v1`, `eg_ann`, `eg_kvcache_cold`, and the 17
+    // tables (`path_index`, `eg_ann`, `eg_kvcache_cold`, and the 17
     // `__sql_*`) are declared here rather than by the crates that read them.
     // +7 over the previous 62: the seven tables of the six root-binary
     // sidecar owner files, which stopped being raw `Database::create` sites.
@@ -164,7 +164,7 @@ fn manifest_registry_records_exact_unit_and_tuple_value_types() {
             .value_type_id
             .as_str()
     };
-    assert_eq!(type_id("mutation_outbox_topic_index_v1"), "()");
+    assert_eq!(type_id("mutation_outbox_topic_index"), "()");
     assert_eq!(
         type_id("analytics_job_active_totals_by_tenant"),
         "(u64,u64)"
@@ -402,7 +402,7 @@ fn signed_store_private_layouts_match_current_provider_schemas() {
     let rw = CAP_READ | CAP_INSERT | CAP_UPDATE;
     assert_signed_owner_contract(
         OwnerLayout::Rbac,
-        "rbac_v1",
+        "rbac",
         "&str",
         "&[u8]",
         TableScope::StorePrivate,
@@ -520,10 +520,10 @@ fn signed_semantic_layout_is_closed_domain_service_authority() {
         let table = owner_contract(OwnerLayout::SemanticIndex, name);
         let projection = matches!(
             *name,
-            "semantic_binding_heads_v1"
-                | "semantic_lexical_manifests_v1"
-                | "semantic_ann_manifests_v1"
-                | "semantic_vectors_v1"
+            "semantic_binding_heads"
+                | "semantic_lexical_manifests"
+                | "semantic_ann_manifests"
+                | "semantic_vectors"
         );
         assert_eq!(table.scope, TableScope::Serving);
         assert_eq!(owner_table_access(name), OwnerTableAccess::DomainService);
@@ -539,7 +539,7 @@ fn signed_semantic_layout_is_closed_domain_service_authority() {
         assert_eq!(
             table.logical_codec_id,
             match *name {
-                "semantic_binding_heads_v1" => "redb-scalar-v1",
+                "semantic_binding_heads" => "redb-scalar-v1",
                 // `eg_ann` stores the ANN index's three opaque buffers
                 // (meta/codes/refine), not a semantic-index row, so its codec
                 // states what it actually is.
@@ -696,7 +696,7 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
         names.extend(owner_table_names(layout));
     }
     // 18 ledger + 116 owner tables across the seventeen layouts. The
-    // consumer-owned tables `path_index_v1`, `eg_ann`, `eg_kvcache_cold` and
+    // consumer-owned tables `path_index`, `eg_ann`, `eg_kvcache_cold` and
     // the 17 `__sql_*` tables joined the registry because RF-RULING-004 puts
     // the complete physical table registry in the storage kernel; the seven
     // root-binary sidecar tables joined it when their raw opens were cut, and
@@ -769,7 +769,7 @@ fn the_sql_census_rejects_a_retired_private_mutation_ledger_table() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(format!("sql-ledger-{ordinal}.redb"));
         let physical = PhysicalStoreIdentity::new("eg-query:sql-user-tables").unwrap();
-        StorageKernelV1::create_owner::<SqlOwner>(&path, physical.clone(), None).unwrap();
+        StorageKernel::create_owner::<SqlOwner>(&path, physical.clone(), None).unwrap();
 
         // Plant the retired table with a raw database, under the kernel: a store
         // opened through the kernel cannot reach an undeclared table at all, so
@@ -781,7 +781,7 @@ fn the_sql_census_rejects_a_retired_private_mutation_ledger_table() {
         write.commit().unwrap();
         drop(database);
 
-        let error = match StorageKernelV1::open_owner::<SqlOwner>(&path, physical, None) {
+        let error = match StorageKernel::open_owner::<SqlOwner>(&path, physical, None) {
             Ok(_) => panic!("{name}: a retired ledger table must refuse to reopen"),
             Err(error) => error,
         };

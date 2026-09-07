@@ -47,10 +47,10 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use eg_storage::{
-    OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead, StorageKernelV1,
+    OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead, StorageKernel,
     TimeSeriesOwner,
 };
-use eg_transaction::{AdmittedOwnerWrite, Begin, MutationKernelV1};
+use eg_transaction::{AdmittedOwnerWrite, Begin, MutationKernel};
 use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
 use eg_types::MutationBatch;
 use redb::{
@@ -260,18 +260,18 @@ fn series_bootstrap_identity() -> Result<eg_types::MutationScopeIdentity> {
 /// pair. `resource` must be EXACTLY the string a caller passes as
 /// `CompileBatch::graph` for the same append: `crate::server::mutation_batch::
 /// finish_batch` (top-level crate) builds the batch's authoritative `identity` from
-/// that identical (tenant, graph) pair, the SAME `MutationDomain::TimeSeries`
+/// that identical (tenant, graph) pair, the SAME `DurabilityDomain::TimeSeries`
 /// domain (the one operation `compile_opaque_method` compiles for a `TsAppend`),
 /// and the SAME `COMPILED_BATCH_INCARNATION` constant. See that constant's doc for
 /// why a mismatch on any of the three fails every append on that scope closed.
 fn series_scope_identity(tenant: &str, resource: &str) -> Result<eg_types::MutationScopeIdentity> {
-    let tenant = eg_types::TenantId::new(tenant).map_err(codec_err)?;
+    let tenant = eg_types::ScopeTenantId::new(tenant).map_err(codec_err)?;
     let resource = eg_types::LogicalName::new(resource).map_err(codec_err)?;
     let incarnation_id =
         eg_types::IncarnationId::new(COMPILED_BATCH_INCARNATION).map_err(codec_err)?;
     eg_types::MutationScopeIdentity::native(
         tenant,
-        eg_types::mutation_batch::MutationDomain::TimeSeries,
+        eg_types::mutation_batch::DurabilityDomain::TimeSeries,
         resource,
         incarnation_id,
     )
@@ -285,7 +285,7 @@ fn series_scope_identity(tenant: &str, resource: &str) -> Result<eg_types::Mutat
 /// Binding is idempotent for an exact re-entry, so reopening a store re-binds
 /// the identical scope rather than failing.
 fn bind_serving_scope(
-    kernel: &StorageKernelV1,
+    kernel: &StorageKernel,
     verifier: &dyn ScopeGrantVerifier,
     principal: &str,
     proof: &[u8],
@@ -320,7 +320,7 @@ fn maintenance_batch(
     let operation = eg_types::MutationOperation {
         ordinal: 0,
         surface: eg_types::MutationSurface::Other,
-        domain: eg_types::mutation_batch::MutationDomain::TimeSeries,
+        domain: eg_types::mutation_batch::DurabilityDomain::TimeSeries,
         method: eg_types::protocol::Method::ApplyMutation {
             event_type: format!("timeseries_{kind}"),
             query: storage_key.to_string(),
@@ -703,8 +703,8 @@ impl Chunk {
 /// capability gate is table-level, and those operations are store-level
 /// maintenance rather than one series' mutations.
 pub struct SeriesStore {
-    kernel: StorageKernelV1,
-    mutations: MutationKernelV1,
+    kernel: StorageKernel,
+    mutations: MutationKernel,
     /// The composition root's proof authority. Held (not borrowed) because a new
     /// series' scope must be authenticated lazily, long after `open` returned.
     grants: Arc<dyn ScopeGrantVerifier>,
@@ -746,9 +746,9 @@ impl SeriesStore {
         let identity = series_bootstrap_identity()?;
         let physical = PhysicalStoreIdentity::new(SERIES_PHYSICAL_STORE).map_err(redb_err)?;
         let kernel = if path.exists() {
-            StorageKernelV1::open_owner::<TimeSeriesOwner>(path, physical, None)
+            StorageKernel::open_owner::<TimeSeriesOwner>(path, physical, None)
         } else {
-            StorageKernelV1::create_owner::<TimeSeriesOwner>(path, physical, None)
+            StorageKernel::create_owner::<TimeSeriesOwner>(path, physical, None)
         }
         .map_err(redb_err)?;
         let (kernel, authority) = kernel.into_read_and_mutation_authority().map_err(redb_err)?;
@@ -761,7 +761,7 @@ impl SeriesStore {
         )?);
         Ok(Self {
             kernel,
-            mutations: MutationKernelV1::new(authority),
+            mutations: MutationKernel::new(authority),
             grants: verifier,
             principal: principal.to_string(),
             proof: proof.to_vec(),

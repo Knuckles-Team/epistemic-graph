@@ -27,8 +27,8 @@ def _gate_module():
 
 def _m1_sources(module):
     # crates/eg-mutation-store is deleted; module.mutation_kernel_source() is
-    # its current-only successor (the union of eg-storage's StorageKernelV1
-    # and eg-transaction's MutationKernelV1 module trees). See that helper's
+    # its current-only successor (the union of eg-storage's StorageKernel
+    # and eg-transaction's MutationKernel module trees). See that helper's
     # docstring in scripts/check_persisted_mutation_contract.py.
     return (
         module.read_module_tree("crates/eg-types/src/mutation_batch.rs"),
@@ -50,7 +50,7 @@ def test_persisted_contract_follows_mutation_batch_facade_tree() -> None:
     source = module.read_module_tree("crates/eg-types/src/mutation_batch.rs")
 
     assert "pub struct MutationOperation" in source
-    assert "pub domain: MutationDomain" in source
+    assert "pub domain: DurabilityDomain" in source
 
 
 def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
@@ -537,12 +537,12 @@ def test_native_command_payload_limit_has_one_owner() -> None:
 def test_native_store_source_union_contains_root_and_scope_binding_lanes() -> None:
     module = _gate_module()
     source = module.mutation_kernel_source()
-    assert 'TableDefinition::new("mutation_store_root_v1")' in source
-    assert 'TableDefinition::new("mutation_scope_bindings_v1")' in source
+    assert 'TableDefinition::new("mutation_store_root")' in source
+    assert 'TableDefinition::new("mutation_scope_bindings")' in source
     # NOT repointed -- left failing deliberately. `initialize<F>`/`bind_scope<F>`
     # (caller-supplied-closure atomic bootstrap constructors) were deleted
     # outright by 064f2d04, not renamed; their replacements
-    # (StorageKernelV1::{create_owner, open_owner} + authenticate_scope +
+    # (StorageKernel::{create_owner, open_owner} + authenticate_scope +
     # bind_serving_scope) take no generic closure at all, so no current text
     # satisfies this exact marker. See this task's report for the finding.
     assert "pub fn initialize<F>(" in source

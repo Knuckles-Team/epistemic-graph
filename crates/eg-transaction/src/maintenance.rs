@@ -10,7 +10,7 @@
 //! record instead of applying its own write.
 //!
 //! This constructor exists once and is reachable only through
-//! [`crate::MutationKernelV1::admit_current`], which resolves the version
+//! [`crate::MutationKernel::admit_current`], which resolves the version
 //! INSIDE the exclusive write transaction. redb serializes writers, so exactly
 //! one batch commits per version and the next writer necessarily builds its id
 //! from the version the first one produced. Two attempts are byte-identical
@@ -18,7 +18,7 @@
 //! the commit -- which is precisely when a replay is the right answer.
 
 use eg_storage::{OwnedStoreHandle, OwnerDomain};
-use eg_types::mutation_batch::MutationDomain;
+use eg_types::mutation_batch::DurabilityDomain;
 use eg_types::protocol::Method;
 use eg_types::{
     MutationBatch, MutationOperation, MutationRequestContext, MutationSurface, VersionExpectation,
@@ -32,7 +32,7 @@ use eg_types::{
 /// store's ledger says which maintenance write produced each of its versions
 /// and against what -- the audit property RF-RULING-005 asks the class to carry.
 pub struct MaintenanceBatch<'a> {
-    domain: MutationDomain,
+    domain: DurabilityDomain,
     kind: &'a str,
     subject: &'a str,
 }
@@ -47,7 +47,7 @@ impl<'a> MaintenanceBatch<'a> {
     /// derived from arbitrary caller bytes must be digested by its caller
     /// rather than spelled out. [`Self::for_scope_version`] fails closed on one
     /// that is not -- it never mangles a subject to make it fit.
-    pub fn new(domain: MutationDomain, kind: &'a str, subject: &'a str) -> Self {
+    pub fn new(domain: DurabilityDomain, kind: &'a str, subject: &'a str) -> Self {
         Self {
             domain,
             kind,
@@ -59,7 +59,7 @@ impl<'a> MaintenanceBatch<'a> {
     /// as resolved inside the write transaction that will commit it.
     ///
     /// Pass this as the `build` closure of
-    /// [`crate::MutationKernelV1::admit_current`]; it is the only caller that
+    /// [`crate::MutationKernel::admit_current`]; it is the only caller that
     /// can supply an in-lock version, and it refuses any other expectation.
     pub fn for_scope_version<D: OwnerDomain>(
         &self,

@@ -4,7 +4,7 @@ use super::*;
 /// is intentionally registry-only and the token is intentionally non-Clone.
 pub struct ValidatedDirectStateSection {
     pub(super) domain: DirectStateDomain,
-    pub(super) manifest: DirectStateSectionManifestV1,
+    pub(super) manifest: DirectStateSectionManifest,
     pub(super) received: DirectStatePhysicalImage,
     pub(super) provider_state: Box<dyn Any + Send>,
 }
@@ -39,9 +39,9 @@ impl StagedWholeGeneration {
     pub fn prepared_journal(
         &self,
         snapshot_sha256: String,
-    ) -> Result<DirectStateInstallJournalV1, String> {
+    ) -> Result<DirectStateInstallJournal, String> {
         validate_sha256("direct-state snapshot", &snapshot_sha256)?;
-        let journal = DirectStateInstallJournalV1 {
+        let journal = DirectStateInstallJournal {
             schema_version: DIRECT_STATE_SCHEMA_VERSION,
             snapshot_sha256,
             scope: self.scope.clone(),
@@ -58,7 +58,7 @@ impl StagedWholeGeneration {
 }
 
 impl StagedDirectStateSection {
-    pub fn section(&self) -> &DirectStateInstallSectionV1 {
+    pub fn section(&self) -> &DirectStateInstallSection {
         self.generation.section()
     }
 }
@@ -259,7 +259,7 @@ impl DirectStateRegistry {
         expected_capture_set_sha256: &str,
         expected_source_generation_sha256: &str,
         expected_scope: &DirectStateScope,
-        remote: DirectStateRemoteTransportV1,
+        remote: DirectStateRemoteTransport,
     ) -> Result<CapturedWholeGeneration, String> {
         permit.validate_affinity(&self.authority_identity)?;
         self.validate_filesystem()?;

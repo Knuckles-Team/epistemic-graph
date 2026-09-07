@@ -1,6 +1,6 @@
 //! RF-RULING-004's two-identity replay matrix.
 //!
-//! Each case fixes the stable [`OperationReplayIdentityV1`] or varies exactly
+//! Each case fixes the stable [`OperationReplayIdentity`] or varies exactly
 //! one of its fields, and varies the attempt nonce independently, so the four
 //! outcomes are separated by construction rather than by coincidence.
 
@@ -13,9 +13,9 @@ fn record_attempt(
     fixture: &Fixture,
     owner: &OwnedStoreHandle<LedgerOnlyOwner>,
     batch: &MutationBatch,
-    operation: &OperationReplayIdentityV1,
-    nonce: &NonceReplayKeyV1,
-    receipt: &MutationReceiptV1,
+    operation: &OperationReplayIdentity,
+    nonce: &NonceReplayKey,
+    receipt: &MutationReceipt,
 ) {
     let (write, begun) = fixture.mutations.admit(owner, batch).unwrap();
     let source_version = match begun {
@@ -38,16 +38,16 @@ fn committed_fixture(
 ) -> (
     Fixture,
     OwnedStoreHandle<LedgerOnlyOwner>,
-    AuthorityContextV1,
-    OperationReplayIdentityV1,
-    NonceReplayKeyV1,
-    MutationReceiptV1,
+    AuthorityContext,
+    OperationReplayIdentity,
+    NonceReplayKey,
+    MutationReceipt,
 ) {
     let identity = native_identity("tenant-a", "incarnation:replay");
     let (fixture, owner) = ledger_fixture(&dir.join("replay.redb"), identity.clone());
     let first = context(1, "request-1", "idem:stable");
     let operation = operation_identity(&first, "mutation.apply", digest_of(30));
-    let nonce = NonceReplayKeyV1::from_context(&first).unwrap();
+    let nonce = NonceReplayKey::from_context(&first).unwrap();
     let recorded = receipt("receipt-1", &operation, &nonce);
     record_attempt(
         &fixture,
@@ -67,7 +67,7 @@ fn a_fresh_attempt_resolves_fresh() {
     let (fixture, owner) = ledger_fixture(&dir.path().join("replay.redb"), identity);
     let attempt = context(1, "request-1", "idem:stable");
     let operation = operation_identity(&attempt, "mutation.apply", digest_of(30));
-    let nonce = NonceReplayKeyV1::from_context(&attempt).unwrap();
+    let nonce = NonceReplayKey::from_context(&attempt).unwrap();
     assert_eq!(
         resolve(&fixture, &owner, &operation, &nonce),
         ReplayResolution::Fresh
@@ -95,7 +95,7 @@ fn a_fresh_nonce_over_the_same_stable_identity_replays_the_recorded_result() {
     // change while the stable operation digest does not.
     let second = context(2, "request-2", "idem:stable");
     let retried = operation_identity(&second, "mutation.apply", digest_of(30));
-    let fresh_nonce = NonceReplayKeyV1::from_context(&second).unwrap();
+    let fresh_nonce = NonceReplayKey::from_context(&second).unwrap();
     assert_ne!(first.context_digest, second.context_digest);
     assert_ne!(nonce.digest().unwrap(), fresh_nonce.digest().unwrap());
     assert_eq!(operation.digest().unwrap(), retried.digest().unwrap());
@@ -116,10 +116,10 @@ fn a_changed_operation_identity_conflicts() {
     let mut changed_payload = operation.clone();
     changed_payload.canonical_payload_digest = digest_of(31);
     let mut changed_method = operation.clone();
-    changed_method.method = MethodIdV1::new("mutation.replace").unwrap();
+    changed_method.method = MethodId::new("mutation.replace").unwrap();
     let mut changed_scope = operation.clone();
     changed_scope.authority_scope.parent_scope_ids =
-        BoundedVecV1::new(vec![ResourceIdV1::new("tenant:a").unwrap(), ResourceIdV1::new("zone:a").unwrap()])
+        BoundedVec::new(vec![ResourceId::new("tenant:a").unwrap(), ResourceId::new("zone:a").unwrap()])
             .unwrap();
     let mut changed_policy = operation.clone();
     changed_policy.policy_digest = digest_of(32);
@@ -131,7 +131,7 @@ fn a_changed_operation_identity_conflicts() {
         changed_policy,
     ] {
         let attempt = context(3, "request-3", "idem:stable");
-        let fresh_nonce = NonceReplayKeyV1::from_context(&attempt).unwrap();
+        let fresh_nonce = NonceReplayKey::from_context(&attempt).unwrap();
         let proposed = proposal.digest().unwrap();
         assert_ne!(proposed, recorded);
         assert_eq!(
@@ -150,8 +150,8 @@ fn the_context_digest_is_never_the_operation_replay_key() {
     let second = context(2, "request-2", "idem:stable");
     let one = operation_identity(&first, "mutation.apply", digest_of(30));
     let two = operation_identity(&second, "mutation.apply", digest_of(30));
-    let first_nonce = NonceReplayKeyV1::from_context(&first).unwrap();
-    let second_nonce = NonceReplayKeyV1::from_context(&second).unwrap();
+    let first_nonce = NonceReplayKey::from_context(&first).unwrap();
+    let second_nonce = NonceReplayKey::from_context(&second).unwrap();
     assert_ne!(first.context_digest, second.context_digest);
     assert_ne!(
         first_nonce.digest().unwrap(),
@@ -180,12 +180,12 @@ fn a_receipt_must_bind_both_replay_digests() {
     let (fixture, owner) = ledger_fixture(&dir.path().join("replay.redb"), identity.clone());
     let attempt = context(1, "request-1", "idem:stable");
     let operation = operation_identity(&attempt, "mutation.apply", digest_of(30));
-    let nonce = NonceReplayKeyV1::from_context(&attempt).unwrap();
+    let nonce = NonceReplayKey::from_context(&attempt).unwrap();
     let other = context(9, "request-9", "idem:stable");
     let mismatched = receipt(
         "receipt-1",
         &operation,
-        &NonceReplayKeyV1::from_context(&other).unwrap(),
+        &NonceReplayKey::from_context(&other).unwrap(),
     );
     let (write, _) = fixture
         .mutations
@@ -222,7 +222,7 @@ fn a_second_recording_of_the_same_operation_fails_closed() {
     // Fresh nonce, identical stable identity: the caller should have replayed.
     let second = context(2, "request-2", "idem:stable");
     let retried = operation_identity(&second, "mutation.apply", digest_of(30));
-    let fresh_nonce = NonceReplayKeyV1::from_context(&second).unwrap();
+    let fresh_nonce = NonceReplayKey::from_context(&second).unwrap();
     let other = receipt("receipt-2", &retried, &fresh_nonce);
     let mut third_attempt = batch(identity, "third-attempt");
     third_attempt.version_expectation = VersionExpectation::Native(1);
@@ -250,9 +250,9 @@ fn a_receipt_naming_another_scope_is_refused() {
     let (fixture, owner) = ledger_fixture(&dir.path().join("replay.redb"), identity.clone());
     let attempt = context(1, "request-1", "idem:stable");
     let operation = operation_identity(&attempt, "mutation.apply", digest_of(30));
-    let nonce = NonceReplayKeyV1::from_context(&attempt).unwrap();
+    let nonce = NonceReplayKey::from_context(&attempt).unwrap();
     let mut mismatched = receipt("receipt-1", &operation, &nonce);
-    mismatched.scope.scope_id = ResourceIdV1::new("graph:tenant:a/other").unwrap();
+    mismatched.scope.scope_id = ResourceId::new("graph:tenant:a/other").unwrap();
     let (write, _) = fixture
         .mutations
         .admit(&owner, &batch(identity, "scope-mismatch"))

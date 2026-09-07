@@ -22,9 +22,9 @@
 //!     `N+1` overwrote the generation `N` that was still serving. The
 //!     generation key component is what makes the two coexist.
 //!
-//! This module holds no physical authority of its own: the [`StorageKernelV1`]
+//! This module holds no physical authority of its own: the [`StorageKernel`]
 //! it owns is the sole opener of the file, and every write is admitted, ordered
-//! and committed by [`MutationKernelV1`].
+//! and committed by [`MutationKernel`].
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -32,9 +32,9 @@ use std::sync::Arc;
 
 use eg_storage::{
     OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead, SemanticIndexOwner,
-    StorageKernelV1, ANN_CODES, SEMANTIC_POINTERS, SEMANTIC_STATES,
+    StorageKernel, ANN_CODES, SEMANTIC_POINTERS, SEMANTIC_STATES,
 };
-use eg_transaction::{AdmittedMutation, Begin, MutationKernelV1};
+use eg_transaction::{AdmittedMutation, Begin, MutationKernel};
 use parking_lot::RwLock;
 use sha2::{Digest, Sha256};
 
@@ -135,7 +135,7 @@ fn scope_identity(
 ) -> Result<eg_types::MutationScopeIdentity, SemanticCodeError> {
     eg_types::MutationScopeIdentity::fixed_native(
         tenant,
-        eg_types::mutation_batch::MutationDomain::SemanticIndex,
+        eg_types::mutation_batch::DurabilityDomain::SemanticIndex,
         resource,
         incarnation,
     )
@@ -145,8 +145,8 @@ fn scope_identity(
 /// Durable, kernel-backed ANN code tier for one `(tenant, binding)` semantic
 /// index, holding any number of generations of which exactly one is live.
 pub struct SemanticCodeStore {
-    kernel: StorageKernelV1,
-    mutations: MutationKernelV1,
+    kernel: StorageKernel,
+    mutations: MutationKernel,
     verifier: Arc<dyn ScopeGrantVerifier>,
     principal: String,
     proof: Vec<u8>,
@@ -193,15 +193,15 @@ impl SemanticCodeStore {
         let path = dir.join(store_file_name(tenant, binding));
         let physical = PhysicalStoreIdentity::new(SEMANTIC_PHYSICAL_STORE).map_err(kernel_error)?;
         let kernel = if path.exists() {
-            StorageKernelV1::open_owner::<SemanticIndexOwner>(&path, physical, None)
+            StorageKernel::open_owner::<SemanticIndexOwner>(&path, physical, None)
         } else {
-            StorageKernelV1::create_owner::<SemanticIndexOwner>(&path, physical, None)
+            StorageKernel::create_owner::<SemanticIndexOwner>(&path, physical, None)
         }
         .map_err(kernel_error)?;
         let (kernel, authority) = kernel
             .into_read_and_mutation_authority()
             .map_err(kernel_error)?;
-        let mutations = MutationKernelV1::new(authority);
+        let mutations = MutationKernel::new(authority);
         let serving = bind_scope(
             &kernel,
             &mutations,
@@ -522,7 +522,7 @@ impl SemanticCodeStore {
             operations: vec![eg_types::MutationOperation {
                 ordinal: 0,
                 surface: eg_types::MutationSurface::Other,
-                domain: eg_types::mutation_batch::MutationDomain::SemanticIndex,
+                domain: eg_types::mutation_batch::DurabilityDomain::SemanticIndex,
                 method: eg_types::protocol::Method::ApplyMutation {
                     event_type: "semantic_index_generation_activated".to_string(),
                     query: format!("sha256:{digest}"),
@@ -537,8 +537,8 @@ impl SemanticCodeStore {
 /// Authenticate one scope and bind it, bootstrapping the ledger. TWO committed
 /// write transactions -- which is exactly why no read path calls this.
 fn bind_scope(
-    kernel: &StorageKernelV1,
-    mutations: &MutationKernelV1,
+    kernel: &StorageKernel,
+    mutations: &MutationKernel,
     verifier: &dyn ScopeGrantVerifier,
     principal: &str,
     proof: &[u8],

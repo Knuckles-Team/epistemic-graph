@@ -9,7 +9,7 @@
 //! accounts for it live or die with the caller's one transaction.
 
 use crate::capability::PhysicalWriteCapability;
-use crate::kernel::{StorageKernelV1, StoreOpenOptions};
+use crate::kernel::{StorageKernel, StoreOpenOptions};
 use crate::owner::blob_shared::{
     BlobSharedServiceHandle, BlobSharedServiceVerifier, BlobSharedTable,
 };
@@ -21,7 +21,7 @@ use crate::owner::layout::OwnerLayout;
 use crate::owner::registry::owner_table_names;
 use crate::owner::table_api::{owner_table_access, OwnerTableAccess};
 use crate::{CasChunkRows, CasRefcountRows, MutationOwnerAuthority};
-use eg_types::mutation_batch::{IncarnationId, LogicalName, MutationDomain, TenantId};
+use eg_types::mutation_batch::{IncarnationId, LogicalName, DurabilityDomain, ScopeTenantId};
 use eg_types::MutationScopeIdentity;
 use redb::TableDefinition;
 use std::path::Path;
@@ -64,9 +64,9 @@ impl BlobSharedServiceVerifier for SharedVerifier {
     }
 }
 
-fn identity(domain: MutationDomain, tenant: &str) -> MutationScopeIdentity {
+fn identity(domain: DurabilityDomain, tenant: &str) -> MutationScopeIdentity {
     MutationScopeIdentity::native(
-        TenantId::new(tenant).unwrap(),
+        ScopeTenantId::new(tenant).unwrap(),
         domain,
         LogicalName::new("cas").unwrap(),
         IncarnationId::new("incarnation:cas:1").unwrap(),
@@ -77,14 +77,14 @@ fn identity(domain: MutationDomain, tenant: &str) -> MutationScopeIdentity {
 /// One created owner file, its bound serving scope, its mutation authority and
 /// its authenticated shared-service handle.
 struct Cas {
-    kernel: StorageKernelV1,
+    kernel: StorageKernel,
     authority: MutationOwnerAuthority,
     owner: OwnedStoreHandle<BlobOwner>,
     service: BlobSharedServiceHandle,
 }
 
 fn cas(path: &Path, physical: &str) -> Cas {
-    let kernel = StorageKernelV1::create_owner::<BlobOwner>(
+    let kernel = StorageKernel::create_owner::<BlobOwner>(
         path,
         PhysicalStoreIdentity::new(physical).unwrap(),
         None,
@@ -93,14 +93,14 @@ fn cas(path: &Path, physical: &str) -> Cas {
     open_cas(kernel)
 }
 
-fn open_cas(kernel: StorageKernelV1) -> Cas {
+fn open_cas(kernel: StorageKernel) -> Cas {
     let service = kernel
         .authenticate_blob_shared_service(&SharedVerifier, SERVICE.to_string(), b"verified")
         .unwrap();
     let grant = kernel
         .authenticate_scope::<BlobOwner>(
             &AnyLayoutVerifier,
-            identity(MutationDomain::BlobStore, "tenant-a"),
+            identity(DurabilityDomain::BlobStore, "tenant-a"),
             PRINCIPAL.to_string(),
             b"verified",
         )
@@ -295,7 +295,7 @@ fn the_shared_service_write_is_confined_to_the_blob_layout() {
 
     // A non-blob owner file has no shared-service authority to authenticate.
     let kv_path = dir.path().join("kv.redb");
-    let kv = StorageKernelV1::create_owner::<KvOwner>(
+    let kv = StorageKernel::create_owner::<KvOwner>(
         &kv_path,
         PhysicalStoreIdentity::new("physical:kv:shared").unwrap(),
         None,
@@ -312,7 +312,7 @@ fn the_shared_service_write_is_confined_to_the_blob_layout() {
     let grant = kv
         .authenticate_scope::<KvOwner>(
             &AnyLayoutVerifier,
-            identity(MutationDomain::KvStore, "tenant-a"),
+            identity(DurabilityDomain::KvStore, "tenant-a"),
             PRINCIPAL.to_string(),
             b"verified",
         )
@@ -388,7 +388,7 @@ fn open_options_bound_the_handle_without_entering_the_store_identity() {
     assert_eq!(StoreOpenOptions::default().cache_bytes(), None);
 
     let kernel =
-        StorageKernelV1::create_owner_with::<BlobOwner>(&path, physical(), None, capped).unwrap();
+        StorageKernel::create_owner_with::<BlobOwner>(&path, physical(), None, capped).unwrap();
     assert_eq!(kernel.open_options(), capped);
     let created_manifest = kernel.owner_manifest_digest().unwrap();
     let cas = open_cas(kernel);
@@ -405,7 +405,7 @@ fn open_options_bound_the_handle_without_entering_the_store_identity() {
         .with_cache_bytes(128 * 1024 * 1024)
         .unwrap();
     let reopened =
-        StorageKernelV1::open_owner_with::<BlobOwner>(&path, physical(), None, roomy).unwrap();
+        StorageKernel::open_owner_with::<BlobOwner>(&path, physical(), None, roomy).unwrap();
     assert_eq!(reopened.open_options(), roomy);
     assert_eq!(reopened.owner_manifest_digest().unwrap(), created_manifest);
     let reopened = open_cas(reopened);
@@ -418,7 +418,7 @@ fn open_options_bound_the_handle_without_entering_the_store_identity() {
     // The default-options open of the same file is the same store too.
     drop(read);
     drop(reopened);
-    let plain = StorageKernelV1::open_owner::<BlobOwner>(&path, physical(), None).unwrap();
+    let plain = StorageKernel::open_owner::<BlobOwner>(&path, physical(), None).unwrap();
     assert_eq!(plain.open_options(), StoreOpenOptions::default());
     assert_eq!(plain.owner_manifest_digest().unwrap(), created_manifest);
 }
@@ -448,7 +448,7 @@ fn open_options_refuse_a_value_they_cannot_honour() {
     // Creating a store that this process may never write is refused.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("blob.redb");
-    assert!(StorageKernelV1::create_owner_with::<BlobOwner>(
+    assert!(StorageKernel::create_owner_with::<BlobOwner>(
         &path,
         PhysicalStoreIdentity::new("physical:blob:ro").unwrap(),
         None,
@@ -474,7 +474,7 @@ fn a_read_only_open_has_no_write_authority_at_either_bound() {
     write.commit().unwrap();
     drop(cas);
 
-    let kernel = StorageKernelV1::open_owner_with::<BlobOwner>(
+    let kernel = StorageKernel::open_owner_with::<BlobOwner>(
         &path,
         physical(),
         None,
@@ -495,7 +495,7 @@ fn a_read_only_open_has_no_write_authority_at_either_bound() {
     let grant = kernel
         .authenticate_scope::<BlobOwner>(
             &AnyLayoutVerifier,
-            identity(MutationDomain::BlobStore, "tenant-a"),
+            identity(DurabilityDomain::BlobStore, "tenant-a"),
             PRINCIPAL.to_string(),
             b"verified",
         )

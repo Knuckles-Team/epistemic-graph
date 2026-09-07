@@ -2501,7 +2501,7 @@ pub enum Method {
     /// This is the sole native result contract and returns bounded Arrow IPC.
     #[cfg(feature = "knowledge-batch")]
     KnowledgeStream {
-        request: crate::knowledge_stream::KnowledgeStreamRequestV1,
+        request: crate::knowledge_stream::KnowledgeStreamRequest,
     },
 
     // ── Unified cross-modal query (CONCEPT:AU-KG.compute.vector/209) ──────────────────

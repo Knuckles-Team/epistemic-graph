@@ -8,7 +8,7 @@
 //! and identities survive a process restart.
 //!
 //! Design (mirrors the redb-backed cold tier, CONCEPT:EG-KG.coordination.distributed-cache-coherence):
-//!   * ONE redb table `rbac_v1` in `{persist_dir}/rbac.redb` (a separate file, like
+//!   * ONE redb table `rbac` in `{persist_dir}/rbac.redb` (a separate file, like
 //!     the blob CAS / cold tier), three well-known keys:
 //!       - `policy`     → serde_json bytes of the whole [`RbacPolicy`];
 //!       - `identities` → serde_json bytes of a `BTreeMap<agent_id, AgentIdentity>`;
@@ -25,9 +25,9 @@ use std::path::Path;
 
 use eg_storage::{
     backup_strict_recovery_store, OwnedStoreHandle, PhysicalStoreIdentity, RbacOwner, ScopedRead,
-    ScopeGrantVerifier, StorageKernelV1,
+    ScopeGrantVerifier, StorageKernel,
 };
-use eg_transaction::MutationKernelV1;
+use eg_transaction::MutationKernel;
 use redb::TableDefinition;
 use sha2::{Digest, Sha256};
 
@@ -37,7 +37,7 @@ use crate::rbac::RbacPolicy;
 /// `key → serde_json bytes`. One table, three well-known keys (`policy`,
 /// `identities`, `bootstrap`) written in a single durable transaction
 /// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
-const RBAC_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac_v1");
+const RBAC_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac");
 const POLICY_KEY: &str = "policy";
 const IDENTITIES_KEY: &str = "identities";
 const BOOTSTRAP_KEY: &str = "bootstrap";
@@ -69,13 +69,13 @@ const RBAC_PHYSICAL_STORE: &str = "eg-core:rbac-security-control";
 /// constants above). A plain function rather than a `once_cell`/`const`:
 /// `MutationScopeIdentity::native` computes a SHA-256 identity digest, which
 /// is not `const`-evaluable, and every constructor here is fallible by
-/// construction (`TenantId`/`LogicalName`/`IncarnationId` validate their
+/// construction (`ScopeTenantId`/`LogicalName`/`IncarnationId` validate their
 /// input), so failures are propagated rather than `.unwrap()`/`.expect()`'d
 /// away even though the fixed literals above are known-valid by inspection.
 fn native_security_control_identity() -> Result<eg_types::MutationScopeIdentity, RbacPersistError> {
     eg_types::MutationScopeIdentity::fixed_native(
         RBAC_SCOPE_TENANT,
-        eg_types::mutation_batch::MutationDomain::ControlPlane,
+        eg_types::mutation_batch::DurabilityDomain::ControlPlane,
         RBAC_SCOPE_RESOURCE,
         RBAC_SCOPE_INCARNATION,
     )
@@ -244,16 +244,16 @@ fn read_authority_image(
 /// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence).
 ///
 /// RF-RULING-004: this domain crate owns no physical authority. The
-/// [`StorageKernelV1`] it holds is the sole owner of the physical `rbac.redb`
+/// [`StorageKernel`] it holds is the sole owner of the physical `rbac.redb`
 /// file, opened under the declared [`eg_storage::OwnerLayout::Rbac`] whose only
-/// owner table is `rbac_v1`; every read is a kernel-issued
+/// owner table is `rbac`; every read is a kernel-issued
 /// [`ScopedRead`] and every write-through is admitted, ordered and committed by
-/// the [`MutationKernelV1`] that holds the file's single move-once mutation
+/// the [`MutationKernel`] that holds the file's single move-once mutation
 /// authority. `owner` is the one authenticated, bound serving scope (see
 /// `native_security_control_identity`), validated once at open.
 pub struct RbacStore {
-    kernel: StorageKernelV1,
-    mutations: MutationKernelV1,
+    kernel: StorageKernel,
+    mutations: MutationKernel,
     owner: OwnedStoreHandle<RbacOwner>,
 }
 
@@ -359,7 +359,7 @@ impl RbacStore {
     /// created if absent.
     ///
     /// The kernel creates the file under [`eg_storage::OwnerLayout::Rbac`],
-    /// which declares `rbac_v1` as the layout's one owner table, so the
+    /// which declares `rbac` as the layout's one owner table, so the
     /// hand-written bootstrap closure the retired raw constructor needed is
     /// gone: the declared census is opened atomically at create time and
     /// re-validated on every later open.
@@ -380,15 +380,15 @@ impl RbacStore {
         let physical =
             PhysicalStoreIdentity::new(RBAC_PHYSICAL_STORE).map_err(RbacPersistError::Redb)?;
         let kernel = if path.exists() {
-            StorageKernelV1::open_owner::<RbacOwner>(&path, physical, None)
+            StorageKernel::open_owner::<RbacOwner>(&path, physical, None)
         } else {
-            StorageKernelV1::create_owner::<RbacOwner>(&path, physical, None)
+            StorageKernel::create_owner::<RbacOwner>(&path, physical, None)
         }
         .map_err(RbacPersistError::Redb)?;
         let (kernel, authority) = kernel
             .into_read_and_mutation_authority()
             .map_err(RbacPersistError::Redb)?;
-        let mutations = MutationKernelV1::new(authority);
+        let mutations = MutationKernel::new(authority);
         let grant = kernel
             .authenticate_scope::<RbacOwner>(verifier, identity, principal.to_string(), proof)
             .map_err(RbacPersistError::Redb)?;
@@ -425,10 +425,10 @@ impl RbacStore {
     /// Delegated whole to [`backup_strict_recovery_store`], which owns the
     /// complete table census: it copies the ledger rows, re-stamps
     /// `SCOPE_BINDINGS` for the destination's own incarnation, copies every
-    /// declared owner table of the layout (here `rbac_v1`), and reopens the
+    /// declared owner table of the layout (here `rbac`), and reopens the
     /// destination to prove the per-table fingerprints match the source.
     /// Hand-listing tables here is what produced BUG-PE-054, and appending
-    /// `rbac_v1` afterwards through a private `Database::create` made this
+    /// `rbac` afterwards through a private `Database::create` made this
     /// crate a second physical authority -- both are deleted.
     pub fn backup_into(&self, destination: &Path) -> Result<u64, String> {
         if destination.exists() {

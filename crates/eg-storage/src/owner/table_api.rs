@@ -42,7 +42,7 @@ macro_rules! declared_owner_tables {
 
 declared_owner_tables!(
     KvRows: KvOwner => ((String, String), Vec<u8>, "kv"),
-    RbacRows: RbacOwner => (String, Vec<u8>, "rbac_v1"),
+    RbacRows: RbacOwner => (String, Vec<u8>, "rbac"),
     AnalyticsJobsRows: JobsOwner => (String, Vec<u8>, "analytics_jobs"),
     AnalyticsCommittedRows: JobsOwner => (String, String, "analytics_job_committed_results"),
     JobIntentsRows: JobsOwner => (String, Vec<u8>, "job_intents"),
@@ -63,21 +63,21 @@ declared_owner_tables!(
     SeriesProjectionRows: TimeSeriesOwner => (String, Vec<u8>, "series_projection_state"),
     BlobRows: BlobOwner => (String, Vec<u8>, "cas_blobs"),
     BlobUploadRows: BlobOwner => (u64, Vec<u8>, "cas_uploads"),
-    SemanticBindingRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_bindings_v1"),
-    SemanticBindingHeadRows: SemanticIndexOwner => ((String, String), u64, "semantic_binding_heads_v1"),
-    SemanticStageRows: SemanticIndexOwner => ((String, String, String), Vec<u8>, "semantic_stage_transitions_v1"),
-    SemanticStateRows: SemanticIndexOwner => ((String, String), Vec<u8>, "semantic_binding_state_transitions_v1"),
-    SemanticSourceProgressRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_source_progress_v1"),
-    SemanticActivePointerRows: SemanticIndexOwner => ((String, String), Vec<u8>, "semantic_active_pointers_v1"),
-    SemanticDeadLetterRows: SemanticIndexOwner => ((String, String, u32), Vec<u8>, "semantic_dead_letters_v1"),
-    SemanticTombstoneRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_tombstones_v1"),
-    SemanticSqlManifestRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_sql_source_manifests_v1"),
-    SemanticGraphManifestRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_graph_projection_manifests_v1"),
-    SemanticAuthorizationRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_authorization_receipts_v1"),
-    SemanticCheckpointRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_generation_checkpoints_v1"),
-    SemanticLexicalRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_lexical_manifests_v1"),
-    SemanticAnnRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_ann_manifests_v1"),
-    SemanticVectorRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_vectors_v1"),
+    SemanticBindingRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_bindings"),
+    SemanticBindingHeadRows: SemanticIndexOwner => ((String, String), u64, "semantic_binding_heads"),
+    SemanticStageRows: SemanticIndexOwner => ((String, String, String), Vec<u8>, "semantic_stage_transitions"),
+    SemanticStateRows: SemanticIndexOwner => ((String, String), Vec<u8>, "semantic_binding_state_transitions"),
+    SemanticSourceProgressRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_source_progress"),
+    SemanticActivePointerRows: SemanticIndexOwner => ((String, String), Vec<u8>, "semantic_active_pointers"),
+    SemanticDeadLetterRows: SemanticIndexOwner => ((String, String, u32), Vec<u8>, "semantic_dead_letters"),
+    SemanticTombstoneRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_tombstones"),
+    SemanticSqlManifestRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_sql_source_manifests"),
+    SemanticGraphManifestRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_graph_projection_manifests"),
+    SemanticAuthorizationRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_authorization_receipts"),
+    SemanticCheckpointRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_generation_checkpoints"),
+    SemanticLexicalRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_lexical_manifests"),
+    SemanticAnnRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_ann_manifests"),
+    SemanticVectorRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_vectors"),
     AnnCodeRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "eg_ann"),
 );
 
@@ -90,7 +90,7 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
     match table {
         "cas_chunks" | "cas_refcount" => OwnerTableAccess::SharedService,
         "kv"
-        | "rbac_v1"
+        | "rbac"
         | "analytics_jobs"
         | "analytics_job_committed_results"
         | "job_intents"
@@ -111,25 +111,25 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         | "series_projection_state"
         | "cas_blobs"
         | "cas_uploads"
-        | "semantic_bindings_v1"
-        | "semantic_binding_heads_v1"
-        | "semantic_stage_transitions_v1"
-        | "semantic_binding_state_transitions_v1"
-        | "semantic_source_progress_v1"
-        | "semantic_active_pointers_v1"
-        | "semantic_dead_letters_v1"
-        | "semantic_tombstones_v1"
-        | "semantic_sql_source_manifests_v1"
-        | "semantic_graph_projection_manifests_v1"
-        | "semantic_authorization_receipts_v1"
-        | "semantic_generation_checkpoints_v1"
-        | "semantic_lexical_manifests_v1"
-        | "semantic_ann_manifests_v1"
-        | "semantic_vectors_v1"
+        | "semantic_bindings"
+        | "semantic_binding_heads"
+        | "semantic_stage_transitions"
+        | "semantic_binding_state_transitions"
+        | "semantic_source_progress"
+        | "semantic_active_pointers"
+        | "semantic_dead_letters"
+        | "semantic_tombstones"
+        | "semantic_sql_source_manifests"
+        | "semantic_graph_projection_manifests"
+        | "semantic_authorization_receipts"
+        | "semantic_generation_checkpoints"
+        | "semantic_lexical_manifests"
+        | "semantic_ann_manifests"
+        | "semantic_vectors"
         | "eg_ann"
         | "eg_kvcache_cold"
-        | "path_index_v1"
-        | "verified_request_replay_v2"
+        | "path_index"
+        | "verified_request_replay"
         | "viz_provenance"
         | "cold_graphs"
         | "tenant_catalog"

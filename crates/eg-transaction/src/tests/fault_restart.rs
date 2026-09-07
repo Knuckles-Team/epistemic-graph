@@ -61,7 +61,7 @@ fn a_crash_between_the_ledger_write_and_its_receipt_rolls_back_both() {
     let batch = batch(identity.clone(), "receipt-batch");
     let attempt = context(1, "request-1", "idem:stable");
     let operation = operation_identity(&attempt, "mutation.apply", digest_of(30));
-    let nonce = NonceReplayKeyV1::from_context(&attempt).unwrap();
+    let nonce = NonceReplayKey::from_context(&attempt).unwrap();
     let recorded = receipt("receipt-1", &operation, &nonce);
     {
         let (fixture, owner) = ledger_fixture(&path, identity.clone());
@@ -99,7 +99,7 @@ fn a_retry_after_the_crash_commits_once_and_then_replays() {
     let batch = batch(identity.clone(), "retry-batch");
     let attempt = context(1, "request-1", "idem:stable");
     let operation = operation_identity(&attempt, "mutation.apply", digest_of(30));
-    let nonce = NonceReplayKeyV1::from_context(&attempt).unwrap();
+    let nonce = NonceReplayKey::from_context(&attempt).unwrap();
     let recorded = receipt("receipt-1", &operation, &nonce);
     {
         let (fixture, owner) = ledger_fixture(&path, identity.clone());
@@ -134,7 +134,7 @@ fn a_retry_after_the_crash_commits_once_and_then_replays() {
     );
     let second = context(2, "request-2", "idem:stable");
     let retried = operation_identity(&second, "mutation.apply", digest_of(30));
-    let fresh_nonce = NonceReplayKeyV1::from_context(&second).unwrap();
+    let fresh_nonce = NonceReplayKey::from_context(&second).unwrap();
     assert_eq!(
         resolve(&fixture, &owner, &retried, &fresh_nonce),
         ReplayResolution::ReplayedResult(Box::new(recorded))
@@ -172,7 +172,7 @@ fn purging_a_scope_removes_its_replay_evidence() {
     let batch = batch(identity.clone(), "purged-batch");
     let attempt = context(1, "request-1", "idem:stable");
     let operation = operation_identity(&attempt, "mutation.apply", digest_of(30));
-    let nonce = NonceReplayKeyV1::from_context(&attempt).unwrap();
+    let nonce = NonceReplayKey::from_context(&attempt).unwrap();
     let recorded = receipt("receipt-1", &operation, &nonce);
     let (write, begun) = fixture.mutations.admit(&owner, &batch).unwrap();
     let source_version = match begun {
@@ -211,7 +211,7 @@ fn a_maintenance_write_is_ledgered_and_outside_operation_replay() {
     let maintenance = batch(identity.clone(), "compaction");
     let attempt = context(1, "request-1", "idem:stable");
     let operation = operation_identity(&attempt, "mutation.apply", digest_of(30));
-    let nonce = NonceReplayKeyV1::from_context(&attempt).unwrap();
+    let nonce = NonceReplayKey::from_context(&attempt).unwrap();
     let recorded = receipt("receipt-1", &operation, &nonce);
     {
         let (fixture, owner) = ledger_fixture(&path, identity.clone());
@@ -311,7 +311,7 @@ fn a_maintenance_batch_carrying_an_operation_identity_fails_to_reopen() {
     let maintenance = batch(identity.clone(), "mislabelled");
     let attempt = context(1, "request-1", &maintenance.idempotency_key);
     let operation = operation_identity(&attempt, "mutation.apply", digest_of(30));
-    let nonce = NonceReplayKeyV1::from_context(&attempt).unwrap();
+    let nonce = NonceReplayKey::from_context(&attempt).unwrap();
     let recorded = receipt("receipt-1", &operation, &nonce);
     {
         let (fixture, owner) = ledger_fixture(&path, identity.clone());
@@ -350,7 +350,7 @@ fn a_maintenance_batch_carrying_an_operation_identity_fails_to_reopen() {
             .unwrap();
         write.commit().unwrap();
     }
-    match StorageKernelV1::open_owner::<LedgerOnlyOwner>(
+    match StorageKernel::open_owner::<LedgerOnlyOwner>(
         &path,
         PhysicalStoreIdentity::new("physical:test:ledger-only").unwrap(),
         None,

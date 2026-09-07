@@ -1,7 +1,7 @@
 //! The one composition-root scope-grant authority for every kernel-owned
 //! durable store this binary opens (RF-RULING-004).
 //!
-//! `eg_storage::StorageKernelV1` never interprets proof bytes: it asks a
+//! `eg_storage::StorageKernel` never interprets proof bytes: it asks a
 //! [`ScopeGrantVerifier`] the composition root supplies whether a principal is
 //! entitled to serve one exact logical scope on one exact physical file under
 //! one exact layout. This binary IS that root, so this module is where that
@@ -62,7 +62,7 @@ const GRANT_ID_BYTES: usize = 16;
 
 /// The stable principal this engine serves every store-private scope as.
 ///
-/// It is durable state — it lands in `mutation_scope_bindings_v1` and in the
+/// It is durable state — it lands in `mutation_scope_bindings` and in the
 /// context principal of every maintenance batch this engine commits — so it may
 /// not be derived from the per-process secret.
 ///
@@ -284,7 +284,7 @@ mod tests {
     fn scope() -> MutationScopeIdentity {
         MutationScopeIdentity::fixed_native(
             "native",
-            eg_types::mutation_batch::MutationDomain::ControlPlane,
+            eg_types::mutation_batch::DurabilityDomain::ControlPlane,
             "a",
             "test:v1",
         )
@@ -302,7 +302,7 @@ mod tests {
     fn other_scope() -> MutationScopeIdentity {
         MutationScopeIdentity::fixed_native(
             "native",
-            eg_types::mutation_batch::MutationDomain::ControlPlane,
+            eg_types::mutation_batch::DurabilityDomain::ControlPlane,
             "b",
             "test:v1",
         )

@@ -35,16 +35,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use eg_types::mutation_batch::{
-    MutationBatch, MutationBatchRecord, MutationDomain, MutationOperation, MutationOutboxIntent,
+    MutationBatch, MutationBatchRecord, DurabilityDomain, MutationOperation, MutationOutboxIntent,
     MutationRequestContext, MutationScope, MutationScopeIdentity, MutationSurface,
     VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
 use eg_storage::{
     JobsOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead,
-    StorageKernelV1,
+    StorageKernel,
 };
-use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite, Begin, MutationKernelV1};
+use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite, Begin, MutationKernel};
 use redb::{ReadableTable, TableDefinition};
 use serde::de::DeserializeOwned;
 
@@ -374,10 +374,10 @@ pub struct JobStore {
     /// owner tables are the authoritative `JOBS` plus every scheduler secondary
     /// index). Reads are the scoped reads it issues; nothing here can open a
     /// database.
-    kernel: StorageKernelV1,
+    kernel: StorageKernel,
     /// Sole writer. Holds this file's one move-once mutation authority, so every
     /// job transition is admitted, ordered, fenced and committed through it.
-    mutations: MutationKernelV1,
+    mutations: MutationKernel,
     /// The one authenticated, bound serving scope -- the fixed native identity of
     /// `analytics_job_scope_identity`, validated exactly once per open.
     owner: OwnedStoreHandle<JobsOwner>,
@@ -403,13 +403,13 @@ impl JobStore {
         let identity = analytics_job_scope_identity()?;
         let physical = PhysicalStoreIdentity::new(JOBS_PHYSICAL_STORE).map_err(redb_err)?;
         let kernel = if path.exists() {
-            StorageKernelV1::open_owner::<JobsOwner>(path, physical, None)
+            StorageKernel::open_owner::<JobsOwner>(path, physical, None)
         } else {
-            StorageKernelV1::create_owner::<JobsOwner>(path, physical, None)
+            StorageKernel::create_owner::<JobsOwner>(path, physical, None)
         }
         .map_err(redb_err)?;
         let (kernel, authority) = kernel.into_read_and_mutation_authority().map_err(redb_err)?;
-        let mutations = MutationKernelV1::new(authority);
+        let mutations = MutationKernel::new(authority);
         let grant = kernel
             .authenticate_scope::<JobsOwner>(verifier, identity, principal.to_string(), proof)
             .map_err(redb_err)?;
@@ -2209,7 +2209,7 @@ fn reconcile_deadline_job(
 /// `JobStore::live_version` (which would open a fresh read snapshot that
 /// cannot observe this transaction's own not-yet-committed `finish()` writes).
 /// Returns the LAST batch applied (any one is representative for the final
-/// `MutationKernelV1::commit`, since `binding_for_write` only checks scope
+/// `MutationKernel::commit`, since `binding_for_write` only checks scope
 /// identity, which is identical across every call here) and the version now
 /// authoritative after every reconciled transition.
 fn reconcile_scheduler(
@@ -2325,8 +2325,8 @@ fn require_lease_ownership(
 /// Returns the batch that was begun (Replay or Apply) and the version that is
 /// now authoritative after this call: unchanged on a Replay (nothing was
 /// written), `expected_version + 1` on an Apply (mirrors exactly what
-/// `MutationKernelV1::finish` -> `CommittedVersion::checked_native` computes
-/// as `target`). Never calls `MutationKernelV1::commit` itself -- a single
+/// `MutationKernel::finish` -> `CommittedVersion::checked_native` computes
+/// as `target`). Never calls `MutationKernel::commit` itself -- a single
 /// `write` may carry several transitions (see `reconcile_scheduler` +
 /// `claim_next`), so only the top-level caller, once it knows no further
 /// transition is coming, commits.
@@ -2422,7 +2422,7 @@ const ANALYTICS_JOB_SCOPE_INCARNATION: &str = "incarnation:eg-jobs:analytics-job
 pub fn analytics_job_scope_identity() -> Result<MutationScopeIdentity> {
     MutationScopeIdentity::fixed_native(
         ANALYTICS_JOB_SCOPE_TENANT,
-        MutationDomain::AnalyticsJob,
+        DurabilityDomain::AnalyticsJob,
         ANALYTICS_JOB_SCOPE_RESOURCE,
         ANALYTICS_JOB_SCOPE_INCARNATION,
     )
@@ -2483,7 +2483,7 @@ fn maintenance_batch(
         operations: vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Other,
-            domain: MutationDomain::AnalyticsJob,
+            domain: DurabilityDomain::AnalyticsJob,
             method: Method::ApplyMutation {
                 event_type: format!("analytics_job_{kind}"),
                 query: batch_id,
@@ -2529,7 +2529,7 @@ fn internal_job_batch(
     let operation = MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Job,
-        domain: MutationDomain::AnalyticsJob,
+        domain: DurabilityDomain::AnalyticsJob,
         method: Method::ApplyMutation {
             event_type: "analytics_job_transition".to_string(),
             query: format!("sha256:{digest}"),
@@ -2555,7 +2555,7 @@ fn internal_job_batch(
         placement_epoch: 0,
         idempotency_key: batch_id.clone(),
         // The scope's live authoritative version, supplied by the caller (see
-        // this function's doc comment) -- `MutationKernelV1::finish` requires
+        // this function's doc comment) -- `MutationKernel::finish` requires
         // `VersionExpectation::Native` to equal the scope's CURRENT
         // authoritative version (see
         // `crates/eg-mutation-store/src/store/apply.rs::committed_version`).
@@ -2686,7 +2686,7 @@ mod tests {
         let operation = MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
-            domain: MutationDomain::AnalyticsJob,
+            domain: DurabilityDomain::AnalyticsJob,
             method: Method::ApplyMutation {
                 event_type: format!("analytics_job_{action}"),
                 query: format!("request:{sequence}"),

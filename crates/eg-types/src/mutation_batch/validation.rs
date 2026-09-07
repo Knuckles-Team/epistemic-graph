@@ -117,7 +117,7 @@ fn validate_operations(batch: &MutationBatch) -> Result<(), String> {
             // control-plane / cross-modal / multi-graph families that are versioned
             // by the same `MUTATION_GRAPH_VERSION` counter. Only a
             // store-authoritative domain (one with its own counter) is rejected
-            // here; see `MutationDomain::requires_native_scope`.
+            // here; see `DurabilityDomain::requires_native_scope`.
             MutationScope::Graph { .. } if operation.domain.forbidden_in_graph_scope() => {
                 return Err("graph mutation scope contains a store-authoritative operation".to_string());
             }
@@ -137,7 +137,7 @@ fn validate_version_expectation(batch: &MutationBatch) -> Result<(), String> {
         (MutationScope::Native { domain, .. }, VersionExpectation::Unversioned) => {
             let authorized_domain = matches!(
                 domain,
-                MutationDomain::ControlPlane | MutationDomain::Lifecycle
+                DurabilityDomain::ControlPlane | DurabilityDomain::Lifecycle
             );
             let authorized_capability = batch
                 .context
@@ -337,7 +337,7 @@ fn validate_committed_scope(
         }
         (MutationScope::Native { domain, .. }, CommittedVersion::None) => matches!(
             domain,
-            MutationDomain::ControlPlane | MutationDomain::Lifecycle
+            DurabilityDomain::ControlPlane | DurabilityDomain::Lifecycle
         ),
         _ => false,
     };
@@ -379,7 +379,7 @@ mod commit_tests {
             operations: vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Graph,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::RemoveNode {
                     node_id: "node-a".to_string(),
                 },
@@ -391,7 +391,7 @@ mod commit_tests {
 
     fn graph_commit(status: MutationBatchStatus) -> MutationBatchCommit {
         let identity = MutationScopeIdentity::graph(
-            TenantId::new("tenant-a").unwrap(),
+            ScopeTenantId::new("tenant-a").unwrap(),
             LogicalName::new("graph-a").unwrap(),
             IncarnationId::new("incarnation:commit-validation").unwrap(),
         );
@@ -436,7 +436,7 @@ mod commit_tests {
 
         let mut wrong_identity = graph_commit(MutationBatchStatus::Committed);
         wrong_identity.identity = MutationScopeIdentity::graph(
-            TenantId::new("tenant-b").unwrap(),
+            ScopeTenantId::new("tenant-b").unwrap(),
             LogicalName::new("graph-a").unwrap(),
             IncarnationId::new("incarnation:commit-validation").unwrap(),
         );

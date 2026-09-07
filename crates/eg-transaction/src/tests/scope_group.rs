@@ -23,7 +23,7 @@ const RAFT_LOG: TableDefinition<(u64, u64), &[u8]> = TableDefinition::new("raft_
 
 /// The reserved graph name the shard's own file-wide rows are admitted under.
 ///
-/// `OwnerLayout::GraphShard` declares `MutationDomain::GraphRows`, which may
+/// `OwnerLayout::GraphShard` declares `DurabilityDomain::GraphRows`, which may
 /// never own a native scope, so every scope bound to a shard file is a graph
 /// scope — the control member included. The kernel reserves this ONE name and
 /// derives the row class from it, so the control/serving split is a property
@@ -40,7 +40,7 @@ fn graph_of(owner: &OwnedStoreHandle<GraphShardOwner>) -> &str {
 
 fn graph_identity(graph: &str) -> MutationScopeIdentity {
     MutationScopeIdentity::graph(
-        TenantId::new("tenant-a").unwrap(),
+        ScopeTenantId::new("tenant-a").unwrap(),
         LogicalName::new(graph).unwrap(),
         IncarnationId::new("incarnation:shard:0").unwrap(),
     )
@@ -50,7 +50,7 @@ fn graph_identity(graph: &str) -> MutationScopeIdentity {
 fn graph_batch(identity: MutationScopeIdentity, batch_id: &str) -> MutationBatch {
     let mut batch = batch(identity, batch_id);
     batch.version_expectation = VersionExpectation::Graph(0);
-    batch.operations[0].domain = MutationDomain::GraphRows;
+    batch.operations[0].domain = DurabilityDomain::GraphRows;
     batch
 }
 

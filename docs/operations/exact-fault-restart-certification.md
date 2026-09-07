@@ -28,7 +28,7 @@ The process-fault matrix covers four deterministic commit boundaries:
 3. immediately before the durable commit;
 4. after the durable commit but before acknowledgement.
 
-Representatives cover every current `MutationDomain`: graph rows and snapshots,
+Representatives cover every current `DurabilityDomain`: graph rows and snapshots,
 RDF, SQL catalog, blob, KV, time series, analytics jobs, broker, cross-modal,
 multi-graph, lifecycle, and control-plane. Cypher and GraphQL mutations are
 separate cases even though they share the graph-snapshot durability domain. The

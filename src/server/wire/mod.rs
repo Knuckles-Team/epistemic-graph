@@ -770,7 +770,7 @@ fn committed_sql_replay_receipt(
     // from a second source that could drift from the committing path.
     let scope = eg_types::mutation_batch::MutationScopeIdentity::fixed_native(
         authority.tenant_scope(),
-        eg_types::mutation_batch::MutationDomain::SqlCatalog,
+        eg_types::mutation_batch::DurabilityDomain::SqlCatalog,
         graph,
         eg_types::mutation_batch::COMPILED_BATCH_INCARNATION,
     )?;
@@ -802,7 +802,7 @@ fn committed_sql_replay_receipt(
         record.batch.operations.as_slice(),
         [eg_types::mutation_batch::MutationOperation {
             surface: eg_types::mutation_batch::MutationSurface::Query,
-            domain: eg_types::mutation_batch::MutationDomain::SqlCatalog,
+            domain: eg_types::mutation_batch::DurabilityDomain::SqlCatalog,
             method: crate::protocol::Method::ApplyMutation { event_type, query },
             ..
         }] if event_type == "sql_catalog_operation" && query == &expected_query
@@ -814,7 +814,7 @@ fn committed_sql_replay_receipt(
         && recorded_actor == &caller
         && record.batch.identity.tenant().as_str() == authority.tenant_scope()
         // A SQL-catalog batch is NATIVE-scoped by producer default
-        // (`MutationDomain::SqlCatalog` is in `requires_native_scope`), so it
+        // (`DurabilityDomain::SqlCatalog` is in `requires_native_scope`), so it
         // carries a `resource`, not a `graph_name`. Checking only `graph_name()`
         // made this receipt unmatchable for the very batches it governs. Both
         // scope kinds are matched explicitly and the logical name compared;
@@ -911,7 +911,7 @@ fn commit_table_txn_under_source(
         },
         operation,
         crate::mutation_batch::MutationSurface::Query,
-        crate::mutation_batch::MutationDomain::SqlCatalog,
+        crate::mutation_batch::DurabilityDomain::SqlCatalog,
         "sql_catalog_operation",
     )?;
     let committed = match store.commit_txn_batch(txn, &batch, created_at_ms) {
@@ -6218,7 +6218,7 @@ mod wired_catalog_tests {
             },
             &operation,
             crate::mutation_batch::MutationSurface::Query,
-            crate::mutation_batch::MutationDomain::SqlCatalog,
+            crate::mutation_batch::DurabilityDomain::SqlCatalog,
             "sql_catalog_operation",
         )
         .expect("compile the exact durable SQL receipt");
@@ -6354,7 +6354,7 @@ mod wired_catalog_tests {
             },
             &operation,
             crate::mutation_batch::MutationSurface::Query,
-            crate::mutation_batch::MutationDomain::SqlCatalog,
+            crate::mutation_batch::DurabilityDomain::SqlCatalog,
             "sql_catalog_operation",
         )
         .expect("compile the SQL receipt");

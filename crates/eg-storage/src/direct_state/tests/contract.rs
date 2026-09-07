@@ -31,7 +31,7 @@ fn registry_domain_order_is_canonical_and_duplicates_fail_closed() {
 
 #[test]
 fn manifests_reject_wrong_owner_and_unbounded_or_incoherent_sections() {
-    let mut manifest = DirectStateSectionManifestV1 {
+    let mut manifest = DirectStateSectionManifest {
         schema_version: DIRECT_STATE_SCHEMA_VERSION,
         domain: DirectStateDomain::Blob,
         scope: DirectStateScope::DefaultGlobal {
@@ -65,7 +65,7 @@ fn manifests_reject_wrong_owner_and_unbounded_or_incoherent_sections() {
 
 #[test]
 fn owner_manifest_is_static_canonical_layout_not_runtime_epoch() {
-    let owner = DirectStateOwnerManifestV1 {
+    let owner = DirectStateOwnerManifest {
         schema_version: DIRECT_STATE_SCHEMA_VERSION,
         domain: DirectStateDomain::Blob,
         authority_kind: DirectStateAuthorityKind::MutationStore,

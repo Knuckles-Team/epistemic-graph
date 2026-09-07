@@ -1,14 +1,14 @@
 //! Bounded collection and record-byte values.
 
-use super::{Digest256V1, MAX_RECORD_BYTES};
+use super::{Digest256, MAX_RECORD_BYTES};
 use serde::de::{Error as _, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BoundedVecV1<T, const MAXIMUM: usize>(Vec<T>);
+pub struct BoundedVec<T, const MAXIMUM: usize>(Vec<T>);
 
-impl<T, const MAXIMUM: usize> BoundedVecV1<T, MAXIMUM> {
+impl<T, const MAXIMUM: usize> BoundedVec<T, MAXIMUM> {
     pub fn new(values: Vec<T>) -> Result<Self, String> {
         if values.len() > MAXIMUM {
             return Err(format!("collection exceeds {MAXIMUM} items"));
@@ -32,7 +32,7 @@ impl<T, const MAXIMUM: usize> BoundedVecV1<T, MAXIMUM> {
     }
 }
 
-impl<'a, T, const MAXIMUM: usize> IntoIterator for &'a BoundedVecV1<T, MAXIMUM> {
+impl<'a, T, const MAXIMUM: usize> IntoIterator for &'a BoundedVec<T, MAXIMUM> {
     type Item = &'a T;
     type IntoIter = std::slice::Iter<'a, T>;
     fn into_iter(self) -> Self::IntoIter {
@@ -40,7 +40,7 @@ impl<'a, T, const MAXIMUM: usize> IntoIterator for &'a BoundedVecV1<T, MAXIMUM> 
     }
 }
 
-impl<T: Serialize, const MAXIMUM: usize> Serialize for BoundedVecV1<T, MAXIMUM> {
+impl<T: Serialize, const MAXIMUM: usize> Serialize for BoundedVec<T, MAXIMUM> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -54,7 +54,7 @@ struct BoundedVecVisitor<T, const MAXIMUM: usize>(std::marker::PhantomData<T>);
 impl<'de, T: Deserialize<'de>, const MAXIMUM: usize> Visitor<'de>
     for BoundedVecVisitor<T, MAXIMUM>
 {
-    type Value = BoundedVecV1<T, MAXIMUM>;
+    type Value = BoundedVec<T, MAXIMUM>;
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "an array containing at most {MAXIMUM} items")
     }
@@ -76,11 +76,11 @@ impl<'de, T: Deserialize<'de>, const MAXIMUM: usize> Visitor<'de>
             }
             values.push(value);
         }
-        Ok(BoundedVecV1(values))
+        Ok(BoundedVec(values))
     }
 }
 
-impl<'de, T: Deserialize<'de>, const MAXIMUM: usize> Deserialize<'de> for BoundedVecV1<T, MAXIMUM> {
+impl<'de, T: Deserialize<'de>, const MAXIMUM: usize> Deserialize<'de> for BoundedVec<T, MAXIMUM> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -90,9 +90,9 @@ impl<'de, T: Deserialize<'de>, const MAXIMUM: usize> Deserialize<'de> for Bounde
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordBytesV1(Vec<u8>);
+pub struct RecordBytes(Vec<u8>);
 
-impl RecordBytesV1 {
+impl RecordBytes {
     pub fn new(bytes: Vec<u8>) -> Result<Self, String> {
         if bytes.len() > MAX_RECORD_BYTES {
             return Err("record exceeds the 1 MiB contract limit".into());
@@ -102,12 +102,12 @@ impl RecordBytesV1 {
     pub fn as_slice(&self) -> &[u8] {
         &self.0
     }
-    pub fn digest(&self) -> Result<Digest256V1, String> {
-        Digest256V1::framed(b"eg/record-bytes/v1", &[self.as_slice()])
+    pub fn digest(&self) -> Result<Digest256, String> {
+        Digest256::framed(b"eg/record-bytes/v1", &[self.as_slice()])
     }
 }
 
-impl Serialize for RecordBytesV1 {
+impl Serialize for RecordBytes {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -119,7 +119,7 @@ impl Serialize for RecordBytesV1 {
 struct RecordBytesVisitor;
 
 impl<'de> Visitor<'de> for RecordBytesVisitor {
-    type Value = RecordBytesV1;
+    type Value = RecordBytes;
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("at most 1 MiB of record bytes")
     }
@@ -130,7 +130,7 @@ impl<'de> Visitor<'de> for RecordBytesVisitor {
         if value.len() > MAX_RECORD_BYTES {
             return Err(E::custom("record exceeds the 1 MiB contract limit"));
         }
-        Ok(RecordBytesV1(value.to_vec()))
+        Ok(RecordBytes(value.to_vec()))
     }
     fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
     where
@@ -149,11 +149,11 @@ impl<'de> Visitor<'de> for RecordBytesVisitor {
             }
             bytes.push(byte);
         }
-        Ok(RecordBytesV1(bytes))
+        Ok(RecordBytes(bytes))
     }
 }
 
-impl<'de> Deserialize<'de> for RecordBytesV1 {
+impl<'de> Deserialize<'de> for RecordBytes {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -178,19 +178,19 @@ impl Serialize for BinaryFixture {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::{TenantIdV1, MAX_TENANT_ID_BYTES};
+    use crate::contract::{TenantId, MAX_TENANT_ID_BYTES};
 
     #[test]
     fn messagepack_decode_rejects_oversize_string_and_collection() {
         let encoded = rmp_serde::to_vec(&"x".repeat(MAX_TENANT_ID_BYTES + 1)).unwrap();
-        assert!(rmp_serde::from_slice::<TenantIdV1>(&encoded).is_err());
+        assert!(rmp_serde::from_slice::<TenantId>(&encoded).is_err());
         let encoded = rmp_serde::to_vec(&vec![1_u8, 2, 3]).unwrap();
-        assert!(rmp_serde::from_slice::<BoundedVecV1<u8, 2>>(&encoded).is_err());
+        assert!(rmp_serde::from_slice::<BoundedVec<u8, 2>>(&encoded).is_err());
     }
 
     #[test]
     fn record_bytes_reject_oversize_borrowed_input_before_copy() {
         let encoded = rmp_serde::to_vec(&BinaryFixture(vec![0; MAX_RECORD_BYTES + 1])).unwrap();
-        assert!(rmp_serde::from_slice::<RecordBytesV1>(&encoded).is_err());
+        assert!(rmp_serde::from_slice::<RecordBytes>(&encoded).is_err());
     }
 }

@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::mutation_batch::{
-    IncarnationId, MutationRequestContext, MutationScopeIdentity, TenantId,
+    IncarnationId, MutationRequestContext, MutationScopeIdentity, ScopeTenantId,
 };
 
 fn host() -> DurableResourceHost {
@@ -382,14 +382,14 @@ fn resource_batch(
         // Graph scope, not native: `commit_mutation_batch_inner` (via
         // `mutation_batch_graph_name`) fails closed on any batch that is not
         // graph-scoped, so this is the only route these fixtures actually
-        // commit through. `MutationDomain::ControlPlane` is one of the
+        // commit through. `DurabilityDomain::ControlPlane` is one of the
         // "either" domains (`may_own_native_scope` AND legal in a graph
         // scope per the graph arm of `validate_operations`), so it is free to
         // take the graph route here. `"graph-a"` is reused verbatim as the
         // graph name -- the exact literal the old flat `graph` field carried
         // -- rather than inventing a new sentinel.
         identity: MutationScopeIdentity::graph(
-            TenantId::new(tenant).expect("valid resource-reservation tenant id"),
+            ScopeTenantId::new(tenant).expect("valid resource-reservation tenant id"),
             LogicalName::new("graph-a").expect("valid resource-reservation graph name"),
             IncarnationId::new("incarnation:test:resource-reservation")
                 .expect("valid resource-reservation incarnation id"),
@@ -412,7 +412,7 @@ fn resource_batch(
         operations: vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
-            domain: MutationDomain::ControlPlane,
+            domain: DurabilityDomain::ControlPlane,
             method,
         }],
         outbox: Vec::new(),
@@ -2543,7 +2543,7 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
     let operation = |method| MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Job,
-        domain: MutationDomain::ControlPlane,
+        domain: DurabilityDomain::ControlPlane,
         method,
     };
     let stored = vec![operation(first)];
@@ -2581,7 +2581,7 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
         // is reused verbatim as the graph name, matching every other fixture
         // here.
         identity: MutationScopeIdentity::graph(
-            TenantId::new("tenant-a").expect("valid tenant id"),
+            ScopeTenantId::new("tenant-a").expect("valid tenant id"),
             LogicalName::new("graph-a").expect("valid graph name"),
             IncarnationId::new("incarnation:test:resource-reservation")
                 .expect("valid incarnation id"),
@@ -2627,7 +2627,7 @@ fn native_retry_rebuilds_projection_outbox_after_authoritative_time_changes() {
     let operation = |method| MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Job,
-        domain: MutationDomain::ControlPlane,
+        domain: DurabilityDomain::ControlPlane,
         method,
     };
     let stored_method = Method::ReserveWorkItemResources { request: request() };
@@ -3408,7 +3408,7 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
                 expected_version,
             );
             batch.operations[0].surface = MutationSurface::Lifecycle;
-            batch.operations[0].domain = MutationDomain::Lifecycle;
+            batch.operations[0].domain = DurabilityDomain::Lifecycle;
             batch
         };
 

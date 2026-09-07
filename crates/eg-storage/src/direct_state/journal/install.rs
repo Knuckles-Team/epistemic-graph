@@ -5,14 +5,14 @@ use super::*;
 pub struct DurablePreparedJournal {
     pub(in crate::direct_state) authority_identity: Arc<StateImageAuthorityIdentity>,
     pub(in crate::direct_state) registry_identity: Arc<DirectStateRegistryIdentity>,
-    pub(in crate::direct_state) journal: DirectStateInstallJournalV1,
+    pub(in crate::direct_state) journal: DirectStateInstallJournal,
     pub(in crate::direct_state) path: PathBuf,
     pub(in crate::direct_state) authority_file: File,
     pub(in crate::direct_state) root: PinnedPrivateDirectory,
 }
 
 impl DurablePreparedJournal {
-    pub fn journal(&self) -> &DirectStateInstallJournalV1 {
+    pub fn journal(&self) -> &DirectStateInstallJournal {
         &self.journal
     }
 
@@ -52,7 +52,7 @@ impl DurablePreparedJournal {
         authority_identity: Arc<StateImageAuthorityIdentity>,
         registry_identity: Arc<DirectStateRegistryIdentity>,
         path: &Path,
-        journal: DirectStateInstallJournalV1,
+        journal: DirectStateInstallJournal,
         authority_file: File,
         root: PinnedPrivateDirectory,
     ) -> Result<Self, String> {
@@ -87,7 +87,7 @@ pub enum PreparedJournalPublication {
 pub struct PreparedGenerationRecovery {
     pub(in crate::direct_state) staged: StagedWholeGeneration,
     pub(in crate::direct_state) journal_path: PathBuf,
-    pub(in crate::direct_state) journal: DirectStateInstallJournalV1,
+    pub(in crate::direct_state) journal: DirectStateInstallJournal,
     pub(in crate::direct_state) first_error: String,
 }
 
@@ -113,7 +113,7 @@ impl PreparedGenerationRecovery {
 pub struct PreparedJournalRecovery {
     pub(in crate::direct_state) authority_identity: Arc<StateImageAuthorityIdentity>,
     pub(in crate::direct_state) registry_identity: Arc<DirectStateRegistryIdentity>,
-    pub(in crate::direct_state) journal: DirectStateInstallJournalV1,
+    pub(in crate::direct_state) journal: DirectStateInstallJournal,
     pub(in crate::direct_state) path: PathBuf,
     pub(in crate::direct_state) authority_file: File,
     pub(in crate::direct_state) root: PinnedPrivateDirectory,
@@ -202,7 +202,7 @@ pub(in crate::direct_state) fn read_install_journal(
     permit: &StateImageInstallPermit,
     root: &PinnedPrivateDirectory,
     path: &Path,
-) -> Result<Option<DirectStateInstallJournalV1>, String> {
+) -> Result<Option<DirectStateInstallJournal>, String> {
     let _ = permit;
     Ok(read_install_journal_authority(root, path)?.map(|(journal, _file)| journal))
 }
@@ -210,7 +210,7 @@ pub(in crate::direct_state) fn read_install_journal(
 pub(in crate::direct_state) fn read_install_journal_authority(
     root: &PinnedPrivateDirectory,
     path: &Path,
-) -> Result<Option<(DirectStateInstallJournalV1, File)>, String> {
+) -> Result<Option<(DirectStateInstallJournal, File)>, String> {
     let name = root.validate_path(path, "direct-state install journal")?;
     let mut file = match root
         .reader()
@@ -227,7 +227,7 @@ pub(in crate::direct_state) fn read_install_journal_authority(
     if bytes.len() > MAX_DIRECT_STATE_MANIFEST_BYTES {
         return Err("direct-state install journal exceeds its byte bound".into());
     }
-    let journal: DirectStateInstallJournalV1 =
+    let journal: DirectStateInstallJournal =
         decode_canonical_durable_record(&bytes, "direct-state install journal")?;
     journal.validate()?;
     Ok(Some((journal, file)))
@@ -260,7 +260,7 @@ pub(in crate::direct_state) fn replace_install_journal(
     root: &PinnedPrivateDirectory,
     path: &Path,
     prepared: &PreparedWholeGeneration,
-    replacement: &DirectStateInstallJournalV1,
+    replacement: &DirectStateInstallJournal,
 ) -> Result<PublishedJournalPublication, String> {
     let expected = &prepared.journal;
     validate_install_transition(permit, path, prepared, replacement)?;
@@ -347,7 +347,7 @@ fn validate_install_transition(
     permit: &StateImageInstallPermit,
     path: &Path,
     prepared: &PreparedWholeGeneration,
-    replacement: &DirectStateInstallJournalV1,
+    replacement: &DirectStateInstallJournal,
 ) -> Result<(), String> {
     let expected = &prepared.journal;
     permit.validate_affinity(&prepared.assembled.authority_identity)?;
@@ -372,7 +372,7 @@ fn load_existing_published(
     root: &PinnedPrivateDirectory,
     path: &Path,
     prepared: &PreparedWholeGeneration,
-    replacement: &DirectStateInstallJournalV1,
+    replacement: &DirectStateInstallJournal,
 ) -> Result<PublishedJournalPublication, String> {
     root.sync()?;
     let durable =
@@ -449,7 +449,7 @@ impl PublishedJournalRecovery {
 pub struct DurablePublishedJournal {
     pub(in crate::direct_state) authority_identity: Arc<StateImageAuthorityIdentity>,
     pub(in crate::direct_state) registry_identity: Arc<DirectStateRegistryIdentity>,
-    pub(in crate::direct_state) journal: DirectStateInstallJournalV1,
+    pub(in crate::direct_state) journal: DirectStateInstallJournal,
     pub(in crate::direct_state) path: PathBuf,
     pub(in crate::direct_state) authority_file: File,
     pub(in crate::direct_state) root: PinnedPrivateDirectory,
@@ -462,7 +462,7 @@ impl DurablePublishedJournal {
         authority_identity: Arc<StateImageAuthorityIdentity>,
         registry_identity: Arc<DirectStateRegistryIdentity>,
         path: &Path,
-        journal: DirectStateInstallJournalV1,
+        journal: DirectStateInstallJournal,
         authority_file: File,
         root: PinnedPrivateDirectory,
     ) -> Result<Self, String> {

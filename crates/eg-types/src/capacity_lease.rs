@@ -4,7 +4,7 @@
 //! Reuses GOC-03's fencing concept (`crates/eg-types/src/commit_descriptor.rs`,
 //! branch `goc/goc-03-commit-currency`, unmerged as of this writing — see this
 //! module's own doc note below) rather than inventing a second one:
-//! `CommitDescriptorV1` pairs a monotonic `authority_epoch` (the authority's own
+//! `CommitDescriptor` pairs a monotonic `authority_epoch` (the authority's own
 //! leadership/term counter) with a random non-zero `fencing_token` minted at
 //! commit time, and a projection/reader must reject anything carrying a token
 //! that does not match the current authority's record. `CapacityLease` mirrors
@@ -20,11 +20,11 @@
 //! ## Premise note (verified against `epistemic-graph` `main` at
 //! `02594f7`, 2026-08-16)
 //!
-//! `CommitDescriptorV1`/`authority_epoch`/`fencing_token` exist ONLY on the
+//! `CommitDescriptor`/`authority_epoch`/`fencing_token` exist ONLY on the
 //! unmerged branch `goc/goc-03-commit-currency`
 //! (`crates/eg-types/src/commit_descriptor.rs`); they are not present on `main`
 //! and this module's branch is cut from `main`, so `CapacityLease` cannot
-//! literally import `CommitDescriptorV1` without taking an undeclared
+//! literally import `CommitDescriptor` without taking an undeclared
 //! cross-lane dependency on GOC-03 landing first (GOC-21's declared hard deps
 //! are GOC-18/19/20, not GOC-03). This module therefore VENDORS the identical
 //! epoch+fence shape and CAS discipline as its own fields
@@ -327,7 +327,7 @@ pub enum CapacityDenial {
     /// `lease_id` unknown to the ledger.
     NotFound,
     /// Replaying `(tenant_ref, idempotency_key)` against a DIFFERENT demand
-    /// shape than the original (mirrors `CommitDescriptorV1`'s idempotency
+    /// shape than the original (mirrors `CommitDescriptor`'s idempotency
     /// invariant): same key must mean same request, never a shape mismatch
     /// silently accepted.
     IdempotencyConflict,
@@ -491,7 +491,7 @@ impl CapacityLedger {
             .get_mut(lease_id)
             .ok_or(CapacityDenial::NotFound)?;
         if lease.state.is_terminal() {
-            // Idempotent terminal commit (mirrors CommitDescriptorV1's
+            // Idempotent terminal commit (mirrors CommitDescriptor's
             // idempotency invariant): a repeated release on an already-terminal
             // lease resolves to a no-op success, never an error.
             return Ok(());

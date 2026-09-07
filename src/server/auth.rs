@@ -852,7 +852,7 @@ fn warn_absent_node_claim_once(principal: &str) {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct EnvelopeV2 {
+struct Envelope {
     context: RequestContextClaims,
     timestamp: u64,
     nonce: String,
@@ -916,7 +916,7 @@ pub fn compute_verified_envelope_token(
     let Some(mac) = envelope_v2_mac(secret, req, params) else {
         return String::new();
     };
-    let envelope = EnvelopeV2 {
+    let envelope = Envelope {
         context: params.context.clone(),
         timestamp: params.timestamp,
         nonce: params.nonce.to_string(),
@@ -924,7 +924,7 @@ pub fn compute_verified_envelope_token(
         // This reference signer does not carry an OIDC assertion; every one of
         // its ~20 call sites across the codebase mints envelopes for HMAC-only
         // deployments/tests. A caller that needs `oidc_token` bound in builds
-        // its own `EnvelopeV2`-shaped envelope (see auth.rs's own OIDC binding
+        // its own `Envelope`-shaped envelope (see auth.rs's own OIDC binding
         // tests) rather than this general-purpose reference implementation.
         oidc_token: None,
         mac: hex::encode(mac.finalize().into_bytes()),
@@ -1083,7 +1083,7 @@ fn sign_test_request_with_context(
     request
 }
 
-fn decode_envelope_v2(req: &Request) -> Result<EnvelopeV2, String> {
+fn decode_envelope(req: &Request) -> Result<Envelope, String> {
     let hex_json = req
         .auth_token
         .strip_prefix(ENVELOPE_V2_PREFIX)
@@ -1482,7 +1482,7 @@ fn verify_envelope_v2_with(
     policy: &RequestContextPolicy,
     replay: &dyn ReplayLedger,
 ) -> Result<VerifiedRequestContext, String> {
-    let envelope = decode_envelope_v2(req)?;
+    let envelope = decode_envelope(req)?;
     let got_mac = hex::decode(&envelope.mac).map_err(|_| "Authentication failed".to_string())?;
     let params = VerifiedEnvelopeParams {
         context: &envelope.context,
@@ -2275,7 +2275,7 @@ mod tests {
         req
     }
 
-    fn signed_v2(id: u64, nonce: &str) -> Request {
+    fn signed(id: u64, nonce: &str) -> Request {
         signed_v2_with_claims(id, nonce, verified_claims())
     }
 
@@ -2287,7 +2287,7 @@ mod tests {
         // envelope). See `oidc_binding` below for the identity-binding
         // security tests.
         let _opt_out = require_oidc_off();
-        let req = signed_v2(501, "v2-context-ok");
+        let req = signed(501, "v2-context-ok");
         let context =
             verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
         assert_eq!(context.agent_id(), "agent:planner");
@@ -2395,7 +2395,7 @@ mod tests {
 
     #[test]
     fn v2_rejects_request_agent_that_conflicts_with_signed_context() {
-        let mut req = signed_v2(502, "v2-agent-mismatch");
+        let mut req = signed(502, "v2-agent-mismatch");
         req.agent_id = Some("agent:attacker".into());
         let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay())
             .unwrap_err();
@@ -2438,7 +2438,7 @@ mod tests {
         // a plain HMAC envelope (no `oidc_token`), so it deliberately opts
         // out of the mandatory-OIDC posture.
         let _opt_out = require_oidc_off();
-        let req = signed_v2(503, "v2-replay");
+        let req = signed(503, "v2-replay");
         let replay = memory_replay();
         verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap();
         let error = verify_envelope_v2_with(SECRET, &req, &verified_policy(), &replay).unwrap_err();
@@ -2489,7 +2489,7 @@ mod tests {
     fn v2_priority_claim_round_trips_through_verification() {
         let _opt_out = require_oidc_off();
         // Absent priority ⇒ None (an un-upgraded client is unaffected).
-        let plain = signed_v2(540, "v2-prio-absent");
+        let plain = signed(540, "v2-prio-absent");
         let ctx_plain =
             verify_envelope_v2_with(SECRET, &plain, &verified_policy(), &memory_replay()).unwrap();
         assert_eq!(ctx_plain.priority(), None);
@@ -2516,7 +2516,7 @@ mod tests {
         // trying to jump to the interactive lane WITHOUT re-signing (it holds no
         // signing secret). The MAC no longer covers the mutated claim, so
         // verification must fail — the noisy-neighbor defense cannot be forged.
-        let mut envelope = decode_envelope_v2(&req).unwrap();
+        let mut envelope = decode_envelope(&req).unwrap();
         assert_eq!(
             envelope.context.priority.as_deref(),
             Some("background_ingestion")
@@ -3191,7 +3191,7 @@ mod tests {
             let mac = envelope_v2_mac(SECRET, &req, &params).unwrap();
             let timestamp = params.timestamp;
             let idempotency_key = params.idempotency_key.to_string();
-            let envelope = EnvelopeV2 {
+            let envelope = Envelope {
                 context: claims,
                 timestamp,
                 nonce: nonce.to_string(),

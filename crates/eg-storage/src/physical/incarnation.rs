@@ -19,7 +19,7 @@ use std::os::unix::fs::MetadataExt;
 /// * v2 -- one ledger scope key ([`crate::ledger_scope_key`], the binding
 ///   digest) keys every ledger table, and every ledger row carries the exact
 ///   [`eg_types::MutationScopeIdentity`] it was written under. The census also
-///   gained the two replay tables and `mutation_classes_v1`; a census change on
+///   gained the two replay tables and `mutation_classes`; a census change on
 ///   its own already fails closed at `validate_table_census`, so it needs no
 ///   further version bump. Greenfield format, no migration.
 pub const STORAGE_KERNEL_SCHEMA_VERSION: u16 = 2;

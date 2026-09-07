@@ -1,7 +1,7 @@
 {
   "artifact_digests": {
     "contract/methods.json": "6275a4502ae4f764f0547d231786d0216c912b80cd612bf1abb366ba92f9050e",
-    "contract/schemas/method.request.json": "dda9a6981f0d5ab123c0cacdbfe4caa60fa702477b9eb22303a30013f0fca426",
+    "contract/schemas/method.request.json": "ac01308033c45885f7294b5be408debd13ed3f803e0cef4390fc6569c1f55abc",
     "contract/schemas/result.Bool.json": "f4bcf35f07ea1acd8a6067aa0279864f120fc1eb6e308afb0720e034b2d57744",
     "contract/schemas/result.Count.json": "c139342b656a7d5b0bf598ad6a64f92992dc1071ab8f6568bcfa55422f1f326a",
     "contract/schemas/result.EdgeList.json": "837e5e87b9131e55b1136b2fd5588b002ff9c26eeaad14892a3b3f2b83e1cbc2",
@@ -28,7 +28,7 @@
     "epistemic_graph/generated/transactions.py": "620eca482b86fd65c956204e308ef15a4d6765fa21887a4a93dbe40dd85998be"
   },
   "cargo_lock_sha256": "1095313b8ba47b4d2ddf3a6ac6eb7af6acc1996d2d17404e83e8c3cc66cec657",
-  "contract_digest": "c8c7ddf5c768ba33e9e14670b38af685ddc429dbb585563f5128555b99d44500",
+  "contract_digest": "6493bd9091ec296de02822786d59d5122caf090521d274c349225432889fb8c1",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -300,6 +300,6 @@
     "dispatch-only": 78,
     "undeclared": 222
   },
-  "source_tree_oid": "0a638f3ebc072df67c8ddbe9f44332af4af2953ed62af5017c8e4120cc54c775",
+  "source_tree_oid": "3b85e1087d7bf908f324d8923068cf2ababda42a539d2f7f4d958a7d2265e80d",
   "typed_result_methods": 129
 }

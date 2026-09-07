@@ -8,13 +8,13 @@ mod collections;
 mod crypto;
 mod identifiers;
 
-pub use collections::{BoundedVecV1, RecordBytesV1};
-pub use crypto::{Digest256V1, Ed25519SignatureV1, NonceV1};
+pub use collections::{BoundedVec, RecordBytes};
+pub use crypto::{Digest256, Ed25519Signature, Nonce};
 pub use identifiers::{
-    ActorIdV1, AdmissionStateV1, AudienceIdV1, DecisionOutcomeV1, EffectStateV1, IdempotencyKeyV1,
-    IngressSurfaceV1, MethodIdV1, MutationDispositionV1, MutationDomainV1, OpaqueIdV1, OperationV1,
-    PolicyRevisionV1, ProtocolIdV1, PurposeKindV1, ReplayStatusV1, RequestedMutationResultV1,
-    ResourceIdV1, SchemaIdV1, ScopeKindV1, TenantIdV1, UtcUnixNanosV1, VerificationStatusV1,
+    ActorId, AdmissionOutcome, AudienceId, DecisionOutcome, EffectState, IdempotencyKey,
+    IngressSurface, MethodId, MutationDisposition, MutationDomain, OpaqueId, Operation,
+    PolicyRevision, ProtocolId, PurposeKind, ReplayStatus, RequestedMutationResult,
+    ResourceId, SchemaId, ScopeKind, TenantId, UtcUnixNanos, VerificationStatus,
 };
 
 pub const SHA256_BYTES: usize = 32;

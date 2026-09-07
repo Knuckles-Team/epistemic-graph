@@ -1070,7 +1070,7 @@ fn adopt_bundled_store(
     path: &std::path::Path,
     file_name: &str,
     private_integrity: Option<std::sync::Arc<dyn eg_storage::PrivatePayloadIntegrity>>,
-) -> Result<Option<eg_storage::StorageKernelV1>, String> {
+) -> Result<Option<eg_storage::StorageKernel>, String> {
     let Some((physical_name, layout)) = super::durable_stores::bundled_store_authority(file_name)
     else {
         return Ok(None);

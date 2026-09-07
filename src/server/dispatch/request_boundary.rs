@@ -666,7 +666,7 @@ async fn begin_session_control_saga(
         request_id,
         caller,
         method,
-        crate::mutation_batch::MutationDomain::ControlPlane,
+        crate::mutation_batch::DurabilityDomain::ControlPlane,
     )?;
     Ok(Some(SessionControlSaga { backend, saga }))
 }

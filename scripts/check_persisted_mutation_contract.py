@@ -1149,7 +1149,7 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
     )
     identity = _balanced_block(contract, "pub struct MutationScopeIdentity", "{", "}")
     for field in (
-        "tenant: TenantId",
+        "tenant: ScopeTenantId",
         "scope: MutationScope",
         "incarnation_id: IncarnationId",
     ):
@@ -1198,7 +1198,7 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
                 re.search(r"Graph\s*\{\s*graph:\s*LogicalName,?\s*\}", scope)
                 is not None,
                 "Native" in scope,
-                "domain: MutationDomain" in scope,
+                "domain: DurabilityDomain" in scope,
                 "resource: LogicalName" in scope,
             )
         ),
@@ -1254,9 +1254,9 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
 
 
 # `crates/eg-mutation-store` is deleted. Its physical-authority half became
-# `eg-storage`'s `StorageKernelV1` (kernel.rs, capability.rs, codec.rs,
+# `eg-storage`'s `StorageKernel` (kernel.rs, capability.rs, codec.rs,
 # payload.rs, tables.rs, owner/*, physical/*, recovery/*); its ledger half
-# became `eg-transaction`'s `MutationKernelV1` (admission.rs, admitted.rs,
+# became `eg-transaction`'s `MutationKernel` (admission.rs, admitted.rs,
 # commit.rs, kernel.rs, ledger.rs, read.rs, replay.rs, saga.rs, tables.rs).
 # `eg-storage::direct_state` and `eg-transaction::participant` are
 # deliberately excluded below: neither existed in eg-mutation-store
@@ -1292,7 +1292,7 @@ _TRANSACTION_TESTS_ROOT = "crates/eg-transaction/src/tests/mod.rs"
 
 def mutation_kernel_source(*, include_tests: bool = False) -> str:
     """Current-only successor to `eg-mutation-store`'s single lib.rs-rooted
-    module tree: the union of `StorageKernelV1`'s and `MutationKernelV1`'s
+    module tree: the union of `StorageKernel`'s and `MutationKernel`'s
     module trees, in that order."""
 
     roots = list(_STORAGE_KERNEL_MODULE_ROOTS) + list(_TRANSACTION_KERNEL_MODULE_ROOTS)
@@ -1318,9 +1318,9 @@ def _check_m1_store_contract(native_store: str) -> None:
                 "pub const STORAGE_KERNEL_SCHEMA_VERSION: u16 = 2;",
                 'b"eg/mutation-store-root/v1\\0"',
                 "pub struct StoreIncarnation",
-                # MutationStore -> MutationKernelV1; MutationWrite ->
+                # MutationStore -> MutationKernel; MutationWrite ->
                 # AdmittedMutation (the capability handed back by admit()).
-                "pub struct MutationKernelV1",
+                "pub struct MutationKernel",
                 "pub struct AdmittedMutation<'a, D: OwnerDomain>",
             )
         ),
@@ -1355,7 +1355,7 @@ def _check_m1_store_contract(native_store: str) -> None:
                 # not renamed: their own prior doc said "retained until Phase
                 # 2", and the ruling that removed them requires each consumer
                 # to declare its true `OwnerLayout` instead. The replacements
-                # -- `StorageKernelV1::{create_owner, open_owner}` plus
+                # -- `StorageKernel::{create_owner, open_owner}` plus
                 # `authenticate_scope`/`bind_serving_scope` -- take no
                 # generic `F` closure at all, so no current text can satisfy
                 # this exact marker; there is no successor shape to repoint
@@ -1635,8 +1635,8 @@ def main() -> None:
     # migrate atomically through the mutation ledger.
     _check_m1_unmigrated_semantic_inventory()
     require(
-        "impl Default for MutationDomain" not in contract,
-        "MutationDomain must not acquire an implicit default",
+        "impl Default for DurabilityDomain" not in contract,
+        "DurabilityDomain must not acquire an implicit default",
     )
     require(
         "SemanticIndex = 8" in contract
@@ -1646,7 +1646,7 @@ def main() -> None:
     operation = contract.split("pub struct MutationOperation", 1)[1].split("}", 1)[0]
     require("#[serde(default)]" not in operation, "operation domain must be required")
     require(
-        "pub domain: MutationDomain" in operation, "operation domain field is missing"
+        "pub domain: DurabilityDomain" in operation, "operation domain field is missing"
     )
     require(
         "authoritative state target version must be exactly source version plus one"

@@ -10,24 +10,24 @@ mod scope_group;
 
 use crate::read::{read_ledger, read_outbox, read_private_payload, version};
 use crate::tables::{FENCES, OUTBOX, PRIVATE_PAYLOADS};
-use crate::{Begin, MutationKernelV1};
+use crate::{Begin, MutationKernel};
 use eg_storage::{
     strict_recovery_evidence, BlobOwner, LedgerOnlyOwner, OwnedStoreHandle, OwnerDomain,
     OwnerLayout, PhysicalStoreIdentity, PrivatePayloadIntegrity, ScopeGrantVerifier,
-    StorageKernelV1,
+    StorageKernel,
 };
 use eg_types::authority::{
-    AuthorityContextV1, AuthorityScopeV1, NonceReplayKeyV1, OperationReplayIdentityV1,
+    AuthorityContext, AuthorityScope, NonceReplayKey, OperationReplayIdentity,
     AUTHORITY_CONTEXT_SCHEMA_V1, AUTHORITY_PROTOCOL_V1,
 };
 use eg_types::contract::{
-    ActorIdV1, AudienceIdV1, BoundedVecV1, Digest256V1, IdempotencyKeyV1, IngressSurfaceV1,
-    MethodIdV1, MutationDispositionV1, NonceV1, OpaqueIdV1, OperationV1, PolicyRevisionV1,
-    ProtocolIdV1, PurposeKindV1, ResourceIdV1, SchemaIdV1, ScopeKindV1, TenantIdV1, UtcUnixNanosV1,
+    ActorId, AudienceId, BoundedVec, Digest256, IdempotencyKey, IngressSurface,
+    MethodId, MutationDisposition, Nonce, OpaqueId, Operation, PolicyRevision,
+    ProtocolId, PurposeKind, ResourceId, SchemaId, ScopeKind, TenantId, UtcUnixNanos,
 };
-use eg_types::mutation::{MutationReceiptV1, MutationResultV1};
+use eg_types::mutation::{MutationReceipt, MutationResult};
 use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, MutationDomain, MutationRequestContext, MutationSurface, TenantId,
+    IncarnationId, LogicalName, DurabilityDomain, MutationRequestContext, MutationSurface, ScopeTenantId,
     VersionExpectation,
 };
 use eg_types::protocol::Method;
@@ -98,8 +98,8 @@ fn verifier(tenant: &'static str, layout: OwnerLayout) -> TestScopeVerifier {
 
 fn native_identity(tenant: &str, incarnation: &str) -> MutationScopeIdentity {
     MutationScopeIdentity::native(
-        TenantId::new(tenant).unwrap(),
-        MutationDomain::BlobStore,
+        ScopeTenantId::new(tenant).unwrap(),
+        DurabilityDomain::BlobStore,
         LogicalName::new("blob-catalog").unwrap(),
         IncarnationId::new(incarnation).unwrap(),
     )
@@ -127,7 +127,7 @@ fn batch(identity: MutationScopeIdentity, batch_id: &str) -> MutationBatch {
         operations: vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Other,
-            domain: MutationDomain::BlobStore,
+            domain: DurabilityDomain::BlobStore,
             method: Method::ApplyMutation {
                 event_type: "blob_test".to_string(),
                 query: "opaque".to_string(),
@@ -150,8 +150,8 @@ fn recovery_batch(identity: MutationScopeIdentity, batch_id: &str) -> (MutationB
 
 /// One owner file plus its single mutation kernel.
 struct Fixture {
-    kernel: StorageKernelV1,
-    mutations: MutationKernelV1,
+    kernel: StorageKernel,
+    mutations: MutationKernel,
 }
 
 impl Fixture {
@@ -160,7 +160,7 @@ impl Fixture {
         physical: &str,
         integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
     ) -> Self {
-        let kernel = StorageKernelV1::create_owner::<D>(
+        let kernel = StorageKernel::create_owner::<D>(
             path,
             PhysicalStoreIdentity::new(physical).unwrap(),
             integrity,
@@ -174,7 +174,7 @@ impl Fixture {
         physical: &str,
         integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
     ) -> Self {
-        let kernel = StorageKernelV1::open_owner::<D>(
+        let kernel = StorageKernel::open_owner::<D>(
             path,
             PhysicalStoreIdentity::new(physical).unwrap(),
             integrity,
@@ -189,11 +189,11 @@ impl Fixture {
         self.mutations.authority()
     }
 
-    fn split(kernel: StorageKernelV1) -> Self {
+    fn split(kernel: StorageKernel) -> Self {
         let (kernel, authority) = kernel.into_read_and_mutation_authority().unwrap();
         Self {
             kernel,
-            mutations: MutationKernelV1::new(authority),
+            mutations: MutationKernel::new(authority),
         }
     }
 
@@ -244,43 +244,43 @@ fn apply_batch<D: OwnerDomain>(
     fixture.mutations.commit(write, batch).unwrap();
 }
 
-fn digest_of(byte: u8) -> Digest256V1 {
-    Digest256V1::from_bytes([byte; 32])
+fn digest_of(byte: u8) -> Digest256 {
+    Digest256::from_bytes([byte; 32])
 }
 
 /// One attempt context. `nonce` varies the attempt; every other field is the
 /// stable operation identity.
-fn context(nonce: u8, request: &str, idempotency: &str) -> AuthorityContextV1 {
-    let scope_id = ResourceIdV1::new("graph:tenant:a/g").unwrap();
-    let mut value = AuthorityContextV1 {
-        schema_version: ResourceIdV1::new(AUTHORITY_CONTEXT_SCHEMA_V1).unwrap(),
-        protocol_id: ProtocolIdV1::new(AUTHORITY_PROTOCOL_V1).unwrap(),
+fn context(nonce: u8, request: &str, idempotency: &str) -> AuthorityContext {
+    let scope_id = ResourceId::new("graph:tenant:a/g").unwrap();
+    let mut value = AuthorityContext {
+        schema_version: ResourceId::new(AUTHORITY_CONTEXT_SCHEMA_V1).unwrap(),
+        protocol_id: ProtocolId::new(AUTHORITY_PROTOCOL_V1).unwrap(),
         catalog_digest: digest_of(1),
-        request_id: OpaqueIdV1::new(request).unwrap(),
-        trace_id: OpaqueIdV1::new(format!("trace-{request}")).unwrap(),
-        ingress_surface: IngressSurfaceV1::new("au_mcp").unwrap(),
-        actor: ActorIdV1::new("actor:a").unwrap(),
-        audience: AudienceIdV1::new("eg").unwrap(),
-        tenant: TenantIdV1::new("tenant:a").unwrap(),
-        authority_scope: AuthorityScopeV1 {
-            kind: ScopeKindV1::new("graph").unwrap(),
+        request_id: OpaqueId::new(request).unwrap(),
+        trace_id: OpaqueId::new(format!("trace-{request}")).unwrap(),
+        ingress_surface: IngressSurface::new("au_mcp").unwrap(),
+        actor: ActorId::new("actor:a").unwrap(),
+        audience: AudienceId::new("eg").unwrap(),
+        tenant: TenantId::new("tenant:a").unwrap(),
+        authority_scope: AuthorityScope {
+            kind: ScopeKind::new("graph").unwrap(),
             scope_id: scope_id.clone(),
-            tenant: Some(TenantIdV1::new("tenant:a").unwrap()),
-            parent_scope_ids: BoundedVecV1::new(vec![ResourceIdV1::new("tenant:a").unwrap()])
+            tenant: Some(TenantId::new("tenant:a").unwrap()),
+            parent_scope_ids: BoundedVec::new(vec![ResourceId::new("tenant:a").unwrap()])
                 .unwrap(),
             graph_incarnation: None,
         },
-        purpose_kind: PurposeKindV1::new("graph_write").unwrap(),
+        purpose_kind: PurposeKind::new("graph_write").unwrap(),
         purpose_resource: Some(scope_id),
-        operation: OperationV1::new("mutation").unwrap(),
-        policy_revision: PolicyRevisionV1::new("policy:1").unwrap(),
+        operation: Operation::new("mutation").unwrap(),
+        policy_revision: PolicyRevision::new("policy:1").unwrap(),
         policy_epoch: 7,
-        policy_decision_id: OpaqueIdV1::new("decision:1").unwrap(),
+        policy_decision_id: OpaqueId::new("decision:1").unwrap(),
         policy_digest: digest_of(2),
-        issued_at: UtcUnixNanosV1::new(100),
-        expires_at: UtcUnixNanosV1::new(10_100),
-        nonce: NonceV1::from_bytes([nonce; 32]),
-        idempotency_key: Some(IdempotencyKeyV1::new(idempotency).unwrap()),
+        issued_at: UtcUnixNanos::new(100),
+        expires_at: UtcUnixNanos::new(10_100),
+        nonce: Nonce::from_bytes([nonce; 32]),
+        idempotency_key: Some(IdempotencyKey::new(idempotency).unwrap()),
         context_digest: digest_of(0),
     };
     value.context_digest = value.recompute_context_digest().unwrap();
@@ -288,14 +288,14 @@ fn context(nonce: u8, request: &str, idempotency: &str) -> AuthorityContextV1 {
 }
 
 fn operation_identity(
-    context: &AuthorityContextV1,
+    context: &AuthorityContext,
     method: &str,
-    payload: Digest256V1,
-) -> OperationReplayIdentityV1 {
-    OperationReplayIdentityV1::from_context(
+    payload: Digest256,
+) -> OperationReplayIdentity {
+    OperationReplayIdentity::from_context(
         context,
-        MethodIdV1::new(method).unwrap(),
-        SchemaIdV1::new("mutation-envelope.v1").unwrap(),
+        MethodId::new(method).unwrap(),
+        SchemaId::new("mutation-envelope.v1").unwrap(),
         digest_of(8),
         payload,
     )
@@ -305,26 +305,26 @@ fn operation_identity(
 /// A committed receipt bound to both replay digests.
 fn receipt(
     id: &str,
-    operation: &OperationReplayIdentityV1,
-    nonce: &NonceReplayKeyV1,
-) -> MutationReceiptV1 {
-    let result = MutationResultV1::ReceiptOnly;
-    let value = MutationReceiptV1 {
-        receipt_id: OpaqueIdV1::new(id).unwrap(),
-        mutation_id: OpaqueIdV1::new(format!("mutation-{id}")).unwrap(),
+    operation: &OperationReplayIdentity,
+    nonce: &NonceReplayKey,
+) -> MutationReceipt {
+    let result = MutationResult::ReceiptOnly;
+    let value = MutationReceipt {
+        receipt_id: OpaqueId::new(id).unwrap(),
+        mutation_id: OpaqueId::new(format!("mutation-{id}")).unwrap(),
         scope: operation.authority_scope.clone(),
-        authority_receipt_id: OpaqueIdV1::new("authority:1").unwrap(),
+        authority_receipt_id: OpaqueId::new("authority:1").unwrap(),
         authority_evidence_digest: digest_of(11),
-        disposition: MutationDispositionV1::new("committed").unwrap(),
+        disposition: MutationDisposition::new("committed").unwrap(),
         operation_replay_digest: operation.digest().unwrap(),
         nonce_replay_digest: nonce.digest().unwrap(),
         envelope_digest: digest_of(12),
-        effect_id: Some(OpaqueIdV1::new(format!("effect-{id}")).unwrap()),
+        effect_id: Some(OpaqueId::new(format!("effect-{id}")).unwrap()),
         effect_digest: Some(digest_of(13)),
         result_digest: result.digest().unwrap(),
-        commit_id: Some(OpaqueIdV1::new(format!("commit-{id}")).unwrap()),
+        commit_id: Some(OpaqueId::new(format!("commit-{id}")).unwrap()),
         result,
-        recorded_at: UtcUnixNanosV1::new(200),
+        recorded_at: UtcUnixNanos::new(200),
     };
     value.validate().unwrap();
     value
@@ -335,8 +335,8 @@ fn receipt(
 fn resolve<D: OwnerDomain>(
     fixture: &Fixture,
     owner: &OwnedStoreHandle<D>,
-    operation: &OperationReplayIdentityV1,
-    nonce: &NonceReplayKeyV1,
+    operation: &OperationReplayIdentity,
+    nonce: &NonceReplayKey,
 ) -> crate::ReplayResolution {
     let write = fixture.mutations.open_write(owner).unwrap();
     let resolution = fixture

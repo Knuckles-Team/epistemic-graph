@@ -1,56 +1,56 @@
-use super::effects::MutationEffectV1;
-use super::envelope::MutationEnvelopeV1;
-use super::outbox_decode::ProvenanceBindingV1;
-use super::targets::MutationPreconditionV1;
+use super::effects::MutationEffect;
+use super::envelope::MutationEnvelope;
+use super::outbox_decode::ProvenanceBinding;
+use super::targets::MutationPrecondition;
 use super::{MAX_MUTATION_PRECONDITIONS, MAX_PROVENANCE_REFS};
 use crate::authority::{
-    AuthorityScopeV1, NonceReplayKeyV1, OperationReplayIdentityV1, VerifiedAuthorityV1,
+    AuthorityScope, NonceReplayKey, OperationReplayIdentity, VerifiedAuthority,
 };
 use crate::contract::{
-    BoundedVecV1, OpaqueIdV1, ResourceIdV1, MAX_MUTATION_EFFECTS, MAX_OUTBOX_INTENTS,
+    BoundedVec, OpaqueId, ResourceId, MAX_MUTATION_EFFECTS, MAX_OUTBOX_INTENTS,
 };
-use crate::outbox::OutboxIntentV1;
+use crate::outbox::OutboxIntent;
 
-impl MutationEnvelopeV1 {
-    pub fn schema_version(&self) -> &ResourceIdV1 {
+impl MutationEnvelope {
+    pub fn schema_version(&self) -> &ResourceId {
         &self.schema_version
     }
 
-    pub fn mutation_id(&self) -> &OpaqueIdV1 {
+    pub fn mutation_id(&self) -> &OpaqueId {
         &self.mutation_id
     }
 
-    pub fn scope(&self) -> &AuthorityScopeV1 {
+    pub fn scope(&self) -> &AuthorityScope {
         &self.scope
     }
 
-    pub fn verified_authority(&self) -> &VerifiedAuthorityV1 {
+    pub fn verified_authority(&self) -> &VerifiedAuthority {
         &self.verified_authority
     }
 
-    pub fn operation_identity(&self) -> &OperationReplayIdentityV1 {
+    pub fn operation_identity(&self) -> &OperationReplayIdentity {
         &self.operation_identity
     }
 
-    pub fn nonce_replay_key(&self) -> &NonceReplayKeyV1 {
+    pub fn nonce_replay_key(&self) -> &NonceReplayKey {
         &self.nonce_replay_key
     }
 
     pub fn preconditions(
         &self,
-    ) -> &BoundedVecV1<MutationPreconditionV1, MAX_MUTATION_PRECONDITIONS> {
+    ) -> &BoundedVec<MutationPrecondition, MAX_MUTATION_PRECONDITIONS> {
         &self.preconditions
     }
 
-    pub fn effects(&self) -> &BoundedVecV1<MutationEffectV1, MAX_MUTATION_EFFECTS> {
+    pub fn effects(&self) -> &BoundedVec<MutationEffect, MAX_MUTATION_EFFECTS> {
         &self.effects
     }
 
-    pub fn outbox(&self) -> &BoundedVecV1<OutboxIntentV1, MAX_OUTBOX_INTENTS> {
+    pub fn outbox(&self) -> &BoundedVec<OutboxIntent, MAX_OUTBOX_INTENTS> {
         &self.outbox
     }
 
-    pub fn provenance(&self) -> &BoundedVecV1<ProvenanceBindingV1, MAX_PROVENANCE_REFS> {
+    pub fn provenance(&self) -> &BoundedVec<ProvenanceBinding, MAX_PROVENANCE_REFS> {
         &self.provenance
     }
 }

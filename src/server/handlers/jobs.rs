@@ -65,7 +65,7 @@ use eg_modality::{Classification, OpaqueRef, PolicyEnvelope};
 use eg_program::{NativeCompiler, OptimizationRequest, ProgramModality};
 
 use crate::isolation::AccessLevel;
-use crate::mutation_batch::{MutationBatch, MutationDomain, MutationSurface};
+use crate::mutation_batch::{MutationBatch, DurabilityDomain, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::{check_graph_access, CarrierAuthority};
 use crate::server::state::ServerState;
@@ -591,7 +591,7 @@ fn compile_job_batch(
         },
         method,
         MutationSurface::Job,
-        MutationDomain::AnalyticsJob,
+        DurabilityDomain::AnalyticsJob,
         "analytics_job_operation",
     )?;
     Ok((batch, now))

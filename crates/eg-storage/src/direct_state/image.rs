@@ -67,7 +67,7 @@ impl DirectStatePhysicalImage {
 
     pub(super) fn validate_content(
         &self,
-        manifest: &DirectStateSectionManifestV1,
+        manifest: &DirectStateSectionManifest,
     ) -> Result<(), String> {
         validate_file_content(
             &self.authority_file,
@@ -109,7 +109,7 @@ impl Drop for DirectStatePhysicalImage {
 pub fn prepare_mutable_generation(
     permit: &StateImageInstallPermit,
     incoming: DirectStatePhysicalImage,
-    source_manifest: &DirectStateSectionManifestV1,
+    source_manifest: &DirectStateSectionManifest,
     generation_directory: &Path,
 ) -> Result<PreparedDirectStateGeneration, String> {
     permit.validate_affinity(&incoming.authority_identity)?;
@@ -171,7 +171,7 @@ pub struct PreparedDirectStateGeneration {
     pub(super) incoming: Option<DirectStatePhysicalImage>,
     pub(super) prepared_path: PathBuf,
     pub(super) prepared_authority_file: Option<File>,
-    pub(super) source_manifest: DirectStateSectionManifestV1,
+    pub(super) source_manifest: DirectStateSectionManifest,
     pub(super) cleanup_prepared_on_drop: bool,
 }
 
@@ -368,13 +368,13 @@ pub fn bind_prepared_generation<T: DirectStateDomainValue>(
 fn build_generation_section<T: DirectStateDomainValue>(
     prepared: &PreparedDirectStateGeneration,
     inspected: &T,
-) -> Result<DirectStateInstallSectionV1, String> {
+) -> Result<DirectStateInstallSection, String> {
     let dynamic_store_authority_digest = inspected.dynamic_store_authority_digest()?;
     let install_evidence_sha256 = inspected.install_evidence_sha256()?;
     if dynamic_store_authority_digest == [0_u8; 32] || install_evidence_sha256 == [0_u8; 32] {
         return Err("prepared direct-state value returned absent authority evidence".into());
     }
-    let generation_manifest = DirectStateGenerationManifestV1 {
+    let generation_manifest = DirectStateGenerationManifest {
         schema_version: DIRECT_STATE_SCHEMA_VERSION,
         domain: prepared.source_manifest.domain,
         scope: prepared.source_manifest.scope.clone(),
@@ -397,7 +397,7 @@ fn build_generation_section<T: DirectStateDomainValue>(
         .and_then(|name| name.to_str())
         .ok_or_else(|| "direct-state incoming image name is not portable".to_string())?
         .to_string();
-    Ok(DirectStateInstallSectionV1 {
+    Ok(DirectStateInstallSection {
         source_manifest: prepared.source_manifest.clone(),
         incoming_file,
         generation_manifest,
@@ -409,13 +409,13 @@ pub struct StagedDirectStateGeneration {
     pub(super) incoming: DirectStatePhysicalImage,
     pub(super) prepared_retirement: Option<ExactRetirement>,
     pub(super) generation: DirectStatePhysicalImage,
-    pub(super) section: DirectStateInstallSectionV1,
+    pub(super) section: DirectStateInstallSection,
     pub(super) directory_durable: bool,
     pub(super) first_durability_error: Option<String>,
 }
 
 impl StagedDirectStateGeneration {
-    pub fn section(&self) -> &DirectStateInstallSectionV1 {
+    pub fn section(&self) -> &DirectStateInstallSection {
         &self.section
     }
 
@@ -474,7 +474,7 @@ impl StagedDirectStateGeneration {
         (
             DirectStatePhysicalImage,
             DirectStatePhysicalImage,
-            DirectStateInstallSectionV1,
+            DirectStateInstallSection,
         ),
         String,
     > {
@@ -486,7 +486,7 @@ impl StagedDirectStateGeneration {
         self,
     ) -> Result<
         (
-            DirectStateInstallSectionV1,
+            DirectStateInstallSection,
             DirectStatePhysicalImage,
             DirectStatePhysicalImage,
         ),
@@ -520,7 +520,7 @@ pub fn incoming_file_name(
 
 pub fn resolve_generation_path(
     generation_directory: &Path,
-    section: &DirectStateInstallSectionV1,
+    section: &DirectStateInstallSection,
 ) -> Result<PathBuf, String> {
     validate_relative_basename(&section.generation_file)?;
     let expected = generation_file_name(
@@ -535,7 +535,7 @@ pub fn resolve_generation_path(
 
 pub fn resolve_incoming_path(
     incoming_directory: &Path,
-    section: &DirectStateInstallSectionV1,
+    section: &DirectStateInstallSection,
 ) -> Result<PathBuf, String> {
     validate_relative_basename(&section.incoming_file)?;
     let expected = incoming_file_name(
@@ -554,7 +554,7 @@ pub fn resolve_incoming_path(
 pub fn verify_pending_incoming(
     permit: &StateImageInstallPermit,
     roots: &RegisteredDirectStateRoots,
-    section: &DirectStateInstallSectionV1,
+    section: &DirectStateInstallSection,
     configured_max_bytes: u64,
 ) -> Result<VerifiedDirectStateIncoming, String> {
     permit.validate_affinity(&roots.registry_identity.authority_identity)?;
@@ -638,7 +638,7 @@ pub struct VerifiedDirectStateIncoming {
     pub(super) roots: RegisteredDirectStateRoots,
     pub(super) path: PathBuf,
     pub(super) authority_file: File,
-    pub(super) source_manifest: DirectStateSectionManifestV1,
+    pub(super) source_manifest: DirectStateSectionManifest,
 }
 
 impl VerifiedDirectStateIncoming {
@@ -663,7 +663,7 @@ impl VerifiedDirectStateIncoming {
         Ok(&self.authority_file)
     }
 
-    pub fn source_manifest(&self) -> &DirectStateSectionManifestV1 {
+    pub fn source_manifest(&self) -> &DirectStateSectionManifest {
         &self.source_manifest
     }
 

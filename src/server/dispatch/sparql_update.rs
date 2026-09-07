@@ -117,7 +117,7 @@ const SPARQL_COMPENSATION_EVENT: &str = "sparql_http_compensation_v1";
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct SparqlRecoveryPlanV1 {
+struct SparqlRecoveryPlan {
     schema_version: u8,
     graphs: Vec<crate::server::sparql_http::PlannedGraphUpdate>,
 }
@@ -198,7 +198,7 @@ async fn replay_sparql_update(
 async fn resume_sparql_update_plan(
     coord: &SparqlUpdateCoordination<'_>,
     saga: handlers::admin::AdminSaga,
-) -> Result<(handlers::admin::AdminSaga, SparqlRecoveryPlanV1), Response> {
+) -> Result<(handlers::admin::AdminSaga, SparqlRecoveryPlan), Response> {
     if let Some(result) = saga.replayed.clone() {
         return Err(replay_sparql_update(coord, result).await);
     }
@@ -294,7 +294,7 @@ async fn check_sparql_update_graph_access(
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 fn begin_sealed_sparql_saga(
     coord: &SparqlUpdateCoordination<'_>,
-    plan: &SparqlRecoveryPlanV1,
+    plan: &SparqlRecoveryPlan,
     batch_id: &str,
     event_type: &str,
 ) -> Result<handlers::admin::AdminSaga, Response> {
@@ -307,7 +307,7 @@ fn begin_sealed_sparql_saga(
         coord.req_id,
         Some(coord.verified_actor),
         handlers::admin::AdminSagaPayload {
-            domain: crate::mutation_batch::MutationDomain::MultiGraph,
+            domain: crate::mutation_batch::DurabilityDomain::MultiGraph,
             batch_id,
             event_type,
             payload_digest: &digest,
@@ -324,7 +324,7 @@ async fn build_sparql_update_plan(
     coord: &SparqlUpdateCoordination<'_>,
     query: &str,
     default_graph: &str,
-) -> Result<(handlers::admin::AdminSaga, SparqlRecoveryPlanV1), Response> {
+) -> Result<(handlers::admin::AdminSaga, SparqlRecoveryPlan), Response> {
     let graphs = resolve_sparql_update_graphs(coord, query, default_graph).await?;
     let missing = check_sparql_update_graph_access(coord, &graphs).await?;
     if !missing.is_empty() && !coord.verified_context.allows_method("graph:admin", true) {
@@ -340,7 +340,7 @@ async fn build_sparql_update_plan(
             Ok(planned) => planned,
             Err(error) => return Err(Response::err(coord.req_id, error)),
         };
-    let plan = SparqlRecoveryPlanV1 {
+    let plan = SparqlRecoveryPlan {
         schema_version: 1,
         graphs: planned,
     };
@@ -355,7 +355,7 @@ async fn stage_sparql_update(
     coord: &SparqlUpdateCoordination<'_>,
     query: &str,
     default_graph: &str,
-) -> Result<(handlers::admin::AdminSaga, SparqlRecoveryPlanV1), Response> {
+) -> Result<(handlers::admin::AdminSaga, SparqlRecoveryPlan), Response> {
     let resumed = match handlers::admin::resume_named_admin_saga(
         coord.redb,
         coord.parent_id,
@@ -382,7 +382,7 @@ async fn stage_sparql_update(
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 async fn create_missing_sparql_graphs(
     coord: &SparqlUpdateCoordination<'_>,
-    plan: &SparqlRecoveryPlanV1,
+    plan: &SparqlRecoveryPlan,
 ) -> Result<(), Response> {
     for update in plan.graphs.iter().filter(|update| !update.existed_before) {
         if timed_read(coord.state).await.registry.exists(&update.graph) {
@@ -413,7 +413,7 @@ async fn create_missing_sparql_graphs(
 
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 fn sparql_forward_methods(
-    plan: &SparqlRecoveryPlanV1,
+    plan: &SparqlRecoveryPlan,
 ) -> Vec<(String, crate::protocol::GraphType, Vec<Method>)> {
     plan.graphs
         .iter()
@@ -431,7 +431,7 @@ fn sparql_forward_methods(
 
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 fn sparql_rollback_methods(
-    plan: &SparqlRecoveryPlanV1,
+    plan: &SparqlRecoveryPlan,
 ) -> Vec<(String, crate::protocol::GraphType, Vec<Method>)> {
     plan.graphs
         .iter()
@@ -454,7 +454,7 @@ fn sparql_rollback_methods(
 async fn finish_sparql_commit(
     coord: &SparqlUpdateCoordination<'_>,
     saga: handlers::admin::AdminSaga,
-    plan: &SparqlRecoveryPlanV1,
+    plan: &SparqlRecoveryPlan,
 ) -> Response {
     let result = ResultPayload::Json(serde_json::json!({
         "outcome": "committed",
@@ -491,7 +491,7 @@ enum SparqlForwardOutcome {
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 async fn try_sparql_forward_commit(
     coord: &SparqlUpdateCoordination<'_>,
-    plan: &SparqlRecoveryPlanV1,
+    plan: &SparqlRecoveryPlan,
     saga: handlers::admin::AdminSaga,
 ) -> SparqlForwardOutcome {
     if let Err(response) = create_missing_sparql_graphs(coord, plan).await {
@@ -510,7 +510,7 @@ async fn try_sparql_forward_commit(
             finish_sparql_commit(coord, saga, plan).await,
         ));
     }
-    let marker_plan = SparqlRecoveryPlanV1 {
+    let marker_plan = SparqlRecoveryPlan {
         schema_version: 1,
         graphs: Vec::new(),
     };
@@ -529,7 +529,7 @@ async fn try_sparql_forward_commit(
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 async fn apply_sparql_rollback(
     coord: &SparqlUpdateCoordination<'_>,
-    plan: &SparqlRecoveryPlanV1,
+    plan: &SparqlRecoveryPlan,
 ) -> Result<(), Response> {
     let rollback_methods = sparql_rollback_methods(plan);
     if rollback_methods.is_empty() {
@@ -562,7 +562,7 @@ async fn apply_sparql_rollback(
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 async fn delete_created_sparql_graphs(
     coord: &SparqlUpdateCoordination<'_>,
-    plan: &SparqlRecoveryPlanV1,
+    plan: &SparqlRecoveryPlan,
 ) -> Result<(), Response> {
     for update in plan
         .graphs
@@ -749,7 +749,7 @@ pub(super) async fn coordinated_sparql_http_update(
 #[cfg(all(test, feature = "redb", feature = "security", feature = "sparql-http"))]
 mod coordinator_restart_tests {
     use super::*;
-    use crate::mutation_batch::{MutationBatchStatus, MutationDomain, MutationSurface};
+    use crate::mutation_batch::{MutationBatchStatus, DurabilityDomain, MutationSurface};
     use eg_transaction::{read_ledger, read_private_payload};
 
     /// The coordinator owner file is ledger-only: receipts and sealed payloads.
@@ -823,21 +823,21 @@ mod coordinator_restart_tests {
         identity: &eg_types::MutationScopeIdentity,
         cipher: &crate::crypto::ValueCipher,
     ) -> (
-        eg_storage::StorageKernelV1,
-        eg_transaction::MutationKernelV1,
+        eg_storage::StorageKernel,
+        eg_transaction::MutationKernel,
         eg_storage::OwnedStoreHandle<Owner>,
     ) {
         let physical = eg_storage::PhysicalStoreIdentity::new(TEST_PHYSICAL_STORE).unwrap();
         let integrity: Option<Arc<dyn eg_storage::PrivatePayloadIntegrity>> =
             Some(Arc::new(TestPrivateIntegrity(cipher.clone())));
         let kernel = if path.exists() {
-            eg_storage::StorageKernelV1::open_owner::<Owner>(path, physical, integrity)
+            eg_storage::StorageKernel::open_owner::<Owner>(path, physical, integrity)
         } else {
-            eg_storage::StorageKernelV1::create_owner::<Owner>(path, physical, integrity)
+            eg_storage::StorageKernel::create_owner::<Owner>(path, physical, integrity)
         }
         .unwrap();
         let (kernel, authority) = kernel.into_read_and_mutation_authority().unwrap();
-        let mutations = eg_transaction::MutationKernelV1::new(authority);
+        let mutations = eg_transaction::MutationKernel::new(authority);
         let grant = kernel
             .authenticate_scope::<Owner>(
                 &TestScopeVerifier,
@@ -869,7 +869,7 @@ mod coordinator_restart_tests {
             },
             digest,
             MutationSurface::Other,
-            MutationDomain::MultiGraph,
+            DurabilityDomain::MultiGraph,
             event_type,
         )
         .unwrap()
@@ -880,7 +880,7 @@ mod coordinator_restart_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("coordinator.redb");
         let cipher = crate::crypto::ValueCipher::from_key_material(b"restart-test-key");
-        let plan = SparqlRecoveryPlanV1 {
+        let plan = SparqlRecoveryPlan {
             schema_version: 1,
             graphs: vec![crate::server::sparql_http::PlannedGraphUpdate {
                 graph: "graph-opaque".to_string(),
@@ -906,7 +906,7 @@ mod coordinator_restart_tests {
         let recovered = read_private_payload(&read, &batch.batch_id)
             .unwrap()
             .unwrap();
-        let opened: SparqlRecoveryPlanV1 = open_private_coordinator_plan_with_cipher(
+        let opened: SparqlRecoveryPlan = open_private_coordinator_plan_with_cipher(
             &cipher,
             &record.batch,
             SPARQL_RECOVERY_EVENT,
@@ -918,7 +918,7 @@ mod coordinator_restart_tests {
         let last = tampered.len() - 1;
         tampered[last] ^= 1;
         assert!(
-            open_private_coordinator_plan_with_cipher::<SparqlRecoveryPlanV1>(
+            open_private_coordinator_plan_with_cipher::<SparqlRecoveryPlan>(
                 &cipher,
                 &record.batch,
                 SPARQL_RECOVERY_EVENT,
@@ -933,7 +933,7 @@ mod coordinator_restart_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("compensation.redb");
         let cipher = crate::crypto::ValueCipher::from_key_material(b"compensation-test-key");
-        let parent_plan = SparqlRecoveryPlanV1 {
+        let parent_plan = SparqlRecoveryPlan {
             schema_version: 1,
             graphs: Vec::new(),
         };

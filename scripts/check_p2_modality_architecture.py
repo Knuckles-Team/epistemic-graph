@@ -255,7 +255,7 @@ def main() -> None:
         "served KnowledgeBatch has no typed multi-family wire query",
     )
     require(
-        "pub struct KnowledgeStreamCursorV1" in wire,
+        "pub struct KnowledgeStreamCursor" in wire,
         "served KnowledgeBatch has no versioned authority-bound cursor",
     )
     require(

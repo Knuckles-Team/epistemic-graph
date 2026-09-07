@@ -144,7 +144,7 @@ fn the_canonical_bootstrap_matches_the_declared_shard_census() {
 
     // The shard's own private mutation ledger is still bootstrapped but is
     // declared by no layout: RF-RULING-004 gives admission, idempotency, OCC,
-    // fencing, outbox and projection cursors to `MutationKernelV1` alone, and
+    // fencing, outbox and projection cursors to `MutationKernel` alone, and
     // retiring these eight is the remaining step of this cutover.
     let retired: std::collections::BTreeSet<String> = [
         "mutation_batches",

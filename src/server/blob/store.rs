@@ -32,10 +32,10 @@
 //! from the surviving manifests at sweep time, so a chunk shared by a live blob is kept.
 
 use crate::mutation_batch::{
-    IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationScopeIdentity, TenantId,
+    IncarnationId, LogicalName, MutationBatch, DurabilityDomain, MutationScopeIdentity, ScopeTenantId,
 };
-use eg_storage::{BlobOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopedRead, StorageKernelV1};
-use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernelV1};
+use eg_storage::{BlobOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopedRead, StorageKernel};
+use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -457,7 +457,7 @@ pub(crate) const BLOB_PHYSICAL_STORE: &str = "epistemic-graph:blob";
 /// Authenticate and bind ONE logical serving scope on `blob.redb`. The proof bytes are
 /// the composition root's; this module supplies only the identity and the layout.
 fn bind_scope(
-    kernel: &StorageKernelV1,
+    kernel: &StorageKernel,
     scope: &MutationScopeIdentity,
 ) -> Result<BlobHandle, String> {
     let authority = crate::store_authority::process_authority();
@@ -471,10 +471,10 @@ fn bind_scope(
 }
 
 /// The native blob-domain scope identity for one (tenant, resource) pair.
-fn blob_scope_identity(tenant: TenantId, resource: &str) -> Result<MutationScopeIdentity, String> {
+fn blob_scope_identity(tenant: ScopeTenantId, resource: &str) -> Result<MutationScopeIdentity, String> {
     MutationScopeIdentity::native(
         tenant,
-        MutationDomain::BlobStore,
+        DurabilityDomain::BlobStore,
         LogicalName::new(resource.to_string())?,
         IncarnationId::new(crate::server::mutation_batch::COMPILED_BATCH_INCARNATION)?,
     )
@@ -503,8 +503,8 @@ fn group_subject(group: &HashMap<String, Vec<u8>>) -> String {
 /// can set a redb `Durability`. Manifest/refcount/sweep/read operations flush the open
 /// chunk group first (one writer at a time), then run their own admitted write.
 pub struct RedbChunkStore {
-    kernel: StorageKernelV1,
-    mutations: MutationKernelV1,
+    kernel: StorageKernel,
+    mutations: MutationKernel,
     /// Bootstrap AND serving scope: cross-scope reads and caller-less writes run on it.
     bootstrap: BlobHandle,
     /// Serving scopes, keyed by `identity.binding_digest().to_hex()`.
@@ -523,14 +523,14 @@ impl RedbChunkStore {
     /// the full identity (incarnation included) when re-binding, failing closed on any
     /// mismatch.
     fn ledger_bootstrap_identity() -> Result<MutationScopeIdentity, String> {
-        blob_scope_identity(TenantId::system(), "blob-ledger-root")
+        blob_scope_identity(ScopeTenantId::system(), "blob-ledger-root")
     }
 
     /// The native scope identity for one (tenant, graph) pair's blob rows. `graph` is
     /// the `resource` name, matching `commit_native_batch`'s callers, which route by
     /// `(tenant, graph)` (e.g. `mutation_version`).
     fn scope_identity(&self, tenant: &str, graph: &str) -> Result<MutationScopeIdentity, String> {
-        blob_scope_identity(TenantId::new(tenant.to_string())?, graph)
+        blob_scope_identity(ScopeTenantId::new(tenant.to_string())?, graph)
     }
 
     /// Open (creating if absent) `{persist_dir}/blob.redb` as ONE physical owner file
@@ -542,7 +542,7 @@ impl RedbChunkStore {
     ///
     /// NOTE (flagged, not resolved here): the previous `Database::builder()
     /// .set_cache_size(EPISTEMIC_GRAPH_BLOB_CACHE_BYTES)` tuning is DROPPED by this
-    /// migration — `eg_storage::StorageKernelV1::{create_owner, open_owner}` open the
+    /// migration — `eg_storage::StorageKernel::{create_owner, open_owner}` open the
     /// file themselves with no cache-size injection point, and this store has no other
     /// path to the database beneath them. That cap existed to bound RSS against this
     /// store's multi-MB chunk values; the follow-up belongs in `eg-storage`.
@@ -551,12 +551,12 @@ impl RedbChunkStore {
         let path = std::path::Path::new(persist_dir).join("blob.redb");
         let physical = PhysicalStoreIdentity::new(BLOB_PHYSICAL_STORE)?;
         let kernel = if path.exists() {
-            StorageKernelV1::open_owner::<BlobOwner>(&path, physical, None)
+            StorageKernel::open_owner::<BlobOwner>(&path, physical, None)
         } else {
-            StorageKernelV1::create_owner::<BlobOwner>(&path, physical, None)
+            StorageKernel::create_owner::<BlobOwner>(&path, physical, None)
         }?;
         let (kernel, authority) = kernel.into_read_and_mutation_authority()?;
-        let mutations = MutationKernelV1::new(authority);
+        let mutations = MutationKernel::new(authority);
         let bootstrap = bind_scope(&kernel, &Self::ledger_bootstrap_identity()?)?;
         mutations.bootstrap_ledger(&bootstrap)?;
         let group = std::env::var("EPISTEMIC_GRAPH_BLOB_GROUP_CHUNKS")
@@ -1139,7 +1139,7 @@ impl RedbChunkStore {
         T: serde::Serialize + DeserializeOwned,
         F: FnOnce(&AdmittedOwnerWrite<'_, BlobOwner>) -> Result<T, String>,
     {
-        let write = MaintenanceBatch::new(MutationDomain::BlobStore, event, subject);
+        let write = MaintenanceBatch::new(DurabilityDomain::BlobStore, event, subject);
         let bootstrap = self.bootstrap.as_ref();
         let (txn, batch, begun) = self.mutations.admit_current(
             bootstrap,

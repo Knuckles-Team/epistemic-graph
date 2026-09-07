@@ -34,7 +34,7 @@ impl RecoveredPublishedCleanup {
 impl AssembledDirectStateGeneration {
     pub(in crate::direct_state) fn validate_for_journal(
         &self,
-        journal: &DirectStateInstallJournalV1,
+        journal: &DirectStateInstallJournal,
     ) -> Result<(), String> {
         let journal_sha256 = journal.sha256()?;
         if !Arc::ptr_eq(
@@ -52,7 +52,7 @@ impl AssembledDirectStateGeneration {
         &self,
         authority_identity: &Arc<StateImageAuthorityIdentity>,
         registry_identity: &Arc<DirectStateRegistryIdentity>,
-        current: &DirectStateCurrentImageV1,
+        current: &DirectStateCurrentImage,
     ) -> Result<(), String> {
         self.generation.validate_closed()?;
         if !Arc::ptr_eq(&self.authority_identity, authority_identity)
@@ -116,11 +116,11 @@ fn collect_unauthorized_residue(
 }
 
 fn classify_pending<'a>(
-    current: Option<&DirectStateCurrentImageV1>,
+    current: Option<&DirectStateCurrentImage>,
     pending: Option<&'a DurablePendingJournal<'_>>,
 ) -> Result<
     (
-        Option<&'a DirectStateInstallJournalV1>,
+        Option<&'a DirectStateInstallJournal>,
         Option<DurablePublishedJournal>,
     ),
     String,
@@ -143,7 +143,7 @@ fn classify_pending<'a>(
 fn verify_pending_inputs(
     registry: &DirectStateRegistry,
     permit: &StateImageInstallPermit,
-    pending: Option<&DirectStateInstallJournalV1>,
+    pending: Option<&DirectStateInstallJournal>,
 ) -> Result<BTreeMap<DirectStateDomain, VerifiedDirectStateIncoming>, String> {
     let mut verified = BTreeMap::new();
     let Some(journal) = pending else {
@@ -169,8 +169,8 @@ fn verify_pending_inputs(
 fn recover_entries(
     registry: &DirectStateRegistry,
     permit: &StateImageInstallPermit,
-    current: Option<&DirectStateCurrentImageV1>,
-    pending: Option<&DirectStateInstallJournalV1>,
+    current: Option<&DirectStateCurrentImage>,
+    pending: Option<&DirectStateInstallJournal>,
     verified: &BTreeMap<DirectStateDomain, VerifiedDirectStateIncoming>,
 ) -> Result<BTreeMap<DirectStateDomain, DirectStateGenerationEntry>, String> {
     let mut entries = BTreeMap::new();
@@ -186,8 +186,8 @@ fn recover_entries(
 fn recover_domain_entry(
     registry: &DirectStateRegistry,
     permit: &StateImageInstallPermit,
-    current: Option<&DirectStateCurrentImageV1>,
-    pending: Option<&DirectStateInstallJournalV1>,
+    current: Option<&DirectStateCurrentImage>,
+    pending: Option<&DirectStateInstallJournal>,
     verified: &BTreeMap<DirectStateDomain, VerifiedDirectStateIncoming>,
     domain: DirectStateDomain,
 ) -> Result<DirectStateGenerationEntry, String> {
@@ -243,8 +243,8 @@ fn collect_domain_residue(
     registration: &DirectStateProviderRegistration,
     registry_identity: &Arc<DirectStateRegistryIdentity>,
     domain: DirectStateDomain,
-    current: Option<&DirectStateInstallSectionV1>,
-    pending: Option<&DirectStateInstallSectionV1>,
+    current: Option<&DirectStateInstallSection>,
+    pending: Option<&DirectStateInstallSection>,
 ) -> Result<(), String> {
     let roots = registration.roots(registry_identity)?;
     let retained_incoming = pending.map(|row| row.incoming_file.as_str());
@@ -274,7 +274,7 @@ fn collect_domain_residue(
 fn validate_recovered_entry(
     provider: &Arc<dyn DirectStateProvider>,
     domain: DirectStateDomain,
-    section: &DirectStateInstallSectionV1,
+    section: &DirectStateInstallSection,
     pending: bool,
     recovered: &DirectStateRecoveredValue,
 ) -> Result<(), String> {
@@ -295,7 +295,7 @@ fn validate_recovered_entry(
 fn assemble_recovered(
     registry: &DirectStateRegistry,
     current: Option<&DurableCurrentImage>,
-    pending: Option<&DirectStateInstallJournalV1>,
+    pending: Option<&DirectStateInstallJournal>,
     entries: BTreeMap<DirectStateDomain, DirectStateGenerationEntry>,
 ) -> Result<AssembledDirectStateGeneration, String> {
     let target = match pending {
@@ -309,7 +309,7 @@ fn assemble_recovered(
         authority_identity: registry.authority_identity.clone(),
         registry_identity: registry.registry_identity.clone(),
         source_journal_sha256: pending
-            .map(DirectStateInstallJournalV1::sha256)
+            .map(DirectStateInstallJournal::sha256)
             .transpose()?,
         current_image_sha256: target.sha256()?,
         generation: Arc::new(DirectStateGeneration {

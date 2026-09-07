@@ -1,11 +1,11 @@
 //! Two-identity mutation replay (RF-RULING-004).
 //!
 //! Replay has two identities and never one overloaded context digest.
-//! [`OperationReplayIdentityV1`] is the stable operation identity over tenant,
+//! [`OperationReplayIdentity`] is the stable operation identity over tenant,
 //! actor, authority scope and purpose, method, canonical payload digest, policy
 //! digest, and idempotency key; it excludes nonce, request/trace IDs and
-//! timestamps. [`NonceReplayKeyV1`] is the attempt-specific nonce identity.
-//! `AuthorityContextV1::context_digest` includes the nonce and is therefore
+//! timestamps. [`NonceReplayKey`] is the attempt-specific nonce identity.
+//! `AuthorityContext::context_digest` includes the nonce and is therefore
 //! attempt-specific, so it can never decide operation replay.
 //!
 //! The four outcomes are exactly:
@@ -23,9 +23,9 @@ use eg_storage::{
     decode_ledger_record, encode_bounded, ledger_scope_key, MutationClass, OperationReplayRow,
     OwnerDomain,
 };
-use eg_types::authority::{NonceReplayKeyV1, OperationReplayIdentityV1};
-use eg_types::contract::Digest256V1;
-use eg_types::mutation::MutationReceiptV1;
+use eg_types::authority::{NonceReplayKey, OperationReplayIdentity};
+use eg_types::contract::Digest256;
+use eg_types::mutation::MutationReceipt;
 
 /// The one durable replay decision for one proposed attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,19 +36,19 @@ pub enum ReplayResolution {
     NonceRejected { idempotency_key: String },
     /// A fresh nonce over a byte-identical stable operation identity: the
     /// recorded receipt is returned instead of executing again.
-    ReplayedResult(Box<MutationReceiptV1>),
+    ReplayedResult(Box<MutationReceipt>),
     /// The same idempotency key was already used by a different stable
     /// operation identity -- a changed method, payload, scope, or policy.
     Conflict {
-        recorded: Digest256V1,
-        proposed: Digest256V1,
+        recorded: Digest256,
+        proposed: Digest256,
     },
 }
 
 pub(crate) fn resolve_replay_in<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
-    operation: &OperationReplayIdentityV1,
-    nonce: &NonceReplayKeyV1,
+    operation: &OperationReplayIdentity,
+    nonce: &NonceReplayKey,
 ) -> Result<ReplayResolution, String> {
     let scope_key = ledger_scope_key(write.scope());
     let proposed = operation.digest()?;
@@ -84,9 +84,9 @@ pub(crate) fn resolve_replay_in<D: OwnerDomain>(
 /// concurrent attempts fail here rather than commit.
 pub(crate) fn record_replay_in<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
-    operation: &OperationReplayIdentityV1,
-    nonce: &NonceReplayKeyV1,
-    receipt: &MutationReceiptV1,
+    operation: &OperationReplayIdentity,
+    nonce: &NonceReplayKey,
+    receipt: &MutationReceipt,
 ) -> Result<(), String> {
     if write.admitted_class()? == MutationClass::Maintenance {
         return Err(

@@ -11,7 +11,7 @@
 //!
 //! Every table below is keyed, in its first key position, by the one
 //! [`eg_storage::ledger_scope_key`] -- the scope *binding* digest, which is also
-//! what `mutation_scope_bindings_v1` and `mutation_versions_v1` use. Every row
+//! what `mutation_scope_bindings` and `ledger_versions` use. Every row
 //! carries the exact [`eg_types::MutationScopeIdentity`] it was written under,
 //! either directly ([`BATCHES`], [`OUTBOX`], [`FENCES`] via
 //! [`eg_storage::ScopeFence`], [`REPLAY_OPERATIONS`] via
@@ -27,38 +27,38 @@
 use redb::{TableDefinition, TableHandle};
 
 pub(crate) const BATCHES: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_batches_v1");
+    TableDefinition::new("ledger_batches");
 pub(crate) const IDEMPOTENCY: TableDefinition<'static, (&str, &str), &str> =
-    TableDefinition::new("mutation_idempotency_v1");
+    TableDefinition::new("ledger_idempotency");
 pub(crate) const VERSIONS: TableDefinition<'static, &str, u64> =
-    TableDefinition::new("mutation_versions_v1");
+    TableDefinition::new("ledger_versions");
 pub(crate) const FENCES: TableDefinition<'static, &str, &[u8]> =
-    TableDefinition::new("mutation_fences_v1");
+    TableDefinition::new("ledger_fences");
 pub(crate) const OUTBOX: TableDefinition<'static, (&str, &str, u32), &[u8]> =
-    TableDefinition::new("mutation_outbox_v1");
+    TableDefinition::new("ledger_outbox");
 pub(crate) const PRIVATE_PAYLOADS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_private_payloads_v1");
+    TableDefinition::new("ledger_private_payloads");
 pub(crate) const OUTBOX_TOPIC_INDEX: TableDefinition<
     'static,
     (&str, &str, u64, u64, &str, u32),
     (),
-> = TableDefinition::new("mutation_outbox_topic_index_v1");
+> = TableDefinition::new("mutation_outbox_topic_index");
 pub(crate) const OUTBOX_CONSUMERS: TableDefinition<'static, (&str, &str), &str> =
-    TableDefinition::new("mutation_outbox_consumers_v1");
+    TableDefinition::new("mutation_outbox_consumers");
 pub(crate) const OUTBOX_DELIVERIES: TableDefinition<'static, (&str, &str, &str, u32), &[u8]> =
-    TableDefinition::new("mutation_outbox_deliveries_v1");
+    TableDefinition::new("mutation_outbox_deliveries");
 pub(crate) const OUTBOX_CURSORS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_outbox_cursors_v1");
+    TableDefinition::new("mutation_outbox_cursors");
 pub(crate) const OUTBOX_CLAIM_CURSORS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_outbox_claim_cursors_v1");
+    TableDefinition::new("mutation_outbox_claim_cursors");
 pub(crate) const OUTBOX_FAIRNESS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_outbox_fairness_v1");
+    TableDefinition::new("mutation_outbox_fairness");
 pub(crate) const REPLAY_NONCES: TableDefinition<'static, (&str, &str), &str> =
-    TableDefinition::new("mutation_replay_nonces_v1");
+    TableDefinition::new("mutation_replay_nonces");
 pub(crate) const REPLAY_OPERATIONS: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_replay_operations_v1");
+    TableDefinition::new("mutation_replay_operations");
 pub(crate) const CLASSES: TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("mutation_classes_v1");
+    TableDefinition::new("mutation_classes");
 
 /// The one authoritative list of the ledger tables this kernel owns.
 ///

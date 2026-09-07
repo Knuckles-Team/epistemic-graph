@@ -351,9 +351,9 @@ fn an_owner_write_reaches_only_its_own_layouts_tables() {
     // written into the key text here rather than being a tuple element.
     const BLOB_ROWS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
     const LEDGER: TableDefinition<(&str, &str), &[u8]> =
-        TableDefinition::new("mutation_batches_v1");
-    const OTHER_LAYOUT: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac_v1");
-    const IDENTITY: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root_v1");
+        TableDefinition::new("ledger_batches");
+    const OTHER_LAYOUT: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac");
+    const IDENTITY: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root");
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("owner-rows.redb");
@@ -369,7 +369,7 @@ fn an_owner_write_reaches_only_its_own_layouts_tables() {
             Begin::Replay(_) => panic!("unexpected replay"),
         };
         let rows = write.owner_rows(&owner, &batch).unwrap();
-        for table in [LEDGER, TableDefinition::new("mutation_classes_v1")] {
+        for table in [LEDGER, TableDefinition::new("mutation_classes")] {
             assert!(rows
                 .open_table(table)
                 .unwrap_err()
@@ -425,9 +425,9 @@ fn an_admitted_write_can_read_its_own_owner_rows_before_a_batch_exists() {
     // written into the key text here rather than being a tuple element.
     const BLOB_ROWS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
     const LEDGER: TableDefinition<(&str, &str), &[u8]> =
-        TableDefinition::new("mutation_batches_v1");
-    const OTHER_LAYOUT: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac_v1");
-    const IDENTITY: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root_v1");
+        TableDefinition::new("ledger_batches");
+    const OTHER_LAYOUT: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac");
+    const IDENTITY: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root");
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("decide-then-write.redb");

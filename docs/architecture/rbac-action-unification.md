@@ -167,7 +167,7 @@ with no custom variant naming, so both use serde's default **externally-tagged,
 variant-name-string** representation for a unit-only enum:
 
 1. **Durable store** — `crates/eg-core/src/rbac_persist.rs`. One redb table
-   `rbac_v1` in `{persist_dir}/rbac.redb`, three keys (`policy`, `identities`,
+   `rbac` in `{persist_dir}/rbac.redb`, three keys (`policy`, `identities`,
    `bootstrap`); `policy` is `serde_json::to_vec(&RbacPolicy)`
    (`rbac_persist.rs:12-19`). A `Grant.action: RbacAction` therefore lands in
    that JSON blob as the literal string `"Read"`, `"Write"`, or `"Admin"`.

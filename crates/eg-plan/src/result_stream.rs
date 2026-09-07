@@ -67,7 +67,7 @@ pub struct KnowledgeStreamContext {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct KnowledgeStreamCursor {
+pub struct ResultStreamCursor {
     pub family: ServedResultFamily,
     pub tenant_ref: OpaqueRef,
     pub access_policy_ref: OpaqueRef,
@@ -86,7 +86,7 @@ pub struct KnowledgeStreamCursor {
 pub struct KnowledgeBatchEnvelope {
     pub family: ServedResultFamily,
     pub context: KnowledgeStreamContext,
-    pub cursor: KnowledgeStreamCursor,
+    pub cursor: ResultStreamCursor,
     pub batch: KnowledgeBatch,
 }
 
@@ -133,8 +133,8 @@ where
         })
     }
 
-    pub fn cursor(&self) -> KnowledgeStreamCursor {
-        KnowledgeStreamCursor {
+    pub fn cursor(&self) -> ResultStreamCursor {
+        ResultStreamCursor {
             family: self.family,
             tenant_ref: self.context.tenant_ref.clone(),
             access_policy_ref: self.context.access_policy_ref.clone(),
@@ -154,7 +154,7 @@ where
     /// Snapshot and result family must match exactly.
     pub fn resume_from(
         mut self,
-        cursor: &KnowledgeStreamCursor,
+        cursor: &ResultStreamCursor,
     ) -> Result<Self, KnowledgeStreamError> {
         if cursor.family != self.family
             || cursor.tenant_ref != self.context.tenant_ref
@@ -347,7 +347,7 @@ fn valid_window(window: (Option<u64>, Option<u64>)) -> bool {
     !matches!(window, (Some(start), Some(end)) if end < start)
 }
 
-fn valid_cursor_position(cursor: &KnowledgeStreamCursor) -> bool {
+fn valid_cursor_position(cursor: &ResultStreamCursor) -> bool {
     if cursor.batch_index == 0 {
         return cursor.row_offset == 0;
     }

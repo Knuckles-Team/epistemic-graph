@@ -17,7 +17,7 @@ use tokio::sync::RwLock;
 
 #[cfg(feature = "redb")]
 use crate::mutation_batch::{
-    MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationDomain, MutationScopeIdentity,
+    MutationBatch, MutationBatchCommit, MutationBatchRecord, DurabilityDomain, MutationScopeIdentity,
     MutationSurface,
 };
 use crate::protocol::{Method, Response};
@@ -206,7 +206,7 @@ pub(crate) async fn try_handle(
                 req_id,
                 caller,
                 &original_method,
-                MutationDomain::MultiGraph,
+                DurabilityDomain::MultiGraph,
             ) {
                 Ok(saga) => saga,
                 Err(error) => return Ok(Response::err(req_id, error)),
@@ -302,7 +302,7 @@ pub(crate) async fn try_handle(
                 req_id,
                 caller,
                 &original_method,
-                MutationDomain::MultiGraph,
+                DurabilityDomain::MultiGraph,
             ) {
                 Ok(saga) => saga,
                 Err(error) => return Ok(Response::err(req_id, error)),
@@ -464,7 +464,7 @@ pub(crate) async fn try_handle(
                 req_id,
                 caller,
                 &original_method,
-                MutationDomain::ControlPlane,
+                DurabilityDomain::ControlPlane,
             ) {
                 Ok(saga) => saga,
                 Err(error) => return Ok(Response::err(req_id, error)),
@@ -621,7 +621,7 @@ pub(crate) fn begin_admin_saga(
     req_id: u64,
     caller: Option<&str>,
     method: &Method,
-    domain: MutationDomain,
+    domain: DurabilityDomain,
 ) -> Result<AdminSaga, String> {
     let batch_id = crate::server::mutation_batch::opaque_request_key(
         "cluster-admin",
@@ -689,7 +689,7 @@ pub(crate) fn begin_named_admin_saga(
     req_id: u64,
     caller: Option<&str>,
     method: &Method,
-    domain: MutationDomain,
+    domain: DurabilityDomain,
     batch_id: &str,
 ) -> Result<AdminSaga, String> {
     let identity = crate::server::persistence::redb_backend::cluster_admin_scope_identity()?;
@@ -743,7 +743,7 @@ pub(crate) fn begin_named_admin_saga(
 /// bundled so the function stays under the clippy argument-count ceiling.
 #[cfg(feature = "redb")]
 pub(crate) struct AdminSagaPayload<'a> {
-    pub(crate) domain: MutationDomain,
+    pub(crate) domain: DurabilityDomain,
     pub(crate) batch_id: &'a str,
     pub(crate) event_type: &'a str,
     pub(crate) payload_digest: &'a str,
@@ -949,7 +949,7 @@ fn catalog_saga(
         req_id,
         caller,
         method,
-        MutationDomain::ControlPlane,
+        DurabilityDomain::ControlPlane,
     ) {
         Ok(saga) => saga,
         Err(error) => return Response::err(req_id, error),

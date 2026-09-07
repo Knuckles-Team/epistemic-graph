@@ -29,7 +29,7 @@ fn coordinator_batch(
                 .to_string(),
         },
         crate::mutation_batch::MutationSurface::Other,
-        crate::mutation_batch::MutationDomain::BlobStore,
+        crate::mutation_batch::DurabilityDomain::BlobStore,
         "blob_coordinator_test",
     )
     .unwrap()

@@ -19,9 +19,9 @@
 use std::path::Path;
 
 use eg_storage::{
-    OwnedStoreHandle, OwnerDomain, PhysicalStoreIdentity, ScopedRead, StorageKernelV1,
+    OwnedStoreHandle, OwnerDomain, PhysicalStoreIdentity, ScopedRead, StorageKernel,
 };
-use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernelV1};
+use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
 use eg_types::MutationScopeIdentity;
 
 use crate::store_authority::EngineScopeAuthority;
@@ -33,8 +33,8 @@ const SIDECAR_TENANT: &str = "native";
 /// One kernel-owned sidecar store: a storage kernel, the one mutation kernel it
 /// issued, and the single bound serving scope.
 pub struct SidecarStore<D: OwnerDomain> {
-    kernel: StorageKernelV1,
-    mutations: MutationKernelV1,
+    kernel: StorageKernel,
+    mutations: MutationKernel,
     owner: OwnedStoreHandle<D>,
 }
 
@@ -59,7 +59,7 @@ impl<D: OwnerDomain> SidecarStore<D> {
     ) -> Result<Self, String> {
         let identity = MutationScopeIdentity::fixed_native(
             SIDECAR_TENANT,
-            eg_types::mutation_batch::MutationDomain::ControlPlane,
+            eg_types::mutation_batch::DurabilityDomain::ControlPlane,
             resource,
             incarnation,
         )?;
@@ -87,12 +87,12 @@ impl<D: OwnerDomain> SidecarStore<D> {
         let physical = PhysicalStoreIdentity::new(physical_name)?;
         let proof = authority.proof();
         let kernel = if path.exists() {
-            StorageKernelV1::open_owner::<D>(path, physical, private_integrity)
+            StorageKernel::open_owner::<D>(path, physical, private_integrity)
         } else {
-            StorageKernelV1::create_owner::<D>(path, physical, private_integrity)
+            StorageKernel::create_owner::<D>(path, physical, private_integrity)
         }?;
         let (kernel, write_authority) = kernel.into_read_and_mutation_authority()?;
-        let mutations = MutationKernelV1::new(write_authority);
+        let mutations = MutationKernel::new(write_authority);
         let grant = kernel.authenticate_scope::<D>(
             authority,
             identity,
@@ -115,7 +115,7 @@ impl<D: OwnerDomain> SidecarStore<D> {
 
     /// The one mutation kernel this store issued, for a domain whose writes are
     /// not owner-row writes — a saga, say, whose whole effect is ledger rows.
-    pub fn mutations(&self) -> &MutationKernelV1 {
+    pub fn mutations(&self) -> &MutationKernel {
         &self.mutations
     }
 
@@ -127,7 +127,7 @@ impl<D: OwnerDomain> SidecarStore<D> {
     /// The storage kernel that owns this file, for the recovery, backup and
     /// fingerprint operations `eg_storage` defines over a whole store rather
     /// than over one scope.
-    pub fn kernel(&self) -> &StorageKernelV1 {
+    pub fn kernel(&self) -> &StorageKernel {
         &self.kernel
     }
 
@@ -138,7 +138,7 @@ impl<D: OwnerDomain> SidecarStore<D> {
     /// ledger says what each of its versions did.
     ///
     /// The scope version the batch fences on is resolved by
-    /// [`MutationKernelV1::admit_current`] INSIDE the write transaction. Reading
+    /// [`MutationKernel::admit_current`] INSIDE the write transaction. Reading
     /// it from a snapshot first would let two concurrent callers observe the
     /// same version, build byte-identical batches, and have the second one
     /// silently replay the first's record instead of applying its own write.
@@ -148,7 +148,7 @@ impl<D: OwnerDomain> SidecarStore<D> {
     {
         let subject = eg_storage::ledger_scope_key(self.owner.identity());
         let write = MaintenanceBatch::new(
-            eg_types::mutation_batch::MutationDomain::ControlPlane,
+            eg_types::mutation_batch::DurabilityDomain::ControlPlane,
             event,
             &subject,
         );

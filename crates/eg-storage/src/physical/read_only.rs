@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Read-only physical database plus its non-forgeable root and integrity
-/// authority. Unlike [`crate::StorageKernelV1`] this never opens a write transaction:
+/// authority. Unlike [`crate::StorageKernel`] this never opens a write transaction:
 /// `redb::Database`'s `Drop` unconditionally commits its own allocator-state
 /// quick-repair transaction, which advances the file's transaction id and
 /// changes its on-disk bytes on every open -- fine for a live store, fatal

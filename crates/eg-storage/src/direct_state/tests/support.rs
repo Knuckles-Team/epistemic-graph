@@ -20,7 +20,7 @@ pub(super) struct CountingChunkStream {
 }
 
 impl DirectStateChunkStream for CountingChunkStream {
-    fn next_chunk(&mut self) -> Result<Option<DirectStateChunkV1>, String> {
+    fn next_chunk(&mut self) -> Result<Option<DirectStateChunk>, String> {
         TRANSPORT_CHUNK_READS.with(|counter| counter.fetch_add(1, Ordering::Relaxed));
         self.inner.next_chunk()
     }
@@ -30,17 +30,17 @@ pub(super) fn count_local_transport_reads(transport: &mut DirectStateTransportGe
     for source in &mut transport.sources {
         let inner = std::mem::replace(
             &mut source.chunks,
-            Box::new(std::iter::empty::<Result<DirectStateChunkV1, String>>()),
+            Box::new(std::iter::empty::<Result<DirectStateChunk, String>>()),
         );
         source.chunks = Box::new(CountingChunkStream { inner });
     }
 }
 
-pub(super) fn count_remote_transport_reads(remote: &mut DirectStateRemoteTransportV1) {
+pub(super) fn count_remote_transport_reads(remote: &mut DirectStateRemoteTransport) {
     for (_, chunks) in &mut remote.sections {
         let inner = std::mem::replace(
             chunks,
-            Box::new(std::iter::empty::<Result<DirectStateChunkV1, String>>()),
+            Box::new(std::iter::empty::<Result<DirectStateChunk, String>>()),
         );
         *chunks = Box::new(CountingChunkStream { inner });
     }
@@ -149,7 +149,7 @@ impl FlowProvider {
     fn recover_exact(
         &self,
         permit: &StateImageInstallPermit,
-        section: &DirectStateInstallSectionV1,
+        section: &DirectStateInstallSection,
         generation: &VerifiedDirectStateGeneration,
         compare_install_evidence: bool,
     ) -> Result<DirectStateRecoveredValue, String> {
@@ -183,8 +183,8 @@ impl DirectStateProvider for FlowProvider {
         Provider::value_type_id_for(self.domain)
     }
 
-    fn owner_manifest(&self) -> Result<DirectStateOwnerManifestV1, String> {
-        Ok(DirectStateOwnerManifestV1 {
+    fn owner_manifest(&self) -> Result<DirectStateOwnerManifest, String> {
+        Ok(DirectStateOwnerManifest {
             schema_version: DIRECT_STATE_SCHEMA_VERSION,
             domain: self.domain,
             authority_kind: DirectStateAuthorityKind::PlainRedb,
@@ -239,7 +239,7 @@ impl DirectStateProvider for FlowProvider {
     fn validate_payload(
         &self,
         _: &StateImageInstallPermit,
-        _: &DirectStateSectionManifestV1,
+        _: &DirectStateSectionManifest,
         received: &DirectStatePhysicalImage,
     ) -> Result<Box<dyn Any + Send>, String> {
         let bytes = received
@@ -253,7 +253,7 @@ impl DirectStateProvider for FlowProvider {
     fn stage_replace(
         &self,
         permit: &StateImageInstallPermit,
-        manifest: &DirectStateSectionManifestV1,
+        manifest: &DirectStateSectionManifest,
         received: DirectStatePhysicalImage,
         validated: Box<dyn Any + Send>,
     ) -> Result<DirectStateProviderStage, String> {
@@ -347,7 +347,7 @@ impl DirectStateProvider for FlowProvider {
     fn recover_current(
         &self,
         permit: &StateImageInstallPermit,
-        section: &DirectStateInstallSectionV1,
+        section: &DirectStateInstallSection,
         generation: &VerifiedDirectStateGeneration,
     ) -> Result<DirectStateRecoveredValue, String> {
         self.recover_exact(permit, section, generation, false)
@@ -356,7 +356,7 @@ impl DirectStateProvider for FlowProvider {
     fn recover_pending(
         &self,
         permit: &StateImageInstallPermit,
-        section: &DirectStateInstallSectionV1,
+        section: &DirectStateInstallSection,
         incoming: &VerifiedDirectStateIncoming,
         generation: &VerifiedDirectStateGeneration,
     ) -> Result<DirectStateRecoveredValue, String> {
@@ -392,8 +392,8 @@ impl DirectStateProvider for Provider {
         Self::value_type_id_for(self.domain)
     }
 
-    fn owner_manifest(&self) -> Result<DirectStateOwnerManifestV1, String> {
-        Ok(DirectStateOwnerManifestV1 {
+    fn owner_manifest(&self) -> Result<DirectStateOwnerManifest, String> {
+        Ok(DirectStateOwnerManifest {
             schema_version: DIRECT_STATE_SCHEMA_VERSION,
             domain: self.domain,
             authority_kind: DirectStateAuthorityKind::PlainRedb,
@@ -439,7 +439,7 @@ impl DirectStateProvider for Provider {
     fn validate_payload(
         &self,
         _: &StateImageInstallPermit,
-        _: &DirectStateSectionManifestV1,
+        _: &DirectStateSectionManifest,
         _: &DirectStatePhysicalImage,
     ) -> Result<Box<dyn Any + Send>, String> {
         unreachable!()
@@ -448,7 +448,7 @@ impl DirectStateProvider for Provider {
     fn stage_replace(
         &self,
         _: &StateImageInstallPermit,
-        _: &DirectStateSectionManifestV1,
+        _: &DirectStateSectionManifest,
         _: DirectStatePhysicalImage,
         _: Box<dyn Any + Send>,
     ) -> Result<DirectStateProviderStage, String> {
@@ -458,7 +458,7 @@ impl DirectStateProvider for Provider {
     fn recover_current(
         &self,
         _: &StateImageInstallPermit,
-        _: &DirectStateInstallSectionV1,
+        _: &DirectStateInstallSection,
         _: &VerifiedDirectStateGeneration,
     ) -> Result<DirectStateRecoveredValue, String> {
         unreachable!()
@@ -467,7 +467,7 @@ impl DirectStateProvider for Provider {
     fn recover_pending(
         &self,
         _: &StateImageInstallPermit,
-        _: &DirectStateInstallSectionV1,
+        _: &DirectStateInstallSection,
         _: &VerifiedDirectStateIncoming,
         _: &VerifiedDirectStateGeneration,
     ) -> Result<DirectStateRecoveredValue, String> {
@@ -607,7 +607,7 @@ pub(super) fn write_test_published(
     authority: &StateImageAuthority,
     registry: &DirectStateRegistry,
     path: &Path,
-    journal: DirectStateInstallJournalV1,
+    journal: DirectStateInstallJournal,
 ) -> DurablePublishedJournal {
     let bytes = rmp_serde::to_vec_named(&journal).unwrap();
     let mut options = OpenOptions::new();
@@ -686,8 +686,8 @@ pub(super) fn generation(authority: &StateImageAuthority) -> Arc<DirectStateGene
 fn placeholder_section(
     domain: DirectStateDomain,
     scope: &DirectStateScope,
-) -> DirectStateInstallSectionV1 {
-    let source_manifest = DirectStateSectionManifestV1 {
+) -> DirectStateInstallSection {
+    let source_manifest = DirectStateSectionManifest {
         schema_version: DIRECT_STATE_SCHEMA_VERSION,
         domain,
         scope: scope.clone(),
@@ -698,7 +698,7 @@ fn placeholder_section(
         chunk_count: 1,
         content_sha256: "e".repeat(64),
     };
-    let generation_manifest = DirectStateGenerationManifestV1 {
+    let generation_manifest = DirectStateGenerationManifest {
         schema_version: DIRECT_STATE_SCHEMA_VERSION,
         domain,
         scope: scope.clone(),
@@ -707,7 +707,7 @@ fn placeholder_section(
         dynamic_store_authority_digest: Some([1; 32]),
         install_evidence_sha256: [2; 32],
     };
-    DirectStateInstallSectionV1 {
+    DirectStateInstallSection {
         incoming_file: incoming_file_name(domain, &source_manifest.sha256().unwrap()).unwrap(),
         generation_file: generation_file_name(domain, &generation_manifest.sha256().unwrap())
             .unwrap(),
@@ -717,10 +717,10 @@ fn placeholder_section(
 }
 
 /// A journal that carries the exact closed domain set in canonical domain order.
-/// An empty section list is not a valid journal: `DirectStateInstallJournalV1::validate`
+/// An empty section list is not a valid journal: `DirectStateInstallJournal::validate`
 /// requires one section per `DirectStateDomain::ALL` entry, so a section-less
 /// placeholder cannot reach any behaviour these tests assert.
-pub(super) fn placeholder_journal(phase: DirectStateInstallPhase) -> DirectStateInstallJournalV1 {
+pub(super) fn placeholder_journal(phase: DirectStateInstallPhase) -> DirectStateInstallJournal {
     let scope = DirectStateScope::DefaultGlobal {
         control_group: DEFAULT_GROUP,
         control_applied_index: 1,
@@ -730,7 +730,7 @@ pub(super) fn placeholder_journal(phase: DirectStateInstallPhase) -> DirectState
         .into_iter()
         .map(|domain| placeholder_section(domain, &scope))
         .collect();
-    DirectStateInstallJournalV1 {
+    DirectStateInstallJournal {
         schema_version: DIRECT_STATE_SCHEMA_VERSION,
         snapshot_sha256: "a".repeat(64),
         scope,

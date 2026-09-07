@@ -1,7 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::request::MutationDomain;
+use super::request::DurabilityDomain;
 
 const MAX_TENANT_ID_BYTES: usize = 255;
 const MAX_LOGICAL_NAME_BYTES: usize = 1_024;
@@ -16,9 +16,9 @@ pub const RESERVED_SYSTEM_TENANT: &str = "__eg_system__";
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct TenantId(String);
+pub struct ScopeTenantId(String);
 
-impl TenantId {
+impl ScopeTenantId {
     pub fn new(value: impl Into<String>) -> Result<Self, String> {
         let value = value.into();
         validate_identifier(&value, MAX_TENANT_ID_BYTES, "mutation tenant")?;
@@ -87,7 +87,7 @@ macro_rules! impl_validated_deserialize {
     };
 }
 
-impl_validated_deserialize!(TenantId);
+impl_validated_deserialize!(ScopeTenantId);
 impl_validated_deserialize!(LogicalName);
 impl_validated_deserialize!(IncarnationId);
 
@@ -100,7 +100,7 @@ pub enum MutationScope {
         graph: LogicalName,
     },
     Native {
-        domain: MutationDomain,
+        domain: DurabilityDomain,
         resource: LogicalName,
     },
 }
@@ -113,7 +113,7 @@ impl MutationScope {
         }
     }
 
-    pub fn native_domain(&self) -> Option<MutationDomain> {
+    pub fn native_domain(&self) -> Option<DurabilityDomain> {
         match self {
             Self::Graph { .. } => None,
             Self::Native { domain, .. } => Some(*domain),
@@ -180,7 +180,7 @@ pub const COMPILED_BATCH_INCARNATION: &str = "epistemic-graph:mutation-batch-com
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationScopeIdentity {
-    tenant: TenantId,
+    tenant: ScopeTenantId,
     scope: MutationScope,
     incarnation_id: IncarnationId,
     identity_digest: MutationScopeDigest,
@@ -189,14 +189,14 @@ pub struct MutationScopeIdentity {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct MutationScopeIdentityWire {
-    tenant: TenantId,
+    tenant: ScopeTenantId,
     scope: MutationScope,
     incarnation_id: IncarnationId,
     identity_digest: MutationScopeDigest,
 }
 
 impl MutationScopeIdentity {
-    pub fn graph(tenant: TenantId, graph: LogicalName, incarnation_id: IncarnationId) -> Self {
+    pub fn graph(tenant: ScopeTenantId, graph: LogicalName, incarnation_id: IncarnationId) -> Self {
         Self::new(tenant, MutationScope::Graph { graph }, incarnation_id)
             .expect("graph scope construction is infallible after newtype validation")
     }
@@ -216,7 +216,7 @@ impl MutationScopeIdentity {
     /// a returned error rather than a panic at startup.
     pub fn fixed_graph(tenant: &str, graph: &str, incarnation_id: &str) -> Result<Self, String> {
         Ok(Self::graph(
-            TenantId::new(tenant)?,
+            ScopeTenantId::new(tenant)?,
             LogicalName::new(graph)?,
             IncarnationId::new(incarnation_id)?,
         ))
@@ -229,12 +229,12 @@ impl MutationScopeIdentity {
     /// enforces that equality for a native scope.
     pub fn fixed_native(
         tenant: &str,
-        domain: MutationDomain,
+        domain: DurabilityDomain,
         resource: &str,
         incarnation_id: &str,
     ) -> Result<Self, String> {
         Self::native(
-            TenantId::new(tenant)?,
+            ScopeTenantId::new(tenant)?,
             domain,
             LogicalName::new(resource)?,
             IncarnationId::new(incarnation_id)?,
@@ -242,8 +242,8 @@ impl MutationScopeIdentity {
     }
 
     pub fn native(
-        tenant: TenantId,
-        domain: MutationDomain,
+        tenant: ScopeTenantId,
+        domain: DurabilityDomain,
         resource: LogicalName,
         incarnation_id: IncarnationId,
     ) -> Result<Self, String> {
@@ -255,7 +255,7 @@ impl MutationScopeIdentity {
     }
 
     fn new(
-        tenant: TenantId,
+        tenant: ScopeTenantId,
         scope: MutationScope,
         incarnation_id: IncarnationId,
     ) -> Result<Self, String> {
@@ -269,7 +269,7 @@ impl MutationScopeIdentity {
         })
     }
 
-    pub fn tenant(&self) -> &TenantId {
+    pub fn tenant(&self) -> &ScopeTenantId {
         &self.tenant
     }
 
@@ -356,7 +356,7 @@ fn validate_opaque(value: &str, max_bytes: usize, label: &str) -> Result<(), Str
 }
 
 fn compute_identity_digest(
-    tenant: &TenantId,
+    tenant: &ScopeTenantId,
     scope: &MutationScope,
     incarnation_id: &IncarnationId,
 ) -> MutationScopeDigest {
@@ -367,14 +367,14 @@ fn compute_identity_digest(
     MutationScopeDigest(hasher.finalize().into())
 }
 
-fn compute_binding_digest(tenant: &TenantId, scope: &MutationScope) -> MutationScopeDigest {
+fn compute_binding_digest(tenant: &ScopeTenantId, scope: &MutationScope) -> MutationScopeDigest {
     let mut hasher = Sha256::new();
     hasher.update(BINDING_DIGEST_DOMAIN);
     encode_scope(&mut hasher, tenant, scope);
     MutationScopeDigest(hasher.finalize().into())
 }
 
-fn encode_scope(hasher: &mut Sha256, tenant: &TenantId, scope: &MutationScope) {
+fn encode_scope(hasher: &mut Sha256, tenant: &ScopeTenantId, scope: &MutationScope) {
     match scope {
         MutationScope::Graph { graph } => {
             hasher.update([0]);
@@ -410,7 +410,7 @@ mod tests {
         for value in ["", " graph", "graph ", ".", "..", "a/b", "a\\b", "a\0b"] {
             assert!(LogicalName::new(value).is_err(), "accepted {value:?}");
         }
-        assert!(TenantId::new("tenant\nother").is_err());
+        assert!(ScopeTenantId::new("tenant\nother").is_err());
         assert!(IncarnationId::new(" incarnation").is_err());
     }
 
@@ -429,43 +429,43 @@ mod tests {
             "/mnt/data",
             "file://tenant",
         ] {
-            assert!(TenantId::new(value).is_err(), "accepted tenant {value:?}");
+            assert!(ScopeTenantId::new(value).is_err(), "accepted tenant {value:?}");
             assert!(LogicalName::new(value).is_err(), "accepted graph {value:?}");
         }
         // The policy must not over-reach into ordinary identities.
-        assert!(TenantId::new("tenant-a").is_ok());
+        assert!(ScopeTenantId::new("tenant-a").is_ok());
         assert!(LogicalName::new("graph-a").is_ok());
     }
 
     #[test]
     fn digest_separates_tenant_scope_kind_and_native_domain() {
         let graph = MutationScopeIdentity::graph(
-            TenantId::new("tenant-a").unwrap(),
+            ScopeTenantId::new("tenant-a").unwrap(),
             LogicalName::new("shared").unwrap(),
             incarnation("incarnation-1"),
         );
         let other_tenant = MutationScopeIdentity::graph(
-            TenantId::new("tenant-b").unwrap(),
+            ScopeTenantId::new("tenant-b").unwrap(),
             LogicalName::new("shared").unwrap(),
             incarnation("incarnation-1"),
         );
         let blob = MutationScopeIdentity::native(
-            TenantId::new("tenant-a").unwrap(),
-            MutationDomain::BlobStore,
+            ScopeTenantId::new("tenant-a").unwrap(),
+            DurabilityDomain::BlobStore,
             LogicalName::new("shared").unwrap(),
             incarnation("incarnation-1"),
         )
         .unwrap();
         let jobs = MutationScopeIdentity::native(
-            TenantId::new("tenant-a").unwrap(),
-            MutationDomain::AnalyticsJob,
+            ScopeTenantId::new("tenant-a").unwrap(),
+            DurabilityDomain::AnalyticsJob,
             LogicalName::new("shared").unwrap(),
             incarnation("incarnation-1"),
         )
         .unwrap();
         let semantic = MutationScopeIdentity::native(
-            TenantId::new("tenant-a").unwrap(),
-            MutationDomain::SemanticIndex,
+            ScopeTenantId::new("tenant-a").unwrap(),
+            DurabilityDomain::SemanticIndex,
             LogicalName::new("shared").unwrap(),
             incarnation("incarnation-1"),
         )
@@ -479,7 +479,7 @@ mod tests {
     #[test]
     fn persisted_digest_tampering_is_rejected() {
         let identity = MutationScopeIdentity::graph(
-            TenantId::new("tenant-a").unwrap(),
+            ScopeTenantId::new("tenant-a").unwrap(),
             LogicalName::new("graph-a").unwrap(),
             incarnation("incarnation-1"),
         );
@@ -491,8 +491,8 @@ mod tests {
     #[test]
     fn graph_domains_cannot_be_smuggled_into_native_scope() {
         let error = MutationScopeIdentity::native(
-            TenantId::new("tenant-a").unwrap(),
-            MutationDomain::GraphRows,
+            ScopeTenantId::new("tenant-a").unwrap(),
+            DurabilityDomain::GraphRows,
             LogicalName::new("graph-shaped-native").unwrap(),
             incarnation("incarnation-1"),
         )

@@ -6157,9 +6157,9 @@ mod tests {
         ResourceReservationRecordTargetKind, ResourceTargetSnapshot, ResourceTargetSnapshotKind,
     };
     use crate::mutation_batch::{
-        IncarnationId, LogicalName, MutationBatch, MutationBatchCommit, MutationDomain,
+        IncarnationId, LogicalName, MutationBatch, MutationBatchCommit, DurabilityDomain,
         MutationOperation, MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity,
-        MutationSurface, TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
+        MutationSurface, ScopeTenantId, VersionExpectation, MUTATION_BATCH_VERSION,
     };
     use std::path::PathBuf;
     use std::sync::{Arc, Barrier};
@@ -6542,7 +6542,7 @@ mod tests {
             // Graph-scoped: this batch is committed via `commit_mutation_batch_inner`
             // below, which every path in this module routes by `graph_fname` and
             // requires `MutationScope::Graph` for (`mutation_batch_graph_name` fails
-            // closed on a native scope) -- `MutationDomain::ControlPlane` here is
+            // closed on a native scope) -- `DurabilityDomain::ControlPlane` here is
             // just the operation's own domain tag (WorkItem rows physically live in
             // the same graph redb file), matching `compute_native_terminal_work_item_cas`
             // in the parent module. v1's `VersionExpectation` has no "unversioned" arm
@@ -6591,7 +6591,7 @@ mod tests {
                     verified_capabilities: Default::default(),
                 },
                 identity: MutationScopeIdentity::graph(
-                    TenantId::new(self.reserve.tenant_ref.clone())?,
+                    ScopeTenantId::new(self.reserve.tenant_ref.clone())?,
                     LogicalName::new(TEST_GRAPH)?,
                     IncarnationId::new("incarnation:test:development-lane")?,
                 ),
@@ -6603,7 +6603,7 @@ mod tests {
                 operations: vec![MutationOperation {
                     ordinal: 0,
                     surface: MutationSurface::Job,
-                    domain: MutationDomain::ControlPlane,
+                    domain: DurabilityDomain::ControlPlane,
                     method,
                 }],
                 outbox: vec![MutationOutboxIntent {
@@ -6660,7 +6660,7 @@ mod tests {
                     verified_capabilities: Default::default(),
                 },
                 identity: MutationScopeIdentity::graph(
-                    TenantId::new(self.reserve.tenant_ref.clone())?,
+                    ScopeTenantId::new(self.reserve.tenant_ref.clone())?,
                     LogicalName::new(TEST_GRAPH)?,
                     IncarnationId::new("incarnation:test:development-lane")?,
                 ),
@@ -6672,7 +6672,7 @@ mod tests {
                 operations: vec![MutationOperation {
                     ordinal: 0,
                     surface: MutationSurface::Graph,
-                    domain: MutationDomain::GraphRows,
+                    domain: DurabilityDomain::GraphRows,
                     method: Method::CompareAndSetNodeFields {
                         node_id: self.reserve.work_item_id.clone(),
                         conditions_msgpack,
@@ -7545,9 +7545,9 @@ mod tests {
     #[test]
     fn authoritative_snapshot_and_row_delta_paths_refuse_orphaning_lane_work_item() {
         use crate::mutation_batch::{
-            IncarnationId, LogicalName, MutationDomain, MutationOperation, MutationOutboxIntent,
+            IncarnationId, LogicalName, DurabilityDomain, MutationOperation, MutationOutboxIntent,
             MutationRequestContext, MutationScopeIdentity, MutationStateDescriptor,
-            MutationSurface, TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
+            MutationSurface, ScopeTenantId, VersionExpectation, MUTATION_BATCH_VERSION,
         };
         use sha2::{Digest, Sha256};
 
@@ -7584,7 +7584,7 @@ mod tests {
                         verified_capabilities: Default::default(),
                     },
                     identity: MutationScopeIdentity::graph(
-                        TenantId::new("tenant:a").expect("static tenant id is valid"),
+                        ScopeTenantId::new("tenant:a").expect("static tenant id is valid"),
                         LogicalName::new(TEST_GRAPH).expect("static graph name is valid"),
                         IncarnationId::new("incarnation:test:development-lane")
                             .expect("static incarnation id is valid"),
@@ -7602,7 +7602,7 @@ mod tests {
                     operations: vec![MutationOperation {
                         ordinal: 0,
                         surface: MutationSurface::Query,
-                        domain: MutationDomain::GraphSnapshot,
+                        domain: DurabilityDomain::GraphSnapshot,
                         method: Method::ApplyMutation {
                             event_type: "authoritative_state_operation".into(),
                             query: "sha256:state-path".into(),

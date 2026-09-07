@@ -503,7 +503,7 @@ fn commit_source_acl_mutation(
         },
         &method,
         crate::mutation_batch::MutationSurface::Query,
-        crate::mutation_batch::MutationDomain::SqlCatalog,
+        crate::mutation_batch::DurabilityDomain::SqlCatalog,
         "sql_source_acl_operation",
     )?;
     let committed = acl.commit_txn_batch(txn, &batch, created_at_ms)?;

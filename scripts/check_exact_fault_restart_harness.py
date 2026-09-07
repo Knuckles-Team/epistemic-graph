@@ -220,7 +220,7 @@ def _check_fault_seam_contract() -> list[str]:
 
 
 # crates/eg-mutation-store is deleted (split into eg-storage's
-# StorageKernelV1 and eg-transaction's MutationKernelV1). The
+# StorageKernel and eg-transaction's MutationKernel). The
 # MutationCommitPhase call sites and the commit() helper definition this
 # check pins now live in eg-transaction/src/commit.rs; the saga call site
 # that invokes it (`commit(write, batch)?;`) lives in the peer
@@ -237,7 +237,7 @@ _NATIVE_STORE_COMMIT_SOURCES = (
 )
 
 # `eg_mutation_store::finish`/`::commit` were free functions. Their
-# successors, `MutationKernelV1::{finish, commit}`, are ONLY reachable as
+# successors, `MutationKernel::{finish, commit}`, are ONLY reachable as
 # methods (eg-transaction/src/lib.rs re-exports no free finish/commit), so
 # every migrated consumer now calls them as `<kernel-field>.finish(&write, ` /
 # `<kernel-field>.commit(write` (observed across kv.rs, eg-tsdb, eg-jobs, and
@@ -295,8 +295,8 @@ def _check_store_contract() -> list[str]:
             # The actual write path lives in this declared submodule, not the
             # rbac_persist.rs facade itself.
             source += "\n" + _read("crates/eg-core/src/rbac_persist/durable_write.rs")
-        if "MutationKernelV1" not in source:
-            errors.append(f"{relative}: does not hold a native MutationKernelV1")
+        if "MutationKernel" not in source:
+            errors.append(f"{relative}: does not hold a native MutationKernel")
         if not _MUTATION_KERNEL_FINISH_CALL.search(source):
             errors.append(f"{relative}: no native MutationBatch finish call")
         if not _MUTATION_KERNEL_COMMIT_CALL.search(source):

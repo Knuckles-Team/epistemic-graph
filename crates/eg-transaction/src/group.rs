@@ -63,7 +63,7 @@ impl<'i, D: OwnerDomain> ScopedIntent<'i, D> {
 /// key spaces that belong to the file rather than to any one graph. Members 1..
 /// are the scoped batches, in the order they were admitted.
 ///
-/// The group is minted only by [`crate::MutationKernelV1::admit_group`] and
+/// The group is minted only by [`crate::MutationKernel::admit_group`] and
 /// hands out members by shared reference only, so no member outlives it and no
 /// raw transaction is reachable through it.
 pub struct AdmittedGroup<'a, D: OwnerDomain> {

@@ -234,7 +234,7 @@ fn begin_txn_receipt(
         req_id,
         caller,
         crate::server::handlers::admin::AdminSagaPayload {
-            domain: crate::mutation_batch::MutationDomain::ControlPlane,
+            domain: crate::mutation_batch::DurabilityDomain::ControlPlane,
             batch_id: &commit_receipt_id(txn_id, idempotency_key),
             event_type: "transaction_recovery_plan",
             payload_digest: &payload_digest,

@@ -1,6 +1,6 @@
 //! Canonical mutation classification and one-to-one method lowering.
 
-use crate::mutation_batch::{MutationDomain, MutationSurface};
+use crate::mutation_batch::{DurabilityDomain, MutationSurface};
 use crate::protocol::{CypherMode, Method};
 
 /// Exhaustive durability-domain classifier for mutating methods accepted by a
@@ -24,7 +24,7 @@ use crate::protocol::{CypherMode, Method};
 ///   `upsert_durable_embedding` writes the vector into the target graph's own
 ///   `semantic` table inside the same transaction that advances that graph's
 ///   version. Its authority is the graph, and the graph's counter versions it.
-/// * `MutationDomain::SemanticIndex` is `forbidden_in_graph_scope()`, so tagging
+/// * `DurabilityDomain::SemanticIndex` is `forbidden_in_graph_scope()`, so tagging
 ///   it that way and keeping the graph scope makes `MutationBatch::validate`
 ///   reject every `AddEmbedding` ("graph mutation scope contains a
 ///   store-authoritative operation").
@@ -42,28 +42,28 @@ use crate::protocol::{CypherMode, Method};
 /// `server::semantic_activation::maybe_activate_after_write`. The embedding and
 /// the index built from it are two writes with two authorities; only the second
 /// one is store-authoritative.
-pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> MutationDomain {
+pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> DurabilityDomain {
     match method {
-        Method::CreateGraph { .. } | Method::DeleteGraph { .. } => MutationDomain::Lifecycle,
-        Method::MultiGraphBatchUpdate { .. } => MutationDomain::MultiGraph,
-        Method::Commit { .. } => MutationDomain::CrossModal,
+        Method::CreateGraph { .. } | Method::DeleteGraph { .. } => DurabilityDomain::Lifecycle,
+        Method::MultiGraphBatchUpdate { .. } => DurabilityDomain::MultiGraph,
+        Method::Commit { .. } => DurabilityDomain::CrossModal,
         #[cfg(feature = "blob")]
         Method::BlobBegin { .. }
         | Method::BlobChunkPut { .. }
         | Method::BlobCommit { .. }
         | Method::BlobRef { .. }
         | Method::BlobUnref { .. }
-        | Method::BlobGc => MutationDomain::BlobStore,
+        | Method::BlobGc => DurabilityDomain::BlobStore,
         #[cfg(feature = "kv")]
         Method::KvPut { .. } | Method::KvDelete { .. } | Method::KvCas { .. } => {
-            MutationDomain::KvStore
+            DurabilityDomain::KvStore
         }
         #[cfg(feature = "tsdb")]
         Method::TsAppend { .. } | Method::TsEvict { .. } | Method::TsDeleteSeries { .. } => {
-            MutationDomain::TimeSeries
+            DurabilityDomain::TimeSeries
         }
         #[cfg(feature = "jobs")]
-        Method::AnalyticsJob { .. } => MutationDomain::AnalyticsJob,
+        Method::AnalyticsJob { .. } => DurabilityDomain::AnalyticsJob,
         Method::SubmitWorkItem { .. }
         | Method::SubmitWorkItems { .. }
         | Method::ClaimWorkItem { .. }
@@ -80,12 +80,12 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> MutationD
         | Method::RenewCapacity { .. }
         | Method::ReleaseCapacity { .. }
         | Method::ReclaimExpiredCapacity { .. }
-        | Method::UpdateCapacityCell { .. } => MutationDomain::ControlPlane,
+        | Method::UpdateCapacityCell { .. } => DurabilityDomain::ControlPlane,
         #[cfg(feature = "query")]
-        Method::Sql { .. } => MutationDomain::SqlCatalog,
+        Method::Sql { .. } => DurabilityDomain::SqlCatalog,
         #[cfg(feature = "rdf")]
         Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph => {
-            MutationDomain::RdfDataset
+            DurabilityDomain::RdfDataset
         }
         #[cfg(feature = "broker")]
         Method::DeclareExchange { .. }
@@ -107,9 +107,9 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> MutationD
         | Method::PublishIdempotent { .. }
         | Method::BrokerAckTag { .. }
         | Method::BrokerNackTag { .. }
-        | Method::BrokerRenewTag { .. } => MutationDomain::Broker,
-        _ if matches!(surface, MutationSurface::Transaction) => MutationDomain::GraphRows,
-        _ => MutationDomain::GraphSnapshot,
+        | Method::BrokerRenewTag { .. } => DurabilityDomain::Broker,
+        _ if matches!(surface, MutationSurface::Transaction) => DurabilityDomain::GraphRows,
+        _ => DurabilityDomain::GraphSnapshot,
     }
 }
 

@@ -1,6 +1,6 @@
-//! `MutationKernelV1` -- the sole mutation authority.
+//! `MutationKernel` -- the sole mutation authority.
 //!
-//! It depends inward on [`eg_storage::StorageKernelV1`] and holds the single
+//! It depends inward on [`eg_storage::StorageKernel`] and holds the single
 //! move-once [`MutationOwnerAuthority`] that kernel issued. It alone admits,
 //! orders, fences, commits, replays and emits durable mutation and outbox rows,
 //! and it does so only through storage-issued capabilities. `eg-storage` never
@@ -15,18 +15,18 @@ use eg_storage::{
     declared_table_names, MutationClass, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain,
     OwnerLayout, OwnerPayloadRetirement,
 };
-use eg_types::authority::{NonceReplayKeyV1, OperationReplayIdentityV1};
-use eg_types::mutation::MutationReceiptV1;
+use eg_types::authority::{NonceReplayKey, OperationReplayIdentity};
+use eg_types::mutation::MutationReceipt;
 use eg_types::mutation_batch::VersionExpectation;
 use eg_types::{MutationBatch, MutationBatchRecord, MutationScopeIdentity};
 use std::collections::BTreeSet;
 
 /// The sole mutation owner over one physical owner file.
-pub struct MutationKernelV1 {
+pub struct MutationKernel {
     authority: MutationOwnerAuthority,
 }
 
-impl MutationKernelV1 {
+impl MutationKernel {
     /// Take ownership of the one physical write authority. The token is not
     /// `Clone` and has no public constructor, so exactly one mutation kernel
     /// can exist per storage kernel.
@@ -349,8 +349,8 @@ impl MutationKernelV1 {
     pub fn resolve_replay<D: OwnerDomain>(
         &self,
         write: &AdmittedMutation<'_, D>,
-        operation: &OperationReplayIdentityV1,
-        nonce: &NonceReplayKeyV1,
+        operation: &OperationReplayIdentity,
+        nonce: &NonceReplayKey,
     ) -> Result<ReplayResolution, String> {
         resolve_replay_in(write, operation, nonce)
     }
@@ -369,9 +369,9 @@ impl MutationKernelV1 {
     pub fn record_replay<D: OwnerDomain>(
         &self,
         write: &AdmittedMutation<'_, D>,
-        operation: &OperationReplayIdentityV1,
-        nonce: &NonceReplayKeyV1,
-        receipt: &MutationReceiptV1,
+        operation: &OperationReplayIdentity,
+        nonce: &NonceReplayKey,
+        receipt: &MutationReceipt,
     ) -> Result<(), String> {
         record_replay_in(write, operation, nonce, receipt)
     }

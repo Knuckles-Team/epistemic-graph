@@ -331,7 +331,7 @@ def test_validate_request_context_rejects_invalid_node_claim(bad_node: object) -
 #
 # Unlike `node`/`priority` (MAC-covered tag-1/tag-2 trailers), `oidc_token`
 # rides as a SIBLING top-level envelope field -- matching the Rust decode
-# shape (`EnvelopeV2.oidc_token`, `src/server/auth.rs`) -- and is deliberately
+# shape (`Envelope.oidc_token`, `src/server/auth.rs`) -- and is deliberately
 # NOT folded into the canonical MAC bytes: the token's own RSA/JWKS signature
 # is the trust anchor, and the engine's `bind_verified_identity` independently
 # cross-checks its subject/tenant against `context`, so MAC coverage would add

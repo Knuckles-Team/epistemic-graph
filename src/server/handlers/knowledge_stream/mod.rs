@@ -13,7 +13,7 @@ use eg_modality::{OpaqueRef, ProtocolError};
 use eg_plan::{
     cross_modal_result_stream, graph_result_stream, job_result_stream, rdf_result_stream,
     sql_result_stream, time_series_result_stream, vector_result_stream, KnowledgeBatch,
-    KnowledgeBatchRow, KnowledgeStreamContext, KnowledgeStreamCursor, ServedResultFamily,
+    KnowledgeBatchRow, KnowledgeStreamContext, ResultStreamCursor, ServedResultFamily,
 };
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -23,8 +23,8 @@ use crate::graph::GraphCore;
 #[cfg(test)]
 use crate::knowledge_stream::KnowledgeStreamProjection;
 use crate::knowledge_stream::{
-    KnowledgeResultFamily, KnowledgeStreamBatchV1, KnowledgeStreamCursorV1, KnowledgeStreamQuery,
-    KnowledgeStreamRequestV1, KNOWLEDGE_STREAM_SCHEMA_VERSION,
+    KnowledgeResultFamily, KnowledgeStreamBatch, KnowledgeStreamCursor, KnowledgeStreamQuery,
+    KnowledgeStreamRequest, KNOWLEDGE_STREAM_SCHEMA_VERSION,
 };
 use crate::protocol::{Method, Response, ResultPayload};
 use eg_types::acl::RequestContextClaims;
@@ -445,7 +445,7 @@ fn validate_stream_preflight(
     caller: &str,
     graph_name: &str,
     carrier: &CarrierAuthority,
-    request: &KnowledgeStreamRequestV1,
+    request: &KnowledgeStreamRequest,
 ) -> Result<(), String> {
     if caller != carrier.agent_id() {
         crate::metrics::access_denied();

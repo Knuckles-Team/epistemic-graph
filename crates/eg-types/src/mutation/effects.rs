@@ -1,23 +1,23 @@
 use serde::{Deserialize, Serialize};
 
 use super::budget::MutationBudgetCharge;
-use super::targets::RecordTargetV1;
+use super::targets::RecordTarget;
 use super::EFFECT_FIXED_BUDGET;
-use crate::authority::AuthorityScopeV1;
-use crate::contract::{Digest256V1, RecordBytesV1, TenantIdV1};
+use crate::authority::AuthorityScope;
+use crate::contract::{Digest256, RecordBytes, TenantId};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum RecordMutationV1 {
+pub enum RecordMutation {
     Put {
-        payload: RecordBytesV1,
-        payload_digest: Digest256V1,
+        payload: RecordBytes,
+        payload_digest: Digest256,
     },
     Delete {
-        expected_record_digest: Digest256V1,
+        expected_record_digest: Digest256,
     },
 }
 
-impl RecordMutationV1 {
+impl RecordMutation {
     pub(super) fn validate(&self) -> Result<(), String> {
         if let Self::Put {
             payload,
@@ -31,16 +31,16 @@ impl RecordMutationV1 {
         Ok(())
     }
 
-    pub(super) fn digest(&self) -> Result<Digest256V1, String> {
+    pub(super) fn digest(&self) -> Result<Digest256, String> {
         self.validate()?;
         match self {
-            Self::Put { payload_digest, .. } => Digest256V1::framed(
+            Self::Put { payload_digest, .. } => Digest256::framed(
                 b"eg/record-mutation/v1",
                 &[b"put", payload_digest.as_bytes()],
             ),
             Self::Delete {
                 expected_record_digest,
-            } => Digest256V1::framed(
+            } => Digest256::framed(
                 b"eg/record-mutation/v1",
                 &[b"delete", expected_record_digest.as_bytes()],
             ),
@@ -50,39 +50,39 @@ impl RecordMutationV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct MutationEffectV1 {
+pub struct MutationEffect {
     pub ordinal: u32,
-    pub target: RecordTargetV1,
-    pub mutation: RecordMutationV1,
+    pub target: RecordTarget,
+    pub mutation: RecordMutation,
 }
 
-impl MutationEffectV1 {
+impl MutationEffect {
     pub(super) fn validate_for_scope(
         &self,
-        tenant: &TenantIdV1,
-        scope: &AuthorityScopeV1,
+        tenant: &TenantId,
+        scope: &AuthorityScope,
     ) -> Result<(), String> {
         self.target.validate_for_scope(tenant, scope)?;
         self.mutation.validate()
     }
 
-    pub(super) fn digest(&self) -> Result<Digest256V1, String> {
+    pub(super) fn digest(&self) -> Result<Digest256, String> {
         self.mutation.validate()?;
         let ordinal = self.ordinal.to_be_bytes();
         let target = self.target.digest()?;
         let mutation = self.mutation.digest()?;
-        Digest256V1::framed(
+        Digest256::framed(
             b"eg/mutation-effect/v1",
             &[&ordinal, target.as_bytes(), mutation.as_bytes()],
         )
     }
 }
 
-impl MutationBudgetCharge for MutationEffectV1 {
+impl MutationBudgetCharge for MutationEffect {
     fn mutation_budget_charge(&self) -> Result<usize, String> {
         let payload = match &self.mutation {
-            RecordMutationV1::Put { payload, .. } => payload.as_slice().len(),
-            RecordMutationV1::Delete { .. } => 0,
+            RecordMutation::Put { payload, .. } => payload.as_slice().len(),
+            RecordMutation::Delete { .. } => 0,
         };
         [
             EFFECT_FIXED_BUDGET,

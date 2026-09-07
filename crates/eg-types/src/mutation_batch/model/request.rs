@@ -43,7 +43,7 @@ pub enum MutationSurface {
 #[serde(rename_all = "snake_case")]
 #[repr(u8)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub enum MutationDomain {
+pub enum DurabilityDomain {
     GraphRows = 0,
     GraphSnapshot = 1,
     RdfDataset = 2,
@@ -60,7 +60,7 @@ pub enum MutationDomain {
     ControlPlane = 13,
 }
 
-const MUTATION_DOMAIN_NAMES: [&str; MutationDomain::ControlPlane as usize + 1] = [
+const MUTATION_DOMAIN_NAMES: [&str; DurabilityDomain::ControlPlane as usize + 1] = [
     "graph_rows",
     "graph_snapshot",
     "rdf_dataset",
@@ -77,7 +77,7 @@ const MUTATION_DOMAIN_NAMES: [&str; MutationDomain::ControlPlane as usize + 1] =
     "control_plane",
 ];
 
-impl MutationDomain {
+impl DurabilityDomain {
     pub const fn canonical_name(self) -> &'static str {
         MUTATION_DOMAIN_NAMES[self as usize]
     }
@@ -201,6 +201,6 @@ pub struct MutationOperation {
     pub ordinal: u32,
     pub surface: MutationSurface,
     /// Required authoritative domain.
-    pub domain: MutationDomain,
+    pub domain: DurabilityDomain,
     pub method: Method,
 }

@@ -125,7 +125,7 @@ async fn durable_tokens_cannot_cross_registries() {
             authority_identity: first.identity.clone(),
             contract_sha256: "f".repeat(64),
         }),
-        image: DirectStateCurrentImageV1 {
+        image: DirectStateCurrentImage {
             schema_version: DIRECT_STATE_SCHEMA_VERSION,
             snapshot_sha256: "a".repeat(64),
             scope: DirectStateScope::DefaultGlobal {
@@ -154,7 +154,7 @@ async fn one_authority_cannot_cross_compose_different_registry_roots() {
     let current = DurableCurrentImage {
         authority_identity: authority.identity.clone(),
         registry_identity: second.registry_identity.clone(),
-        image: DirectStateCurrentImageV1 {
+        image: DirectStateCurrentImage {
             schema_version: DIRECT_STATE_SCHEMA_VERSION,
             snapshot_sha256: "a".repeat(64),
             scope: DirectStateScope::DefaultGlobal {

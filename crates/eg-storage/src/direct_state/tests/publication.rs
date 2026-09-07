@@ -338,7 +338,7 @@ async fn seven_domain_prepared_crash_recovers_publishes_and_restarts_current() {
     let install = second.begin_install().await;
     let original_bytes = std::fs::read(&current_path).unwrap();
     let original_identity = FlowProvider::physical_authority(&current_path).unwrap();
-    let exact_journal = DirectStateInstallJournalV1 {
+    let exact_journal = DirectStateInstallJournal {
         schema_version: current.image().schema_version,
         snapshot_sha256: current.image().snapshot_sha256.clone(),
         scope: current.image().scope.clone(),
@@ -358,7 +358,7 @@ async fn seven_domain_prepared_crash_recovers_publishes_and_restarts_current() {
     );
     assert!(!journal_path.exists());
 
-    let stale_journal = DirectStateInstallJournalV1 {
+    let stale_journal = DirectStateInstallJournal {
         schema_version: current.image().schema_version,
         snapshot_sha256: "b".repeat(64),
         scope: current.image().scope.clone(),

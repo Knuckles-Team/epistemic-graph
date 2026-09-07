@@ -53,7 +53,7 @@ use crate::epistemic_operations::{
 };
 use crate::mutation_batch::{
     CommittedVersion, LogicalName, MutationBatch, MutationBatchCommit, MutationBatchRecord,
-    MutationBatchStatus, MutationDomain, MutationOperation, MutationOutboxIntent,
+    MutationBatchStatus, DurabilityDomain, MutationOperation, MutationOutboxIntent,
     MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor, MutationScope,
     MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
 };
@@ -1025,7 +1025,7 @@ mod shard_control_tests;
 
 /// The shard file's own control scope.
 ///
-/// `OwnerLayout::GraphShard` declares `MutationDomain::GraphRows`, which may
+/// `OwnerLayout::GraphShard` declares `DurabilityDomain::GraphRows`, which may
 /// never own a native scope (`may_own_native_scope() == false`), so EVERY scope
 /// bound to a shard file is a graph scope -- including the one the file's own
 /// file-wide rows are written under. RF-RULING-008's group admission needs
@@ -1943,7 +1943,7 @@ fn compute_native_terminal_work_item_cas(batch: &MutationBatch) -> bool {
     batch.authoritative_state.is_none()
         && match batch.operations.first() {
             Some(first)
-                if first.domain == MutationDomain::ControlPlane
+                if first.domain == DurabilityDomain::ControlPlane
                     && first.surface == MutationSurface::Job
                     && matches!(&first.method, Method::CommitWorkItemResult { .. }) =>
             {
@@ -1953,7 +1953,7 @@ fn compute_native_terminal_work_item_cas(batch: &MutationBatch) -> bool {
             }
             Some(first) => {
                 batch.operations.len() == 1
-                    && first.domain == MutationDomain::ControlPlane
+                    && first.domain == DurabilityDomain::ControlPlane
                     && first.surface == MutationSurface::Job
                     && matches!(
                         &first.method,
@@ -17024,8 +17024,8 @@ mod mutation_batch_tests {
         PolicyRecord, PrivacyAttestation, CHANGE_ENVELOPE_VERSION,
     };
     use crate::mutation_batch::{
-        IncarnationId, MutationDomain, MutationOperation, MutationOutboxIntent,
-        MutationRequestContext, MutationScopeIdentity, MutationSurface, TenantId,
+        IncarnationId, DurabilityDomain, MutationOperation, MutationOutboxIntent,
+        MutationRequestContext, MutationScopeIdentity, MutationSurface, ScopeTenantId,
         MUTATION_BATCH_VERSION,
     };
 
@@ -17092,7 +17092,7 @@ mod mutation_batch_tests {
                 verified_capabilities: Default::default(),
             },
             identity: MutationScopeIdentity::graph(
-                TenantId::new("tenant-a").unwrap(),
+                ScopeTenantId::new("tenant-a").unwrap(),
                 LogicalName::new("graph-a").unwrap(),
                 IncarnationId::new("incarnation:test:redb-store").unwrap(),
             ),
@@ -17105,13 +17105,13 @@ mod mutation_batch_tests {
                 MutationOperation {
                     ordinal: 0,
                     surface: MutationSurface::Transaction,
-                    domain: MutationDomain::GraphRows,
+                    domain: DurabilityDomain::GraphRows,
                     method: node("a", 1),
                 },
                 MutationOperation {
                     ordinal: 1,
                     surface: MutationSurface::Transaction,
-                    domain: MutationDomain::GraphRows,
+                    domain: DurabilityDomain::GraphRows,
                     method: node("b", 2),
                 },
             ],
@@ -17155,8 +17155,8 @@ mod mutation_batch_tests {
         }
 
         let native_identity = MutationScopeIdentity::native(
-            TenantId::new("tenant-a").unwrap(),
-            MutationDomain::SqlCatalog,
+            ScopeTenantId::new("tenant-a").unwrap(),
+            DurabilityDomain::SqlCatalog,
             LogicalName::new("graph-a").unwrap(),
             IncarnationId::new("incarnation:test:redb-store").unwrap(),
         )
@@ -17165,7 +17165,7 @@ mod mutation_batch_tests {
         record.identity = native_identity;
         record.batch.version_expectation = VersionExpectation::Native(3);
         for operation in &mut record.batch.operations {
-            operation.domain = MutationDomain::SqlCatalog;
+            operation.domain = DurabilityDomain::SqlCatalog;
         }
         record.status = MutationBatchStatus::Committed;
         record.committed_version = CommittedVersion::Native {
@@ -17208,7 +17208,7 @@ mod mutation_batch_tests {
         claim.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::ClaimWorkItem {
                 request: crate::epistemic_operations::ClaimWorkItemRequest {
                     schema_version:
@@ -17506,7 +17506,7 @@ mod mutation_batch_tests {
         initial.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: public_batch_method(operations),
         }];
         {
@@ -17540,7 +17540,7 @@ mod mutation_batch_tests {
         removal.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: public_batch_method(serde_json::json!([
                 {"op": "remove_node", "id": "a"}
             ])),
@@ -17917,7 +17917,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: public_batch_method(serde_json::json!([{
                 "op": "add_node",
                 "id": "existing",
@@ -17933,7 +17933,7 @@ mod mutation_batch_tests {
         upsert.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: public_batch_method(serde_json::json!([
                 {
                     "op": "upsert_node",
@@ -18000,7 +18000,7 @@ mod mutation_batch_tests {
             mutation.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Graph,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method,
             }];
             {
@@ -18033,7 +18033,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-1", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -18084,7 +18084,7 @@ mod mutation_batch_tests {
         terminal.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
-            domain: MutationDomain::ControlPlane,
+            domain: DurabilityDomain::ControlPlane,
             method: terminal_method,
         }];
         terminal.outbox[0].key = terminal.batch_id.clone();
@@ -18150,7 +18150,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-bundle-1", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -18191,19 +18191,19 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::ControlPlane,
+                domain: DurabilityDomain::ControlPlane,
                 method: terminal_method,
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::GraphSnapshot,
+                domain: DurabilityDomain::GraphSnapshot,
                 method: node("trace:bundle-1", 11),
             },
             MutationOperation {
                 ordinal: 2,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::GraphSnapshot,
+                domain: DurabilityDomain::GraphSnapshot,
                 method: node("outcome:bundle-1", 22),
             },
         ];
@@ -18250,7 +18250,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-disallowed-1", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -18292,14 +18292,14 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::ControlPlane,
+                domain: DurabilityDomain::ControlPlane,
                 method: terminal_method,
             },
             // Disallowed: only AddNode may ride alongside CommitWorkItemResult.
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::GraphSnapshot,
+                domain: DurabilityDomain::GraphSnapshot,
                 method: Method::RemoveNode {
                     node_id: "work-disallowed-1".into(),
                 },
@@ -18336,13 +18336,13 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("work-double-1", 3),
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("work-double-2", 3),
             },
         ];
@@ -18385,7 +18385,7 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::ControlPlane,
+                domain: DurabilityDomain::ControlPlane,
                 method: Method::CommitWorkItemResult {
                     tenant: "tenant-a".into(),
                     work_item_id: "work-double-1".into(),
@@ -18403,7 +18403,7 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Job,
-                domain: MutationDomain::ControlPlane,
+                domain: DurabilityDomain::ControlPlane,
                 method: Method::CommitWorkItemResult {
                     tenant: "tenant-a".into(),
                     work_item_id: "work-double-2".into(),
@@ -18448,13 +18448,13 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("leased", 3),
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("ready", 3),
             },
         ];
@@ -18477,7 +18477,7 @@ mod mutation_batch_tests {
         claim.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::ClaimWorkItem {
                 request: crate::epistemic_operations::ClaimWorkItemRequest {
                     schema_version:
@@ -18532,13 +18532,13 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("live", 3),
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("ready", 3),
             },
         ];
@@ -18564,7 +18564,7 @@ mod mutation_batch_tests {
         claim.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::ClaimWorkItem {
                 request: ClaimWorkItemRequest {
                     schema_version: ClaimWorkItemRequestSchemaVersion::V1,
@@ -18615,7 +18615,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("exhausted", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -18704,13 +18704,13 @@ mod mutation_batch_tests {
             MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("exhausted", 3),
             },
             MutationOperation {
                 ordinal: 1,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("runnable", 3),
             },
         ];
@@ -18812,7 +18812,7 @@ mod mutation_batch_tests {
         renew.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::RenewWorkItemLease {
                 tenant: "tenant-a".into(),
                 work_item_id: "does-not-exist".into(),
@@ -18866,7 +18866,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("leased", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -18890,7 +18890,7 @@ mod mutation_batch_tests {
         renew.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::RenewWorkItemLease {
                 tenant: "tenant-a".into(),
                 work_item_id: "leased".into(),
@@ -18938,7 +18938,7 @@ mod mutation_batch_tests {
             seed.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("boundary", 3),
             }];
             commit_at(&db, &seed, None).unwrap();
@@ -19033,7 +19033,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("cas-a", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -19067,7 +19067,7 @@ mod mutation_batch_tests {
             op.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::CasWorkItemMetadata {
                     request: CasWorkItemMetadataRequest {
                         schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
@@ -19167,7 +19167,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("cas-race", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -19208,7 +19208,7 @@ mod mutation_batch_tests {
             op.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::CasWorkItemMetadata {
                     request: CasWorkItemMetadataRequest {
                         schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
@@ -19328,7 +19328,7 @@ mod mutation_batch_tests {
         op.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: Method::CasWorkItemMetadata {
                 request: CasWorkItemMetadataRequest {
                     schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
@@ -19390,7 +19390,7 @@ mod mutation_batch_tests {
             seed.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: ready_work_item_method("cas-restart", 3),
             }];
             commit_at(&db, &seed, None).unwrap();
@@ -19416,7 +19416,7 @@ mod mutation_batch_tests {
             apply.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::CasWorkItemMetadata {
                     request: CasWorkItemMetadataRequest {
                         schema_version: CasWorkItemMetadataRequestSchemaVersion::V1,
@@ -19473,7 +19473,7 @@ mod mutation_batch_tests {
             seed.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::AddNode {
                     node_id: "wi".into(),
                     properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -19493,7 +19493,7 @@ mod mutation_batch_tests {
             claim.operations = vec![MutationOperation {
                 ordinal: 0,
                 surface: MutationSurface::Transaction,
-                domain: MutationDomain::GraphRows,
+                domain: DurabilityDomain::GraphRows,
                 method: Method::ClaimWorkItem {
                     request: ClaimWorkItemRequest {
                         schema_version: ClaimWorkItemRequestSchemaVersion::V1,
@@ -19651,7 +19651,7 @@ mod mutation_batch_tests {
         mutation.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Transaction,
-            domain: MutationDomain::CrossModal,
+            domain: DurabilityDomain::CrossModal,
             method: Method::ApplyMutation {
                 event_type: "crossmodal_operation".to_string(),
                 query: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
@@ -19889,7 +19889,7 @@ mod mutation_batch_tests {
         mutation.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Query,
-            domain: MutationDomain::GraphSnapshot,
+            domain: DurabilityDomain::GraphSnapshot,
             method: Method::ApplyMutation {
                 event_type: "authoritative_state_operation".to_string(),
                 query: "sha256:opaque".to_string(),
@@ -20001,7 +20001,7 @@ mod mutation_batch_tests {
         mutation.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Query,
-            domain: MutationDomain::GraphSnapshot,
+            domain: DurabilityDomain::GraphSnapshot,
             method: Method::ApplyMutation {
                 event_type: "authoritative_state_operation".to_string(),
                 query: "sha256-row-delta-v2:opaque".to_string(),
@@ -20084,7 +20084,7 @@ mod mutation_batch_tests {
         mutation.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphSnapshot,
+            domain: DurabilityDomain::GraphSnapshot,
             method: Method::IcvConfigure {
                 graph: Some("graph-a".to_string()),
                 mode: "enforce".to_string(),
@@ -20172,7 +20172,7 @@ mod mutation_batch_tests {
         create.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::CreateGraph {
                 graph_name: "graph-a".to_string(),
                 graph_type: GraphType::Agent,
@@ -20200,7 +20200,7 @@ mod mutation_batch_tests {
         delete.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::DeleteGraph {
                 graph_name: "graph-a".to_string(),
             },
@@ -20271,7 +20271,7 @@ mod mutation_batch_tests {
         create.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::CreateGraph {
                 graph_name: "graph-a".to_string(),
                 graph_type: GraphType::Agent,
@@ -20310,7 +20310,7 @@ mod mutation_batch_tests {
         delete.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::DeleteGraph {
                 graph_name: "graph-a".to_string(),
             },
@@ -20357,7 +20357,7 @@ mod mutation_batch_tests {
         recreate.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::CreateGraph {
                 graph_name: "graph-a".to_string(),
                 graph_type: GraphType::Agent,
@@ -20399,7 +20399,7 @@ mod mutation_batch_tests {
         create.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
-            domain: MutationDomain::Lifecycle,
+            domain: DurabilityDomain::Lifecycle,
             method: Method::CreateGraph {
                 graph_name: "graph-a".to_string(),
                 graph_type: GraphType::Agent,
@@ -20868,7 +20868,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-defer", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -20897,7 +20897,7 @@ mod mutation_batch_tests {
         defer.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
-            domain: MutationDomain::ControlPlane,
+            domain: DurabilityDomain::ControlPlane,
             method: Method::DeferWorkItem {
                 tenant: "tenant-a".into(),
                 work_item_id: "work-defer".into(),
@@ -20950,7 +20950,7 @@ mod mutation_batch_tests {
         seed.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Graph,
-            domain: MutationDomain::GraphRows,
+            domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-cancel", 3),
         }];
         commit_at(&db, &seed, None).unwrap();
@@ -20969,7 +20969,7 @@ mod mutation_batch_tests {
         cancel.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Job,
-            domain: MutationDomain::ControlPlane,
+            domain: DurabilityDomain::ControlPlane,
             method: Method::CancelWorkItem {
                 tenant: "tenant-a".into(),
                 work_item_id: "work-cancel".into(),

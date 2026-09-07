@@ -140,7 +140,7 @@ impl DirectStateRegistry {
         permit: &StateImageInstallPermit,
         path: &Path,
         prepared: &PreparedWholeGeneration,
-        replacement: &DirectStateInstallJournalV1,
+        replacement: &DirectStateInstallJournal,
     ) -> Result<PublishedJournalPublication, String> {
         permit.validate_affinity(&self.authority_identity)?;
         self.validate_filesystem()?;
@@ -311,7 +311,7 @@ impl DirectStateRegistry {
         permit: &StateImageInstallPermit,
         path: &Path,
         mut staged: StagedWholeGeneration,
-        journal: &DirectStateInstallJournalV1,
+        journal: &DirectStateInstallJournal,
     ) -> Result<PreparedJournalPublication, String> {
         let (current_image, current_image_sha256, section_set_sha256, journal_sha256) =
             validate_prepared_set(self, permit, path, &staged, journal)?;
@@ -389,8 +389,8 @@ fn validate_prepared_set(
     permit: &StateImageInstallPermit,
     path: &Path,
     staged: &StagedWholeGeneration,
-    journal: &DirectStateInstallJournalV1,
-) -> Result<(DirectStateCurrentImageV1, String, String, String), String> {
+    journal: &DirectStateInstallJournal,
+) -> Result<(DirectStateCurrentImage, String, String, String), String> {
     permit.validate_affinity(&registry.authority_identity)?;
     registry.validate_filesystem()?;
     if path != registry.journal_path {
@@ -424,7 +424,7 @@ fn validate_prepared_set(
 fn validate_staged_sections(
     registry: &DirectStateRegistry,
     staged: &StagedWholeGeneration,
-    journal: &DirectStateInstallJournalV1,
+    journal: &DirectStateInstallJournal,
 ) -> Result<(), String> {
     journal.validate()?;
     if journal.phase != DirectStateInstallPhase::Prepared
@@ -451,7 +451,7 @@ fn validate_staged_sections(
 fn assemble_visible_prepared(
     registry: &DirectStateRegistry,
     staged: Vec<StagedDirectStateSection>,
-    current: DirectStateCurrentImageV1,
+    current: DirectStateCurrentImage,
     current_image_sha256: String,
     section_set_sha256: String,
     journal_sha256: String,
@@ -489,7 +489,7 @@ fn assemble_visible_prepared(
 fn finish_prepared_publication(
     registry: &DirectStateRegistry,
     path: &Path,
-    journal: &DirectStateInstallJournalV1,
+    journal: &DirectStateInstallJournal,
     authority_file: File,
     root: PinnedPrivateDirectory,
     mut retirement: ExactRetirement,

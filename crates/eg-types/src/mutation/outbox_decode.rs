@@ -9,19 +9,19 @@ use super::budget::{
 };
 use super::{OUTBOX_FIXED_BUDGET, OUTBOX_HEADER_FIXED_BUDGET, PROVENANCE_FIXED_BUDGET};
 use crate::contract::{
-    BoundedVecV1, Digest256V1, OpaqueIdV1, RecordBytesV1, ResourceIdV1, TenantIdV1,
+    BoundedVec, Digest256, OpaqueId, RecordBytes, ResourceId, TenantId,
 };
-use crate::outbox::{OutboxHeaderV1, OutboxIntentV1, MAX_OUTBOX_HEADERS};
+use crate::outbox::{OutboxHeader, OutboxIntent, MAX_OUTBOX_HEADERS};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ProvenanceBindingV1 {
-    pub provenance_id: OpaqueIdV1,
-    pub source_digest: Digest256V1,
+pub struct ProvenanceBinding {
+    pub provenance_id: OpaqueId,
+    pub source_digest: Digest256,
 }
 
-impl ProvenanceBindingV1 {
-    pub(super) fn digest(&self) -> Result<Digest256V1, String> {
-        Digest256V1::framed(
+impl ProvenanceBinding {
+    pub(super) fn digest(&self) -> Result<Digest256, String> {
+        Digest256::framed(
             b"eg/provenance-binding/v1",
             &[
                 self.provenance_id.as_str().as_bytes(),
@@ -31,7 +31,7 @@ impl ProvenanceBindingV1 {
     }
 }
 
-impl MutationBudgetCharge for ProvenanceBindingV1 {
+impl MutationBudgetCharge for ProvenanceBinding {
     fn mutation_budget_charge(&self) -> Result<usize, String> {
         PROVENANCE_FIXED_BUDGET
             .checked_add(self.provenance_id.as_str().len())
@@ -39,7 +39,7 @@ impl MutationBudgetCharge for ProvenanceBindingV1 {
     }
 }
 
-impl<'de> MutationBudgetDeserialize<'de> for ProvenanceBindingV1 {
+impl<'de> MutationBudgetDeserialize<'de> for ProvenanceBinding {
     fn deserialize_budgeted<D>(
         deserializer: D,
         budget: &mut StructuralBudget,
@@ -51,7 +51,7 @@ impl<'de> MutationBudgetDeserialize<'de> for ProvenanceBindingV1 {
     }
 }
 
-impl MutationBudgetCharge for OutboxIntentV1 {
+impl MutationBudgetCharge for OutboxIntent {
     fn mutation_budget_charge(&self) -> Result<usize, String> {
         let headers = self.headers.iter().try_fold(0usize, |total, header| {
             total
@@ -88,7 +88,7 @@ struct BudgetedOutboxHeadersVisitor<'a> {
 }
 
 impl<'de> Visitor<'de> for BudgetedOutboxHeadersVisitor<'_> {
-    type Value = BoundedVecV1<OutboxHeaderV1, MAX_OUTBOX_HEADERS>;
+    type Value = BoundedVec<OutboxHeader, MAX_OUTBOX_HEADERS>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("budgeted outbox headers")
@@ -107,8 +107,8 @@ impl<'de> Visitor<'de> for BudgetedOutboxHeadersVisitor<'_> {
         let mut values =
             Vec::with_capacity(sequence.size_hint().unwrap_or(0).min(MAX_OUTBOX_HEADERS));
         while values.len() < MAX_OUTBOX_HEADERS {
-            let Some(header) = sequence.next_element::<OutboxHeaderV1>()? else {
-                return BoundedVecV1::new(values).map_err(A::Error::custom);
+            let Some(header) = sequence.next_element::<OutboxHeader>()? else {
+                return BoundedVec::new(values).map_err(A::Error::custom);
             };
             let charge = OUTBOX_HEADER_FIXED_BUDGET
                 .checked_add(header.name.as_str().len())
@@ -120,12 +120,12 @@ impl<'de> Visitor<'de> for BudgetedOutboxHeadersVisitor<'_> {
         if sequence.next_element::<serde::de::IgnoredAny>()?.is_some() {
             return Err(A::Error::custom("outbox headers exceed 64 items"));
         }
-        BoundedVecV1::new(values).map_err(A::Error::custom)
+        BoundedVec::new(values).map_err(A::Error::custom)
     }
 }
 
 impl<'de> DeserializeSeed<'de> for BudgetedOutboxHeadersSeed<'_> {
-    type Value = BoundedVecV1<OutboxHeaderV1, MAX_OUTBOX_HEADERS>;
+    type Value = BoundedVec<OutboxHeader, MAX_OUTBOX_HEADERS>;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
     where
@@ -155,14 +155,14 @@ struct BudgetedOutboxIntentVisitor<'a> {
 }
 
 struct OutboxIntentFields<'de> {
-    tenant: Option<TenantIdV1>,
-    destination_scope_digest: Option<Digest256V1>,
-    topic: Option<ResourceIdV1>,
-    partition_key: Option<ResourceIdV1>,
-    event_schema: Option<ResourceIdV1>,
+    tenant: Option<TenantId>,
+    destination_scope_digest: Option<Digest256>,
+    topic: Option<ResourceId>,
+    partition_key: Option<ResourceId>,
+    event_schema: Option<ResourceId>,
     payload: Option<&'de [u8]>,
-    payload_digest: Option<Digest256V1>,
-    headers: Option<BoundedVecV1<OutboxHeaderV1, MAX_OUTBOX_HEADERS>>,
+    payload_digest: Option<Digest256>,
+    headers: Option<BoundedVec<OutboxHeader, MAX_OUTBOX_HEADERS>>,
 }
 
 impl OutboxIntentFields<'_> {
@@ -200,7 +200,7 @@ where
 }
 
 fn read_resource<'de, A>(
-    slot: &mut Option<ResourceIdV1>,
+    slot: &mut Option<ResourceId>,
     label: &'static str,
     map: &mut A,
     budget: &mut StructuralBudget,
@@ -275,13 +275,13 @@ where
 fn finish_outbox<E>(
     fields: OutboxIntentFields<'_>,
     budget: &mut StructuralBudget,
-) -> Result<OutboxIntentV1, E>
+) -> Result<OutboxIntent, E>
 where
     E: serde::de::Error,
 {
     let payload = fields.payload.ok_or_else(|| E::missing_field("payload"))?;
     budget.charge(payload.len()).map_err(E::custom)?;
-    Ok(OutboxIntentV1 {
+    Ok(OutboxIntent {
         tenant: fields.tenant.ok_or_else(|| E::missing_field("tenant"))?,
         destination_scope_digest: fields
             .destination_scope_digest
@@ -293,7 +293,7 @@ where
         event_schema: fields
             .event_schema
             .ok_or_else(|| E::missing_field("event_schema"))?,
-        payload: RecordBytesV1::new(payload.to_vec()).map_err(E::custom)?,
+        payload: RecordBytes::new(payload.to_vec()).map_err(E::custom)?,
         payload_digest: fields
             .payload_digest
             .ok_or_else(|| E::missing_field("payload_digest"))?,
@@ -302,7 +302,7 @@ where
 }
 
 impl<'de> Visitor<'de> for BudgetedOutboxIntentVisitor<'_> {
-    type Value = OutboxIntentV1;
+    type Value = OutboxIntent;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a named budgeted outbox intent")
@@ -323,7 +323,7 @@ impl<'de> Visitor<'de> for BudgetedOutboxIntentVisitor<'_> {
     }
 }
 
-impl<'de> MutationBudgetDeserialize<'de> for OutboxIntentV1 {
+impl<'de> MutationBudgetDeserialize<'de> for OutboxIntent {
     fn deserialize_budgeted<D>(
         deserializer: D,
         budget: &mut StructuralBudget,

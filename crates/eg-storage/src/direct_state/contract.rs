@@ -96,7 +96,7 @@ impl DirectStateDomain {
 /// store is mutation-backed), sorted lexicographically with no duplicates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DirectStateOwnerManifestV1 {
+pub struct DirectStateOwnerManifest {
     pub schema_version: u16,
     pub domain: DirectStateDomain,
     pub authority_kind: DirectStateAuthorityKind,
@@ -111,7 +111,7 @@ pub enum DirectStateAuthorityKind {
     MutationStore,
 }
 
-impl DirectStateOwnerManifestV1 {
+impl DirectStateOwnerManifest {
     pub fn sha256(&self) -> Result<String, String> {
         if self.schema_version != DIRECT_STATE_SCHEMA_VERSION || self.store_schema_version == 0 {
             return Err("unsupported direct-state owner manifest schema".into());
@@ -218,7 +218,7 @@ impl DirectStateScope {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct DirectStateSectionManifestV1 {
+pub struct DirectStateSectionManifest {
     pub schema_version: u16,
     pub domain: DirectStateDomain,
     pub scope: DirectStateScope,
@@ -235,7 +235,7 @@ pub struct DirectStateSectionManifestV1 {
     pub content_sha256: String,
 }
 
-impl DirectStateSectionManifestV1 {
+impl DirectStateSectionManifest {
     pub fn validate(&self, configured_max_bytes: u64) -> Result<(), String> {
         if self.schema_version != DIRECT_STATE_SCHEMA_VERSION {
             return Err(format!(
@@ -268,7 +268,7 @@ impl DirectStateSectionManifestV1 {
 }
 
 fn validate_section_bounds(
-    manifest: &DirectStateSectionManifestV1,
+    manifest: &DirectStateSectionManifest,
     configured_max_bytes: u64,
 ) -> Result<(), String> {
     if configured_max_bytes > HARD_MAX_DIRECT_STATE_BYTES {
@@ -293,7 +293,7 @@ fn validate_section_bounds(
 }
 
 pub(super) fn validate_aggregate_section_bounds<'a>(
-    manifests: impl IntoIterator<Item = &'a DirectStateSectionManifestV1>,
+    manifests: impl IntoIterator<Item = &'a DirectStateSectionManifest>,
     configured_max_bytes: u64,
 ) -> Result<(), String> {
     if configured_max_bytes == 0 || configured_max_bytes > HARD_MAX_DIRECT_STATE_BYTES {

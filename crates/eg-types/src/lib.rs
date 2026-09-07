@@ -29,7 +29,7 @@ pub mod change_envelope;
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
 // into `mutation_batch`): `MutationBatch`/`MutationProjectionCursor` remain the
-// per-surface request/outbox envelope; `CommitDescriptorV1` is the one commit
+// per-surface request/outbox envelope; `CommitDescriptor` is the one commit
 // identity every domain's participant registers against. See
 // `plans/graph-os-completion-program/lanes/GOC-03-cross-domain-commit-currency.md`.
 pub mod commit_descriptor;
@@ -69,8 +69,8 @@ pub mod jobs;
 #[cfg(feature = "knowledge-batch")]
 pub mod knowledge_stream;
 // GOC-10 — canonical SQL table / lake catalog authority wire types
-// (`CatalogEntryV1`/`TableSchemaVersionV1`/`PartitionManifestV1`/`LakeSnapshotV1`/
-// `QualityReportRef`/`TableChangeV1`). Pure serde, no dep — unconditional like
+// (`CatalogEntry`/`TableSchemaVersion`/`PartitionManifest`/`LakeSnapshot`/
+// `QualityReportRef`/`TableChange`). Pure serde, no dep — unconditional like
 // `acl`/`mutation_batch`, since it adds no `protocol::Method` variant (the durable
 // store + REST projection that would carry these records over the wire is
 // GOC-10-W03/W05, not yet implemented).
@@ -114,7 +114,7 @@ pub mod statechart;
 pub mod types;
 // GOC-19 — the WorkItem submission command-log admission core (tenant-scoped
 // idempotency replay + per-authority fencing), built on GOC-03's
-// `commit_descriptor::CommitDescriptorV1` currency. Unconditional, pure
+// `commit_descriptor::CommitDescriptor` currency. Unconditional, pure
 // data/logic; the native protocol/storage adapter now lives in
 // `native_control`, `server::mutation_batch`, and `redb_store`. See
 // `plans/graph-os-completion-program/lanes/GOC-19-atomic-workitem-command-log.md`.
@@ -148,8 +148,8 @@ pub use embedding::{
 };
 #[cfg(feature = "knowledge-batch")]
 pub use knowledge_stream::{
-    KnowledgeResultFamily, KnowledgeStreamBatchV1, KnowledgeStreamCursorV1,
-    KnowledgeStreamProjection, KnowledgeStreamQuery, KnowledgeStreamRequestV1,
+    KnowledgeResultFamily, KnowledgeStreamBatch, KnowledgeStreamCursor,
+    KnowledgeStreamProjection, KnowledgeStreamQuery, KnowledgeStreamRequest,
     KNOWLEDGE_STREAM_SCHEMA_VERSION,
 };
 #[cfg(feature = "modality-serving")]
@@ -166,6 +166,6 @@ pub use mutation_batch::{
     CommittedVersion, IncarnationId, LogicalName, MutationBatch, MutationBatchCommit,
     MutationBatchRecord, MutationBatchStatus, MutationOperation, MutationOutboxIntent,
     MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor, MutationRequestContext,
-    MutationScope, MutationScopeIdentity, MutationStateDescriptor, MutationSurface, TenantId,
+    MutationScope, MutationScopeIdentity, MutationStateDescriptor, MutationSurface, ScopeTenantId,
     VersionExpectation, MUTATION_BATCH_VERSION,
 };

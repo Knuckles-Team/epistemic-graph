@@ -7,9 +7,9 @@ use sha2::{Digest, Sha256};
 
 use crate::graph::GraphCore;
 use crate::mutation_batch::{
-    IncarnationId, LogicalName, MutationBatch, MutationDomain, MutationOperation,
+    IncarnationId, LogicalName, MutationBatch, DurabilityDomain, MutationOperation,
     MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationStateDescriptor,
-    MutationSurface, TenantId, VersionExpectation, MUTATION_BATCH_VERSION,
+    MutationSurface, ScopeTenantId, VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use crate::protocol::Method;
 use crate::server::persistence::PersistenceBackend;
@@ -52,7 +52,7 @@ pub(crate) async fn authoritative_graph_version(
 /// Two ledgers commit the batches this module builds, and they require
 /// different principals because they are different authorities:
 ///
-/// * a **store-authoritative** domain ([`MutationDomain::forbidden_in_graph_scope`]
+/// * a **store-authoritative** domain ([`DurabilityDomain::forbidden_in_graph_scope`]
 ///   — KV, blob, time-series, analytics-job, semantic-index) commits into a
 ///   kernel-owned owner store. One physical file serves ONE bound scope under
 ///   ONE principal, and `eg_transaction::AdmittedMutation::owner_rows` refuses
@@ -175,7 +175,7 @@ pub(crate) fn compile_opaque_method(
     ctx: CompileBatch<'_>,
     method: &Method,
     surface: MutationSurface,
-    domain: MutationDomain,
+    domain: DurabilityDomain,
     event_type: &str,
 ) -> Result<MutationBatch, String> {
     let encoded = rmp_serde::to_vec_named(method).map_err(|e| e.to_string())?;
@@ -194,7 +194,7 @@ pub(crate) fn compile_opaque_method(
     // of it (for example the blob CAS's `commit_native_batch`, which never
     // touches `commit_mutation_batch_inner`). The caller-supplied `domain` is
     // authoritative for which one applies: a graph domain always means the
-    // graph kernel, so mirror `MutationDomain::requires_native_scope` here: an
+    // graph kernel, so mirror `DurabilityDomain::requires_native_scope` here: an
     // "either" domain (lifecycle/control-plane/cross-modal/multi-graph) belongs
     // in the graph scope, since that is the route these callers commit through.
     let graph_scope = !domain.requires_native_scope();
@@ -219,7 +219,7 @@ pub(crate) fn compile_opaque_digest(
     ctx: CompileBatch<'_>,
     digest: &str,
     surface: MutationSurface,
-    domain: MutationDomain,
+    domain: DurabilityDomain,
     event_type: &str,
 ) -> Result<MutationBatch, String> {
     if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -269,13 +269,13 @@ pub(crate) fn compile_crossmodal(
     let operation = MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Transaction,
-        domain: MutationDomain::CrossModal,
+        domain: DurabilityDomain::CrossModal,
         method: Method::ApplyMutation {
             event_type: "crossmodal_operation".to_string(),
             query: format!("sha256:{digest}"),
         },
     };
-    // Always graph-scoped: `compile_crossmodal` hardcodes `MutationDomain::
+    // Always graph-scoped: `compile_crossmodal` hardcodes `DurabilityDomain::
     // CrossModal` and its record is committed via `PersistenceBackend::
     // commit_mutation_batch_crossmodal`, which routes to the same
     // graph-routed `commit_mutation_batch_inner` kernel as `compile_methods`.
@@ -417,7 +417,7 @@ fn finish_batch(
     // `context.principal` against a caller now compares that header.
     let principal = ENGINE_LEDGER_PRINCIPAL.to_string();
     reject_reserved_shard_identifiers(ctx.tenant, ctx.graph)?;
-    let tenant_id = TenantId::new(ctx.tenant.to_string())?;
+    let tenant_id = ScopeTenantId::new(ctx.tenant.to_string())?;
     let resource_name = LogicalName::new(ctx.graph.to_string())?;
     let incarnation_id = IncarnationId::new(COMPILED_BATCH_INCARNATION)
         .expect("COMPILED_BATCH_INCARNATION is a valid static incarnation id");

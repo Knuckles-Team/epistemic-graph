@@ -14,12 +14,12 @@ mod payload;
 mod receipt;
 mod targets;
 
-pub use crate::contract::{MutationDispositionV1, MutationDomainV1, RequestedMutationResultV1};
-pub use effects::{MutationEffectV1, RecordMutationV1};
-pub use envelope::{MutationEnvelopePartsV1, MutationEnvelopeV1, MutationPayloadV1};
-pub use outbox_decode::ProvenanceBindingV1;
-pub use receipt::{MutationReceiptV1, MutationResultV1};
-pub use targets::{MutationPreconditionV1, RecordTargetV1};
+pub use crate::contract::{MutationDisposition, MutationDomain, RequestedMutationResult};
+pub use effects::{MutationEffect, RecordMutation};
+pub use envelope::{MutationEnvelopeParts, MutationEnvelope, MutationPayload};
+pub use outbox_decode::ProvenanceBinding;
+pub use receipt::{MutationReceipt, MutationResult};
+pub use targets::{MutationPrecondition, RecordTarget};
 
 pub const MUTATION_ENVELOPE_SCHEMA_V1: &str = "mutation-envelope.v1";
 pub const MAX_MUTATION_PRECONDITIONS: usize = 4_096;

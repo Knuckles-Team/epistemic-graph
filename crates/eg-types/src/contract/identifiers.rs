@@ -88,20 +88,20 @@ macro_rules! canonical_id_type {
     };
 }
 
-canonical_id_type!(TenantIdV1, MAX_TENANT_ID_BYTES, "tenant id");
-canonical_id_type!(ActorIdV1, MAX_OPAQUE_ID_BYTES, "actor id");
-canonical_id_type!(AudienceIdV1, MAX_OPAQUE_ID_BYTES, "audience id");
-canonical_id_type!(OpaqueIdV1, MAX_OPAQUE_ID_BYTES, "opaque id");
-canonical_id_type!(ResourceIdV1, MAX_RESOURCE_ID_BYTES, "resource id");
-canonical_id_type!(ProtocolIdV1, MAX_RESOURCE_ID_BYTES, "protocol id");
-canonical_id_type!(MethodIdV1, MAX_METHOD_ID_BYTES, "method id");
-canonical_id_type!(PolicyRevisionV1, MAX_OPAQUE_ID_BYTES, "policy revision");
+canonical_id_type!(TenantId, MAX_TENANT_ID_BYTES, "tenant id");
+canonical_id_type!(ActorId, MAX_OPAQUE_ID_BYTES, "actor id");
+canonical_id_type!(AudienceId, MAX_OPAQUE_ID_BYTES, "audience id");
+canonical_id_type!(OpaqueId, MAX_OPAQUE_ID_BYTES, "opaque id");
+canonical_id_type!(ResourceId, MAX_RESOURCE_ID_BYTES, "resource id");
+canonical_id_type!(ProtocolId, MAX_RESOURCE_ID_BYTES, "protocol id");
+canonical_id_type!(MethodId, MAX_METHOD_ID_BYTES, "method id");
+canonical_id_type!(PolicyRevision, MAX_OPAQUE_ID_BYTES, "policy revision");
 canonical_id_type!(
-    IdempotencyKeyV1,
+    IdempotencyKey,
     MAX_IDEMPOTENCY_KEY_BYTES,
     "idempotency key"
 );
-canonical_id_type!(SchemaIdV1, MAX_RESOURCE_ID_BYTES, "schema id");
+canonical_id_type!(SchemaId, MAX_RESOURCE_ID_BYTES, "schema id");
 
 macro_rules! closed_token_type {
     ($name:ident, $label:literal, [$($value:literal),+ $(,)?]) => {
@@ -127,7 +127,7 @@ macro_rules! closed_token_type {
 }
 
 closed_token_type!(
-    IngressSurfaceV1,
+    IngressSurface,
     "ingress surface",
     [
         "au_rest",
@@ -140,7 +140,7 @@ closed_token_type!(
     ]
 );
 closed_token_type!(
-    OperationV1,
+    Operation,
     "operation",
     [
         "query",
@@ -153,7 +153,7 @@ closed_token_type!(
     ]
 );
 closed_token_type!(
-    PurposeKindV1,
+    PurposeKind,
     "purpose",
     [
         "graph_read",
@@ -166,17 +166,17 @@ closed_token_type!(
     ]
 );
 closed_token_type!(
-    ScopeKindV1,
+    ScopeKind,
     "scope kind",
     ["tenant", "graph", "incarnation", "native"]
 );
 closed_token_type!(
-    ReplayStatusV1,
+    ReplayStatus,
     "replay status",
     ["consumed", "duplicate", "rejected", "unavailable"]
 );
 closed_token_type!(
-    EffectStateV1,
+    EffectState,
     "effect state",
     [
         "none",
@@ -187,22 +187,22 @@ closed_token_type!(
     ]
 );
 closed_token_type!(
-    VerificationStatusV1,
+    VerificationStatus,
     "verification status",
     ["verified", "rejected", "unavailable"]
 );
 closed_token_type!(
-    AdmissionStateV1,
+    AdmissionOutcome,
     "admission state",
     ["admitted", "pending", "denied", "unavailable"]
 );
 closed_token_type!(
-    DecisionOutcomeV1,
+    DecisionOutcome,
     "decision outcome",
     ["allow", "deny", "unavailable"]
 );
 closed_token_type!(
-    MutationDomainV1,
+    MutationDomain,
     "mutation domain",
     [
         "graph",
@@ -219,12 +219,12 @@ closed_token_type!(
     ]
 );
 closed_token_type!(
-    RequestedMutationResultV1,
+    RequestedMutationResult,
     "requested mutation result",
     ["receipt_only", "changed_records", "domain_result"]
 );
 closed_token_type!(
-    MutationDispositionV1,
+    MutationDisposition,
     "mutation disposition",
     [
         "committed",
@@ -237,8 +237,8 @@ closed_token_type!(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct UtcUnixNanosV1(i64);
-impl UtcUnixNanosV1 {
+pub struct UtcUnixNanos(i64);
+impl UtcUnixNanos {
     pub fn new(value: i64) -> Self {
         Self(value)
     }
@@ -252,11 +252,11 @@ mod tests {
     use super::*;
     #[test]
     fn identifiers_are_bounded_and_ascii_nfc() {
-        assert!(TenantIdV1::new("tenant-a").is_ok());
-        assert!(TenantIdV1::new("é").is_err());
-        assert!(TenantIdV1::new(" tenant-a").is_err());
-        assert!(ResourceIdV1::new("r".repeat(MAX_RESOURCE_ID_BYTES + 1)).is_err());
+        assert!(TenantId::new("tenant-a").is_ok());
+        assert!(TenantId::new("é").is_err());
+        assert!(TenantId::new(" tenant-a").is_err());
+        assert!(ResourceId::new("r".repeat(MAX_RESOURCE_ID_BYTES + 1)).is_err());
         let removed_scope_kind = ["glo", "bal"].concat();
-        assert!(ScopeKindV1::new(removed_scope_kind).is_err());
+        assert!(ScopeKind::new(removed_scope_kind).is_err());
     }
 }

@@ -61,16 +61,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use eg_types::mutation_batch::{
-    MutationBatch, MutationBatchRecord, MutationDomain, MutationOperation, MutationOutboxIntent,
+    MutationBatch, MutationBatchRecord, DurabilityDomain, MutationOperation, MutationOutboxIntent,
     MutationRequestContext, MutationScopeIdentity, MutationSurface, VersionExpectation,
     MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
 use eg_storage::{
     OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead, StatechartOwner,
-    StorageKernelV1,
+    StorageKernel,
 };
-use eg_transaction::{Begin, MutationKernelV1};
+use eg_transaction::{Begin, MutationKernel};
 use redb::{ReadableTable, TableDefinition};
 use serde::de::DeserializeOwned;
 
@@ -227,9 +227,9 @@ pub struct StatechartStore {
     /// Sole physical owner of `statecharts.redb`. `statechart_defs` and
     /// `statechart_instances` are reachable only through the scoped read and
     /// admitted-owner-write capabilities it issues.
-    kernel: StorageKernelV1,
+    kernel: StorageKernel,
     /// Sole writer. Holds this file's one move-once mutation authority.
-    mutations: MutationKernelV1,
+    mutations: MutationKernel,
     /// The one authenticated, bound serving scope -- the fixed native identity
     /// of `instance_mutation_identity`, validated exactly once per open.
     owner: OwnedStoreHandle<StatechartOwner>,
@@ -256,13 +256,13 @@ impl StatechartStore {
         let identity = instance_mutation_identity()?;
         let physical = PhysicalStoreIdentity::new(STATECHART_PHYSICAL_STORE).map_err(redb_err)?;
         let kernel = if path.exists() {
-            StorageKernelV1::open_owner::<StatechartOwner>(path, physical, None)
+            StorageKernel::open_owner::<StatechartOwner>(path, physical, None)
         } else {
-            StorageKernelV1::create_owner::<StatechartOwner>(path, physical, None)
+            StorageKernel::create_owner::<StatechartOwner>(path, physical, None)
         }
         .map_err(redb_err)?;
         let (kernel, authority) = kernel.into_read_and_mutation_authority().map_err(redb_err)?;
-        let mutations = MutationKernelV1::new(authority);
+        let mutations = MutationKernel::new(authority);
         let grant = kernel
             .authenticate_scope::<StatechartOwner>(
                 verifier,
