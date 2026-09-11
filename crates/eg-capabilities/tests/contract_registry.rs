@@ -67,7 +67,7 @@ fn descriptor_ids() -> Vec<String> {
 }
 
 /// The bijection can only hold under the CANONICAL profile, and that is a property of the
-/// two sides, not a convenience: the text scan is cfg-BLIND (it sees all 410 variants,
+/// two sides, not a convenience: the text scan is cfg-BLIND (it sees all 413 variants,
 /// 139 of them behind a `#[cfg(feature = ...)]`) while `method_descriptors()` is
 /// cfg-CONDITIONAL (7 rows behind `jobs`/`statechart`/`knowledge-batch`/
 /// `modality-serving`/`quantum`/`asr-native`/`viz`). `canonical-ledger` selects exactly
@@ -96,9 +96,14 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
         missing.len(),
         extra.len(),
     );
+    // 410 -> 413: the three RF-ADR-008 agent-hierarchy variants beyond
+    // `AgentLibrary` -- `AgentGraph` and `AgentComponent` (landed 2026-09-10
+    // without this count being raised) and `AgentTemplate` (item C). This is
+    // the same census `scripts/method_policy_inventory.py` counts from the
+    // descriptor side; the two must agree.
     assert_eq!(
         variants.len(),
-        410,
+        413,
         "the wire method census changed; update this exact count deliberately"
     );
 }

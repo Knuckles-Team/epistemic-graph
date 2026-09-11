@@ -179,9 +179,11 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
         "series_chunks" => Some("(&str,u64)"),
         "kv" => Some("(&str,&str)"),
         "cas_uploads" | "node_info" => Some("u64"),
-        "agent_library_heads" => Some("(&str,&str)"),
-        "agent_graph_heads" => Some("(&str,&str)"),
-        "agent_component_heads" => Some("(&str,&str)"),
+        // One arm, not four: every RF-ADR-008 layer's head table is keyed the
+        // same `(tenant, id)` way, and four identical arms were four branches
+        // saying one thing.
+        "agent_library_heads" | "agent_graph_heads" | "agent_component_heads"
+        | "agent_template_heads" => Some("(&str,&str)"),
         "eg_kvcache_cold" => Some("&[u8]"),
         "cas_chunks" | "cas_refcount" | "cas_blobs" => Some("&str"),
         "rbac"
@@ -196,9 +198,12 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
         | "tenant_catalog"
         | "node_info_meta"
         | "cluster_hierarchy" => Some("&str"),
-        "agent_library" => Some("(&str,&str,u64)"),
-        "agent_graph" => Some("(&str,&str,u64)"),
-        "agent_component" => Some("(&str,&str,u64)"),
+        // Likewise: every layer's revision table is keyed `(tenant, id,
+        // revision)`, which is what makes a retained revision addressable
+        // after the head moves past it.
+        "agent_library" | "agent_graph" | "agent_component" | "agent_template" => {
+            Some("(&str,&str,u64)")
+        }
         _ => None,
     }
 }
@@ -249,7 +254,8 @@ fn value_type_id(name: &str) -> &'static str {
         | "cas_refcount"
         | "verified_request_replay"
         | "semantic_binding_heads" => "u64",
-        "agent_library_heads" | "agent_graph_heads" | "agent_component_heads" => "u64",
+        "agent_library_heads" | "agent_graph_heads" | "agent_component_heads"
+        | "agent_template_heads" => "u64",
         "analytics_job_active_totals_by_tenant" => "(u64,u64)",
         "mutation_outbox_topic_index"
         | "analytics_job_ready_by_priority"
@@ -313,7 +319,7 @@ fn value_type_id(name: &str) -> &'static str {
         | "node_info"
         | "node_info_meta"
         | "cluster_hierarchy"
-        | "agent_library" | "agent_graph" | "agent_component" => "&[u8]",
+        | "agent_library" | "agent_graph" | "agent_component" | "agent_template" => "&[u8]",
         name => graph_shard::value_type(name)
             .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),
     }
@@ -345,7 +351,8 @@ fn logical_codec_id(name: &str) -> &'static str {
         "ledger_private_payloads" => "authenticated-sealed-bytes-v1",
         "eg_ann" | "eg_kvcache_cold" | "cold_graphs" => "raw-bytes-v1",
         "path_index" | "viz_provenance" | "tenant_catalog" | "node_info" | "node_info_meta"
-        | "cluster_hierarchy" | "agent_library" | "agent_graph" | "agent_component" => "msgpack-v1",
+        | "cluster_hierarchy" | "agent_library" | "agent_graph" | "agent_component"
+        | "agent_template" => "msgpack-v1",
         "rbac" => "json-utf8-v1",
         "kv" | "cas_chunks" => "raw-bytes-v1",
         "series_chunks" => "packed-timeseries-chunk-v1",
@@ -367,7 +374,7 @@ fn logical_codec_id(name: &str) -> &'static str {
         | "cas_refcount"
         | "verified_request_replay"
         | "semantic_binding_heads" | "agent_library_heads" | "agent_graph_heads"
-        | "agent_component_heads" => "redb-scalar-v1",
+        | "agent_component_heads" | "agent_template_heads" => "redb-scalar-v1",
         "semantic_bindings"
         | "semantic_stage_transitions"
         | "semantic_binding_state_transitions"
@@ -481,10 +488,13 @@ fn table_capabilities(name: &str) -> u16 {
         | "semantic_authorization_receipts"
         | "semantic_generation_checkpoints"
         | "semantic_generation_checkpoint_heads" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
-        "agent_library" | "agent_graph" | "agent_component" => CAP_READ | CAP_INSERT,
-        "agent_library_heads" | "agent_graph_heads" | "agent_component_heads" => {
-            CAP_READ | CAP_INSERT | CAP_UPDATE
+        // Append-only: a retained revision row is never updated or deleted,
+        // which is what makes a tombstone a later revision rather than an edit.
+        "agent_library" | "agent_graph" | "agent_component" | "agent_template" => {
+            CAP_READ | CAP_INSERT
         }
+        "agent_library_heads" | "agent_graph_heads" | "agent_component_heads"
+        | "agent_template_heads" => CAP_READ | CAP_INSERT | CAP_UPDATE,
         name => graph_shard::capabilities(name)
             .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),
     }

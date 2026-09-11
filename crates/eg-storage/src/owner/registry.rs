@@ -528,6 +528,8 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "agent_graph_heads",
             "agent_component",
             "agent_component_heads",
+            "agent_template",
+            "agent_template_heads",
         ],
     }
 }
