@@ -836,6 +836,22 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
             tolerance_ns,
         } => Ok(sensor_fuse_op(ctx.view, streams, *tolerance_ns)),
 
+        // FUSE (multimodal sensor fusion on a DECLARED clock, CONCEPT:EG-KG.query.multi-rate-sensor-stream) —
+        // the fixed-grid / tumbling-window sibling of `SensorFuse`. Resample every stream
+        // onto the caller-declared `clock` under its OWN interpolation mode (eg-tsdb's
+        // `align_multirate`), stack the result into a `[timesteps × channels]` tensor +
+        // validity mask (`eg_tensor::fusion`), and project one row per clock instant. A
+        // SOURCE op: it resolves its streams off the snapshot and REPLACES the input,
+        // exactly like `SensorFuse`/`TensorScan`. Same `timeseries` gate as `SensorFuse`
+        // (which also pulls `dep:eg-tensor`, a serde-only leaf), so the arm exists exactly
+        // where the wire variant does.
+        #[cfg(feature = "timeseries")]
+        Op::SensorAlign {
+            streams,
+            clock,
+            tolerance_ns,
+        } => Ok(sensor_align_op(ctx.view, streams, clock, *tolerance_ns)),
+
         // SOURCE (time-series, CONCEPT:EG-KG.query.native-time-series) — seed the RowSet from native eg-tsdb
         // series via the `SeriesStore` attached to the ctx (`PlanCtx::with_tsdb`), so the
         // tsdb leg fuses with the graph/vector/relational legs in ONE plan. Gated behind
@@ -1493,6 +1509,170 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
             (row.ts.to_string(), present as f32)
         });
     RowSet::from_scored(scored)
+}
+
+// ── the declared-clock fusion leg — eg-tsdb alignment + eg-tensor stacking ───────────
+// (CONCEPT:EG-KG.query.multi-rate-sensor-stream)
+
+/// Resolve ONE sensor layer off the snapshot into its ts-sorted SCALAR series — the
+/// interpolable half of what [`sensor_fuse_op`] resolves. A node belongs to the layer when
+/// its `type` property matches (exactly as [`scan_label`]); it contributes a sample when it
+/// carries BOTH a `valid_from` event time (ns) and a numeric `value`.
+///
+/// Deliberately scalar-only: unlike the ASOF/union-clock `Op::SensorFuse`, which can carry an
+/// opaque tensor-frame blob reference forward untouched, a DECLARED-clock resample has to
+/// produce a reading AT an instant no sample sits on — `Nearest` can only pick, but `Linear`
+/// must arithmetically blend, and an opaque blob id cannot be blended. A blob-only layer
+/// therefore resolves to NO samples and fuses as an all-gap channel, which the validity mask
+/// reports honestly rather than silently degrading interpolation to a hold.
+#[cfg(feature = "timeseries")]
+fn scalar_stream_points(view: &GraphView, layer: &str) -> Vec<eg_tsdb::point::Point> {
+    let mut points: Vec<eg_tsdb::point::Point> = Vec::new();
+    for blob in view.node_properties.values() {
+        let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
+            continue;
+        };
+        if v.get("type").and_then(|t| t.as_str()) != Some(layer) {
+            continue;
+        }
+        let Some(ts) = v.get("valid_from").and_then(|x| x.as_i64()) else {
+            continue;
+        };
+        let Some(value) = v.get("value").and_then(|x| x.as_f64()) else {
+            continue;
+        };
+        points.push(eg_tsdb::point::Point::single(ts, value));
+    }
+    points.sort_by_key(|p| p.ts);
+    points
+}
+
+/// The `[T × C]` value + validity buffers of a fused frame, or `None` if either tensor is
+/// not the dtype `eg_tensor::fusion::fuse_aligned` builds (it always is — this keeps the
+/// projection total instead of panicking on a shape it did not construct).
+#[cfg(feature = "timeseries")]
+fn fused_buffers(fused: &eg_tensor::FusedFrame) -> Option<(&[f64], &[u8])> {
+    match (&fused.frame.data, &fused.mask.data) {
+        (eg_tensor::Buffer::F64(frame), eg_tensor::Buffer::U8(mask)) => {
+            Some((frame.as_slice(), mask.as_slice()))
+        }
+        _ => None,
+    }
+}
+
+/// Project a fused `[T × C]` frame to one row per CLOCK INSTANT: `id` = the instant ts,
+/// `score` = the PRIMARY channel's (stream 0) fused reading, `None` where that channel
+/// gapped. An instant at which EVERY channel is a gap emits no row — the validity mask is
+/// what decides emission, so a grid extending past the sample span does not manufacture rows.
+#[cfg(feature = "timeseries")]
+fn fused_instant_rows(fused: &eg_tensor::FusedFrame) -> Vec<(String, Option<f32>)> {
+    let (t, c) = fused.dims();
+    let Some((frame, mask)) = fused_buffers(fused) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::with_capacity(t);
+    for ti in 0..t {
+        let row = &mask[ti * c..ti * c + c];
+        if row.iter().all(|&m| m == 0) {
+            continue; // every channel gapped at this instant — no fused reading at all
+        }
+        let primary = (row[0] == 1).then(|| frame[ti * c] as f32);
+        rows.push((fused.grid[ti].to_string(), primary));
+    }
+    rows
+}
+
+/// Project ONE tumbling window to ONE row: `id` = the window START ts, `score` = the MEAN of
+/// the PRIMARY channel's valid sub-grid readings inside the window (the `Op::Window` "score =
+/// the aggregate (MEAN)" contract, applied to the fused frame), `None` when the primary
+/// channel has no valid reading in the window. A window in which EVERY channel is a gap
+/// everywhere emits no row.
+#[cfg(feature = "timeseries")]
+fn fused_window_row(window: &eg_tensor::WindowFrame) -> Option<(String, Option<f32>)> {
+    let (t, c) = window.frame.dims();
+    let (frame, mask) = fused_buffers(&window.frame)?;
+    if c == 0 || mask.iter().all(|&m| m == 0) {
+        return None;
+    }
+    let mut sum = 0.0f64;
+    let mut n = 0usize;
+    for ti in 0..t {
+        if mask[ti * c] == 1 {
+            sum += frame[ti * c];
+            n += 1;
+        }
+    }
+    let score = (n > 0).then(|| (sum / n as f64) as f32);
+    Some((window.window_start.to_string(), score))
+}
+
+/// FUSE (multimodal sensor fusion on a DECLARED clock, CONCEPT:EG-KG.query.multi-rate-sensor-stream) — the
+/// fixed-grid / tumbling-window sibling of [`sensor_fuse_op`].
+///
+/// `sensor_fuse_op` fuses onto the UNION clock of the samples themselves: the output instants
+/// are wherever the sensors happened to fire, and every channel is carried by a backward ASOF
+/// hold. THIS op fuses onto the clock the caller DECLARES — a uniform `[from, to)` grid, or
+/// EG-067 tumbling windows — and resamples each stream under its OWN interpolation mode, so a
+/// `Linear` channel yields a genuinely interpolated reading at an instant no sample sits on.
+/// Those are different semantics, which is why this is a sibling op and not a flag.
+///
+/// The pipeline is the restored pair, end to end: [`eg_tsdb::fusion::align_multirate`] does
+/// the time half (per-channel `Nearest`/`Linear`/`AsofHold` resample with a staleness bound)
+/// and [`eg_tensor::fusion`] the modality half (stack the aligned channels into a
+/// `[timesteps × channels]` `F64` frame + a `U8` validity mask). The RowSet projection reads
+/// BOTH tensors — see [`fused_instant_rows`] / [`fused_window_row`].
+///
+/// `tolerance_ns` is the per-channel staleness bound in ns (`None` = unbounded). A malformed
+/// alignment, no streams, or a degenerate clock (`step <= 0`, an empty span) all yield an
+/// EMPTY RowSet — degrade, never err, exactly as `sensor_fuse_op` over no timed streams.
+#[cfg(feature = "timeseries")]
+fn sensor_align_op(
+    view: &GraphView,
+    streams: &[eg_types::wire::FuseStream],
+    clock: &eg_types::wire::FuseClock,
+    tolerance_ns: Option<u64>,
+) -> RowSet {
+    use eg_tsdb::fusion::{uniform_grid, InterpMode, StreamSpec};
+    use eg_types::wire::{FuseClock, FuseInterp};
+
+    let tolerance = tolerance_ns.map(|t| t as i64);
+    let specs: Vec<StreamSpec> = streams
+        .iter()
+        .map(|s| {
+            let mode = match s.interp {
+                FuseInterp::Nearest => InterpMode::Nearest,
+                FuseInterp::Linear => InterpMode::Linear,
+                FuseInterp::AsofHold => InterpMode::AsofHold,
+            };
+            StreamSpec::new(
+                s.layer.clone(),
+                scalar_stream_points(view, &s.layer),
+                mode,
+                tolerance,
+            )
+        })
+        .collect();
+
+    let rows: Vec<(String, Option<f32>)> = match clock {
+        FuseClock::Uniform {
+            from_ns,
+            to_ns,
+            step_ns,
+        } => {
+            let grid = uniform_grid(*from_ns, *to_ns, *step_ns);
+            match eg_tensor::fusion::fuse_on_grid(&specs, &grid) {
+                Ok(fused) => fused_instant_rows(&fused),
+                Err(_) => Vec::new(),
+            }
+        }
+        FuseClock::Tumbling { width_ns, step_ns } => {
+            match eg_tensor::fusion::windowed_fusion(&specs, *width_ns, *step_ns) {
+                Ok(windows) => windows.iter().filter_map(fused_window_row).collect(),
+                Err(_) => Vec::new(),
+            }
+        }
+    };
+    RowSet::from_rows(rows)
 }
 
 // ── the time-series SOURCE leg — native eg-tsdb SeriesStore scan (CONCEPT:EG-KG.query.native-time-series) ─

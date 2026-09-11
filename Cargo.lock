@@ -3237,6 +3237,7 @@ version = "0.1.0"
 dependencies = [
  "cudarc",
  "eg-modality",
+ "eg-tsdb",
  "serde",
  "serde_json",
 ]

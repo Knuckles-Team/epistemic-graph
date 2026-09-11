@@ -38,6 +38,14 @@ pub mod pipeline;
 pub mod query;
 pub mod time_op;
 
+// CONCEPT:EG-KG.query.multi-rate-sensor-stream — multi-rate sensor-stream alignment for multimodal fusion: resample N
+// different-rate sensor series onto ONE target grid with per-channel Nearest/Linear/
+// AsofHold interpolation (AsofHold reuses `query::asof_join_backward`). Pure-Rust (no
+// redb/Arrow), always on — the time half of fusion; `eg-tensor::fusion` stacks the
+// aligned frame into a tensor, and `eg-plan`'s `Op::SensorAlign` executor arm is what
+// drives the pair from a wire plan.
+pub mod fusion;
+
 // CONCEPT:EG-KG.temporal depth (per-modality) — CUSUM + PELT-lite change-point
 // detection over a stored series, plus a root-cause join correlating a change
 // point to a graph-linked deploy/incident event (reuses `query::asof_join_backward`
