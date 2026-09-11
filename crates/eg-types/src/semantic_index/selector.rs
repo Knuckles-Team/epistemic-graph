@@ -12,6 +12,7 @@ const MAX_SELECTOR_ID_BYTES: usize = 1_024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticSelectorKind {
     SqlColumnRef,
     GraphTextPropertyRef,
@@ -44,6 +45,7 @@ impl SemanticSelectorKind {
     rename_all = "snake_case",
     deny_unknown_fields
 )]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticSourceSelector {
     SqlColumnRef(SqlColumnRef),
     GraphTextPropertyRef(GraphTextPropertyRef),

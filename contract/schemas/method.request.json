@@ -1015,6 +1015,42 @@
       ],
       "type": "object"
     },
+    "AgentLibraryCompositeRef": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "model_profile_digest": {
+          "type": "string"
+        },
+        "ontology_set_digest": {
+          "type": "string"
+        },
+        "role_digest": {
+          "type": "string"
+        },
+        "skill_set_digest": {
+          "type": "string"
+        },
+        "system_prompt_digest": {
+          "type": "string"
+        },
+        "tool_set_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "role_digest",
+        "system_prompt_digest",
+        "tool_set_digest",
+        "skill_set_digest",
+        "model_profile_digest",
+        "ontology_set_digest"
+      ],
+      "type": "object"
+    },
     "AgentLibraryEntryDraft": {
       "additionalProperties": false,
       "description": "Caller-supplied, immutable definition inputs for one built agent.\n\nEvery component is represented by an opaque reference and a digest.  Raw\nprompts, secrets, tool output, and runtime context deliberately have no\nfield in this type and therefore cannot become part of durable identity.",
@@ -2249,6 +2285,26 @@
       ],
       "type": "object"
     },
+    "CanonicalTextAssetRef": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "asset_revision": {
+          "type": "string"
+        },
+        "content_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "asset_revision",
+        "content_digest"
+      ],
+      "type": "object"
+    },
     "CapacityAcquireRequest": {
       "additionalProperties": false,
       "properties": {
@@ -3392,6 +3448,73 @@
         "outbox_id"
       ],
       "type": "object"
+    },
+    "CommittedVersion": {
+      "description": "Exact authoritative version transition committed with a durable record.",
+      "oneOf": [
+        {
+          "enum": [
+            "none"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "graph": {
+              "properties": {
+                "source": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "target": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "source",
+                "target"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "graph"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "native": {
+              "properties": {
+                "source": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "target": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "source",
+                "target"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "native"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "CommunityAlgorithm": {
       "description": "Which existing GDS kernel `MineCommunity` wraps (CONCEPT:EG-KG.mining.community-writeback).",
@@ -5691,6 +5814,26 @@
       ],
       "type": "object"
     },
+    "GraphTextPropertyRef": {
+      "additionalProperties": false,
+      "properties": {
+        "graph_id": {
+          "type": "string"
+        },
+        "property_id": {
+          "type": "string"
+        },
+        "type_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "graph_id",
+        "type_id",
+        "property_id"
+      ],
+      "type": "object"
+    },
     "GraphType": {
       "description": "Graph type for multi-tenant registry.",
       "enum": [
@@ -6725,6 +6868,34 @@
       ],
       "type": "object"
     },
+    "LakehouseVectorProjectionRef": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_id": {
+          "type": "string"
+        },
+        "namespace_id": {
+          "type": "string"
+        },
+        "projection_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "table_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalog_id",
+        "namespace_id",
+        "table_id",
+        "projection_id",
+        "source_revision"
+      ],
+      "type": "object"
+    },
     "LangfuseObservationRef": {
       "additionalProperties": false,
       "description": "One Langfuse observation identity.  EG records the opaque receipt and its\ndigest; the Langfuse client/export path remains outside the graph authority.",
@@ -6870,6 +7041,30 @@
           "default": {}
         }
       },
+      "type": "object"
+    },
+    "MultimodalAssetRef": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "asset_revision": {
+          "type": "string"
+        },
+        "content_digest": {
+          "type": "string"
+        },
+        "media_kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "media_kind",
+        "asset_revision",
+        "content_digest"
+      ],
       "type": "object"
     },
     "MutationBatch": {
@@ -7055,6 +7250,95 @@
         "key",
         "payload",
         "headers"
+      ],
+      "type": "object"
+    },
+    "MutationOutboxLease": {
+      "additionalProperties": false,
+      "description": "Durable lease over an outbox row.",
+      "properties": {
+        "attempt": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "consumer": {
+          "type": "string"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_until_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "record": {
+          "$ref": "#/$defs/MutationOutboxRecord"
+        }
+      },
+      "required": [
+        "record",
+        "consumer",
+        "lease_epoch",
+        "lease_until_ms",
+        "attempt"
+      ],
+      "type": "object"
+    },
+    "MutationOutboxRecord": {
+      "additionalProperties": false,
+      "description": "One durable outbox row.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "commit_sequence": {
+          "default": null,
+          "description": "The scope version after the batch committed. Legacy rows may omit\nthis field and are rejected when their original order is unverifiable.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "committed_version": {
+          "$ref": "#/$defs/CommittedVersion"
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "identity": {
+          "$ref": "#/$defs/MutationScopeIdentity"
+        },
+        "intent": {
+          "$ref": "#/$defs/MutationOutboxIntent"
+        },
+        "ordinal": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "batch_id",
+        "ordinal",
+        "identity",
+        "committed_version",
+        "intent",
+        "created_at_ms"
       ],
       "type": "object"
     },
@@ -9958,6 +10242,2408 @@
       "description": "Validated tenant security boundary. Bytes are retained exactly as supplied.",
       "type": "string"
     },
+    "SemanticActivationTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "ann_index_identity": {
+          "$ref": "#/$defs/SemanticAnnIndexIdentity"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "composite_policy_digest": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lexical_index_identity": {
+          "$ref": "#/$defs/SemanticLexicalIndexIdentity"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "target_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "vector_target_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "source_revision",
+        "vector_target_id",
+        "lexical_index_identity",
+        "ann_index_identity",
+        "composite_policy_digest",
+        "target_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticActivePointer": {
+      "additionalProperties": false,
+      "properties": {
+        "activated_at": {
+          "type": "string"
+        },
+        "activation_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "ann_index_identity": {
+          "$ref": "#/$defs/SemanticAnnIndexIdentity"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "composite_policy_digest": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lexical_index_identity": {
+          "$ref": "#/$defs/SemanticLexicalIndexIdentity"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "vector_target_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "source_revision",
+        "vector_target_id",
+        "lexical_index_identity",
+        "ann_index_identity",
+        "composite_policy_digest",
+        "activation_receipt_digest",
+        "activated_at"
+      ],
+      "type": "object"
+    },
+    "SemanticAnnIndexIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "ann_index_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "dimension": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "method": {
+          "$ref": "#/$defs/SemanticAnnIndexMethod"
+        },
+        "model_digest": {
+          "type": "string"
+        },
+        "parameters_digest": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "method",
+        "parameters_digest",
+        "generation",
+        "source_revision",
+        "model_digest",
+        "dimension",
+        "purpose_id",
+        "policy_digest",
+        "ann_index_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticAnnIndexManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "completed_at": {
+          "type": "string"
+        },
+        "completed_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "identity": {
+          "$ref": "#/$defs/SemanticAnnIndexIdentity"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "vector_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "source_revision",
+        "identity",
+        "artifact_digest",
+        "vector_count",
+        "completed_receipt_digest",
+        "completed_at"
+      ],
+      "type": "object"
+    },
+    "SemanticAnnIndexMethod": {
+      "enum": [
+        "hnsw",
+        "ivf_pq"
+      ],
+      "type": "string"
+    },
+    "SemanticAnnIndexSpec": {
+      "additionalProperties": false,
+      "description": "Pre-binding ANN configuration. It intentionally has no binding or final\nindex digest; both are derived only after the binding digest exists.",
+      "properties": {
+        "method": {
+          "$ref": "#/$defs/SemanticAnnIndexMethod"
+        },
+        "parameters_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "parameters_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticAuthorizationReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "authorization_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "authorized_at": {
+          "type": "string"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "effective_actor_scope": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "policy_decision_digest": {
+          "type": "string"
+        },
+        "policy_identity": {
+          "$ref": "#/$defs/SemanticPolicyIdentity"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/SemanticStageScope"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "actor_scope",
+        "effective_actor_scope",
+        "purpose_id",
+        "policy_identity",
+        "policy_decision_digest",
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "scope",
+        "source_revision",
+        "authorized_at",
+        "authorization_receipt_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticBindingDraft": {
+      "additionalProperties": false,
+      "description": "Caller-supplied fields; state and final digests are constructor-owned.",
+      "properties": {
+        "actor_scope": {
+          "description": "Originating principal scope from the authenticated carrier authority.",
+          "type": "string"
+        },
+        "ann_index": {
+          "$ref": "#/$defs/SemanticAnnIndexSpec"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "dimension": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "effective_actor_scope": {
+          "description": "Opaque server-derived scope for the verified delegated agent, distinct\nfrom the originating principal and never inferred from approval.",
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lexical_index": {
+          "$ref": "#/$defs/SemanticLexicalIndexSpec"
+        },
+        "maintenance_policy_id": {
+          "type": "string"
+        },
+        "metric": {
+          "$ref": "#/$defs/SemanticVectorMetric"
+        },
+        "model": {
+          "$ref": "#/$defs/SemanticModelIdentity"
+        },
+        "policy": {
+          "$ref": "#/$defs/SemanticPolicyComponents"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "source_field_set_digest": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "source_schema_digest": {
+          "type": "string"
+        },
+        "source_selector": {
+          "$ref": "#/$defs/SemanticSourceSelector"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "tenant_id",
+        "actor_scope",
+        "effective_actor_scope",
+        "purpose_id",
+        "policy",
+        "source_selector",
+        "source_schema_digest",
+        "source_revision",
+        "source_field_set_digest",
+        "dimension",
+        "metric",
+        "model",
+        "generation",
+        "maintenance_policy_id",
+        "lexical_index",
+        "ann_index",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "SemanticBindingState": {
+      "enum": [
+        "pending",
+        "building",
+        "live",
+        "disabled",
+        "failed",
+        "dropping"
+      ],
+      "type": "string"
+    },
+    "SemanticDeadLetter": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error_code": {
+          "type": "string"
+        },
+        "failed_at": {
+          "type": "string"
+        },
+        "failure_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "intent": {
+          "$ref": "#/$defs/SemanticStageIntent"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "intent",
+        "attempt",
+        "error_code",
+        "reason",
+        "failure_digest",
+        "failed_at"
+      ],
+      "type": "object"
+    },
+    "SemanticDigest": {
+      "description": "A SHA-256 semantic contract identity as `sha256:<64 lowercase hex>`",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "SemanticGenerationAggregate": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregate_artifact_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "aggregate_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "completed_entity_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entity_set_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "expected_entity_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expected_entity_count",
+        "completed_entity_count",
+        "entity_set_digest",
+        "aggregate_receipt_digest",
+        "aggregate_artifact_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticGenerationArtifact": {
+      "description": "Closed generation-finalization artifact. This keeps the exact replay batch\nauthoritative for global lexical/ANN identities and the active pointer.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "const": "lexical_index_manifest",
+              "type": "string"
+            },
+            "manifest": {
+              "$ref": "#/$defs/SemanticLexicalIndexManifest"
+            }
+          },
+          "required": [
+            "artifact",
+            "manifest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "const": "ann_index_manifest",
+              "type": "string"
+            },
+            "manifest": {
+              "$ref": "#/$defs/SemanticAnnIndexManifest"
+            }
+          },
+          "required": [
+            "artifact",
+            "manifest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "const": "activation",
+              "type": "string"
+            },
+            "pointer": {
+              "$ref": "#/$defs/SemanticActivePointer"
+            },
+            "target": {
+              "$ref": "#/$defs/SemanticActivationTarget"
+            }
+          },
+          "required": [
+            "artifact",
+            "target",
+            "pointer"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticGenerationCheckpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregate": {
+          "$ref": "#/$defs/SemanticGenerationAggregate"
+        },
+        "artifact_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "checkpoint_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "completed_at": {
+          "type": "string"
+        },
+        "dependency": {
+          "$ref": "#/$defs/SemanticGenerationDependency"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/SemanticStage"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "source_revision",
+        "stage",
+        "aggregate",
+        "dependency",
+        "artifact_digest",
+        "completed_at",
+        "checkpoint_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticGenerationCheckpointUpdate": {
+      "additionalProperties": false,
+      "description": "One exact checkpoint compare-and-swap carried with an S3/S5 completion.\nThe owner store must load the expected predecessor, insert `member`,\nrecompute the complete sorted aggregate from authoritative entity rows,\nand compare it with `successor` in the same transaction.",
+      "properties": {
+        "expected_previous_checkpoint_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected_previous_completed_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "member": {
+          "$ref": "#/$defs/SemanticGenerationMember"
+        },
+        "successor": {
+          "$ref": "#/$defs/SemanticGenerationCheckpoint"
+        }
+      },
+      "required": [
+        "expected_previous_completed_count",
+        "member",
+        "successor"
+      ],
+      "type": "object"
+    },
+    "SemanticGenerationDependency": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "dependency": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "dependency"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "dependency": {
+              "const": "checkpoint",
+              "type": "string"
+            },
+            "stage": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "dependency",
+            "stage",
+            "checkpoint_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ann_checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "dependency": {
+              "const": "activation",
+              "type": "string"
+            },
+            "lexical_checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            }
+          },
+          "required": [
+            "dependency",
+            "lexical_checkpoint_digest",
+            "ann_checkpoint_digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticGenerationMember": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "source_entity_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_entity_id",
+        "source_revision",
+        "receipt_digest",
+        "artifact_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticGraphProjectionManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "completed_at": {
+          "type": "string"
+        },
+        "completed_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "manifest_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "projection_content_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "projection_entity_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "source_entity_id": {
+          "type": "string"
+        },
+        "source_manifest_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "source_revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "source_entity_id",
+        "source_revision",
+        "source_manifest_digest",
+        "projection_entity_digest",
+        "projection_content_digest",
+        "completed_receipt_digest",
+        "completed_at",
+        "manifest_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticIndexFilter": {
+      "additionalProperties": false,
+      "description": "Closed relational/identity filter. Raw predicates and SQL expressions have\nno representable field.",
+      "properties": {
+        "max_results": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "required_source_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_entity_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "source_entity_ids",
+        "max_results"
+      ],
+      "type": "object"
+    },
+    "SemanticIndexOp": {
+      "description": "Operations over one durable semantic binding and its S1-S6 stage queue.\n\nShaped like [`crate::agent_component::AgentComponentOp`] and its three\nsibling layers: one `Method` carrying a closed op enum, with the read/write\nclassification living on the op itself ([`Self::is_mutation`]) so the\ncapability policy and `server::access::requires_write` cannot drift apart\nabout which operations write.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Mint and persist a binding, publishing its durable creation event.\n\nThe DRAFT is what travels, not a built `SemanticBinding`: the engine\ncalls `SemanticBinding::create`, so the binding digest is computed over\nwhat the engine validated rather than accepted from the caller.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "draft": {
+              "$ref": "#/$defs/SemanticBindingDraft",
+              "description": "Boxed: a binding draft carries roughly twenty governed fields and\nwould otherwise set the size of every `Method`."
+            },
+            "idempotency_key": {
+              "description": "The caller's stable retry identity. The per-attempt nonce is minted\nby the engine and is deliberately not representable here.",
+              "type": "string"
+            },
+            "op": {
+              "const": "admit_binding",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "draft",
+            "idempotency_key"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Replace a live generation with an operation-bound pending one. The old\nactive pointer remains the serving proof until S6 publishes.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "draft": {
+              "$ref": "#/$defs/SemanticBindingDraft"
+            },
+            "expected_generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "idempotency_key": {
+              "type": "string"
+            },
+            "op": {
+              "const": "refresh_binding",
+              "type": "string"
+            },
+            "source_manifest": {
+              "$ref": "#/$defs/SemanticSqlSourceManifestDraft"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "expected_generation",
+            "draft",
+            "source_manifest",
+            "idempotency_key"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Move the durable binding state machine (e.g. `Pending` -> `Building`),\nfenced on the exact generation the caller believes is live.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "expected_generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "idempotency_key": {
+              "type": "string"
+            },
+            "next_state": {
+              "$ref": "#/$defs/SemanticBindingState"
+            },
+            "op": {
+              "const": "transition_binding",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "expected_generation",
+            "next_state",
+            "idempotency_key"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Retire the binding at an exact generation.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "expected_generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "idempotency_key": {
+              "type": "string"
+            },
+            "op": {
+              "const": "drop_binding",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "expected_generation",
+            "idempotency_key"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One coarse wakeup whose source owner guarantees exactly one complete\nrow. Multi-row providers must use [`Self::AdmitSourcePage`].",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "op": {
+              "const": "admit_source_record",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/MutationOutboxRecord",
+              "description": "The committed SQL mutation this wakeup names. Boxed for size."
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One bounded page of a multi-row wakeup, resumed by the previous page's\nopaque cursor.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "op": {
+              "const": "admit_source_page",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/MutationOutboxRecord"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A complete-snapshot reconciliation turn: page the authoritative source,\nthen emit absence tombstones once the complete-page proof holds. Bounded\nper turn by the service's own page/row/byte budgets, so a large source\nresumes rather than being refused.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "op": {
+              "const": "admit_source_reconcile",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/MutationOutboxRecord"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Admit S1 after a refresh has advanced the durable binding head.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "draft": {
+              "$ref": "#/$defs/SemanticBindingDraft"
+            },
+            "op": {
+              "const": "admit_source_replacement",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/MutationOutboxRecord"
+            },
+            "source_manifest": {
+              "$ref": "#/$defs/SemanticSqlSourceManifestDraft"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "draft",
+            "source_manifest",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Durably subscribe a named consumer to this binding's stage topic. A\nconsumer with no durable subscription claims nothing.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "consumer": {
+              "type": "string"
+            },
+            "op": {
+              "const": "subscribe_stage_consumer",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "consumer"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Take a bounded set of stage leases for one queue class.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "consumer": {
+              "type": "string"
+            },
+            "lease_ms": {
+              "description": "At most [`MAX_SEMANTIC_STAGE_LEASE_MS`].",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "limit": {
+              "description": "At most [`MAX_SEMANTIC_STAGE_CLAIM_LIMIT`].",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "op": {
+              "const": "claim_stage_leases",
+              "type": "string"
+            },
+            "queue_class": {
+              "$ref": "#/$defs/SemanticQueueClass",
+              "description": "The tier this worker serves. Rows whose stage belongs to another\nclass are released back unexecuted rather than handed to a worker\nthat cannot do them -- tier selection is the whole point of a\ntiered queue, so it has to be expressible on the wire."
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "consumer",
+            "queue_class",
+            "limit",
+            "lease_ms"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Re-check a held lease and return the canonical intent it leases, without\ncommitting anything. A worker calls this before starting expensive work.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "consumer": {
+              "type": "string"
+            },
+            "lease": {
+              "$ref": "#/$defs/MutationOutboxLease"
+            },
+            "op": {
+              "const": "validate_stage_lease",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "consumer",
+            "lease"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The bounded queue's per-consumer liveness, capacity and in-flight count.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "consumer": {
+              "type": "string"
+            },
+            "op": {
+              "const": "stage_status",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "consumer"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Persist one terminal entity-scoped transition with its artifact, publish\nthe successor intent when the predecessor proof is complete, and\nacknowledge the exact lease -- one durable mutation.",
+          "properties": {
+            "artifact": {
+              "$ref": "#/$defs/SemanticStageArtifact"
+            },
+            "binding_id": {
+              "type": "string"
+            },
+            "lease": {
+              "$ref": "#/$defs/MutationOutboxLease"
+            },
+            "op": {
+              "const": "complete_stage",
+              "type": "string"
+            },
+            "successor": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SemanticStageIntent"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "tenant_id": {
+              "type": "string"
+            },
+            "transition": {
+              "$ref": "#/$defs/SemanticStageTransition"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "lease",
+            "transition",
+            "artifact"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Complete S3 or S5 and persist its canonical lexical/ANN manifest in the\nsame owner mutation as the transition, checkpoint, successor and lease\nacknowledgement.",
+          "properties": {
+            "artifact": {
+              "$ref": "#/$defs/SemanticGenerationArtifact"
+            },
+            "binding_id": {
+              "type": "string"
+            },
+            "lease": {
+              "$ref": "#/$defs/MutationOutboxLease"
+            },
+            "op": {
+              "const": "complete_generation_stage",
+              "type": "string"
+            },
+            "successor": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SemanticStageIntent"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "tenant_id": {
+              "type": "string"
+            },
+            "transition": {
+              "$ref": "#/$defs/SemanticStageTransition"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "lease",
+            "transition",
+            "artifact"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Complete an S1 source transition. No source row travels: the engine\nre-reads the authoritative, ACL-checked SQL page itself and converts its\ndecision into the authorization receipt. A caller that could supply the\nrow could index text it is not allowed to read.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "lease": {
+              "$ref": "#/$defs/MutationOutboxLease"
+            },
+            "op": {
+              "const": "complete_sql_source_stage",
+              "type": "string"
+            },
+            "page_cursor": {
+              "description": "The opaque page cursor the intent was claimed from, so the exact\nbounded page is re-read.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "successor": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SemanticStageIntent"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "tenant_id": {
+              "type": "string"
+            },
+            "transition": {
+              "$ref": "#/$defs/SemanticStageTransition"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "lease",
+            "transition"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Resolve an S1 completion that may already have committed before a crash.\n`None` means it has not, and the caller may proceed through\n[`Self::CompleteSqlSourceStage`].",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "expected_intent": {
+              "$ref": "#/$defs/SemanticStageIntent"
+            },
+            "lease": {
+              "$ref": "#/$defs/MutationOutboxLease"
+            },
+            "op": {
+              "const": "replay_completed_sql_source_stage",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "lease",
+            "expected_intent"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Hand a lease back unexecuted. Without this a connector that cannot do\nthe work it claimed wedges the row until the lease lapses.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "lease": {
+              "$ref": "#/$defs/MutationOutboxLease"
+            },
+            "op": {
+              "const": "release_stage_lease",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "lease"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The durable binding head of this owner.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "op": {
+              "const": "binding",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The one retained prior SQL source manifest a complete-page deletion\nproof needs. It never reconstructs deleted bytes.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "generation": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "op": {
+              "const": "sql_source_manifest",
+              "type": "string"
+            },
+            "source_entity_id": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "generation",
+            "source_entity_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The bounded binding catalog. Paginated; see [`SemanticBindingPage`].",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "filter": {
+              "$ref": "#/$defs/SemanticIndexFilter"
+            },
+            "op": {
+              "const": "list_bindings",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id",
+            "filter"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The generation currently serving reads, if any.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "op": {
+              "const": "live_generation",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "binding_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticLexicalIndexIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "analyzer_config_digest": {
+          "type": "string"
+        },
+        "analyzer_id": {
+          "type": "string"
+        },
+        "analyzer_revision": {
+          "type": "string"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lexical_index_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "analyzer_id",
+        "analyzer_revision",
+        "analyzer_config_digest",
+        "generation",
+        "source_revision",
+        "purpose_id",
+        "policy_digest",
+        "lexical_index_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticLexicalIndexManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "completed_at": {
+          "type": "string"
+        },
+        "completed_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "identity": {
+          "$ref": "#/$defs/SemanticLexicalIndexIdentity"
+        },
+        "row_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "source_revision",
+        "identity",
+        "artifact_digest",
+        "row_count",
+        "completed_receipt_digest",
+        "completed_at"
+      ],
+      "type": "object"
+    },
+    "SemanticLexicalIndexSpec": {
+      "additionalProperties": false,
+      "description": "Pre-binding lexical configuration. It intentionally has no binding or\nfinal index digest, breaking the otherwise circular binding identity.",
+      "properties": {
+        "analyzer_config_digest": {
+          "type": "string"
+        },
+        "analyzer_id": {
+          "type": "string"
+        },
+        "analyzer_revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "analyzer_id",
+        "analyzer_revision",
+        "analyzer_config_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticModelIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "model_digest": {
+          "type": "string"
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "model_revision": {
+          "type": "string"
+        },
+        "preprocess_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_id",
+        "model_revision",
+        "preprocess_digest",
+        "model_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticPolicyComponents": {
+      "additionalProperties": false,
+      "properties": {
+        "rbac_policy_digest": {
+          "type": "string"
+        },
+        "rbac_policy_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "row_policy_digest": {
+          "type": "string"
+        },
+        "row_policy_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_acl_digest": {
+          "type": "string"
+        },
+        "source_acl_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rbac_policy_revision",
+        "rbac_policy_digest",
+        "row_policy_revision",
+        "row_policy_digest",
+        "source_acl_revision",
+        "source_acl_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticPolicyIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "components": {
+          "$ref": "#/$defs/SemanticPolicyComponents"
+        },
+        "effective_actor_scope": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "effective_actor_scope",
+        "purpose_id",
+        "components",
+        "policy_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticQueueClass": {
+      "enum": [
+        "fast",
+        "medium",
+        "slow_heavy"
+      ],
+      "type": "string"
+    },
+    "SemanticSourceSelector": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "sql_column_ref",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/SqlColumnRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "graph_text_property_ref",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/GraphTextPropertyRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "canonical_text_asset",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/CanonicalTextAssetRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "agent_library_composite",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/AgentLibraryCompositeRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "multimodal_asset_ref",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/MultimodalAssetRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "time_series_window_ref",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/TimeSeriesWindowRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "lakehouse_vector_projection_ref",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/LakehouseVectorProjectionRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticSqlSourceIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_id": {
+          "type": "string"
+        },
+        "column_id": {
+          "type": "string"
+        },
+        "record_identity_digest": {
+          "$ref": "#/$defs/SemanticDigest",
+          "description": "Server-derived digest of the stable row identity. Raw predicates and\nprimary-key values are intentionally not transport fields."
+        },
+        "schema_id": {
+          "type": "string"
+        },
+        "source_identity_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "table_id": {
+          "type": "string"
+        },
+        "tenant_scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_scope",
+        "catalog_id",
+        "schema_id",
+        "table_id",
+        "column_id",
+        "record_identity_digest",
+        "source_identity_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticSqlSourceManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "completed_at": {
+          "type": "string"
+        },
+        "completed_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "manifest_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "source_acl_digest": {
+          "type": "string"
+        },
+        "source_acl_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_content_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "source_entity_id": {
+          "type": "string"
+        },
+        "source_field_set_digest": {
+          "type": "string"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/SemanticSqlSourceIdentity"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "source_schema_digest": {
+          "type": "string"
+        },
+        "source_schema_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "source_identity",
+        "source_entity_id",
+        "source_revision",
+        "source_content_digest",
+        "source_schema_revision",
+        "source_schema_digest",
+        "source_field_set_digest",
+        "source_acl_revision",
+        "source_acl_digest",
+        "authorization_receipt_digest",
+        "completed_receipt_digest",
+        "completed_at",
+        "manifest_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticSqlSourceManifestDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "completed_at": {
+          "type": "string"
+        },
+        "completed_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_acl_digest": {
+          "type": "string"
+        },
+        "source_acl_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_content_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "source_field_set_digest": {
+          "type": "string"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/SemanticSqlSourceIdentity"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "source_schema_digest": {
+          "type": "string"
+        },
+        "source_schema_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "source_identity",
+        "source_revision",
+        "source_content_digest",
+        "source_schema_revision",
+        "source_schema_digest",
+        "source_field_set_digest",
+        "source_acl_revision",
+        "source_acl_digest",
+        "authorization_receipt_digest",
+        "completed_receipt_digest",
+        "completed_at"
+      ],
+      "type": "object"
+    },
+    "SemanticStage": {
+      "enum": [
+        "S1",
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+        "S6"
+      ],
+      "type": "string"
+    },
+    "SemanticStageArtifact": {
+      "description": "Closed entity-stage owner artifact carried inside the exact-replay mutation.\nGlobal index manifests and activation are committed only by\n[`SemanticIndexMutation::FinalizeGeneration`].",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "artifact"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "const": "sql_source_manifest",
+              "type": "string"
+            },
+            "authorization": {
+              "$ref": "#/$defs/SemanticAuthorizationReceipt"
+            },
+            "manifest": {
+              "$ref": "#/$defs/SemanticSqlSourceManifest"
+            }
+          },
+          "required": [
+            "artifact",
+            "manifest",
+            "authorization"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "const": "graph_projection_manifest",
+              "type": "string"
+            },
+            "manifest": {
+              "$ref": "#/$defs/SemanticGraphProjectionManifest"
+            }
+          },
+          "required": [
+            "artifact",
+            "manifest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "const": "vector",
+              "type": "string"
+            },
+            "vector": {
+              "$ref": "#/$defs/SemanticVector"
+            }
+          },
+          "required": [
+            "artifact",
+            "vector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "const": "dead_letter",
+              "type": "string"
+            },
+            "dead_letter": {
+              "$ref": "#/$defs/SemanticDeadLetter"
+            }
+          },
+          "required": [
+            "artifact",
+            "dead_letter"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticStageIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "input_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "intent_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "predecessor": {
+          "$ref": "#/$defs/SemanticStagePredecessor"
+        },
+        "scope": {
+          "$ref": "#/$defs/SemanticStageScope"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/SemanticStage"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "scope",
+        "source_revision",
+        "stage",
+        "predecessor",
+        "input_digest",
+        "intent_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticStageOutcome": {
+      "enum": [
+        "completed",
+        "idempotent_noop",
+        "deferred_backpressured",
+        "parked_awaiting_predecessor",
+        "rejected_dead_letter"
+      ],
+      "type": "string"
+    },
+    "SemanticStagePredecessor": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "proof": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "proof"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "proof": {
+              "const": "entity_receipt",
+              "type": "string"
+            },
+            "receipt_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "stage": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "proof",
+            "stage",
+            "receipt_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "proof": {
+              "const": "generation_checkpoint",
+              "type": "string"
+            },
+            "stage": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "proof",
+            "stage",
+            "checkpoint_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checkpoint": {
+              "$ref": "#/$defs/SemanticGenerationCheckpoint"
+            },
+            "proof": {
+              "const": "generation_coverage",
+              "type": "string"
+            }
+          },
+          "required": [
+            "proof",
+            "checkpoint"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ann_checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "lexical_checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "proof": {
+              "const": "activation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "proof",
+            "lexical_checkpoint_digest",
+            "ann_checkpoint_digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticStageReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "completed_at": {
+          "type": "string"
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "intent_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "outcome": {
+          "$ref": "#/$defs/SemanticStageOutcome"
+        },
+        "output_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        }
+      },
+      "required": [
+        "intent_digest",
+        "output_digest",
+        "cursor",
+        "completed_at",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "SemanticStageScope": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "const": "entity",
+              "type": "string"
+            },
+            "source_entity_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "source_entity_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "const": "generation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticStageTransition": {
+      "additionalProperties": false,
+      "properties": {
+        "generation_checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticGenerationCheckpointUpdate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "intent": {
+          "$ref": "#/$defs/SemanticStageIntent"
+        },
+        "receipt": {
+          "$ref": "#/$defs/SemanticStageReceipt"
+        }
+      },
+      "required": [
+        "intent",
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "SemanticVector": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "dimension": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "model_digest": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "preprocess_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "source_entity_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "values_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "source_entity_id",
+        "source_revision",
+        "model_digest",
+        "preprocess_digest",
+        "dimension",
+        "purpose_id",
+        "policy_digest",
+        "values",
+        "values_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticVectorMetric": {
+      "enum": [
+        "cosine",
+        "dot_product",
+        "euclidean"
+      ],
+      "type": "string"
+    },
     "SequenceSource": {
       "description": "A graph-derived sequence source for `MineSequence` (CONCEPT:EG-KG.mining.prefixspan\n— Phase 4). Each node carrying `node_label` becomes one ordered sequence: the\nlist of `item_field` values gathered from its neighbors in `direction`,\npreserving the RESIDENT EDGE INSERTION ORDER (the natural \"ordered edge\nsequence per node\" — edges accumulate in the order they were added, so this\nis compute-near-data over the bitemporal write history without a separate\ntsdb/event-log dependency), optionally filtered to a `relation`.",
       "properties": {
@@ -10702,6 +13388,30 @@
       },
       "type": "object"
     },
+    "SqlColumnRef": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_id": {
+          "type": "string"
+        },
+        "column_id": {
+          "type": "string"
+        },
+        "schema_id": {
+          "type": "string"
+        },
+        "table_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalog_id",
+        "schema_id",
+        "table_id",
+        "column_id"
+      ],
+      "type": "object"
+    },
     "StatechartOp": {
       "description": "The statechart engine control-plane operation (CONCEPT:INT-P2-2).",
       "oneOf": [
@@ -11375,6 +14085,30 @@
           "type": "string"
         }
       ]
+    },
+    "TimeSeriesWindowRef": {
+      "additionalProperties": false,
+      "properties": {
+        "series_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "window_end": {
+          "type": "string"
+        },
+        "window_start": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "series_id",
+        "window_start",
+        "window_end",
+        "source_revision"
+      ],
+      "type": "object"
     },
     "ToolEffect": {
       "description": "Whether invoking a tool can change anything.\n\nNot a hint. A read-only agent graph is one whose reachable tools are all\n[`ToolEffect::Read`], and that is a property worth being able to prove\nbefore a run rather than discover during one.",
@@ -25260,6 +27994,33 @@
           },
           "required": [
             "node_id"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "SemanticIndex": {
+      "additionalProperties": false,
+      "description": "Drive one durable semantic binding and its S1-S6 tiered ingestion\nqueue (RF-019). This is the surface an external connector uses to make\nsomething searchable: admit a binding, feed authoritative SQL source\nrows into S1, then subscribe a worker, claim stage leases for its queue\nclass, and complete each stage against its predecessor proof.\n\nBoxed, unlike the four agent layers beside it: `SemanticIndexOp`'s\nstage-completion variants carry a lease, a transition, an artifact and a\nsuccessor intent together, which is far larger than any agent op and\nwould otherwise set the size of EVERY `Method`. `Box` is transparent to\nserde, so the wire form is unchanged.\n\nDeclared unconditionally, like the `semantic_index` DTO module it is\nbuilt from: the wire contract is one contract in every build. The\nengine-side durable tier it needs is what carries the `ann-redb` gate,\nso the dispatch arm refuses by name in a build without it -- exactly\nhow the four agent layers refuse in a build without `redb`.",
+      "properties": {
+        "method": {
+          "const": "SemanticIndex",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/SemanticIndexOp"
+            }
+          },
+          "required": [
+            "op"
           ],
           "type": "object"
         }

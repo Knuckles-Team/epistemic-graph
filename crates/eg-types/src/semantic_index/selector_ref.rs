@@ -8,6 +8,7 @@ pub const SEMANTIC_SQL_SCHEMA_ID: &str = "public";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SqlColumnRef {
     pub catalog_id: String,
     pub schema_id: String,
@@ -29,6 +30,7 @@ impl SqlColumnRef {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct GraphTextPropertyRef {
     pub graph_id: String,
     pub type_id: String,
@@ -48,6 +50,7 @@ impl GraphTextPropertyRef {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CanonicalTextAssetRef {
     pub asset_id: String,
     pub asset_revision: String,
@@ -67,6 +70,7 @@ impl CanonicalTextAssetRef {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct AgentLibraryCompositeRef {
     pub agent_id: String,
     pub role_digest: String,
@@ -100,6 +104,7 @@ impl AgentLibraryCompositeRef {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MultimodalAssetRef {
     pub asset_id: String,
     pub media_kind: String,
@@ -121,6 +126,7 @@ impl MultimodalAssetRef {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct TimeSeriesWindowRef {
     pub series_id: String,
     pub window_start: String,
@@ -142,6 +148,7 @@ impl TimeSeriesWindowRef {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct LakehouseVectorProjectionRef {
     pub catalog_id: String,
     pub namespace_id: String,

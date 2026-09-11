@@ -314,6 +314,12 @@ pub mod cold_tier_impl;
 // feature the mechanism requires; its durable tier additionally needs `ann-redb`.
 #[cfg(feature = "ann")]
 pub mod semantic_activation;
+// RF-019's server-side authority seam for the transport-neutral semantic-index
+// DTO, and the `Method::SemanticIndex` handler's authorized SQL source read
+// port. Carries its own `#![cfg(feature = "ann-redb")]`, the same durable ANN
+// code tier `semantic_index_service` needs.
+#[cfg(feature = "ann-redb")]
+pub(crate) mod semantic_index;
 // Native visualization engine-side state (D-VZ-1 lane V4, "engine integration"):
 // a persistent (process-lifetime, not fresh-per-request) ColumnStore plus a
 // content-addressed render cache and durable render provenance. Gated the SAME

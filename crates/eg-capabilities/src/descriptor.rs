@@ -369,6 +369,7 @@ pub const fn format_identities_for(domain: DurabilityDomain) -> &'static [&'stat
         | DurabilityDomain::KvRedb
         | DurabilityDomain::BlobRedb
         | DurabilityDomain::Outbox
+        | DurabilityDomain::SemanticIndexRedb
         | DurabilityDomain::ReasoningProjection => STORE_FORMATS,
         DurabilityDomain::VolatileControl | DurabilityDomain::None => NO_FORMATS,
     }

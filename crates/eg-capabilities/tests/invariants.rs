@@ -22,7 +22,7 @@ fn method_policy_registry_has_no_duplicates() {
         // classifier comparisons live in `tests/consistency.rs`.
         let _ = table_policy;
     }
-    // The ledger currently contains 413 rows: 406 unconditional rows plus one
+    // The ledger currently contains 414 rows: 407 unconditional rows plus one
     // row for each of the seven feature-gated surfaces below. Keep this formula
     // aligned with the cfg rows in the domain row inventory so every supported
     // feature combination checks the same coverage invariant.
@@ -30,7 +30,11 @@ fn method_policy_registry_has_no_duplicates() {
     // 403 -> 406: the three RF-ADR-008 agent-hierarchy rows beyond
     // `AgentLibrary` -- `AgentGraph` and `AgentComponent` (landed 2026-09-10
     // without this formula being raised) and `AgentTemplate` (item C).
-    let expected = 406
+    // 406 -> 407: RF-019's `SemanticIndex`, the S1-S6 tiered semantic ingestion
+    // queue. Unconditional, like the four agent layers: the `ann-redb`/`query`
+    // gate lives on the dispatch arm that serves the method, not on whether the
+    // method is in the contract.
+    let expected = 407
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

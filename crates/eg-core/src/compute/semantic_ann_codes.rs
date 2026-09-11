@@ -163,7 +163,9 @@ pub(crate) struct SemanticSourceReconciliationCheckpoint {
     pub(crate) complete_snapshot_receipt_digest: Option<SemanticDigest>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Serializable: this is what `Method::SemanticIndex` returns to a
+/// connector for every committed semantic mutation.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SemanticMutationReceipt {
     pub batch_id: String,
     pub mutation_digest: SemanticDigest,
@@ -172,7 +174,7 @@ pub struct SemanticMutationReceipt {
     pub replayed: bool,
 }
 
-fn semantic_contract_error(error: SemanticIndexError) -> SemanticCodeError {
+pub(super) fn semantic_contract_error(error: SemanticIndexError) -> SemanticCodeError {
     SemanticCodeError::Refused(format!("semantic contract rejected record: {error:?}"))
 }
 

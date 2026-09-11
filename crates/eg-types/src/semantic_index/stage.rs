@@ -21,6 +21,7 @@ pub const SEMANTIC_HEAVY_CONCURRENCY: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u8)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticStage {
     #[serde(rename = "S1")]
     SourceCommit,
@@ -66,6 +67,7 @@ impl SemanticStage {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticQueueClass {
     Fast,
     Medium,
@@ -74,6 +76,7 @@ pub enum SemanticQueueClass {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticStageOutcome {
     Completed,
     IdempotentNoop,
@@ -96,6 +99,7 @@ impl SemanticStageOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "proof", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticStagePredecessor {
     None,
     EntityReceipt {
@@ -159,6 +163,7 @@ impl SemanticStagePredecessor {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticStageIntent {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -173,6 +178,7 @@ pub struct SemanticStageIntent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticStageIntentDraft {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -229,6 +235,7 @@ impl SemanticStageIntent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticStageReceipt {
     pub intent_digest: SemanticDigest,
     pub output_digest: SemanticDigest,
@@ -252,6 +259,7 @@ impl SemanticStageReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticStageTransition {
     pub intent: SemanticStageIntent,
     pub receipt: SemanticStageReceipt,

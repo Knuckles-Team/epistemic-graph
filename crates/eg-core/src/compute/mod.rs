@@ -16,6 +16,11 @@ pub mod semantic_ann;
 #[cfg(feature = "ann-redb")]
 pub mod semantic_ann_codes;
 
+/// RF-019's callable semantic service: the S1-S6 tiered ingestion orchestration
+/// over the durable ANN code tier above. It carries its own
+/// `#![cfg(feature = "ann-redb")]`, so it needs no gate here.
+pub mod semantic_index_service;
+
 /// RF-RULING-007 layer (c): the call-graph gate over `crates/eg-ann/src` and
 /// this directory. Test-only and NOT feature-gated -- the whole point is that
 /// it runs in every build that runs tests, including one with no storage

@@ -15,6 +15,7 @@ mod config;
 mod digest;
 mod generation;
 mod identity;
+mod op;
 mod persistence;
 mod policy;
 mod provenance;
@@ -70,6 +71,11 @@ pub use persistence::{
     SemanticActivationTarget, SemanticActivePointer, SemanticAnnIndexManifest, SemanticDeadLetter,
     SemanticDeadLetterDraft, SemanticIndexManifest, SemanticLexicalIndexManifest,
     SemanticSourceProgress,
+};
+pub use op::{
+    SemanticBindingPage, SemanticIndexOp, SemanticStageLeaseEntry, SemanticStageLeasePage,
+    MAX_SEMANTIC_BINDING_PAGE_LIMIT, MAX_SEMANTIC_CURSOR_CHARS, MAX_SEMANTIC_STAGE_CLAIM_LIMIT,
+    MAX_SEMANTIC_STAGE_LEASE_MS,
 };
 pub use policy::{SemanticPolicyComponents, SemanticPolicyIdentity};
 pub use provenance::{

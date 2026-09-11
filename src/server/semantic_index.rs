@@ -35,6 +35,176 @@ use eg_types::semantic_index::{
     SemanticSqlSourceManifest, SemanticStage, SemanticStageIntent, SemanticStageTransition,
 };
 
+/// The engine's own principal for the semantic-index owner.
+///
+/// The owner file is ENGINE-owned, not caller-owned: per-request authorization
+/// happens above it, in [`SemanticIndexServerAdapter::authorize`] and
+/// [`SemanticIndexServerAdapter::authorize_binding_worker`], against the
+/// verified `CarrierAuthority`. Baking a caller's id in at open time would make
+/// whichever agent happened to touch a binding first the permanent owner of
+/// everyone else's access to it.
+///
+/// Its value is an opaque DIGEST, which is the only shape the mutation kernel accepts
+/// ("mutation principal authority must be an opaque digest": `principal:sha256:`
+/// plus 64 lowercase hex). Derived once from the stable name below, exactly as
+/// `VerifiedRequestContext::principal_persistence_id` derives a caller's.
+fn semantic_owner_principal() -> &'static str {
+    static PRINCIPAL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PRINCIPAL.get_or_init(|| {
+        use sha2::Digest;
+        format!(
+            "principal:sha256:{}",
+            hex::encode(sha2::Sha256::digest(
+                b"epistemic-graph:semantic-index-owner"
+            ))
+        )
+    })
+}
+
+/// Verify that a semantic owner grant names the exact tenant it was opened for.
+///
+/// The storage kernel never interprets proof bytes (RF-RULING-004); it hands
+/// them here. This verifier is the whole interpretation: the layout must be the
+/// semantic owner, the identity's tenant must be the one this handle was opened
+/// for, and the proof must be this process's own secret. It is a FENCE, not a
+/// grant -- it can only refuse a scope that strayed outside the tenant the
+/// caller was already authorized for upstream.
+struct TenantScopedSemanticVerifier {
+    tenant: String,
+    proof: [u8; 32],
+}
+
+impl eg_storage::ScopeGrantVerifier for TenantScopedSemanticVerifier {
+    fn verify(
+        &self,
+        _physical: &eg_storage::PhysicalStoreIdentity,
+        layout: eg_storage::OwnerLayout,
+        identity: &eg_types::MutationScopeIdentity,
+        _principal: &str,
+        proof: &[u8],
+    ) -> Result<(), String> {
+        if layout != eg_storage::OwnerLayout::SemanticIndex
+            || identity.tenant().as_str() != self.tenant
+            || proof != self.proof
+        {
+            return Err("semantic index owner scope was refused".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// This process's semantic owner proof and opaque-cursor MAC key.
+///
+/// Minted once, never persisted and never sent anywhere: both are only ever
+/// compared against themselves inside this process. A restart mints new ones,
+/// which is correct -- a cursor from a previous process is not resumable, and
+/// the durable owner re-verifies against whatever the live process holds.
+fn semantic_server_secrets() -> &'static ([u8; 32], [u8; 32]) {
+    static SECRETS: std::sync::OnceLock<([u8; 32], [u8; 32])> = std::sync::OnceLock::new();
+    SECRETS.get_or_init(|| {
+        (
+            *eg_types::contract::Nonce::minted().as_bytes(),
+            *eg_types::contract::Nonce::minted().as_bytes(),
+        )
+    })
+}
+
+/// The opaque-cursor MAC key every semantic SQL source read is bound to.
+pub(crate) fn semantic_cursor_secret() -> [u8; 32] {
+    semantic_server_secrets().1
+}
+
+/// Process-local registry of open semantic-index owners, keyed by
+/// `(tenant, binding)`.
+///
+/// A registry rather than an open-per-request because redb owns the file: two
+/// live handles on one owner is a hard failure, not a slow path. This mirrors
+/// `sql_tables::open_or_get` exactly, including its "the physical-open layer
+/// answers WHICH FILE, never IS THIS CALLER ALLOWED" split -- authorization is
+/// the adapter's job, above this.
+#[allow(clippy::type_complexity)]
+fn semantic_registry(
+) -> &'static std::sync::Mutex<std::collections::HashMap<(String, String), Arc<SemanticIndexService>>>
+{
+    static REGISTRY: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<(String, String), Arc<SemanticIndexService>>>,
+    > = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Resolve the semantic owner for one `(tenant, binding)`, opening it once.
+///
+/// Performs NO authorization: the caller must already have compared the op's
+/// tenant with the verified request tenant. The tenant is part of both the key
+/// and the on-disk path, so one tenant's binding id cannot resolve another's
+/// owner even if the ids collide.
+pub(crate) fn open_semantic_service(
+    persist_dir: &std::path::Path,
+    tenant: &str,
+    binding_id: &str,
+) -> Result<Arc<SemanticIndexService>, String> {
+    if tenant.is_empty() || binding_id.is_empty() {
+        return Err("semantic owner requires a tenant and a binding".to_string());
+    }
+    let key = (tenant.to_string(), binding_id.to_string());
+    let mut registry = semantic_registry()
+        .lock()
+        .map_err(|_| "semantic index owner registry is unavailable".to_string())?;
+    if let Some(service) = registry.get(&key) {
+        return Ok(Arc::clone(service));
+    }
+    let dir = persist_dir
+        .join("semantic-index")
+        .join(sanitize_owner_segment(tenant))
+        .join(sanitize_owner_segment(binding_id));
+    std::fs::create_dir_all(&dir)
+        .map_err(|_| "semantic index owner directory is unavailable".to_string())?;
+    let (proof, _) = *semantic_server_secrets();
+    let service = Arc::new(
+        SemanticIndexService::open(
+            &dir,
+            Arc::new(TenantScopedSemanticVerifier {
+                tenant: tenant.to_string(),
+                proof,
+            }),
+            semantic_owner_principal(),
+            &proof,
+            tenant,
+            binding_id,
+        )
+        .map_err(|error| error.to_string())?,
+    );
+    registry.insert(key, Arc::clone(&service));
+    Ok(service)
+}
+
+/// One path segment per identity: a readable but lossy prefix, then the full
+/// SHA-256 of the exact bytes.
+///
+/// The digest is what actually discriminates. A purely character-replacing
+/// sanitizer is not injective -- `a.b` and `a_b` would collapse onto one
+/// directory -- and for a TENANT segment that is not a cosmetic collision, it
+/// is two tenants sharing one semantic owner. The readable prefix exists only
+/// so an operator can tell the directories apart by eye.
+fn sanitize_owner_segment(value: &str) -> String {
+    use sha2::Digest;
+    let readable: String = value
+        .chars()
+        .take(48)
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!(
+        "{readable}-{}",
+        hex::encode(sha2::Sha256::digest(value.as_bytes()))
+    )
+}
+
 pub(crate) struct SemanticIndexServerAdapter {
     service: Arc<SemanticIndexService>,
 }
@@ -82,7 +252,7 @@ impl SemanticIndexServerAdapter {
         Ok(())
     }
 
-    fn authorize_binding_worker(
+    pub(crate) fn authorize_binding_worker(
         &self,
         binding: &SemanticBinding,
         authority: &CarrierAuthority,
@@ -479,7 +649,15 @@ impl SemanticIndexServerAdapter {
                 .read_current_sql_source_page(&binding, &wakeup, &record, cursor.as_deref())
         })
         .await?;
-        result.map_err(|_| Response::err(req_id, "semantic SQL source read was refused"))
+        // The RESPONSE stays opaque on purpose -- the cause names ACL and
+        // schema facts the caller is not entitled to. The cause is not
+        // DISCARDED, though: it goes to the operator's log, so a refusal is
+        // diagnosable by whoever owns the deployment without being disclosed to
+        // whoever triggered it.
+        result.map_err(|error| {
+            tracing::debug!(?error, "semantic SQL source read was refused");
+            Response::err(req_id, "semantic SQL source read was refused")
+        })
     }
 
     /// Capture one raw row from a bounded authorized page. The opaque input
@@ -519,7 +697,10 @@ impl SemanticIndexServerAdapter {
             })
         })
         .await?;
-        result.map_err(|_| Response::err(req_id, "semantic SQL source claim was refused"))
+        result.map_err(|error| {
+            tracing::debug!(?error, "semantic SQL source claim was refused");
+            Response::err(req_id, "semantic SQL source claim was refused")
+        })
     }
 
     /// Reconstitute one deletion claim from the retained prior source manifest
@@ -552,7 +733,10 @@ impl SemanticIndexServerAdapter {
             tombstone_claim_from_complete_page(&binding, &intent, &prior, page_cursor, snapshot)
         })
         .await?;
-        result.map_err(|_| Response::err(req_id, "semantic SQL tombstone claim was refused"))
+        result.map_err(|error| {
+            tracing::debug!(?error, "semantic SQL tombstone claim was refused");
+            Response::err(req_id, "semantic SQL tombstone claim was refused")
+        })
     }
 
     /// Complete a fresh leased S1 transition from a server-minted raw claim.
@@ -664,7 +848,12 @@ mod sql_source_read_tests {
         create_owned_table, grant, revoke, with_source_authority_write,
     };
     use crate::server::sql_tables::{tenant_table_store, test_persist_dir};
-    use eg_query::{CmpOp, Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
+    use eg_query::{Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
+    // `CmpOp` exists in BOTH eg_query and eg_types and they are distinct types.
+    // `TxnOp::Update`'s selector is an `eg_types::RowPredicate`, so this is the
+    // one that belongs here; importing eg_query's next to it is the mistake that
+    // kept this module's tests from compiling.
+    use eg_types::CmpOp;
     use eg_storage::{OwnerLayout, PhysicalStoreIdentity, ScopeGrantVerifier};
     use eg_types::contract::Nonce;
     use eg_types::mutation_batch::{DurabilityDomain, MutationSurface};
@@ -705,14 +894,22 @@ mod sql_source_read_tests {
         }
     }
 
-    fn authority(agent_id: &str, tenant: &str) -> CarrierAuthority {
-        CarrierAuthority::from_verified(&VerifiedRequestContext::verified_for_test_in_tenant(
-            agent_id, tenant,
+    /// `verified_for_test_in_tenant` grants `kg:read` ONLY, so a carrier minted
+    /// from it fails `authorize_binding_worker`'s `can_write()` on the first
+    /// durable stage write -- the second failure this module's own tests hit
+    /// the moment it was first compiled. A semantic stage worker writes by
+    /// definition, so the fixture asks for the scopes the thing under test
+    /// actually needs.
+    pub(super) fn authority(agent_id: &str, tenant: &str) -> CarrierAuthority {
+        CarrierAuthority::from_verified(&VerifiedRequestContext::verified_for_test_with_scopes(
+            agent_id,
+            tenant,
+            &["kg:read", "kg:write"],
         ))
         .unwrap()
     }
 
-    fn selector() -> SemanticSourceSelector {
+    pub(super) fn selector() -> SemanticSourceSelector {
         SemanticSourceSelector::SqlColumnRef(SqlColumnRef {
             catalog_id: SEMANTIC_SQL_CATALOG_ID.to_string(),
             schema_id: SEMANTIC_SQL_SCHEMA_ID.to_string(),
@@ -721,13 +918,27 @@ mod sql_source_read_tests {
         })
     }
 
-    fn binding(authority: &CarrierAuthority, snapshot: &SemanticTextSnapshot) -> SemanticBinding {
+    pub(super) fn binding(authority: &CarrierAuthority, snapshot: &SemanticTextSnapshot) -> SemanticBinding {
+        SemanticBinding::create(binding_draft(authority, snapshot)).unwrap()
+    }
+
+    /// The DRAFT behind [`binding`].
+    ///
+    /// Split out because the wire contract admits a binding from its draft --
+    /// `Method::SemanticIndex`'s `AdmitBinding` hands the engine a draft and the
+    /// engine calls `SemanticBinding::create` -- so a dispatch-driven test needs
+    /// the draft, while the direct-service tests around it need the built
+    /// binding. One fixture, both shapes.
+    pub(super) fn binding_draft(
+        authority: &CarrierAuthority,
+        snapshot: &SemanticTextSnapshot,
+    ) -> SemanticBindingDraft {
         let source_revision = sql_source_revision_for_epoch(
             SemanticDigest::from_bytes(snapshot.source_authority_digest),
             snapshot.source_epoch,
         )
         .unwrap();
-        SemanticBinding::create(SemanticBindingDraft {
+        SemanticBindingDraft {
             binding_id: "binding:documents-body".to_string(),
             tenant_id: authority.tenant_scope().to_string(),
             actor_scope: authority.actor_scope().to_string(),
@@ -765,11 +976,99 @@ mod sql_source_read_tests {
                 parameters_digest: "sha256:ann-parameters".to_string(),
             },
             created_at: "2026-09-08T00:00:00Z".to_string(),
-        })
-        .unwrap()
+        }
     }
 
-    fn commit_sql_change(
+    /// Everything a DISPATCH-driven test needs to exist before a semantic
+    /// request is legal: an owned SQL table, a SELECT grant to the worker, the
+    /// authoritative snapshot the binding is minted against, one committed row,
+    /// and the source-dirty outbox record that commit emitted.
+    ///
+    /// The connector contract deliberately cannot carry any of this -- the row
+    /// and its ACL decision are re-read engine-side -- so a wire-level test has
+    /// to establish it the way production does, through the SQL owner.
+    pub(super) struct DispatchTableFixture {
+        pub(super) persist_dir: std::path::PathBuf,
+        pub(super) snapshot: SemanticTextSnapshot,
+        pub(super) dirty: MutationOutboxRecord,
+        pub(super) source_digest: SemanticDigest,
+    }
+
+    pub(super) fn dispatch_table_fixture(
+        worker: &CarrierAuthority,
+        tenant: &str,
+    ) -> DispatchTableFixture {
+        let persist_dir = test_persist_dir();
+        // The RAW tenant, not `worker.tenant_scope()`. A carrier's tenant scope
+        // is already the opaque derivation of the raw name, so feeding it back
+        // through `authority()` derives a second, different scope and the table
+        // owner would land in another tenant's catalog than the worker reads.
+        let owner = authority("semantic-dispatch-owner", tenant);
+        let schema = TableSchema::new(
+            "documents",
+            vec![
+                Column::new("id", ColumnType::Text, false, true),
+                Column::new("body", ColumnType::Text, false, false),
+            ],
+        );
+        assert!(create_owned_table(&owner, &persist_dir, &schema, false).unwrap());
+        grant(
+            &persist_dir,
+            &owner,
+            "documents",
+            worker.agent_id(),
+            &[SqlPrivilege::Select],
+            uuid::Uuid::from_u128(97),
+        )
+        .unwrap();
+        let table = open_authorized_table(worker, &persist_dir, "documents", SqlPrivilege::Select)
+            .unwrap();
+        let snapshot = table
+            .semantic_text_snapshot(&selector(), &CURSOR_SECRET, None)
+            .unwrap();
+        let binding = binding(worker, &snapshot);
+        let store = tenant_table_store(owner.tenant_scope(), &persist_dir).unwrap();
+        let mut insert = TableTxn::new();
+        insert.push(TxnOp::Insert {
+            table: "documents".to_string(),
+            col_order: vec!["id".to_string(), "body".to_string()],
+            rows: vec![vec![
+                Value::String("doc-dispatch".to_string()),
+                Value::String("dispatch pipeline bytes".to_string()),
+            ]],
+        });
+        let dirty = commit_sql_change(
+            &persist_dir,
+            &owner,
+            &store,
+            91,
+            Method::Sql {
+                query: "INSERT INTO documents (id, body) VALUES ('doc-dispatch', 'dispatch pipeline bytes')"
+                    .to_string(),
+                params_msgpack: Vec::new(),
+            },
+            insert,
+        );
+        let read_port =
+            AuthorizedSqlSourceReadPort::new(persist_dir.clone(), worker.clone(), CURSOR_SECRET);
+        let page = read_dirty(&read_port, &binding, &dirty);
+        let source_digest = match &page.sources[0].value {
+            SemanticSqlSourceValue::Present { source_bytes } => {
+                SemanticDigest::from_bytes(Sha256::digest(source_bytes).into())
+            }
+            SemanticSqlSourceValue::Tombstone { .. } => {
+                panic!("the dispatch fixture commits one present row")
+            }
+        };
+        DispatchTableFixture {
+            persist_dir,
+            snapshot,
+            dirty,
+            source_digest,
+        }
+    }
+
+    pub(super) fn commit_sql_change(
         persist_dir: &Path,
         authority: &CarrierAuthority,
         store: &TableStore,
@@ -819,7 +1118,7 @@ mod sql_source_read_tests {
             .expect("the actual SQL owner commit includes one source-dirty event")
     }
 
-    fn read_dirty(
+    pub(super) fn read_dirty(
         port: &AuthorizedSqlSourceReadPort,
         binding: &SemanticBinding,
         dirty: &MutationOutboxRecord,
@@ -986,7 +1285,12 @@ mod sql_source_read_tests {
                 Arc::new(ExactSemanticScopeVerifier {
                     tenant: worker.tenant_scope().to_string(),
                 }),
-                worker.agent_id(),
+                // NOT `worker.agent_id()`: the mutation kernel refuses any
+                // serving principal that is not `principal:sha256:<64 hex>`
+                // ("mutation principal authority must be an opaque digest").
+                // This fixture passed a plain agent id, which is the failure
+                // this test hit the first time it was ever compiled.
+                super::semantic_owner_principal(),
                 SEMANTIC_PROOF,
                 worker.tenant_scope(),
                 &binding.binding_id,
@@ -1118,11 +1422,26 @@ mod sql_source_read_tests {
         assert!(deletion_admission.complete);
         assert_eq!(deletion_admission.receipts.len(), 1);
 
-        let mut budget = OutboxClaimBudget::new(1, 5_000, 8).unwrap();
+        // Eight, not one. By this point the queue holds the S2 derived from the
+        // completed S1 alongside the deletion's own S1, and
+        // `OutboxClaimBudget::allowance` bounds every claim by
+        // `consecutive_cap()` = `(limit / 4).max(1)` even for a lone,
+        // uncontended tenant -- so a budget of one returns exactly one row and
+        // the filter below could pick the wrong one and find nothing.
+        let mut budget = OutboxClaimBudget::new(8, 5_000, 8).unwrap();
         let outcome = adapter
             .claim_stage_leases(&binding, &worker, &mut budget)
             .unwrap();
-        assert_eq!(outcome.claims.len(), 1);
+        // TWO rows, not one. The original `1` here was written on the
+        // assumption that `complete_sql_source_stage(.., successor: None, ..)`
+        // above publishes nothing -- but `None` does not mean "no successor":
+        // the store DERIVES one (`validate_successor_intent`'s `SourceCommit`
+        // arm builds the S2 GraphProjection intent from the committed receipt)
+        // and enqueues it in the same mutation. So the queue holds that derived
+        // S2 alongside the deletion's own S1, and the assertion is that both
+        // are claimable -- which is also the proof that completing S1 advanced
+        // the pipeline rather than merely acknowledging a row.
+        assert_eq!(outcome.claims.len(), 2);
         let (tombstone_lease, tombstone_intent) = outcome
             .claims
             .into_iter()
@@ -1239,5 +1558,484 @@ mod sql_source_read_tests {
         assert_eq!(status.pending, 0);
         assert_eq!(status.inflight, 0);
         assert_eq!(status.delivered, 2);
+    }
+}
+
+/// End-to-end wiring proof for `Method::SemanticIndex`.
+///
+/// The module above is the AUTHORITY seam; this module is the DISPATCH seam,
+/// and it exists because the expensive defects in this program were never
+/// logic defects. They were wiring gaps that every unit test passed through:
+/// this whole subsystem sat uncompiled for days while its own tests looked
+/// green, because nothing ever declared the module.
+///
+/// So none of these tests call `SemanticIndexService` or the adapter. Every one
+/// of them builds a signed `Request`, hands it to the real
+/// `crate::server::dispatch::dispatch`, and asserts on the `Response` -- the
+/// exact path an external connector takes, through envelope verification,
+/// `requires_write`, the capability policy, the router arm, and the handler.
+/// A test that reached past any of those would prove nothing about whether the
+/// method is reachable at all, which is the only thing that has ever gone wrong
+/// here.
+#[cfg(all(test, feature = "query", feature = "redb"))]
+mod dispatch_pipeline_tests {
+    use std::sync::Arc;
+
+    use tokio::sync::RwLock;
+
+    use super::sql_source_read_tests::{
+        binding_draft, commit_sql_change, dispatch_table_fixture, selector,
+    };
+    use crate::protocol::{Method, Response, ResultPayload};
+    use crate::server::access::CarrierAuthority;
+    use crate::acl::RequestContextClaims;
+    use crate::server::auth::{
+        compute_verified_envelope_token, VerifiedEnvelopeParams, VerifiedRequestContext,
+    };
+    use crate::protocol::Request;
+    use eg_types::semantic_index::{
+        SemanticBindingState, SemanticIndexOp, SemanticQueueClass, SemanticStage,
+        SemanticStageIntentDraft, SemanticStageLeasePage, SemanticStageOutcome,
+        SemanticStagePredecessor, SemanticStageReceipt, SemanticStageScope, SemanticStageTransition,
+    };
+
+    /// Synthetic HMAC fixture for `ServerState::new_for_test`: it authenticates
+    /// nothing outside this process and is never a live credential.
+    const SECRET: &str = "semantic-index-dispatch-fixture-secret"; // sanitizer:ignore
+    /// `auth::request_context_policy` is a FIXED triple under `cfg(test)`:
+    /// audience `epistemic-graph-test`, tenant `tenant-shared`, policy version
+    /// `policy-test`. A signed envelope that names anything else is refused at
+    /// the request boundary before the method is ever looked at, so these are
+    /// not arbitrary fixture names.
+    const TENANT: &str = "tenant-shared";
+    const WORKER: &str = "semantic-dispatch-worker";
+
+    fn claims(principal: &str) -> RequestContextClaims {
+        RequestContextClaims {
+            principal: principal.to_string(),
+            tenant: TENANT.to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: principal.to_string(),
+            scopes: vec!["*".to_string()],
+            // Empty: this is a NON-delegated context (the principal IS the
+            // agent), and auth refuses a non-delegated context that still
+            // carries a chain.
+            delegation: Vec::new(),
+            policy_version: "policy-test".to_string(),
+            ..RequestContextClaims::default()
+        }
+    }
+
+    /// One signed `Method::SemanticIndex` request, exactly as a connector mints
+    /// it. The attempt nonce and idempotency key the handler uses are derived
+    /// from THIS envelope, not from the op body.
+    fn signed(id: u64, op: SemanticIndexOp) -> Request {
+        let context = claims(WORKER);
+        let mut request = Request {
+            id,
+            graph: TENANT.to_string(),
+            auth_token: String::new(),
+            agent_id: Some(WORKER.to_string()),
+            method: Method::SemanticIndex { op: Box::new(op) },
+        };
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system clock")
+                    .as_secs(),
+                nonce: &format!("semantic-dispatch-nonce-{id}"),
+                idempotency_key: &format!("semantic-dispatch-key-{id}"),
+            },
+        );
+        request
+    }
+
+    /// A completion stamp comfortably after the engine's own ACL decision
+    /// instant, which the handler samples inside the dispatch call and the test
+    /// therefore cannot observe beforehand.
+    fn future_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock")
+            .as_millis() as u64
+            + 60_000
+    }
+
+    fn worker_authority() -> CarrierAuthority {
+        CarrierAuthority::from_verified(&VerifiedRequestContext::from_verified_claims(
+            claims(WORKER),
+            "semantic-dispatch-key-0".to_string(),
+        ))
+        .unwrap()
+    }
+
+    fn ok<T: serde::de::DeserializeOwned>(label: &str, response: Response) -> T {
+        assert!(
+            response.error.is_none(),
+            "{label} was refused: {:?}",
+            response.error
+        );
+        let Some(ResultPayload::Raw(bytes)) = response.result else {
+            panic!("{label} did not return a raw typed result");
+        };
+        rmp_serde::from_slice(&bytes).expect("the dispatch result decodes into its wire type")
+    }
+
+    fn refused(label: &str, response: Response) -> String {
+        response
+            .error
+            .unwrap_or_else(|| panic!("{label} was accepted but must be refused"))
+    }
+
+    /// Drive one source from admission to a leased, completed S1 and a published
+    /// S2, entirely through `dispatch`.
+    ///
+    /// This is the wiring proof, and it asserts the two properties that make the
+    /// queue a PIPELINE rather than a work list:
+    ///   * the queue class is honoured -- a `Fast` consumer is not handed the
+    ///     `Medium` S2 row, and vice versa;
+    ///   * the predecessor relation is STRUCTURAL, not advisory -- S2 does not
+    ///     exist to be claimed until S1's completion derives it, and a
+    ///     transition presented against a lease that does not name it is
+    ///     refused outright.
+    #[tokio::test]
+    async fn dispatch_drives_a_source_through_s1_and_publishes_s2() {
+        let worker = worker_authority();
+        let fixture = dispatch_table_fixture(&worker, TENANT);
+        let draft = binding_draft(&worker, &fixture.snapshot);
+        let binding_id = draft.binding_id.clone();
+
+        let mut server_state =
+            crate::server::state::ServerState::new_for_test(SECRET, crate::isolation::IsolationLayer::new());
+        server_state.persist_dir = Some(fixture.persist_dir.to_string_lossy().into_owned());
+        let state = Arc::new(RwLock::new(server_state));
+
+        // ---- admit the binding -------------------------------------------
+        let _: serde_json::Value = ok(
+            "AdmitBinding",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    901,
+                    SemanticIndexOp::AdmitBinding {
+                        tenant_id: TENANT.to_string(),
+                        binding_id: binding_id.clone(),
+                        draft: Box::new(draft.clone()),
+                        idempotency_key: "semantic-dispatch-admit".to_string(),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // ---- S1 admission from the authoritative SQL wakeup ---------------
+        let _: serde_json::Value = ok(
+            "AdmitSourceRecord",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    902,
+                    SemanticIndexOp::AdmitSourceRecord {
+                        tenant_id: TENANT.to_string(),
+                        binding_id: binding_id.clone(),
+                        record: Box::new(fixture.dirty.clone()),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // A claim is only legal against a Building binding, so the state
+        // machine has to move through the wire too.
+        let _: serde_json::Value = ok(
+            "TransitionBinding",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    903,
+                    SemanticIndexOp::TransitionBinding {
+                        tenant_id: TENANT.to_string(),
+                        binding_id: binding_id.clone(),
+                        expected_generation: draft.generation,
+                        next_state: SemanticBindingState::Building,
+                        idempotency_key: "semantic-dispatch-build".to_string(),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        let _: serde_json::Value = ok(
+            "SubscribeStageConsumer",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    904,
+                    SemanticIndexOp::SubscribeStageConsumer {
+                        tenant_id: TENANT.to_string(),
+                        binding_id: binding_id.clone(),
+                        consumer: WORKER.to_string(),
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // ---- queue class, leg one: a Medium worker must not get the Fast S1
+        let medium_first: SemanticStageLeasePage = ok(
+            "ClaimStageLeases(Medium)",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    905,
+                    SemanticIndexOp::ClaimStageLeases {
+                        tenant_id: TENANT.to_string(),
+                        binding_id: binding_id.clone(),
+                        consumer: WORKER.to_string(),
+                        queue_class: SemanticQueueClass::Medium,
+                        limit: 8,
+                        lease_ms: 60_000,
+                    },
+                ),
+            )
+            .await,
+        );
+        assert!(
+            medium_first.entries.is_empty(),
+            "S1 is a Fast row and must not be handed to a Medium consumer"
+        );
+        assert_eq!(
+            medium_first.released_other_class, 1,
+            "the wrong-class row must be released back, not held for its lease"
+        );
+
+        // ---- queue class, leg two: the Fast worker gets exactly the S1 -----
+        let fast: SemanticStageLeasePage = ok(
+            "ClaimStageLeases(Fast)",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    906,
+                    SemanticIndexOp::ClaimStageLeases {
+                        tenant_id: TENANT.to_string(),
+                        binding_id: binding_id.clone(),
+                        consumer: WORKER.to_string(),
+                        queue_class: SemanticQueueClass::Fast,
+                        limit: 8,
+                        lease_ms: 60_000,
+                    },
+                ),
+            )
+            .await,
+        );
+        assert_eq!(fast.entries.len(), 1, "the admitted S1 is claimable");
+        let entry = fast.entries.into_iter().next().unwrap();
+        assert_eq!(entry.intent.stage, SemanticStage::SourceCommit);
+        assert_eq!(entry.queue_class, SemanticQueueClass::Fast);
+
+        // The S2 this S1 will publish. Its predecessor proof names the S1
+        // receipt, which does not exist yet.
+        let s1_intent = entry.intent.clone();
+        let s1_receipt_digest = s1_intent.intent_digest;
+        let premature_s2 = SemanticStageIntentDraft {
+            binding_id: binding_id.clone(),
+            binding_digest: s1_intent.binding_digest,
+            generation: s1_intent.generation,
+            stage: SemanticStage::GraphProjection,
+            scope: SemanticStageScope::Entity {
+                source_entity_id: s1_intent
+                    .scope
+                    .source_entity_id()
+                    .expect("an S1 intent is entity scoped")
+                    .to_string(),
+            },
+            source_revision: s1_intent.source_revision.clone(),
+            input_digest: s1_receipt_digest,
+            predecessor: SemanticStagePredecessor::EntityReceipt {
+                stage: SemanticStage::SourceCommit,
+                receipt_digest: s1_receipt_digest,
+            },
+        };
+
+        // ---- a transition may only be completed against ITS OWN lease -----
+        //
+        // The queue-level half of the predecessor proof was already asserted
+        // above: the Medium claim found nothing, because S2 is not enqueued
+        // until S1 completes. This is the lease-level half -- presenting an S2
+        // transition against the S1 lease that is actually held.
+        let premature = SemanticStageTransition {
+            intent: eg_types::semantic_index::SemanticStageIntent::create(premature_s2)
+                .expect("the S2 intent is well formed"),
+            receipt: SemanticStageReceipt {
+                intent_digest: s1_receipt_digest,
+                output_digest: s1_receipt_digest,
+                cursor: "graph-projection:premature".to_string(),
+                completed_at: format!("unix-ms:{}", future_ms()),
+                outcome: SemanticStageOutcome::Completed,
+            },
+            generation_checkpoint: None,
+        };
+        let error = refused(
+            "an S2 transition against the S1 lease",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    907,
+                    SemanticIndexOp::CompleteStage {
+                        tenant_id: TENANT.to_string(),
+                        binding_id: binding_id.clone(),
+                        lease: Box::new(entry.lease.clone()),
+                        transition: Box::new(premature),
+                        artifact: Box::new(
+                            eg_types::semantic_index::SemanticStageArtifact::None,
+                        ),
+                        successor: None,
+                    },
+                ),
+            )
+            .await,
+        );
+        assert!(
+            !error.is_empty(),
+            "a transition the held lease does not name must be refused by name"
+        );
+
+        // ---- complete S1 and publish the S2 successor ---------------------
+        let s1_transition = SemanticStageTransition {
+            intent: s1_intent.clone(),
+            receipt: SemanticStageReceipt {
+                intent_digest: s1_intent.intent_digest,
+                output_digest: fixture.source_digest,
+                cursor: "sql-source:complete".to_string(),
+                completed_at: format!("unix-ms:{}", future_ms()),
+                outcome: SemanticStageOutcome::Completed,
+            },
+            generation_checkpoint: None,
+        };
+        let _: serde_json::Value = ok(
+            "CompleteSqlSourceStage",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    908,
+                    SemanticIndexOp::CompleteSqlSourceStage {
+                        tenant_id: TENANT.to_string(),
+                        binding_id: binding_id.clone(),
+                        lease: Box::new(entry.lease.clone()),
+                        transition: Box::new(s1_transition),
+                        // `None`, not a caller-built S2. The store DERIVES the
+                        // successor from the completed transition itself
+                        // (`validate_successor_intent`'s `SourceCommit` arm), so
+                        // the predecessor receipt digest and input digest that
+                        // bind S2 to this exact S1 are computed from the
+                        // committed receipt rather than asserted by the caller.
+                        // A caller-supplied successor is accepted only when it
+                        // matches that derivation exactly.
+                        successor: None,
+                        page_cursor: None,
+                    },
+                ),
+            )
+            .await,
+        );
+
+        // ---- the published S2 is a Medium row, and only a Medium worker
+        //      is handed it ------------------------------------------------
+        let medium: SemanticStageLeasePage = ok(
+            "ClaimStageLeases(Medium) after S1",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    909,
+                    SemanticIndexOp::ClaimStageLeases {
+                        tenant_id: TENANT.to_string(),
+                        binding_id: binding_id.clone(),
+                        consumer: WORKER.to_string(),
+                        queue_class: SemanticQueueClass::Medium,
+                        limit: 8,
+                        lease_ms: 60_000,
+                    },
+                ),
+            )
+            .await,
+        );
+        assert_eq!(
+            medium.entries.len(),
+            1,
+            "completing S1 publishes its S2 successor onto the Medium queue"
+        );
+        assert_eq!(
+            medium.entries[0].intent.stage,
+            SemanticStage::GraphProjection
+        );
+        assert_eq!(medium.entries[0].queue_class, SemanticQueueClass::Medium);
+    }
+
+    /// One tenant may not reach another's binding by naming its id.
+    #[tokio::test]
+    async fn dispatch_refuses_a_cross_tenant_semantic_operation() {
+        let worker = worker_authority();
+        let fixture = dispatch_table_fixture(&worker, TENANT);
+        let mut server_state =
+            crate::server::state::ServerState::new_for_test(SECRET, crate::isolation::IsolationLayer::new());
+        server_state.persist_dir = Some(fixture.persist_dir.to_string_lossy().into_owned());
+        let state = Arc::new(RwLock::new(server_state));
+
+        let error = refused(
+            "a cross-tenant read",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    920,
+                    SemanticIndexOp::Binding {
+                        tenant_id: "tenant-somebody-else".to_string(),
+                        binding_id: "binding:documents-body".to_string(),
+                    },
+                ),
+            )
+            .await,
+        );
+        assert!(
+            error.contains("ACCESS_DENIED"),
+            "a cross-tenant semantic read must be refused by name, got: {error}"
+        );
+        let _ = selector();
+    }
+
+    /// A claim above the named bound is refused BY THAT NAME, not by a store
+    /// message about an anonymous "bounded consumer budget".
+    #[tokio::test]
+    async fn dispatch_refuses_an_unbounded_stage_claim_by_name() {
+        let worker = worker_authority();
+        let fixture = dispatch_table_fixture(&worker, TENANT);
+        let mut server_state =
+            crate::server::state::ServerState::new_for_test(SECRET, crate::isolation::IsolationLayer::new());
+        server_state.persist_dir = Some(fixture.persist_dir.to_string_lossy().into_owned());
+        let state = Arc::new(RwLock::new(server_state));
+
+        let error = refused(
+            "an over-limit claim",
+            crate::server::dispatch::dispatch(
+                &state,
+                signed(
+                    930,
+                    SemanticIndexOp::ClaimStageLeases {
+                        tenant_id: TENANT.to_string(),
+                        binding_id: "binding:documents-body".to_string(),
+                        consumer: WORKER.to_string(),
+                        queue_class: SemanticQueueClass::Fast,
+                        limit: eg_types::semantic_index::MAX_SEMANTIC_STAGE_CLAIM_LIMIT + 1,
+                        lease_ms: 60_000,
+                    },
+                ),
+            )
+            .await,
+        );
+        assert!(error.contains("limit"), "the refusal must name `limit`: {error}");
+        let _ = commit_sql_change;
     }
 }

@@ -13,6 +13,7 @@ use super::state::SemanticIndexError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticSqlSourceIdentity {
     pub tenant_scope: String,
     pub catalog_id: String,
@@ -106,6 +107,7 @@ impl SemanticSqlSourceIdentity {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticSqlSourceManifest {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -127,6 +129,7 @@ pub struct SemanticSqlSourceManifest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticSqlSourceManifestDraft {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -245,6 +248,7 @@ impl SemanticSqlSourceManifest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticGraphProjectionManifest {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -261,6 +265,7 @@ pub struct SemanticGraphProjectionManifest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticGraphProjectionManifestDraft {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,

@@ -91,6 +91,31 @@ impl<'de> Deserialize<'de> for SemanticDigest {
     }
 }
 
+/// JSON Schema for the semantic contract identity.
+///
+/// Hand-written for the same reason `Digest256`/`Nonce`'s is: the serde impls
+/// above are hand-written, so a derive would describe the private `[u8; 32]`
+/// the type stores rather than the `sha256:<64 lowercase hex>` string that
+/// actually goes on the wire, and the generated contract must describe the
+/// wire.
+#[cfg(feature = "contract-schema")]
+impl schemars::JsonSchema for SemanticDigest {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("SemanticDigest")
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::Schema::try_from(serde_json::json!({
+            "type": "string",
+            "description": "A SHA-256 semantic contract identity as `sha256:<64 lowercase hex>`",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "minLength": 71,
+            "maxLength": 71,
+        }))
+        .expect("a JSON object is a valid schema")
+    }
+}
+
 pub(crate) fn domain_digest(domain: &[u8], subject: Vec<u8>) -> SemanticDigest {
     let mut hasher = Sha256::new();
     hasher.update(domain);

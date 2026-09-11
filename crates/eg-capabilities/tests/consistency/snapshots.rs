@@ -130,6 +130,10 @@ pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     "MineText",
     "MiningPipelineTrain",
     "MiningPipelinePredict",
+    // RF-019's S1-S6 queue: the same shape again, with six authz actions
+    // instead of two. Its reads are the lease/status/manifest/catalog
+    // inspections; everything that advances a durable stage row writes.
+    "SemanticIndex",
     "Sql",
     #[cfg(feature = "modality-serving")]
     "ServedModality",

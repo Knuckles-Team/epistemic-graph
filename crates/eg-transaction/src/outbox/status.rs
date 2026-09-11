@@ -17,7 +17,9 @@ use eg_storage::{ledger_scope_key, OwnerDomain, ScopedRead};
 use eg_types::MutationScopeIdentity;
 
 /// One consumer's observable queue state on one bound scope.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Serializable: `Method::SemanticIndex`'s `StageStatus` returns it verbatim,
+/// so a connector can see its own queue depth and saturation.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct OutboxStatus {
     /// The consumer this status is about.
     pub consumer: String,

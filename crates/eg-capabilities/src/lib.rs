@@ -143,6 +143,35 @@ fn agent_component_policy(op: &eg_types::agent_component::AgentComponentOp) -> M
     }
 }
 
+/// The semantic index takes the same runtime-conditional shape as the four agent
+/// layers above, but with SIX authz actions rather than two. `is_mutation` and
+/// `authz_action` both live on the op itself so this policy and
+/// `server::access::requires_write` cannot drift apart about an operation --
+/// and so the privilege split survives a new variant: curating what is indexed,
+/// feeding rows into an approved binding, taking work off the queue and
+/// declaring a stage durable are four different grants, and one action would
+/// hand every holder the union.
+fn semantic_index_policy(op: &eg_types::semantic_index::SemanticIndexOp) -> MethodPolicy {
+    let mutates = op.is_mutation();
+    MethodPolicy {
+        mutates,
+        durability_domain: if mutates {
+            DurabilityDomain::SemanticIndexRedb
+        } else {
+            DurabilityDomain::None
+        },
+        authz_action: op.authz_action(),
+        idempotent: true,
+        audited: false,
+        emits_cdc: false,
+        txn_participation: if mutates {
+            TxnParticipation::Atomic
+        } else {
+            TxnParticipation::Snapshot
+        },
+    }
+}
+
 /// Where (if anywhere) a mutation's effect survives a process/host crash.
 ///
 /// These are REAL, distinct persistence domains in the engine today, not a
@@ -170,6 +199,12 @@ fn agent_component_policy(op: &eg_types::agent_component::AgentComponentOp) -> M
 ///   - [`ReasoningProjection`](DurabilityDomain::ReasoningProjection): the fsync'd,
 ///     per-graph incremental reasoning authority, advanced from the MutationBatch
 ///     outbox and fenced by its source graph watermark.
+///   - [`SemanticIndexRedb`](DurabilityDomain::SemanticIndexRedb): the semantic
+///     index's own `OwnerLayout::SemanticIndex` owner file -- bindings, the S1-S6
+///     stage queue and its leases, stage artifacts and the durable ANN code tier
+///     (`eg-core`'s `compute::semantic_ann_codes` / `compute::semantic_index_service`).
+///     Entirely separate from graph shards; the exact sibling of `JobsRedb` and
+///     `StatechartRedb`.
 ///   - [`ControlRedb`](DurabilityDomain::ControlRedb): native RBAC state or an opaque
 ///     prepared/committed coordinator receipt in the placement-group-owned redb
 ///     projection (directly owned by the process only in single-node serving).
@@ -188,6 +223,7 @@ pub enum DurabilityDomain {
     ReasoningProjection,
     BlobRedb,
     Outbox,
+    SemanticIndexRedb,
     ControlRedb,
     VolatileControl,
     None,
@@ -436,6 +472,9 @@ fn policy_for_method(method: &Method) -> MethodPolicy {
     }
     if let Method::AgentTemplate { op } = method {
         return agent_template_policy(op);
+    }
+    if let Method::SemanticIndex { op } = method {
+        return semantic_index_policy(op);
     }
     #[cfg(feature = "modality-serving")]
     if let Method::ServedModality { op } = method {

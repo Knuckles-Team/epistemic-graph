@@ -165,7 +165,15 @@ fn complete_source_stages(
     service
         .subscribe_stage_consumer("semantic-source-worker")
         .unwrap();
-    let mut budget = OutboxClaimBudget::new(sources.len(), 5_000, now_ms + 1).unwrap();
+    // The budget is four times the row count, not the row count, and that is
+    // not slack. `OutboxClaimBudget::allowance` bounds EVERY claim by
+    // `consecutive_cap()` = `(limit / 4).max(1)` -- including the uncontended
+    // case, where `run` falls through to the same `cap`. A lone tenant asking
+    // for exactly N rows therefore gets `max(N/4, 1)`, so a budget of two
+    // returns one lease and this assertion could never hold. Asking for `4 * N`
+    // makes the cap `N`, which is what this fixture actually needs claimed.
+    let budget_limit = u32::try_from(sources.len() * 4).expect("fixture source count is small");
+    let mut budget = OutboxClaimBudget::new(budget_limit, 5_000, now_ms + 1).unwrap();
     let outcome = service
         .claim_stage_leases("semantic-source-worker", &mut budget)
         .unwrap();
@@ -616,8 +624,16 @@ fn leased_s1_completion_persists_the_explicit_authorization_time() {
         "replay retains exactly one canonical authorization time and artifact"
     );
     let status = service.stage_status("semantic-s1-worker", 8).unwrap();
+    // The S1 lease is resolved, so nothing is in flight and one row is
+    // delivered. `pending` is ONE, not zero: completing S1 with `successor:
+    // None` does not publish nothing -- `validate_successor_intent` DERIVES the
+    // S2 GraphProjection intent from the committed receipt and enqueues it in
+    // the same mutation, which is exactly how the pipeline advances a stage.
+    // The original `pending == 0` here assumed `None` meant "no successor" and
+    // was therefore asserting that S1 completion is a dead end; it had never
+    // run, because this module had never been compiled.
     assert_eq!(status.inflight, 0);
-    assert_eq!(status.pending, 0);
+    assert_eq!(status.pending, 1, "completing S1 publishes its derived S2");
     assert_eq!(status.delivered, 1);
 
     drop(service);

@@ -4984,6 +4984,13 @@ mod tests {
         ("AgentGraph", "native MutationBatch in agent_library.redb: graph revision + head + kernel receipt/outbox in one WTX via eg-transaction, exactly like AgentLibrary alongside it"),
         ("AgentComponent", "native MutationBatch in agent_library.redb: component revision + head + kernel receipt/outbox in one WTX via eg-transaction, alongside the agents and graphs that reference it"),
         ("AgentTemplate", "native MutationBatch in agent_library.redb: template revision + head + kernel receipt/outbox in one WTX via eg-transaction, alongside the components, agents and graphs its base is assembled from"),
+        // RF-019. Commits into the semantic index's OWN `OwnerLayout::SemanticIndex`
+        // owner through `eg-transaction`, never a graph shard: one WTX carries the
+        // stage transition, its artifact, the successor intent, the generation
+        // checkpoint and the outbox lease acknowledgement together, which is what
+        // makes "a stage cannot complete before its predecessor" a durable property
+        // rather than an ordering convention.
+        ("SemanticIndex", "native MutationBatch in the OwnerLayout::SemanticIndex owner: binding/stage row + artifact + successor intent + lease ack in one WTX via eg-transaction, exactly like AnalyticsJob in jobs.redb"),
         ("ImportSqliteFile", "native SQL-catalog MutationBatch: all imported tables + exact result/coordinator metadata in one WTX"),
         // ── Process-global registries on ServerState: opaque control-redb sagas,
         // no GraphCore/graph_name; dispatched directly in the top-level match. ──
@@ -5208,6 +5215,11 @@ mod tests {
         covered.insert("AgentGraph");
         covered.insert("AgentComponent");
         covered.insert("AgentTemplate");
+        // RF-019. Self-routes in router.rs and commits into its own semantic
+        // owner through `eg-transaction`, so it never reaches a
+        // `NativeMutationCommand` or the gateway -- same reason as the four
+        // agent layers above.
+        covered.insert("SemanticIndex");
         covered.insert("PlacementAdmin");
         // Self-translates into a gateway-routed `Method::AddNode` before this
         // classifier ever runs on it -- see `cluster_mutation_route`'s

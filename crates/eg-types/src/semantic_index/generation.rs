@@ -13,6 +13,7 @@ use super::state::SemanticIndexError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "scope", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticStageScope {
     Entity { source_entity_id: String },
     Generation,
@@ -46,6 +47,7 @@ impl SemanticStageScope {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticExpectedEntity {
     pub source_entity_id: String,
     pub source_revision: String,
@@ -53,6 +55,7 @@ pub struct SemanticExpectedEntity {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticGenerationMember {
     pub source_entity_id: String,
     pub source_revision: String,
@@ -62,6 +65,7 @@ pub struct SemanticGenerationMember {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticGenerationAggregate {
     pub expected_entity_count: u64,
     pub completed_entity_count: u64,
@@ -155,6 +159,7 @@ impl SemanticGenerationAggregate {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "dependency", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticGenerationDependency {
     None,
     Checkpoint {
@@ -199,6 +204,7 @@ impl SemanticGenerationDependency {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticGenerationCheckpoint {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -214,6 +220,7 @@ pub struct SemanticGenerationCheckpoint {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticGenerationCheckpointDraft {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -232,6 +239,7 @@ pub struct SemanticGenerationCheckpointDraft {
 /// and compare it with `successor` in the same transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticGenerationCheckpointUpdate {
     pub expected_previous_checkpoint_digest: Option<SemanticDigest>,
     pub expected_previous_completed_count: u64,

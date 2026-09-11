@@ -15,6 +15,7 @@ const SEMANTIC_QUEUE_RESULT_MAX: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticSearchHit {
     pub binding_id: String,
     pub source_entity_id: String,
@@ -78,6 +79,7 @@ impl SemanticSearchHit {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticIndexResult {
     Binding {
         binding: Box<SemanticBinding>,
@@ -234,6 +236,7 @@ fn queue_capacity(class: SemanticQueueClass) -> u32 {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticIndexOutcome {
     Accepted {
         result: SemanticIndexResult,
@@ -267,6 +270,7 @@ impl SemanticIndexOutcome {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticIndexResponse {
     pub request_id: String,
     pub operation: SemanticIndexOperation,

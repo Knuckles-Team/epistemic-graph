@@ -22,13 +22,13 @@ use eg_types::semantic_index::{
     SemanticBindingState, SemanticDigest, SemanticGenerationArtifact, SemanticGenerationCheckpoint,
     SemanticIndexError, SemanticIndexFilter, SemanticSourceDirtyIntent, SemanticSqlSourceManifest,
     SemanticSqlSourceManifestDraft, SemanticStage, SemanticStageArtifact, SemanticStageIntent,
-    SemanticStageIntentDraft, SemanticStageOutcome, SemanticStageScope, SemanticStageTransition,
+    SemanticStageIntentDraft, SemanticStageScope, SemanticStageTransition,
 };
 use sha2::{Digest, Sha256};
 
 use super::semantic::SemanticGenerationImage;
 use super::semantic_ann_codes::{
-    SemanticCodeError, SemanticCodeStore, SemanticMutationReceipt,
+    semantic_contract_error, SemanticCodeError, SemanticCodeStore, SemanticMutationReceipt,
     SemanticSourceReconciliationCheckpoint, SemanticSourceReconciliationPhase,
 };
 
@@ -256,7 +256,7 @@ impl SemanticSqlSourceReadPage {
 }
 
 /// Receipts and continuation state from one durable source-page admission.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SemanticSqlSourcePageAdmission {
     pub receipts: Vec<SemanticMutationReceipt>,
     pub next_cursor: Option<Vec<u8>>,
@@ -267,7 +267,7 @@ pub struct SemanticSqlSourcePageAdmission {
 /// after the final complete-page proof and every bounded prior-identity
 /// tombstone page have been admitted; callers retry the same entrypoint while
 /// the native checkpoint retains a continuation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SemanticSqlSourceReconciliationAdmission {
     pub receipts: Vec<SemanticMutationReceipt>,
     pub source_revision: String,
@@ -1042,7 +1042,16 @@ impl SemanticIndexService {
     }
 
     /// Persist a validated binding and publish its durable creation event.
-    pub(crate) fn admit_binding(
+    ///
+    /// `pub`, not `pub(crate)`: the un-operation-bound sibling of
+    /// [`Self::admit_binding_operation`]. It carries no actor, idempotency key
+    /// or attempt nonce, so it is deliberately NOT one of the wire contract's
+    /// operations -- `Method::SemanticIndex`'s `AdmitBinding` routes through
+    /// `admit_binding_operation` and mints the nonce engine-side. What needs it
+    /// is an in-process governed producer that supplies replay identity
+    /// separately, and the facade's own adapter tests, which live in a
+    /// different crate and so cannot reach a `pub(crate)` item at all.
+    pub fn admit_binding(
         &self,
         binding: &SemanticBinding,
         now_ms: u64,
@@ -1732,15 +1741,6 @@ impl SemanticIndexService {
         self.store.enqueue_stage_intent(&intent, now_ms)
     }
 
-    /// Admit a pre-expanded S1 intent from an internal governed producer.
-    pub(crate) fn admit_source_intent(
-        &self,
-        intent: &SemanticStageIntent,
-        now_ms: u64,
-    ) -> Result<SemanticMutationReceipt, SemanticCodeError> {
-        self.store.enqueue_stage_intent(intent, now_ms)
-    }
-
     pub fn binding(&self) -> Result<Option<SemanticBinding>, SemanticCodeError> {
         self.store.read_binding()
     }
@@ -2048,7 +2048,7 @@ mod tests {
         SemanticSqlSourceReadPage, SemanticSqlSourceReadPort, SemanticSqlSourceRecord,
         SemanticSqlSourceValue,
     };
-    use crate::test_scope_grant::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
+    use crate::test_scope_grant::{TEST_PRINCIPAL, TEST_PROOF};
     use eg_storage::OwnerLayout;
     use eg_transaction::OutboxClaimBudget;
     use eg_types::contract::Nonce;
@@ -2057,11 +2057,44 @@ mod tests {
         MutationScopeIdentity, MUTATION_BATCH_VERSION,
     };
     use eg_types::semantic_index::{
-        SemanticBinding, SemanticDigest, SemanticIndexError, SemanticSourceDirtyIntent,
-        SemanticSqlSourceIdentity, SemanticStageArtifact, SemanticStageIntent,
-        SemanticStageOutcome, SemanticStageReceipt, SemanticStageScope, SemanticStageTransition,
+        SemanticBinding, SemanticBindingState, SemanticDigest, SemanticIndexError,
+        SemanticSourceDirtyIntent, SemanticSqlSourceIdentity, SemanticStageArtifact,
+        SemanticStageIntent, SemanticStageOutcome, SemanticStageReceipt, SemanticStageTransition,
         SqlColumnRef, SEMANTIC_SOURCE_DIRTY_TOPIC, SEMANTIC_SQL_CATALOG_ID,
     };
+
+    /// Tenant-parameterized scope fence for this module's durable fixtures.
+    ///
+    /// `crate::test_scope_grant::TestScopeVerifier` is fenced to the literal
+    /// tenant `"native"`, which is the scope eg-core's OTHER store fixtures
+    /// open. These fixtures open a real tenant name, so the shared verifier
+    /// refused their first durable write with "test scope authority rejected"
+    /// -- the failure three of this module's own tests hit the moment the
+    /// module was first compiled, years of never being built later. Same
+    /// fence, parameterized by the tenant actually under test.
+    struct SemanticTenantScopeVerifier {
+        tenant: &'static str,
+    }
+
+    impl eg_storage::ScopeGrantVerifier for SemanticTenantScopeVerifier {
+        fn verify(
+            &self,
+            _physical: &eg_storage::PhysicalStoreIdentity,
+            layout: OwnerLayout,
+            identity: &eg_types::MutationScopeIdentity,
+            principal: &str,
+            proof: &[u8],
+        ) -> Result<(), String> {
+            if layout != OwnerLayout::SemanticIndex
+                || identity.tenant().as_str() != self.tenant
+                || principal != TEST_PRINCIPAL
+                || proof != TEST_PROOF
+            {
+                return Err("semantic tenant scope authority rejected".to_string());
+            }
+            Ok(())
+        }
+    }
 
     fn digest(byte: u8) -> SemanticDigest {
         SemanticDigest::from_bytes([byte; 32])
@@ -2445,8 +2478,8 @@ mod tests {
         );
         let service = SemanticIndexService::open(
             &dir,
-            Arc::new(TestScopeVerifier {
-                layout: OwnerLayout::SemanticIndex,
+            Arc::new(SemanticTenantScopeVerifier {
+                tenant: "native",
             }),
             TEST_PRINCIPAL,
             TEST_PROOF,
@@ -2487,8 +2520,8 @@ mod tests {
         let binding = binding(&revision_r1);
         let service = SemanticIndexService::open(
             &dir,
-            Arc::new(TestScopeVerifier {
-                layout: OwnerLayout::SemanticIndex,
+            Arc::new(SemanticTenantScopeVerifier {
+                tenant: "tenant-a",
             }),
             TEST_PRINCIPAL,
             TEST_PROOF,
@@ -2575,8 +2608,8 @@ mod tests {
         let binding = binding(&revision);
         let service = SemanticIndexService::open(
             &dir,
-            Arc::new(TestScopeVerifier {
-                layout: OwnerLayout::SemanticIndex,
+            Arc::new(SemanticTenantScopeVerifier {
+                tenant: "tenant-a",
             }),
             TEST_PRINCIPAL,
             TEST_PROOF,
@@ -2645,8 +2678,8 @@ mod tests {
 
         let service = SemanticIndexService::open(
             &dir,
-            Arc::new(TestScopeVerifier {
-                layout: OwnerLayout::SemanticIndex,
+            Arc::new(SemanticTenantScopeVerifier {
+                tenant: "tenant-a",
             }),
             TEST_PRINCIPAL,
             TEST_PROOF,
@@ -2722,8 +2755,8 @@ mod tests {
         drop(service);
         let service = SemanticIndexService::open(
             &dir,
-            Arc::new(TestScopeVerifier {
-                layout: OwnerLayout::SemanticIndex,
+            Arc::new(SemanticTenantScopeVerifier {
+                tenant: "tenant-a",
             }),
             TEST_PRINCIPAL,
             TEST_PROOF,

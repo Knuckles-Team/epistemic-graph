@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 413,
+  "method_count": 414,
   "methods": [
     {
       "consumer_profiles": [
@@ -10121,6 +10121,47 @@
       "result_schema": {
         "kind": "named",
         "schema": "contract/schemas/result.String.json"
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "ingestion",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION"
+      ],
+      "id": "SemanticIndex",
+      "note": "RF-019's S1-S6 tiered ingestion queue. Runtime-conditional like the four agent layers, but over SIX authz actions rather than two: binding lifecycle is semantic:binding-write, S1 admission semantic:source-admit, subscribe/claim/release semantic:stage-claim, stage completion semantic:stage-complete, and the reads semantic:binding-read / semantic:stage-read. The row names the binding-write leg; SemanticIndexOp::authz_action is the authority for each operation",
+      "policy": {
+        "audited": false,
+        "authz_action": "semantic:binding-write",
+        "durability_domain": "SemanticIndexRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/SemanticIndex"
+      },
+      "result_provenance": {
+        "kind": "dispatch-only"
+      },
+      "result_schema": {
+        "kind": "opaque",
+        "payload": "Raw"
       },
       "stability": "stable"
     },

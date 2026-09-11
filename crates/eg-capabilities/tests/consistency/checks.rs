@@ -242,15 +242,19 @@ fn generated_ledger_is_not_stale() {
 /// protocol edit that adds or removes variants is visible in the same policy parity check.
 #[test]
 fn method_policy_registry_has_the_expected_variant_count() {
-    // 406 unconditional rows plus one row for each optional feature surface.
+    // 407 unconditional rows plus one row for each optional feature surface.
     //
     // 403 -> 406: the three RF-ADR-008 agent-hierarchy rows beyond
     // `AgentLibrary` -- `AgentGraph`, `AgentComponent` and `AgentTemplate`.
+    // 406 -> 407: RF-019's `SemanticIndex`, the S1-S6 tiered semantic ingestion
+    // queue. Unconditional like the four agent layers: the wire contract is one
+    // contract in every build, and the `ann-redb`/`query` gate lives on the
+    // dispatch arm that serves it, not on whether the method exists.
     // This constant is a tripwire against an unnoticed protocol edit, not a
     // ratchet; `scripts/method_policy_inventory.py`'s
     // `EXPECTED_METHOD_POLICY_ROWS` is the same count seen from the other
-    // side and the two must agree (406 + 7 feature rows = 413).
-    let expected = 406
+    // side and the two must agree (407 + 7 feature rows = 414).
+    let expected = 407
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

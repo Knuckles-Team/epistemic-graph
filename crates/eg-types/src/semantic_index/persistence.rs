@@ -14,6 +14,7 @@ use super::state::SemanticIndexError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticActivationTarget {
     pub tenant_id: String,
     pub binding_id: String,
@@ -118,6 +119,7 @@ impl SemanticActivationTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticActivePointer {
     pub tenant_id: String,
     pub binding_id: String,
@@ -166,6 +168,7 @@ impl SemanticActivePointer {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticSourceProgress {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -209,6 +212,7 @@ impl SemanticSourceProgress {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticLexicalIndexManifest {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -223,6 +227,7 @@ pub struct SemanticLexicalIndexManifest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticAnnIndexManifest {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -277,6 +282,7 @@ impl SemanticAnnIndexManifest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticIndexManifest {
     pub lexical: SemanticLexicalIndexManifest,
     pub ann: SemanticAnnIndexManifest,
@@ -322,6 +328,7 @@ impl SemanticIndexManifest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticDeadLetter {
     pub intent: SemanticStageIntent,
     pub attempt: u32,
@@ -333,6 +340,7 @@ pub struct SemanticDeadLetter {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticDeadLetterDraft {
     pub intent: SemanticStageIntent,
     pub attempt: u32,

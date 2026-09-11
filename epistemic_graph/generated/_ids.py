@@ -259,6 +259,7 @@ METHOD_IDS = frozenset(
         "IndexRepository",
         "ObserveScreen",
         "AddEmbedding",
+        "SemanticIndex",
         "SemanticSearch",
         "Discover",
         "Quantum",

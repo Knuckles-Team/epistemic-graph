@@ -6,6 +6,7 @@ use super::state::SemanticIndexError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticPolicyComponents {
     pub rbac_policy_revision: u64,
     pub rbac_policy_digest: String,
@@ -17,6 +18,7 @@ pub struct SemanticPolicyComponents {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticPolicyIdentity {
     pub tenant_id: String,
     pub effective_actor_scope: String,
