@@ -968,13 +968,25 @@ mod tests {
     }
 
     fn context(tenant: &str) -> RequestContext {
+        context_with_scopes(tenant, &["work:delegate"])
+    }
+
+    /// A request context asking for exactly `scopes`.
+    ///
+    /// `validate_request_context` rejects a context that requests ANY scope the
+    /// verified carrier does not hold, and it runs BEFORE the `work:delegate`
+    /// gate. So a fixture that keeps `work:delegate` in the request context
+    /// while handing `bind_request` a caller without it is testing forged-scope
+    /// rejection, not the delegate-policy gate -- see
+    /// `missing_delegate_policy_is_rejected_before_library_lookup`.
+    fn context_with_scopes(tenant: &str, scopes: &[&str]) -> RequestContext {
         RequestContext {
             schema_version: RequestContextSchemaVersion::V2,
             request_id: "request:1".into(),
             subject_id: "subject:1".into(),
             tenant_id: tenant.into(),
             agent_id: "agent:1".into(),
-            scopes: vec!["work:delegate".into()],
+            scopes: scopes.iter().map(|scope| (*scope).to_string()).collect(),
             audience: "epistemic-graph".into(),
             authentication_method: RequestContextAuthenticationMethod::LocalProcess,
             policy_version: "policy-test".into(),
@@ -1048,9 +1060,16 @@ mod tests {
     }
 
     fn request(tenant: &str, entry: &AgentLibraryEntry) -> KgDelegateRequest {
+        request_with_context(context(tenant), entry)
+    }
+
+    fn request_with_context(
+        context: RequestContext,
+        entry: &AgentLibraryEntry,
+    ) -> KgDelegateRequest {
         KgDelegateRequest {
             schema_version: KgDelegateSchemaVersion::V1,
-            context: context(tenant),
+            context,
             delegation_id: "delegation:1".into(),
             run_id: "run:1".into(),
             trace_id: "trace:run:1".into(),
@@ -1093,9 +1112,14 @@ mod tests {
             bind_request(request("tenant:1", &entry), &verified(), &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap();
         assert_eq!(bound.work_item.context.tenant_id, "tenant:1");
         assert_eq!(bound.work_item.provenance_refs.len(), 4);
+        // The delegation's capability currency IS the retained entry's tool-set
+        // digest in unprefixed form -- a real content digest over the pinned
+        // tools, not a fixture constant. `execution_digest_mismatch_is_rejected
+        // _before_lowering` proves any other value is refused, so asserting the
+        // derived value here is what binds the lowered WorkItem to the entry.
         assert_eq!(
             bound.work_item.metadata["capability_digest"],
-            json!(digest('3'))
+            json!(unprefixed_digest("tool_set_digest", &entry.tool_set_digest()).unwrap())
         );
         assert_eq!(
             bound.work_item.metadata["agent_model_profile_digest"],
@@ -1142,9 +1166,14 @@ mod tests {
         let entry = agent_entry();
         let caller =
             VerifiedRequestContext::verified_for_test_with_scopes("agent:1", "tenant:1", &[]);
+        // The request must not ASK for `work:delegate` either, or the earlier
+        // forged-scope check fires first and the delegate-policy gate this test
+        // names is never reached.
+        let request =
+            request_with_context(context_with_scopes("tenant:1", &[]), &entry);
         let error =
-            bind_request(request("tenant:1", &entry), &caller, &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap_err();
-        assert!(error.contains("work:delegate"));
+            bind_request(request, &caller, &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap_err();
+        assert!(error.contains("work:delegate"), "{error}");
     }
 
     #[test]

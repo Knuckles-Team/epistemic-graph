@@ -946,14 +946,33 @@ async fn reconcile_txn_candidate(
         Ok(None) => return Ok(None),
         Err(error) => return Err(error),
     };
-    if !record_matches_reconcile_candidate(
+    match reconcile_candidate_mismatch(
         &record,
         &batch_id,
         &graph,
         expected_tenant,
         expected_principal,
     ) {
-        return Err("committed transaction receipt does not match caller scope".to_string());
+        ReconcileCandidateMatch::Match => {}
+        // This row is simply not the committed child this fan-out is looking
+        // for. Advance to the next (graph, namespace) candidate -- see this
+        // function's own contract. The `txn` namespace ALWAYS resolves first
+        // and always holds the ControlPlane parent receipt, which is
+        // native-scoped and so can never satisfy a graph-scoped predicate;
+        // treating that as a hard failure aborted every reconcile before the
+        // `crossmodal` child was ever read.
+        ReconcileCandidateMatch::OtherCandidate => return Ok(None),
+        // A committed, graph-scoped receipt at THIS exact coordinator key that
+        // belongs to another tenant or principal is a real scope violation, not
+        // a fan-out miss: fail closed rather than skip to another candidate.
+        // Name the axis that disagreed, never its value -- which axis failed is
+        // operator-actionable, while the stored tenant/principal is exactly what
+        // this check exists to withhold.
+        ReconcileCandidateMatch::ForeignAuthority(field) => {
+            return Err(format!(
+                "committed transaction receipt does not match caller scope ({field})"
+            ))
+        }
     }
     let bytes = record
         .result_msgpack
@@ -993,34 +1012,100 @@ async fn reconcile_txn_candidate(
     Ok(Some(Response::ok(req_id, reconciled)))
 }
 
-/// Whether a durable batch record is the committed receipt this reconcile
-/// candidate is looking for: status, batch id, graph, tenant, and principal
-/// must all match the caller's scope.
-fn record_matches_reconcile_candidate(
+/// How one durable batch record relates to the committed child this reconcile
+/// candidate is looking for.
+enum ReconcileCandidateMatch {
+    /// Status, batch id, graph, tenant and principal all match the caller's
+    /// scope: this IS the committed receipt.
+    Match,
+    /// A durable row that is not this fan-out's target at all -- a
+    /// non-Committed row, a different batch id, or a differently scoped
+    /// (for example native/ControlPlane) batch. The caller keeps looking.
+    OtherCandidate,
+    /// A committed, correctly scoped receipt that belongs to a DIFFERENT
+    /// authority. Carries the name of the axis that disagreed.
+    ForeignAuthority(&'static str),
+}
+
+/// Classify a durable batch record against what this reconcile candidate is
+/// looking for.
+///
+/// The split matters: `reconcile_committed_txn` fans out over every
+/// (resident graph x namespace) pair, so most candidates are legitimately
+/// "some other row" and must not abort the search, while a foreign-authority
+/// row at the caller's own coordinator key must.
+fn reconcile_candidate_mismatch(
     record: &crate::mutation_batch::MutationBatchRecord,
     batch_id: &str,
     graph: &str,
     expected_tenant: Option<&str>,
     expected_principal: &str,
-) -> bool {
-    record.status == crate::mutation_batch::MutationBatchStatus::Committed
-        && record.batch.batch_id == batch_id
-        && record
+) -> ReconcileCandidateMatch {
+    if record.status != crate::mutation_batch::MutationBatchStatus::Committed
+        || record.batch.batch_id != batch_id
+        || record
             .batch
             .identity
             .scope()
             .graph_name()
             .map(|name| name.as_str())
-            == Some(graph)
-        // The graph and tenant are independent verified scopes.  A production
-        // carrier may legitimately write graph `g` under tenant `t`, so matching
-        // the tenant to `graph` would reject a valid crash-recovery receipt and
-        // could fall through to a duplicate commit.  Reconcile against the
-        // verified tenant carried by the retry instead.
-        && expected_tenant
-            .map(|tenant| record.batch.identity.tenant().as_str() == tenant)
-            .unwrap_or(true)
-        && matches!(record.committing_actor(), Ok(actor) if actor == expected_principal)
+            != Some(graph)
+    {
+        return ReconcileCandidateMatch::OtherCandidate;
+    }
+    // The graph and tenant are independent verified scopes.  A production
+    // carrier may legitimately write graph `g` under tenant `t`, so matching
+    // the tenant to `graph` would reject a valid crash-recovery receipt and
+    // could fall through to a duplicate commit.  Reconcile against the
+    // verified tenant carried by the retry instead.
+    //
+    // NOT via `record.batch.identity.tenant()`: a graph-scoped batch is
+    // re-stamped onto the shard's own scope when the kernel-owned graph shard
+    // admits it (`redb_store::shard`'s `bound.identity = graph_scope_identity`),
+    // so the persisted identity tenant is the reserved `__shard__` for EVERY
+    // caller -- deliberately, because the caller's tenant "is request-boundary
+    // authorization and outbox attribution; it is deliberately NOT part of the
+    // scope identity" (`eg_storage::owner::row_key::GRAPH_SHARD_TENANT`).
+    // Comparing it to a caller tenant can therefore never match, which left
+    // crash-recovery reconciliation permanently unable to adopt its own
+    // committed cross-modal child.  The caller's scope survives on the batch's
+    // outbox attribution, exactly like the principal `committing_actor()`
+    // reads, so reconcile against that.
+    if let Some(tenant) = expected_tenant {
+        if committed_scope_digest(record) != Some(caller_scope_digest(tenant, graph)) {
+            return ReconcileCandidateMatch::ForeignAuthority("tenant");
+        }
+    }
+    if !matches!(record.committing_actor(), Ok(actor) if actor == expected_principal) {
+        return ReconcileCandidateMatch::ForeignAuthority("principal");
+    }
+    ReconcileCandidateMatch::Match
+}
+
+/// The caller mutation scope a batch was compiled under, as
+/// `server::mutation_batch::compile` stamps it onto every batch's outbox
+/// attribution: `sha256(tenant || 0x00 || graph)`.
+fn caller_scope_digest(tenant: &str, graph: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(tenant.as_bytes());
+    digest.update([0]);
+    digest.update(graph.as_bytes());
+    hex::encode(digest.finalize())
+}
+
+/// The caller mutation scope recorded on a committed batch, or `None` when the
+/// batch carries no scope attribution at all. The sibling of
+/// `MutationBatchRecord::committing_actor`, which reads the actor header of the
+/// same attribution row.
+fn committed_scope_digest(record: &crate::mutation_batch::MutationBatchRecord) -> Option<String> {
+    record
+        .batch
+        .outbox
+        .iter()
+        .find_map(|intent| intent.headers.get("scope_sha256"))
+        .filter(|digest| !digest.is_empty())
+        .cloned()
 }
 
 /// Handle the transaction methods. Returns `Err(method)` for any non-txn method so
