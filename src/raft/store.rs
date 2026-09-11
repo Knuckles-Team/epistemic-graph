@@ -1203,7 +1203,7 @@ impl EgStore {
             .transpose()?;
         #[cfg(not(feature = "modality-serving"))]
         let expected_result: Option<Vec<u8>> = None;
-        if Self::idempotent_replay_record_mismatches(
+        if let Some(mismatch) = Self::idempotent_replay_record_mismatches(
             &record,
             req,
             batch_id,
@@ -1211,7 +1211,12 @@ impl EgStore {
             operation_matches,
             expected_result.as_deref(),
         ) {
-            return Err("replicated child receipt conflicts with replay authority".to_string());
+            // Name the term that fired. A bare "conflicts with replay authority"
+            // says a seven-way disjunction was true and nothing about WHICH,
+            // which is the difference between a one-run diagnosis and a guess.
+            return Err(format!(
+                "replicated child receipt conflicts with replay authority: {mismatch}"
+            ));
         }
         #[cfg(feature = "modality-serving")]
         let modality_replay = modality_command.is_some();
@@ -1377,8 +1382,14 @@ impl EgStore {
     /// The idempotent-replay record's mismatch-against-authority check
     /// (CX WB1-EG-01 CCN reduction) — same rationale as
     /// `change_envelope_mismatches_authority`: a long `||` chain contributes one
-    /// branch per term regardless of which function it lives in. Pure
-    /// extract-method, byte-identical behaviour.
+    /// branch per term regardless of which function it lives in.
+    ///
+    /// Returns the NAME of the first term that fired rather than a bare `bool`.
+    /// The caller's error used to say only that "the replicated child receipt
+    /// conflicts with replay authority", which is a seven-way disjunction
+    /// reported as one sentence: every failure of this guard cost a bisect to
+    /// learn which field disagreed. The names are static strings, carry no
+    /// tenant/principal/graph value, and so keep the diagnostic privacy-safe.
     #[allow(clippy::too_many_arguments)]
     fn idempotent_replay_record_mismatches(
         record: &crate::mutation_batch::MutationBatchRecord,
@@ -1387,7 +1398,7 @@ impl EgStore {
         expected_principal: &str,
         operation_matches: bool,
         expected_result: Option<&[u8]>,
-    ) -> bool {
+    ) -> Option<&'static str> {
         // `identity.scope().graph_name()` is `None` for a native (non-graph)
         // scope; fail closed instead of letting a native-scope record silently
         // compare equal to a graph name (no sentinel/empty-string substitution
@@ -1396,14 +1407,40 @@ impl EgStore {
             Some(graph_name) => graph_name.as_str() == req.graph_name.as_str(),
             None => false,
         };
-        record.status != crate::mutation_batch::MutationBatchStatus::Committed
-            || record.batch.batch_id != batch_id
-            || record.batch.identity.tenant().as_str() != req.mutation.tenant_scope.as_str()
-            || !graph_matches
-            || !matches!(record.committing_actor(), Ok(actor) if actor == expected_principal)
-            || !operation_matches
-            || expected_result
-                .is_some_and(|expected| record.result_msgpack.as_deref() != Some(expected))
+        if record.status != crate::mutation_batch::MutationBatchStatus::Committed {
+            return Some("durable record is not Committed");
+        }
+        if record.batch.batch_id != batch_id {
+            return Some("durable batch id differs from the authority's");
+        }
+        // The caller's tenant, read from the envelope's preserved authority --
+        // NOT from `record.batch.identity`, which the durable bind path rewrote
+        // to the shard's own reserved scope before storing (see
+        // `MutationBatchRecord::committing_tenant`). Comparing the rebound
+        // identity meant comparing `__shard__` against a caller tenant that is
+        // forbidden to BE `__shard__`, so this term fired on EVERY replicated
+        // replay: the idempotent-replay fast path this guard protects -- the one
+        // Phase-2 recovery depends on to return a cached receipt instead of
+        // re-applying -- was unreachable, for every caller, on every graph.
+        if !matches!(record.committing_tenant(), Ok(tenant) if tenant == req.mutation.tenant_scope.as_str())
+        {
+            return Some("durable tenant scope differs from the authority's");
+        }
+        if !graph_matches {
+            return Some("durable scope names a different graph (or no graph at all)");
+        }
+        if !matches!(record.committing_actor(), Ok(actor) if actor == expected_principal) {
+            return Some("durable committing actor differs from the authority's principal");
+        }
+        if !operation_matches {
+            return Some("durable operation digest differs from the proposed method");
+        }
+        if expected_result
+            .is_some_and(|expected| record.result_msgpack.as_deref() != Some(expected))
+        {
+            return Some("durable result differs from the expected replay result");
+        }
+        None
     }
 
     /// Ordinary (non-native, non-ChangeEnvelope) replicated graph mutation:

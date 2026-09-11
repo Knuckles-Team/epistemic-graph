@@ -1325,6 +1325,38 @@ mod tests {
             .register_graph("g", "g", GraphType::Global)
             .await
             .expect("register");
+        // One real row through the graph's OWN scope, exactly as this module's
+        // `seed()` helper does for every other test here.
+        //
+        // It is not decoration. `register_graph` writes the catalog entry under
+        // the shard's CONTROL scope, and a graph's own scope is bound LAZILY on
+        // first use (CONCEPT:EG-KG.sharding.lazy-graph-catalog), so a graph that
+        // is registered and never read or written has NO scope binding at all.
+        // The EG-030 migration engine that backs both `restore_bundle` and online
+        // resharding then refuses to move it: `Shard::graft_graph_from_with_payload`
+        // fails with "graft source scope is not bound and destination has no
+        // recovery binding", because it cannot tell "this scope never existed"
+        // from "this scope was retired by a completed Phase C and its destination
+        // marker is missing". Without this write, that refusal -- not the census
+        // property named above -- is what this test measured.
+        //
+        // KNOWN GAP, reported rather than guessed at (eg-f3 burndown,
+        // 2026-09-11): "registered but never written" is a reachable production
+        // state, so a store containing such a graph cannot currently be
+        // backed up and restored. Closing it means teaching the graft preflight
+        // to distinguish the two cases from durable evidence, which is a change
+        // to graft semantics and belongs with the EG-030 owner -- the same
+        // caution `shard_migrate.rs` records about its own snapshot rebinding.
+        backend
+            .record_durable(
+                "g",
+                &Method::AddNode {
+                    node_id: "census-a".into(),
+                    properties_msgpack: props(serde_json::json!({"type": "Task"})),
+                },
+            )
+            .await
+            .expect("seed one row through the graph's own scope");
         backend.shutdown();
         // `shutdown()` only stops the shard writer thread (which releases the
         // graph-N.redb file lock); it does NOT drop `admin_mutations`/`node_info`/
@@ -1361,18 +1393,56 @@ mod tests {
         backend.shutdown();
         drop(backend);
 
-        // ── restore into a FRESH dir, which also validates the bundle's manifest ──
-        restore_bundle(&bundle, &restored, 1).expect("restore");
-
-        // (1) + (2): the bundle file's own census, compared table by table against the
-        // source's. Taken after the restore so nothing here can perturb the bytes the
-        // manifest's digests were computed over.
+        // (1) + (2): the bundle file's own census, compared table by table against
+        // the source's -- taken HERE, BEFORE the restore.
+        //
+        // It used to be taken after, on the reasoning that "nothing here can
+        // perturb the bytes the manifest's digests were computed over". The
+        // reader does not, but `restore_bundle` itself does: it runs
+        // `shard_migrate::migrate_shards` DIRECTLY against the bundle directory,
+        // and a migration MOVES each graph -- "the graft copies every ledger row
+        // verbatim and retires the source scope", "the move consumes the
+        // migration snapshot, not the live source" (`shard_migrate.rs`'s module
+        // doc). So by the time the old code read the bundle's census, every
+        // migrated graph's owner rows had been retired OUT of the bundle file,
+        // and the comparison reported `nodes` as 1 row in the source and 0 in
+        // the bundle -- a difference the restore created, not one `backup()`
+        // left. `src` is untouched by the restore, so only the bundle read had
+        // to move.
         let source_evidence = {
             let kernel = shard_kernel(&shard0);
             eg_storage::strict_recovery_evidence(&kernel).expect("source census")
         };
+        // The bundle's census is read from a REBOUND COPY, never from the bundle
+        // itself, because BOTH ways of touching the bundle directly are
+        // destructive to this assertion:
+        //
+        //  * reading it in place: `shard_kernel` opens the file as a kernel
+        //    owner, and an open re-materializes and re-validates the declared
+        //    table census -- a write. The bundle's own portable-file digests then
+        //    no longer match its manifest and `restore_bundle` refuses.
+        //  * reading it after the restore: the restore MOVES each graph out of
+        //    the bundle (`shard_migrate.rs`: "the graft copies every ledger row
+        //    verbatim and retires the source scope", "the move consumes the
+        //    migration snapshot"), so the census then describes an evacuated
+        //    file rather than what `backup()` produced.
+        //
+        // A copy is unopenable at its new path until its `(dev, ino)`-derived
+        // physical root is rebound, which is exactly what `rebind_copied_store`
+        // is for. Rebinding writes only the physical-identity tables, which are
+        // in neither `owner_table_names` nor `declared_table_names` (see
+        // `eg_storage::owner_table_names`' doc: "the ledger and the three
+        // physical-identity tables are never in this set"), so the census this
+        // reads is byte-for-byte the one the bundle carries.
+        let census_copy = root.join("bundle-census");
+        std::fs::create_dir_all(&census_copy).unwrap();
+        let bundle_shard0 = bundle.join(shard_filename(0));
+        let census_shard0 = census_copy.join(shard_filename(0));
+        std::fs::copy(&bundle_shard0, &census_shard0).unwrap();
+        eg_storage::rebind_copied_store(&census_shard0, &bundle_shard0)
+            .expect("rebind the bundle census copy");
         let bundle_evidence = {
-            let kernel = shard_kernel(&bundle.join(shard_filename(0)));
+            let kernel = shard_kernel(&census_shard0);
             eg_storage::strict_recovery_evidence(&kernel).expect("bundle census")
         };
         let mut inventory: Vec<&str> = bundle_evidence
@@ -1411,6 +1481,11 @@ mod tests {
             census_rows(&bundle_evidence, ENCRYPTION_CANARY.name()) > 0,
             "the sealed canary + key-binding rows must be in the bundle"
         );
+
+        // ── restore into a FRESH dir, which also validates the bundle's manifest ──
+        // Deliberately AFTER the bundle census above: the restore's EG-030 graft
+        // consumes the bundle (see that block's comment).
+        restore_bundle(&bundle, &restored, 1).expect("restore");
 
         // (3) the tables WD5-BUG-04 named, still present after backup AND restore.
         let restored_shard0 = restored.join(shard_filename(0));

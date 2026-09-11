@@ -865,6 +865,19 @@ mod lifecycle_failure_tests {
         crate::test_support::temp_dir("eg-embedded-lifecycle", tag)
     }
 
+    /// Hold the ambient encryption environment still for a durable test's body.
+    ///
+    /// Same mechanism and same reason as `embedded::tests::durable_env_guard`
+    /// (see that function's doc): `EmbeddedRedbStore::open` resolves its at-rest
+    /// cipher from the process-global `EPISTEMIC_GRAPH_ENCRYPTION_KEY` once per
+    /// open, so any body that writes rows and then REOPENS the same directory
+    /// needs that env to hold still across both opens. Taken by every durable
+    /// test in this module, not only the ones observed to fail.
+    #[must_use]
+    fn durable_env_guard() -> tokio::sync::RwLockReadGuard<'static, ()> {
+        crate::crypto::acquire_test_env_read_lock_blocking()
+    }
+
     fn has_graph(engine: &EmbeddedEngine, name: &str) -> bool {
         engine.list_graphs().iter().any(|(graph, _)| graph == name)
     }
@@ -891,6 +904,7 @@ mod lifecycle_failure_tests {
 
     #[test]
     fn checkpoint_reopen_checkpoint_adopts_commons_version() {
+        let _env = durable_env_guard();
         let dir = temp_dir("commons-checkpoint-reopen");
         {
             let engine = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
@@ -914,6 +928,7 @@ mod lifecycle_failure_tests {
 
     #[test]
     fn failed_create_is_not_published_before_failure_and_retry_survives_reopen() {
+        let _env = durable_env_guard();
         let dir = temp_dir("create-register-failure");
         let engine = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
         let (registration_entered, registration_release) = engine
@@ -964,6 +979,7 @@ mod lifecycle_failure_tests {
 
     #[test]
     fn failed_delete_keeps_projection_and_retry_purges_across_reopen() {
+        let _env = durable_env_guard();
         let dir = temp_dir("delete-purge-failure");
         {
             let engine = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();

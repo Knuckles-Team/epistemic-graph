@@ -39,6 +39,41 @@ pub(crate) fn sanitize(name: &str) -> String {
     bounded
 }
 
+/// Recover the logical graph name from a durable key produced by [`sanitize`].
+///
+/// `sanitize` is a byte escaping, so it is EXACTLY invertible for every ordinary
+/// name -- that reversibility is the property its own doc claims and the reason
+/// it replaced the older lossy character-replacement scheme. The one form that
+/// cannot be inverted is the bounded `~h<sha256>` key a name longer than 200
+/// escaped bytes falls back to; a digest has no preimage, so this returns `None`
+/// for it rather than inventing one.
+pub(crate) fn unsanitize(key: &str) -> Option<String> {
+    if key.starts_with("~h") {
+        return None;
+    }
+    let bytes = key.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'~' => {
+                let hex = key.get(index + 1..index + 3)?;
+                out.push(u8::from_str_radix(hex, 16).ok()?);
+                index += 3;
+            }
+            byte => {
+                out.push(byte);
+                index += 1;
+            }
+        }
+    }
+    let name = String::from_utf8(out).ok()?;
+    // Round-trip or refuse: a key this does not re-encode to is not a key this
+    // function produced, and guessing at it would put a wrong name in the
+    // durable catalog.
+    (sanitize(&name) == key).then_some(name)
+}
+
 /// Apply an Ebbinghaus decay sweep across every registered graph.
 pub async fn decay_all(
     state: &Arc<RwLock<ServerState>>,

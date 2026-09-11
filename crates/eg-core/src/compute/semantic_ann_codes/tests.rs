@@ -2616,6 +2616,14 @@ fn s6_generation_two_demotes_the_previous_live_binding_in_one_write() {
     let pending = pending_binding(
         "sql-source:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:epoch:1",
     );
+    // Commit the prior binding DURABLY first, the way the sibling
+    // `real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusal`
+    // does. The block below writes `pending` inside the write it is about to
+    // ABORT, so without this the row never existed durably and
+    // `read_binding()` -- which is head-pointer driven and reads
+    // `SEMANTIC_HEADS` first -- correctly returned `None`, not `pending`: the
+    // rollback assertion was measuring an uncommitted write, not a rollback.
+    refusal_codes.store_binding(&pending, 1).unwrap();
     let owner = refusal_codes.bind_for_write(1).unwrap();
     let read = refusal_codes.kernel.read_scope(&owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();

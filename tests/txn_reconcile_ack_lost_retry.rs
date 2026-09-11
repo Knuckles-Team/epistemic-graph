@@ -328,8 +328,16 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
     // backend before retrying so this covers the crash/restart path as well as a
     // lost response: the registry remains the serving projection, while the
     // receipt and committed child are read from the reopened authority.
-    backend.shutdown();
-    let restarted_backend = test_support::reopen_with_bounded_retry(
+    // `shutdown()` stops the writer thread but does NOT close the redb
+    // `Database` -- that happens only when the last owning Arc drops, and redb
+    // holds its advisory per-file lock until then. `state.persistence` still held
+    // a clone here, so the reopen could never succeed; the old bounded RETRY just
+    // turned that permanent leak into "Database already open. Cannot acquire
+    // lock." two seconds later. Clear the state's clone, hand the last one over,
+    // and let the helper prove exclusivity before opening.
+    state.write().await.persistence = None;
+    let restarted_backend = test_support::reopen_after_sole_reference(
+        backend,
         || test_support::open_redb_backend(dir_s.clone()),
         "reopen txn reconcile backend",
     )
@@ -582,12 +590,40 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
             ),
             other => panic!("unexpected certification phase {other}"),
         }
-        state
-            .write()
+        // Install the serving projection AT THE DURABLE VERSION, the way a real
+        // restart does.
+        //
+        // `Registry::create_graph` passes `source_snapshot_version = 0`, so the
+        // fresh core's OCC counter starts at 0 while the authority is already at
+        // the version the pre-fault `CreateGraph` committed. Recovery then bumps
+        // the counter RELATIVELY (`mark_dirty` -> `fetch_add(1)`) and lands one
+        // behind the truth, while the terminal replay re-syncs it ABSOLUTELY
+        // (`install_committed_snapshot` -> `version.store(committed_version)`)
+        // and jumps to the truth -- so the "terminal replay must not duplicate
+        // the child" comparison below measured the fixture's own version drift,
+        // not a duplicate write. Adopt the durable version first and the two
+        // paths agree, exactly as they do in a served process.
+        let durable_version = backend
+            .read_mutation_graph_version(FAULT_GRAPH)
             .await
-            .registry
-            .create_graph(FAULT_GRAPH, GraphType::Global, None)
-            .expect("install graph serving projection after restart");
+            .expect("read the durable graph version for the restarted projection")
+            .unwrap_or(0);
+        {
+            let mut guard = state.write().await;
+            guard
+                .registry
+                .create_graph(FAULT_GRAPH, GraphType::Global, None)
+                .expect("install graph serving projection after restart");
+            if durable_version > 0 {
+                guard
+                    .registry
+                    .get(FAULT_GRAPH)
+                    .expect("restarted projection is resident")
+                    .core
+                    .adopt_materialized_version(durable_version)
+                    .expect("a restarted projection adopts the authoritative version");
+            }
+        }
 
         let recovered: Response = Box::pin(dispatch(
             &state,
@@ -998,10 +1034,18 @@ async fn native_lifecycle_reopen_refuses_stale_begin_and_stage_success() {
     // Reopen the durable tier and discard the in-process handle, exactly as a
     // process restart does.  The durable lifecycle receipt must not turn into
     // a dead txn id on a fresh stable-key retry.
-    state.write().await.open_txns.clear();
-    backend.shutdown();
-    drop(backend);
-    let reopened = test_support::reopen_with_bounded_retry(
+    // Dropping the LOCAL handle is not enough: `state.persistence` holds another
+    // clone, and redb keeps its per-file lock until the last one goes. Clearing
+    // it first is what makes the reopen possible at all -- the old bounded RETRY
+    // around the open could only ever report the resulting permanent
+    // "Database already open. Cannot acquire lock." after 2s of retrying.
+    {
+        let mut guard = state.write().await;
+        guard.open_txns.clear();
+        guard.persistence = None;
+    }
+    let reopened = test_support::reopen_after_sole_reference(
+        backend,
         || test_support::open_redb_backend(dir_s.clone()),
         "reopen native lifecycle backend",
     )

@@ -52,7 +52,7 @@ fn harness_isolation() -> crate::isolation::IsolationLayer {
     super::harness_support::current_isolation(XSHARD_HARNESS_TEST_AGENT)
 }
 
-fn fresh_dir(tag: &str) -> String {
+async fn fresh_dir(tag: &str) -> String {
     // The user-facing `Commit` handler seals a durable transaction recovery plan
     // (`begin_txn_receipt` → `seal_txn_recovery_plan`) through the value cipher, which the
     // `security` feature resolves ONCE per process from this key at backend open. Provision
@@ -60,13 +60,33 @@ fn fresh_dir(tag: &str) -> String {
     // plan. Encryption is symmetric and transparent to every durable round-trip these tests
     // make (2PC prepare slices seal+unseal; the decision is a raw state byte), so the
     // coordinator-path tests behave identically with it set.
-    static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
-    ENCRYPTION_KEY.call_once(|| {
-        std::env::set_var(
-            crate::crypto::ENCRYPTION_KEY_ENV,
-            "xshard-harness-recovery-key",
-        )
-    });
+    //
+    // UNDER THE WRITE GUARD, and that is the whole point of this being async.
+    // Setting `EPISTEMIC_GRAPH_ENCRYPTION_KEY` is a PROCESS-GLOBAL mutation, and
+    // this was the one provisioner in the crate that performed it holding
+    // nothing: `redb_backend`'s two `Once`s fire inside callers that already hold
+    // `crypto::acquire_test_env_lock()`, and every explicit env guard takes it.
+    // A lock-free mutation lands at an arbitrary instant, including between some
+    // OTHER test's write of plaintext rows and its reopen -- which is exactly how
+    // `embedded::lifecycle_failure_tests::checkpoint_reopen_checkpoint_adopts_commons_version`
+    // ("encrypted durable value is missing sealed framing"),
+    // `redb_backend::tests::parallel_load_recovers_all_shards_off_the_writer` and
+    // the cluster/gauntlet restart tests ("... does not match the key that
+    // previously encrypted this store") failed under parallelism while passing
+    // single-threaded. Taking the WRITE guard for the duration of the one-time
+    // provisioning excludes every reader for exactly as long as the ambient key
+    // is unstable, which is what the read/write split exists for; after the
+    // `OnceCell` is initialized this costs nothing on any later call.
+    static ENCRYPTION_KEY: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+    ENCRYPTION_KEY
+        .get_or_init(|| async {
+            let _env_lock = crate::crypto::acquire_test_env_lock().await;
+            std::env::set_var(
+                crate::crypto::ENCRYPTION_KEY_ENV,
+                "xshard-harness-recovery-key",
+            );
+        })
+        .await;
     // Keep directory lifecycle and UTF-8 validation in the shared harness fixture.
     fixture::fresh_dir("eg-xshard", tag)
 }
@@ -177,7 +197,7 @@ async fn shutdown_releases_accepted_connection_and_backend_fds_before_reopen() {
     let baseline = process_fd_count();
 
     for cycle in 0..CYCLES {
-        let dir = fresh_dir(&format!("eg-xshard-fd-lifecycle-cycle-{cycle}"));
+        let dir = fresh_dir(&format!("eg-xshard-fd-lifecycle-cycle-{cycle}")).await;
         let backend = fixture::open_backend(&dir).expect("open redb");
         let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
         let before_connection = process_fd_count();
@@ -288,7 +308,7 @@ fn writer_plus_readonly_txn(txn_id: &str, a_node: &str) -> CrossShardTxn {
 /// a txn spanning two groups IS. This is exactly the gate `Commit` checks.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn span_detection_routes_single_group_to_fast_path() {
-    let dir = fresh_dir("span");
+    let dir = fresh_dir("span").await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
 
@@ -319,7 +339,7 @@ async fn span_detection_routes_single_group_to_fast_path() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cross_shard_commit_is_atomic_on_all_participants() {
-    let dir = fresh_dir("happy");
+    let dir = fresh_dir("happy").await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
@@ -357,7 +377,7 @@ async fn cross_shard_commit_is_atomic_on_all_participants() {
 /// the participant is unreachable to the coordinator.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn killed_participant_during_prepare_aborts_with_no_partial_commit() {
-    let dir = fresh_dir("killprep");
+    let dir = fresh_dir("killprep").await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
@@ -415,7 +435,7 @@ async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
     // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fresh_dir("recovercommit");
+    let dir = fresh_dir("recovercommit").await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let txn_id = "t-recover-commit";
     {
@@ -472,7 +492,7 @@ async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
     // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fresh_dir("recoverabort");
+    let dir = fresh_dir("recoverabort").await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let txn_id = "t-recover-abort";
     {
@@ -521,8 +541,17 @@ async fn txn_handle(
     _caller: Option<&str>,
     method: Method,
 ) -> Result<Response, Method> {
+    // A per-request idempotency key, exactly as a signed client envelope carries
+    // (`auth.rs` binds it into the MAC per request). The shared
+    // `verified_for_test` helper pins a CONSTANT key, and this harness issues two
+    // `TxnAddNode` calls under one identity -- so both minted the identical
+    // transaction-lifecycle saga key and the second was refused with
+    // `IDEMPOTENCY_CONFLICT`. See `verified_for_test_with_idempotency_key`.
     let context =
-        crate::server::auth::VerifiedRequestContext::verified_for_test(XSHARD_HARNESS_TEST_AGENT);
+        crate::server::auth::VerifiedRequestContext::verified_for_test_with_idempotency_key(
+            XSHARD_HARNESS_TEST_AGENT,
+            &format!("xshard-harness:{req_id}"),
+        );
     crate::server::handlers::txn::try_handle(
         state,
         req_id,
@@ -549,7 +578,7 @@ async fn wire_user_graphs(state: &Arc<RwLock<crate::server::ServerState>>, multi
 async fn bring_up_user_graphs(
     tag: &str,
 ) -> (String, fixture::Backend, Arc<MultiRaft>, HarnessState) {
-    let dir = fresh_dir(tag);
+    let dir = fresh_dir(tag).await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _coord, state) = bring_up(&dir, backend.clone()).await;
     wire_user_graphs(&state, &multi).await;
@@ -712,7 +741,7 @@ async fn user_multigraph_txn_atomic_under_participant_kill() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn read_only_participant_skips_prepare_and_phase2() {
-    let dir = fresh_dir("readonly");
+    let dir = fresh_dir("readonly").await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
@@ -819,7 +848,7 @@ fn three_writer_txn(txn_id: &str, a: &str, b: &str, c: &str) -> CrossShardTxn {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn parallel_prepare_multi_writer_commits_atomically() {
-    let dir = fresh_dir("parcommit");
+    let dir = fresh_dir("parcommit").await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_third_group(&multi).await;
@@ -862,7 +891,7 @@ async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
     // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fresh_dir("parrecover");
+    let dir = fresh_dir("parrecover").await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let txn_id = "t-par-recover";
     {
@@ -940,7 +969,7 @@ async fn add_decision_group(multi: &Arc<MultiRaft>) {
 /// scenarios. The caller still owns the returned handles and therefore controls each test's
 /// crash, recovery, and cleanup boundary.
 async fn bring_up_nonblocking(tag: &str) -> (String, fixture::Backend, Harness) {
-    let dir = fresh_dir(tag);
+    let dir = fresh_dir(tag).await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let harness = bring_up(&dir, backend.clone()).await;
     add_decision_group(&harness.0).await;
@@ -1308,7 +1337,7 @@ async fn bring_up_calvin(
     Arc<MultiRaft>,
     Arc<CrossShardCoordinator>,
 ) {
-    let dir = fresh_dir(tag);
+    let dir = fresh_dir(tag).await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
     (dir, backend, multi, Arc::new(coord))
@@ -1718,7 +1747,7 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
     const NODE_2: u64 = 2; // a peer node contributing an unrelated txn to the same epoch
     const BASE_EPOCH: u64 = 5;
 
-    let dir = fresh_dir("calvinepochrt");
+    let dir = fresh_dir("calvinepochrt").await;
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
     let coord = Arc::new(coord);
@@ -1933,7 +1962,7 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
 /// A normal cross-group commit is atomic across the two groups' DISTINCT shards.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cross_group_2pc_commits_atomically_across_distinct_shards() {
-    let dir = fresh_dir("xshard-ksharded-commit");
+    let dir = fresh_dir("xshard-ksharded-commit").await;
     let backend = fixture::open_backend_with_shards(&dir, 4096, 3).expect("open K=3 redb");
     assert_eq!(
         backend.as_redb().unwrap().shard_count(),
@@ -1968,7 +1997,7 @@ async fn cross_group_2pc_survives_crash_mid_prepare_across_distinct_shards() {
     // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fresh_dir("xshard-ksharded-crash");
+    let dir = fresh_dir("xshard-ksharded-crash").await;
     let backend = fixture::open_backend_with_shards(&dir, 4096, 3).expect("open K=3 redb");
     let txn_id = "t-ksharded-crash";
     {

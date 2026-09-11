@@ -404,10 +404,104 @@ pub fn canonical_payload_digest(
     )
 }
 
+/// Blank the AUTHORITY-STAMPED clock a dispatch writes into a request body.
+///
+/// `now_ms` on the resource/capacity request DTOs is not caller content. The
+/// protocol says so ("Dispatch must normalize/overwrite that field from the
+/// authoritative engine clock before authorization or persistence; a
+/// client-supplied timestamp is never trusted") and
+/// `dispatch::graph_pipeline::stamp_resource_and_capacity_timestamps`
+/// unconditionally rewrites it from `authoritative_now_ms()` on EVERY
+/// dispatch -- so two attempts of one operation carry two different values
+/// through no act of the caller's.
+///
+/// Because the field lives INSIDE the method body, it was hashed verbatim into
+/// the canonical payload digest and therefore into the stable
+/// `OperationReplayIdentity`. A genuine retry of any of these methods almost
+/// always lands on a different millisecond, so it presented a different stable
+/// identity under the same idempotency key and was refused with
+/// `IDEMPOTENCY_CONFLICT: ... was already used by a different operation`. No
+/// terminal WorkItem resource or capacity mutation could be retried at all.
+///
+/// This is the same exclusion the digest already applies to `created_at_ms`,
+/// the OCC expectation, the placement epoch and the request/trace ids -- the
+/// values "re-observed per attempt" listed in `canonical_payload_digest`'s own
+/// doc -- and the same normalization `redb_store::native_retry_method` has long
+/// applied to these exact fields for the older, lower-level native retry
+/// comparator that runs AFTER this identity check and so was never reached.
+/// `now_ms` stays fully live for the operation's effect (lease, expiry and
+/// fairness computation all still read the freshly stamped value); it simply
+/// stops being part of WHICH operation this is.
+/// The operation list with every authority-stamped clock blanked, for any
+/// producer that derives IDENTITY-BEARING bytes from it.
+///
+/// There is exactly one such rule and this is it. The outbox projection payload
+/// is folded into the same `canonical_payload_digest` as the operations
+/// themselves, so normalizing only one of the two halves leaves the identity
+/// varying per attempt just as before -- which is precisely what happened when
+/// `digest_operations` was normalized and `finish_batch`'s
+/// `projection_payload_for_operations` was not.
+pub fn identity_normalized_operations(
+    operations: &[MutationOperation],
+) -> std::borrow::Cow<'_, [MutationOperation]> {
+    use std::borrow::Cow;
+    if !operations
+        .iter()
+        .any(|operation| matches!(identity_normalized_method(&operation.method), Cow::Owned(_)))
+    {
+        return Cow::Borrowed(operations);
+    }
+    Cow::Owned(
+        operations
+            .iter()
+            .map(|operation| MutationOperation {
+                ordinal: operation.ordinal,
+                surface: operation.surface,
+                domain: operation.domain,
+                method: identity_normalized_method(&operation.method).into_owned(),
+            })
+            .collect(),
+    )
+}
+
+fn identity_normalized_method(
+    method: &crate::protocol::Method,
+) -> std::borrow::Cow<'_, crate::protocol::Method> {
+    use crate::protocol::Method;
+    use std::borrow::Cow;
+    let mut owned = match method {
+        Method::ReserveWorkItemResources { .. }
+        | Method::ReleaseWorkItemResources { .. }
+        | Method::ReclaimWorkItemResources { .. }
+        | Method::UpdateResourceHost { .. }
+        | Method::AcquireCapacity { .. }
+        | Method::RenewCapacity { .. }
+        | Method::ReleaseCapacity { .. }
+        | Method::ReclaimExpiredCapacity { .. }
+        | Method::UpdateCapacityCell { .. } => method.clone(),
+        other => return Cow::Borrowed(other),
+    };
+    match &mut owned {
+        Method::ReserveWorkItemResources { request }
+        | Method::ReleaseWorkItemResources { request }
+        | Method::ReclaimWorkItemResources { request } => request.now_ms = 0,
+        Method::UpdateResourceHost { request } => request.now_ms = 0,
+        Method::AcquireCapacity { request } => request.now_ms = 0,
+        Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
+            request.now_ms = 0
+        }
+        Method::ReclaimExpiredCapacity { request } => request.now_ms = 0,
+        Method::UpdateCapacityCell { request } => request.now_ms = 0,
+        _ => unreachable!("the clone arm above and this blanking arm must name the same methods"),
+    }
+    Cow::Owned(owned)
+}
+
 fn digest_operations(operations: &[MutationOperation]) -> Result<Digest256, String> {
     let mut folded = Digest256::framed(b"eg/canonical-payload-operations/v1", &[])?;
     for operation in operations {
-        let method = rmp_serde::to_vec_named(&operation.method).map_err(|e| e.to_string())?;
+        let normalized = identity_normalized_method(&operation.method);
+        let method = rmp_serde::to_vec_named(normalized.as_ref()).map_err(|e| e.to_string())?;
         let ordinal = operation.ordinal.to_be_bytes();
         folded = Digest256::framed(
             b"eg/canonical-payload-operation/v1",

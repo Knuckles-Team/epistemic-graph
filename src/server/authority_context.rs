@@ -212,6 +212,39 @@ impl VerifiedRequestContext {
     }
 
     /// Same shape as [`Self::verified_for_test_in_tenant`] but with an explicit
+    /// IDEMPOTENCY KEY, for fixtures that issue more than one request of the SAME
+    /// method tag under one identity.
+    ///
+    /// The shared helper pins a constant `test:{agent_id}` key, which is fine as
+    /// long as every call differs by method tag: a lifecycle saga key is
+    /// `opaque_coordinator_key("transaction-lifecycle", owner_scope,
+    /// "{tag}:{idempotency_key}")`, so `BeginTxn`/`TxnAddNode`/`TxnAddEmbedding`
+    /// separate on the tag alone. Two `TxnAddNode` calls do not: they mint the
+    /// IDENTICAL saga key and the second is refused with an
+    /// `IDEMPOTENCY_CONFLICT` naming a key that is byte-identical across
+    /// unrelated tests. A real client never hits this -- `auth.rs` binds a
+    /// per-request idempotency key into the signed envelope's MAC -- so the fix
+    /// belongs in the fixture, not in the key derivation.
+    #[cfg(test)]
+    pub(crate) fn verified_for_test_with_idempotency_key(
+        agent_id: &str,
+        idempotency_key: &str,
+    ) -> Self {
+        Self::from_verified_claims(
+            RequestContextClaims {
+                principal: format!("principal:{agent_id}"),
+                tenant: "tenant-shared".to_string(),
+                agent_id: agent_id.to_string(),
+                audience: "epistemic-graph".to_string(),
+                policy_version: "policy-test".to_string(),
+                scopes: vec!["kg:read".to_string()],
+                ..RequestContextClaims::default()
+            },
+            idempotency_key.to_string(),
+        )
+    }
+
+    /// Same shape as [`Self::verified_for_test_in_tenant`] but with an explicit
     /// scope set, for surfaces (`lake::rest`'s Iceberg-REST tests, NE-048) that
     /// need to exercise a carrier with a specific `kg:read`/`kg:write` grant
     /// rather than the shared fixture's fixed `kg:read`-only default.

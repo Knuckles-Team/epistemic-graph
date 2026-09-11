@@ -11,10 +11,34 @@ fn tmp_dir(tag: &str) -> PathBuf {
     crate::test_support::temp_dir("eg-embedded", tag)
 }
 
+/// Hold the ambient encryption environment still for a durable test's whole body.
+///
+/// `EmbeddedRedbStore::open` resolves its at-rest cipher ONCE per open, from the
+/// process-global `EPISTEMIC_GRAPH_ENCRYPTION_KEY` (`ValueCipher::from_env_checked`).
+/// Every test below that WRITES rows and then REOPENS the same directory
+/// therefore depends on that env not changing between its two opens — and the
+/// suite contains tests that deliberately set and unset it (`redb_backend`'s
+/// `EncryptionRequiredEnvGuard`, `crypto::tests::EnvGuard`). Without this guard
+/// a reopen could resolve a cipher the first open did not have and fail with
+/// "encrypted durable value is missing sealed framing"; with it, a key MUTATOR
+/// is excluded for exactly as long as a durable body runs, while the durable
+/// bodies still run concurrently with each other.
+///
+/// Bind it to a NAMED local (`let _env = durable_env_guard();`) as the first
+/// line of the test — `let _ = ...` drops it immediately and guards nothing.
+/// It is taken by EVERY test in this module that opens a durable store, not
+/// only the ones observed to fail: a lock held at some entrypoints and not
+/// others protects nothing.
+#[must_use]
+fn durable_env_guard() -> tokio::sync::RwLockReadGuard<'static, ()> {
+    crate::crypto::acquire_test_env_read_lock_blocking()
+}
+
 /// Open → write nodes/edges + a vector → read them back → run an algorithm + a
 /// semantic search; durability is on (a persist dir + default options).
 #[test]
 fn embedded_roundtrip_nodes_edges_vector_algo_search() {
+    let _env = durable_env_guard();
     let dir = tmp_dir("roundtrip");
     let eng = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
     assert!(eng.is_durable(), "a persist dir + durable ⇒ durable engine");
@@ -59,6 +83,7 @@ fn embedded_roundtrip_nodes_edges_vector_algo_search() {
 
 #[test]
 fn embedded_rejects_retired_single_file_layout() {
+    let _env = durable_env_guard();
     let dir = tmp_dir("retired-layout");
     std::fs::create_dir_all(&dir).unwrap();
     drop(redb::Database::create(dir.join("graph.redb")).unwrap());
@@ -76,6 +101,7 @@ fn embedded_rejects_retired_single_file_layout() {
 /// write is durable; commit-before-return survives a fresh process/handle).
 #[test]
 fn embedded_durable_close_and_reopen() {
+    let _env = durable_env_guard();
     let dir = tmp_dir("durable");
 
     {
@@ -122,6 +148,7 @@ fn embedded_durable_close_and_reopen() {
 /// must survive a reopen on its own (no `close`/`checkpoint` called).
 #[test]
 fn embedded_per_mutation_durable_without_checkpoint() {
+    let _env = durable_env_guard();
     let dir = tmp_dir("nocp");
     {
         let eng = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
@@ -143,6 +170,7 @@ fn embedded_per_mutation_durable_without_checkpoint() {
 /// embedded analogue of the server's `delete_then_recreate_same_name_keeps_new_writes`.
 #[test]
 fn embedded_delete_purges_durable_rows_across_reopen() {
+    let _env = durable_env_guard();
     let dir = tmp_dir("delete-purge");
     let recreated_incarnation;
     {
@@ -213,6 +241,7 @@ fn embedded_delete_purges_durable_rows_across_reopen() {
 /// other's snapshots.
 #[test]
 fn embedded_second_open_on_same_dir_is_refused_while_first_is_held() {
+    let _env = durable_env_guard();
     let dir = tmp_dir("single-writer");
     let first = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
 
@@ -282,6 +311,7 @@ fn embedded_sql_query() {
 #[cfg(feature = "query")]
 #[test]
 fn embedded_sqlite_equivalent_create_insert_select() {
+    let _env = durable_env_guard();
     let dir = tmp_dir("sqlite");
     {
         let eng = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();

@@ -182,6 +182,26 @@ pub(crate) async fn start_single_node_groups(
     .await
 }
 
+/// Start one local node the way a RESTART does: recover the durable graph image
+/// into the serving projection BEFORE any Raft group opens. See
+/// `harness_support::start_recovered_single_node_groups`.
+pub(crate) async fn start_recovered_single_node_groups(
+    dir: &str,
+    backend: Backend,
+    isolation: IsolationLayer,
+    auth_secret: &str,
+    group_ids: &[crate::raft::GroupId],
+) -> (Arc<crate::raft::multi::MultiRaft>, Arc<RwLock<ServerState>>) {
+    crate::raft::harness_support::start_recovered_single_node_groups(
+        dir,
+        backend,
+        isolation,
+        auth_secret,
+        group_ids,
+    )
+    .await
+}
+
 /// Start one local node, create groups, and assign named graphs to their owners.
 pub(crate) async fn start_routed_groups(
     dir: &str,

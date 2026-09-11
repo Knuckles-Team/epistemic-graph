@@ -588,7 +588,7 @@ async fn seed_delegation_library(cluster: &Cluster) -> eg_types::AgentLibraryEnt
     let policy_digest = draft.policy_digest.clone();
     let caller_principal = crate::server::mutation_batch::principal_fingerprint(AUTH_AGENT)
         .expect("harness caller principal fingerprint");
-    let mut retained = None;
+    let mut retained: Option<eg_types::AgentLibraryEntry> = None;
     for node_id in cluster.all_ids() {
         let state = state_for(cluster, node_id);
         let store = state
@@ -624,8 +624,39 @@ async fn seed_delegation_library(cluster: &Cluster) -> eg_types::AgentLibraryEnt
             })
             .expect("publish selected Agent Library revision");
         if let Some(previous) = retained.as_ref() {
-            assert_eq!(previous, &result.entry);
+            // Every node publishes the SAME definition, so every node's pins --
+            // and therefore its `definition_digest` -- are identical. The two
+            // TIMESTAMP fields deliberately are not: `AgentLibraryStore::publish`
+            // overrides the caller's transport timestamp with its own
+            // `authoritative_now_ms()` ("a retry may carry a different transport
+            // timestamp", `server/persistence/agent_library.rs`), so three nodes
+            // stamp three different `created_at_ms`/`updated_at_ms` however
+            // carefully the fixture pins `context.created_at_ms`. Comparing WHOLE
+            // entries therefore asserted a property the server explicitly refuses
+            // to provide, and failed on a ~70ms difference. Compare the immutable
+            // definition -- which is the thing this helper's own comment claims --
+            // and prove the stamp is a real server clock reading rather than the
+            // fixture's `created_at_ms: 1`, so the check still fails if the
+            // server-authoritative stamping is removed.
+            assert_eq!(previous.as_draft(), result.entry.as_draft());
+            assert_eq!(previous.definition_digest, result.entry.definition_digest);
+            assert_eq!(previous.entry_revision, result.entry.entry_revision);
+            assert_eq!(previous.lifecycle, result.entry.lifecycle);
+            assert!(
+                result.entry.created_at_ms > 1,
+                "publish must stamp a server-authoritative clock reading, got {}",
+                result.entry.created_at_ms
+            );
+            assert_eq!(
+                result.entry.created_at_ms, result.entry.updated_at_ms,
+                "a first publish stamps created and updated from ONE reading"
+            );
         } else {
+            assert!(
+                result.entry.created_at_ms > 1,
+                "publish must stamp a server-authoritative clock reading, got {}",
+                result.entry.created_at_ms
+            );
             retained = Some(result.entry);
         }
     }
@@ -1064,6 +1095,11 @@ async fn ensure_commons_graph(cluster: &Cluster) {
             .register_graph(&crate::persist::sanitize(GRAPH), GRAPH, GraphType::Commons)
             .await
             .expect("persist commons graph identity");
+        let durable_version = backend
+            .read_mutation_graph_version(&crate::persist::sanitize(GRAPH))
+            .await
+            .expect("read the authoritative commons graph version")
+            .unwrap_or(0);
         let mut server = state.write().await;
         // The public graph mutation boundary requires provisioned identities;
         // System is the harness-only role used by these signed public clients.
@@ -1080,6 +1116,25 @@ async fn ensure_commons_graph(cluster: &Cluster) {
                 .registry
                 .create_graph(GRAPH, GraphType::Commons, None)
                 .expect("register commons graph in the test registry");
+            // Adopt the AUTHORITATIVE version, the way every real recovery path
+            // does (`RedbBackend::load_into` and the Raft snapshot install both
+            // pass the durable version to `create_graph_with_incarnation`).
+            // `create_graph` hardcodes `source_snapshot_version = 0`, so a
+            // projection seeded here after a restart serves at 0 while the
+            // durable ledger is already ahead -- and `commit_work_item`'s
+            // unconditional preflight then refuses every mutation with
+            // "authoritative graph version N does not match the serving
+            // projection 0". This helper runs again after `cluster.restart`, so
+            // it is exactly where that gap opens.
+            if durable_version > 0 {
+                server
+                    .registry
+                    .get(GRAPH)
+                    .expect("commons projection is resident")
+                    .core
+                    .adopt_materialized_version(durable_version)
+                    .expect("a restarted projection adopts the authoritative version");
+            }
         }
     }
 }
@@ -2269,7 +2324,17 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
     assert_eq!(accepted.work_item_id, DELEGATE_WORK_ITEM);
 
     // The native idempotency key is stable across fresh authenticated envelopes,
-    // while an identical signed envelope is rejected by the outer nonce ledger.
+    // while re-submitting the IDENTICAL signed envelope is a duplicated ATTEMPT
+    // and is refused as a consumed nonce.
+    //
+    // WHICH LAYER refuses it moved, deliberately. `auth.rs`'s transport replay
+    // ledger is now explicitly read-only protection for NON-mutating requests
+    // ("a per-node transport replay ledger would reject legitimate retries
+    // before the authoritative scope ledger can resolve operation replay"), so a
+    // mutation's duplicated attempt is refused by the authoritative scope ledger
+    // instead, by its code name `REPLAY_NONCE_CONSUMED`. Pin the code, not the
+    // English sentence: the rest of that diagnostic names the idempotency key,
+    // which is a content digest and not a stable literal.
     let same_envelope = signed_request_as(5, AUTH_AGENT, accepted_method.clone());
     let native_replay = decode_delegation_result(
         dispatch_bounded(&state_for(&cluster, leader), same_envelope.clone()).await,
@@ -2279,10 +2344,14 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
         eg_types::KgDelegateDecision::Replayed
     );
     let nonce_replay = dispatch_bounded(&state_for(&cluster, leader), same_envelope).await;
-    assert_eq!(
-        nonce_replay.error.as_deref(),
-        Some("nonce already used (replay rejected)"),
-        "the exact signed KgDelegate envelope must be rejected before native replay"
+    let refusal = nonce_replay
+        .error
+        .as_deref()
+        .expect("the exact signed KgDelegate envelope must be refused");
+    assert!(
+        refusal.contains("REPLAY_NONCE_CONSUMED"),
+        "the exact signed KgDelegate envelope must be rejected as a consumed \
+         attempt nonce before native replay, got: {refusal}"
     );
 
     let follower = cluster
@@ -2363,6 +2432,12 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
         "retired old revision refusal must not write a native outbox row"
     );
 
+    // Hand the borrowed persistence handle back BEFORE the node is killed:
+    // `Cluster::kill` runs the same cleanup as teardown and waits for the LAST
+    // strong reference to the backend to go, so a clone still held here keeps
+    // redb's file lock and the kill fails with "node N persistence still has M
+    // live handle(s) after cleanup".
+    drop(leader_backend);
     cluster.kill(leader).await.expect("kill initial leader");
     let new_leader = cluster
         .wait_for_leader_excluding(leader, Duration::from_secs(20))
@@ -2473,6 +2548,11 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
         "reopened receipt must retain the exact delegation provenance"
     );
 
+    // Hand both borrowed persistence handles back before teardown: `Cluster`
+    // cleanup waits for the LAST strong reference to the backend to go, so a
+    // clone still held here keeps redb's file lock and teardown fails with
+    // "node N persistence still has M live handle(s) after cleanup".
+    drop(backend);
     cluster.finish().await;
 }
 
@@ -2656,5 +2736,12 @@ async fn kg_delegate_public_dispatch_rejects_missing_cluster_authority_scenario(
         .unwrap_or(0);
     assert_eq!(after_version, before_version);
 
+    // Hand the borrowed persistence handle back before teardown. `Cluster`'s
+    // cleanup takes `ServerState::persistence` and then waits for the LAST strong
+    // reference to go (`wait_for_backend_drop`), so a clone still held by this
+    // scope keeps redb's file lock and teardown fails with "node 1 persistence
+    // still has 1 live handle(s) after cleanup" -- which is exactly how this test
+    // failed, after every one of its assertions had already passed.
+    drop(backend);
     cluster.finish().await;
 }

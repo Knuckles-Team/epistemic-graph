@@ -199,15 +199,22 @@ async fn t03_delete_graph_then_add_node_fails() {
 /// envelope (same nonce / idempotency key) twice must not double-apply the
 /// mutation.
 ///
-/// OBSERVED, and NOT what this test originally assumed: the replayed
-/// envelope never reaches `apply_mutation_batch_in_wtx`'s own idempotency-key
-/// lookup at all -- the durable replay-nonce ledger in `dispatch()`'s auth
-/// layer, which runs BEFORE any mutation-batch code, already rejects the
-/// second identical envelope with "nonce already used (replay rejected)".
-/// Same observation already pinned for `dispatch_inner`'s own replayed
-/// `CreateGraph` case in `tests/protocol_method_routing.rs`
-/// (`t05_replayed_identical_signed_envelope_rejected_by_nonce_ledger`); this
-/// test now pins the identical auth-layer rejection for a replayed `AddNode`.
+/// The replayed envelope never reaches `apply_mutation_batch_in_wtx`'s own
+/// idempotency-key lookup: a duplicated ATTEMPT is refused as a consumed nonce
+/// before that.
+///
+/// WHICH LAYER refuses it moved, deliberately, and this test moved with it. It
+/// used to pin `auth.rs`'s transport replay ledger verbatim ("nonce already used
+/// (replay rejected)"). That ledger is now explicitly read-only protection for
+/// NON-mutating requests (`auth.rs`: "a per-node transport replay ledger would
+/// reject legitimate retries before the authoritative scope ledger can resolve
+/// operation replay"), so a mutation's duplicated attempt is now refused by the
+/// authoritative scope ledger, by its code name `REPLAY_NONCE_CONSUMED`. The
+/// code, not the English sentence, is what this pins: the rest of that
+/// diagnostic names the idempotency key, which embeds the process id and is
+/// therefore not a stable byte string. Same move pinned for `dispatch_inner`'s
+/// replayed `CreateGraph` in `tests/protocol_method_routing.rs`
+/// (`t05_replayed_identical_signed_envelope_rejected_by_nonce_ledger`).
 #[tokio::test]
 async fn t04_replayed_add_node_request_is_not_double_applied() {
     let state = state();
@@ -224,11 +231,14 @@ async fn t04_replayed_add_node_request_is_not_double_applied() {
     let first = Box::pin(dispatch(&state, add_request.clone())).await;
     assert!(first.error.is_none(), "first AddNode: {:?}", first.error);
     let second = Box::pin(dispatch(&state, add_request.clone())).await;
-    assert_eq!(
-        second.error.as_deref(),
-        Some("nonce already used (replay rejected)"),
-        "replaying the identical signed AddNode envelope: {:?}",
-        second.error
+    let refusal = second
+        .error
+        .as_deref()
+        .expect("replaying the identical signed AddNode envelope must be refused");
+    assert!(
+        refusal.contains("REPLAY_NONCE_CONSUMED"),
+        "replaying the identical signed AddNode envelope must be refused by the \
+         authoritative scope ledger as a consumed nonce, got: {refusal}"
     );
 
     // Regardless of how the replay was handled, the node must exist exactly

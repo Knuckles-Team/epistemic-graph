@@ -3412,7 +3412,26 @@ mod tests {
             snapshot.source_authority_digest,
             before_hidden.source_authority_digest
         );
-        assert_eq!(snapshot.source_epoch, before_hidden.source_epoch);
+        // The RLS-filtered VIEW is byte-identical across Bob's hidden insert
+        // (records, null count, skip count and authority digest all asserted
+        // equal above) -- but the SOURCE EPOCH is not a property of that view.
+        // `advance_source_epoch` bumps one store-wide counter on every
+        // successful owner-row write, whoever made it and whoever can see it,
+        // and that is what makes it usable as "has the source moved since the
+        // snapshot I indexed?" -- it cannot be caller-relative, because there is
+        // one durable counter and no per-caller epoch to read. Asserting the
+        // epoch held still therefore asserted the opposite of the contract, and
+        // failed on exactly the write it was written to hide (2 -> 3). Pin the
+        // real pair of properties instead: the visible view is unchanged, AND
+        // the source epoch advanced, so a downstream index correctly re-checks
+        // rather than trusting a stale snapshot -- the same direction the
+        // sibling assertion below pins after Alice's own update.
+        assert!(
+            snapshot.source_epoch > before_hidden.source_epoch,
+            "a hidden insert is still a source mutation: {} must advance past {}",
+            snapshot.source_epoch,
+            before_hidden.source_epoch
+        );
         assert!(snapshot.source_epoch > 0);
         let complete_receipt = snapshot.complete_snapshot_receipt_digest.unwrap();
         assert_ne!(complete_receipt, [0; 32]);

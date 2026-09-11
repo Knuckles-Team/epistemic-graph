@@ -149,6 +149,7 @@ pub(crate) fn compile_methods(
             #[cfg(feature = "epistemic-tms")]
             reasoning_events,
         },
+        None,
     )
 }
 
@@ -201,6 +202,29 @@ pub(crate) fn compile_opaque_method(
     domain: DurabilityDomain,
     event_type: &str,
 ) -> Result<MutationBatch, String> {
+    compile_opaque_method_in_scope(ctx, method, surface, domain, event_type, None)
+}
+
+/// [`compile_opaque_method`] for a caller whose target store is bound to a FIXED
+/// native scope, which the compiled batch must name EXACTLY.
+///
+/// The derived form is right for every per-caller store, and wrong for a single
+/// process-wide native one: `eg_jobs::JobStore` binds `analytics_job_scope_identity()`
+/// once at `open()`, so a batch carrying a caller-derived tenant/resource (and the
+/// generic `COMPILED_BATCH_INCARNATION`) is refused by
+/// `PhysicalWriteCapability::verify_scope` with "mutation capability does not serve
+/// this scope" -- on EVERY call, which is why no `Method::AnalyticsJob` could commit
+/// through the wire at all. Per-caller isolation for that store is enforced where it
+/// belongs, by `authority.owns(tenant, actor)` on the job row itself, not by the
+/// physical scope identity of a store that has exactly one.
+pub(crate) fn compile_opaque_method_in_scope(
+    ctx: CompileBatch<'_>,
+    method: &Method,
+    surface: MutationSurface,
+    domain: DurabilityDomain,
+    event_type: &str,
+    scope_override: Option<MutationScopeIdentity>,
+) -> Result<MutationBatch, String> {
     let encoded = rmp_serde::to_vec_named(method).map_err(|e| e.to_string())?;
     let input_digest: [u8; 32] = Sha256::digest(&encoded).into();
     let operation = MutationOperation {
@@ -233,6 +257,7 @@ pub(crate) fn compile_opaque_method(
             #[cfg(feature = "epistemic-tms")]
             reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
         },
+        scope_override,
     )
 }
 
@@ -274,6 +299,7 @@ pub(crate) fn compile_opaque_digest(
             #[cfg(feature = "epistemic-tms")]
             reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
         },
+        None,
     )
 }
 
@@ -332,6 +358,7 @@ pub(crate) fn compile_crossmodal(
             #[cfg(feature = "epistemic-tms")]
             reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
         },
+        None,
     )
 }
 
@@ -404,11 +431,23 @@ pub(crate) struct CompiledOutbox {
     pub reasoning_events: Vec<eg_epistemic::IncrementalReasoningEvent>,
 }
 
+/// `scope_override` names the EXACT scope identity this batch must commit under,
+/// for a caller whose target store is bound to a FIXED native scope rather than
+/// one derived from the caller's own tenant/resource. When it is `None` the
+/// identity is derived from `ctx.tenant`/`ctx.graph` as before.
+///
+/// Deriving is right for every per-caller store (KV, blob, SQL catalog, a graph
+/// shard): those really are opened per tenant/resource. It is WRONG for a single
+/// process-wide native store -- `eg_jobs::JobStore` is the one such caller --
+/// whose owner scope is bound once at `open()` to `analytics_job_scope_identity()`
+/// and whose `PhysicalWriteCapability::verify_scope` refuses any batch naming a
+/// different identity. See `handlers::jobs::compile_job_batch`.
 fn finish_batch(
     ctx: CompileBatch<'_>,
     operations: Vec<MutationOperation>,
     graph_scope: bool,
     outbox_plan: CompiledOutbox,
+    scope_override: Option<MutationScopeIdentity>,
 ) -> Result<MutationBatch, String> {
     #[cfg(feature = "raft")]
     let (placement_epoch, fencing_token) =
@@ -433,10 +472,20 @@ fn finish_batch(
     // feature the producer is gated on, and for the `not(redb)` arm, encode the
     // identical payload shape locally rather than making `redb_store` unconditional
     // (which would pull the `redb`/`eg-storage`/`eg-transaction` deps into every slim build).
+    // The projection payload is folded into the SAME `canonical_payload_digest`
+    // as the operations themselves (`digest_outbox` hashes `intent.payload`
+    // verbatim), so it has to be derived from the same identity-normalized
+    // operations, or the batch identity varies per attempt through the outbox
+    // half even while the operations half is stable. That is not hypothetical:
+    // it is what still refused a legitimate `ReserveWorkItemResources` retry
+    // after `digest_operations` alone was normalized. One rule, one helper --
+    // `eg_types::mutation_batch::identity_normalized_operations`.
+    let identity_operations =
+        eg_types::mutation_batch::identity_normalized_operations(&operations);
     #[cfg(feature = "redb")]
-    let summary = crate::redb_store::projection_payload_for_operations(&operations)?;
+    let summary = crate::redb_store::projection_payload_for_operations(&identity_operations)?;
     #[cfg(not(feature = "redb"))]
-    let summary = projection_wakeup_payload_without_redb(&operations)?;
+    let summary = projection_wakeup_payload_without_redb(&identity_operations)?;
     // The typed wake-up is computed HERE, before the envelope is minted, rather
     // than installed over the finished batch afterwards: the envelope's
     // canonical payload digest covers the outbox, so a payload rewritten after
@@ -445,8 +494,9 @@ fn finish_batch(
     let summary = if outbox_plan.reasoning_events.is_empty() {
         summary
     } else {
-        reasoning_wakeup_payload(&operations, outbox_plan.reasoning_events)?
+        reasoning_wakeup_payload(&identity_operations, outbox_plan.reasoning_events)?
     };
+    drop(identity_operations);
     let mut scope_digest = Sha256::new();
     scope_digest.update(ctx.tenant.as_bytes());
     scope_digest.update([0]);
@@ -486,22 +536,31 @@ fn finish_batch(
          pass the real current version instead of None"
             .to_string()
     })?;
-    let (identity, version_expectation) = if graph_scope {
-        (
+    let (identity, version_expectation) = match scope_override {
+        Some(identity) => {
+            let expectation = if graph_scope {
+                VersionExpectation::Graph(expected_version)
+            } else {
+                VersionExpectation::Native(expected_version)
+            };
+            (identity, expectation)
+        }
+        None if graph_scope => (
             MutationScopeIdentity::graph(tenant_id, resource_name, incarnation_id),
             VersionExpectation::Graph(expected_version),
-        )
-    } else {
-        let domain = operations
-            .first()
-            .map(|operation| operation.domain)
-            .ok_or_else(|| {
-                "mutation batch has no operations to derive its native domain from".to_string()
-            })?;
-        (
-            MutationScopeIdentity::native(tenant_id, domain, resource_name, incarnation_id)?,
-            VersionExpectation::Native(expected_version),
-        )
+        ),
+        None => {
+            let domain = operations
+                .first()
+                .map(|operation| operation.domain)
+                .ok_or_else(|| {
+                    "mutation batch has no operations to derive its native domain from".to_string()
+                })?;
+            (
+                MutationScopeIdentity::native(tenant_id, domain, resource_name, incarnation_id)?,
+                VersionExpectation::Native(expected_version),
+            )
+        }
     };
     let terminal_outcome = outbox_plan
         .extra
@@ -843,6 +902,7 @@ mod tests {
                 #[cfg(feature = "epistemic-tms")]
                 reasoning_events: Vec::new(),
             },
+            None,
         )
         .expect("terminal outbox should produce a valid batch");
 

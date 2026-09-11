@@ -32,7 +32,9 @@ pub(crate) use compile::{
 #[cfg(feature = "redb")]
 pub(crate) use compile::{compile_opaque_digest, COMPILED_BATCH_INCARNATION};
 #[cfg(feature = "redb")]
-pub(crate) use compile::{compile_opaque_method, effective_policy_digest};
+pub(crate) use compile::{
+    compile_opaque_method, compile_opaque_method_in_scope, effective_policy_digest,
+};
 #[cfg(any(feature = "redb", feature = "statechart"))]
 pub(crate) use digest::opaque_request_key;
 #[cfg(feature = "redb")]

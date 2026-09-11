@@ -587,6 +587,30 @@ pub(crate) fn acquire_test_env_lock_blocking() -> tokio::sync::RwLockWriteGuard<
     TEST_ENV_LOCK.blocking_write()
 }
 
+/// Synchronous counterpart to [`acquire_test_env_read_lock`], for plain
+/// `#[test]` (non-`tokio::test`) bodies that OPEN a durable store and therefore
+/// need the ambient encryption environment to hold still for their whole body —
+/// but never mutate it.
+///
+/// This is the half the original read/write split left unbuilt, and its absence
+/// is exactly why the four sync `embedded::*` reopen tests held NOTHING: the
+/// only sync helper available took the WRITE guard, which would have serialised
+/// them against every store opener in the suite, so nobody reached for it. They
+/// then wrote their rows with no ambient key and re-read them while a concurrent
+/// `EncryptionRequiredEnvGuard` had one set, and failed with "encrypted durable
+/// value is missing sealed framing". A read guard costs them no parallelism
+/// (readers do not exclude readers) and excludes only a key MUTATOR, which is
+/// precisely the interleaving that breaks an open-then-reopen.
+///
+/// `blocking_read()` panics only inside an async execution context, which never
+/// applies here: a plain `#[test]` runs on an ordinary libtest thread with no
+/// runtime polling it. It locks the same [`TEST_ENV_LOCK`] as every other
+/// participant, so sync and async readers and writers stay mutually consistent.
+#[cfg(test)]
+pub(crate) fn acquire_test_env_read_lock_blocking() -> tokio::sync::RwLockReadGuard<'static, ()> {
+    TEST_ENV_LOCK.blocking_read()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

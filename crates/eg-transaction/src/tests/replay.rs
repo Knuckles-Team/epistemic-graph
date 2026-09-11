@@ -12,6 +12,15 @@ use eg_types::MutationOutboxIntent;
 
 /// Record one committed attempt: consume its nonce and store its receipt in the
 /// same admitted write as the batch, then commit.
+///
+/// The terminal record carries the receipt's OWN encoded result, exactly as
+/// every production owner does (`agent_library`'s commit path passes
+/// `encode_domain_result(&stable_result)` to `finish_with_replay` while the
+/// receipt it files carries `domain_result_for(&stable_result)` -- the same
+/// value). `finalize_replay_receipt` proves that equality before it proves
+/// anything about the operation row, so a fixture that committed `None` here
+/// could never reach the row checks at all: every finalization against it
+/// failed on the result comparison regardless of what the row said.
 fn record_attempt(
     fixture: &Fixture,
     owner: &OwnedStoreHandle<LedgerOnlyOwner>,
@@ -29,9 +38,11 @@ fn record_attempt(
         .mutations
         .record_replay(&write, operation, nonce, receipt)
         .unwrap();
+    let result_msgpack =
+        eg_storage::encode_bounded(&receipt.result, "typed replay result").unwrap();
     fixture
         .mutations
-        .finish(&write, batch, None, 2, source_version)
+        .finish(&write, batch, Some(result_msgpack), 2, source_version)
         .unwrap();
     fixture.mutations.commit(write, batch).unwrap();
 }
@@ -487,6 +498,15 @@ fn replay_evidence_rejects_a_persisted_outbox_key_mismatch() {
         payload: b"payload".to_vec(),
         headers: Default::default(),
     });
+    // `batch()` seals its envelope over the body it returns, which has an EMPTY
+    // outbox. The compile path mints from final content, so a fixture that
+    // appends to the body afterwards must re-mint the same way or the envelope
+    // still describes bytes the batch no longer has -- which is exactly what
+    // `validate` refuses (and what it refused here, before this test ever
+    // reached the kernel it means to exercise).
+    candidate
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .expect("a fixture batch reseals its envelope over its final body");
     candidate.validate().unwrap();
     apply_batch(&fixture, &owner, &candidate);
 

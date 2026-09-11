@@ -1458,6 +1458,29 @@ fn apply_graph_methods(
 /// file's list of which graphs it hosts, and the boot scan has to enumerate it
 /// to learn those names before any graph scope can be bound. So the row is the
 /// control member's to write, in the same admitted group as the graph's own.
+/// The LOGICAL name a catalog row created from a durable key must carry.
+///
+/// The catalog row's name field is what `RedbBackend::load_into` registers a
+/// recovered graph under, and what a client knows the graph by. Both writers
+/// that create a row without being handed a separate logical name have only the
+/// durable KEY -- the `sanitize`d spelling -- and writing that straight into the
+/// name field silently renames every graph whose name needed escaping: a graph
+/// called `"tenant:acme"` came back from a restart as `"tenant~3aacme"`, so a
+/// lookup by its real name missed and its rows looked lost. It stayed invisible
+/// because the common case is an already-alphanumeric name, where key and name
+/// are the same string.
+///
+/// `sanitize` is a byte escaping and exactly invertible for such a name, so the
+/// logical name is RECOVERED here, not guessed. The one key it cannot invert is
+/// the bounded `~h<sha256>` form a very long name falls back to; there is
+/// genuinely no preimage for that, so the key stands as the name exactly as
+/// before, and such a graph must be registered explicitly (through
+/// `write_graph_meta_with_incarnation`, which is given both) to carry its real
+/// name across a restart.
+fn catalog_display_name(graph_fname: &str) -> String {
+    crate::persist::unsanitize(graph_fname).unwrap_or_else(|| graph_fname.to_string())
+}
+
 fn backfill_graph_meta_row(write: &ShardWrite<'_>, graph: &str) -> Result<(), String> {
     let mut meta = write.control().open_table(GRAPH_META)?;
     if meta
@@ -1468,7 +1491,8 @@ fn backfill_graph_meta_row(write: &ShardWrite<'_>, graph: &str) -> Result<(), St
         return Ok(());
     }
     let incarnation_id = new_incarnation_id(graph);
-    let encoded = encode_meta_with_incarnation(graph, GraphType::Global, &incarnation_id)?;
+    let name = catalog_display_name(graph);
+    let encoded = encode_meta_with_incarnation(&name, GraphType::Global, &incarnation_id)?;
     meta.insert(graph, encoded.as_slice())
         .map_err(|error| error.to_string())?;
     Ok(())
@@ -4423,8 +4447,12 @@ fn resolve_default_graph_meta_update(
             )?)
         }
         (Some(_), None) => None,
+        // `mutation_batch_graph_name` answers the batch's SCOPE resource, and by
+        // this point `shard::bind_caller_batch` has already rebound the batch to
+        // `graph_scope_identity(graph_fname)` -- so that name is the durable KEY,
+        // not the caller's logical name. See `catalog_display_name`.
         (None, policy) => Some(encode_meta_record(
-            mutation_batch_graph_name(batch)?,
+            &catalog_display_name(mutation_batch_graph_name(batch)?),
             GraphType::Global,
             &batch.batch_id,
             policy.and_then(Option::as_ref),

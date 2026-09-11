@@ -5913,6 +5913,33 @@
             "MineAssociate"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Governed graph-native program compilation. The nested MessagePack is a\nversioned `eg_program::OptimizationRequest`; `eg-types` remains the bottom\nof the crate DAG and the server decodes/rebinds it at the verified boundary.",
+          "properties": {
+            "ProgramOptimize": {
+              "properties": {
+                "request_msgpack": {
+                  "items": {
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "request_msgpack"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ProgramOptimize"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -8088,6 +8115,91 @@
         },
         {
           "additionalProperties": false,
+          "description": "FUSE (multimodal sensor fusion, CONCEPT:EG-KG.query.multi-rate-sensor-stream) — time-align N heterogeneous sensor\n`streams` to ONE common clock and emit fused multi-channel rows. Each named stream is\na node layer (label / `type`) whose nodes carry a `valid_from` event time and either a\nscalar `value` OR an opaque tensor-blob reference (an EG-085 camera/LiDAR frame). The\nexecutor resolves the streams off the snapshot, calls eg-tsdb's `sensor_fuse` — which\nreuses the eg-tsdb ASOF backward-join to carry each stream's latest sample at-or-before\neach reference instant, within `tolerance_ns` — and emits one fused row per instant\n(id = the aligned ts, score = the count of present, non-gap channels) so a downstream\n`Limit`/`Rank` composes over the fused series. `tolerance_ns` is the max staleness (ns)\na channel may carry forward; `0` ⇒ exact-instant matches only. Gated behind\n`timeseries`; the variant only exists when eg-types/timeseries is on (pulled by\neg-plan/timeseries), so a non-timeseries build has neither the variant nor its executor\narm (the tensor/stream gating precedent). Composes EG-085 + EG-088 + eg-tsdb ASOF\n(EG-067); the alignment math lives in eg-tsdb behind eg-plan's `timeseries` gate — this\nis the pure-serde wire variant.",
+          "properties": {
+            "SensorFuse": {
+              "properties": {
+                "streams": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "tolerance_ns": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "streams",
+                "tolerance_ns"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "SensorFuse"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "SOURCE (time-series, CONCEPT:EG-KG.query.native-time-series) — seed the RowSet from native TSDB series.\nScans each series in `series` for points in the `[from, to)` timestamp window and\nemits them as rows so a downstream `Rank`/`Limit`/`Filter` composes the tsdb leg\nwith the graph/vector/relational legs in ONE plan (tsdb-in-plan fusion). Bounds\nare `f64` seconds (uniform with the other numeric plan ops); the executor lowers\nthem to the eg-tsdb `SeriesStore` ns range internally. Gated behind `timeseries`;\nthe variant only exists when eg-types/timeseries is on (pulled by\neg-plan/timeseries), so a non-timeseries build has neither the variant nor its\nexecutor arm (the `SensorFuse` gating precedent). The scan implementation lives in\neg-plan behind its `timeseries` gate; this is the pure-serde wire variant.",
+          "properties": {
+            "TsScan": {
+              "properties": {
+                "from": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "series": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "to": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "series",
+                "from",
+                "to"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "TsScan"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "TRANSFORM (probabilistic, CONCEPT:EG-KG.compute.uncertainty-values) — run the probabilistic query `query`\nagainst each row's stored `Distribution` VALUE (the conventional `distribution`\nnode property, the tagged serde form of `eg_types::Distribution`) and SCORE the\nrow with the closed-form result — expectation / marginal probability / conditional\nposterior mean / deterministic seeded sample — re-ordering the RowSet by that score\nDESCENDING, exactly as `Rank` produces a scored order a downstream `Limit` respects.\nRows whose `distribution` is missing/invalid, or where the query does not apply\n(e.g. a `Conditional` with an unsupported conjugate pair), are DROPPED — mirroring\nhow the tensor/spatial legs narrow their input. Gated by `probabilistic` (the\ndistribution + Bayesian math lives in eg-types/eg-compute behind eg-plan's own\n`probabilistic` gate; this is the pure-serde wire variant — no RNG-from-clock, so a\nseeded `Sample` is reproducible). Mirrors the `tensor`/`stream` gating precedent.",
+          "properties": {
+            "Probabilistic": {
+              "properties": {
+                "query": {
+                  "$ref": "#/$defs/ProbQuery"
+                }
+              },
+              "required": [
+                "query"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Probabilistic"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "SOURCE/FILTER (epistemic, CONCEPT:EG-KG.epistemic.epistemic-substrate, E2) — the evidence\nFOR `claim_id`: nodes linked to it by an INCOMING `SUPPORTS`/`SUPPORTS_BELIEF`/\n`HAS_EVIDENCE`/`CORROBORATES` edge (classified by `eg_epistemic::classify_relationship`).\nAs a SOURCE (empty input) it seeds the RowSet with the supporting ids; mid-pipeline it\nnarrows the candidate set to the ones that ALSO support `claim_id` — the same\nseed-or-filter shape as `Op::AsOf`. Gated by `epistemic` (the belief-substrate model\nlives in eg-epistemic behind eg-plan's own `epistemic` gate; this is the wire variant).",
           "properties": {
             "EvidenceFor": {
@@ -8939,6 +9051,133 @@
         "sanitized_payload_digest"
       ],
       "type": "object"
+    },
+    "ProbEvidenceSpec": {
+      "description": "PROBABILISTIC — the evidence for a conjugate Bayesian update carried by\n[`ProbQuery::Conditional`] (CONCEPT:EG-KG.compute.uncertainty-values). Mirrors `eg_compute::probabilistic::Evidence`,\nbut defined HERE (pure serde, no eg-compute dep) so the wire stays Pi-safe; the executor\nmaps it to eg-compute's enum behind eg-plan's `probabilistic` gate. `Bernoulli` counts\nare the sufficient statistic for a Beta prior; `Gaussian` observations (with a KNOWN\nlikelihood variance) for a Gaussian prior over the unknown mean.",
+      "oneOf": [
+        {
+          "properties": {
+            "failures": {
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "bernoulli",
+              "type": "string"
+            },
+            "successes": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "successes",
+            "failures"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "gaussian",
+              "type": "string"
+            },
+            "known_variance": {
+              "format": "double",
+              "type": "number"
+            },
+            "observations": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "observations",
+            "known_variance"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProbQuery": {
+      "description": "PROBABILISTIC — the probabilistic query carried by `Op::Probabilistic` (CONCEPT:EG-KG.compute.uncertainty-values):\none closed-form question asked of each row's stored `Distribution` VALUE.\n* `Expectation` — the mean `E[X]`.\n* `Marginal { at, label }` — the marginal probability: the density `pdf(at)` for the\n  continuous variants, or the mass `pmf(label)` when `label` is set (a `Categorical`).\n* `Conditional { evidence }` — the posterior MEAN after a conjugate Bayesian update\n  with `evidence` (the \"conditional\" query).\n* `Sample { seed }` — one DETERMINISTIC seeded draw (same seed ⇒ same value; no\n  RNG-from-clock, so a plan is reproducible).\n\nPURE serde — the distribution math lives in eg-types (`Distribution`) + eg-compute\n(`bayesian_update`) behind eg-plan's `probabilistic` gate; this is the wire variant.",
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "expectation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "at": {
+              "default": 0.0,
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "marginal",
+              "type": "string"
+            },
+            "label": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "evidence": {
+              "$ref": "#/$defs/ProbEvidenceSpec"
+            },
+            "kind": {
+              "const": "conditional",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "evidence"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "sample",
+              "type": "string"
+            },
+            "seed": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "seed"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "PromptMode": {
       "description": "How a prompt's text is resolved.",

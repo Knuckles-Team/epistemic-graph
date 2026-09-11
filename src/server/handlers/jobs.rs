@@ -592,20 +592,38 @@ fn compile_job_batch(
     attempt_nonce: Option<Nonce>,
     method: &Method,
 ) -> Result<(MutationBatch, u64), String> {
+    // The caller's own namespace still keys the BATCH -- so two tenants' job
+    // requests never collide on a batch id or an idempotency key -- but it must
+    // NOT key the mutation SCOPE. `JobStore` is one process-wide native store
+    // whose owner scope is bound once at `open()` to
+    // `analytics_job_scope_identity()`, and `verify_scope` refuses any batch
+    // naming a different identity. Deriving the identity from
+    // `authority.tenant_scope()` / `authority.namespace(..)` (plus the generic
+    // `COMPILED_BATCH_INCARNATION`) therefore mismatched on all three fields and
+    // failed EVERY call with "jobs redb error: mutation capability does not serve
+    // this scope" -- the whole `Method::AnalyticsJob` wire surface was
+    // uncommittable. `JobStore::mutation_version` already ignores both of its
+    // arguments for the same reason (one store, one scope, one version).
+    //
+    // Per-caller isolation is unaffected: it is enforced by
+    // `authority.owns(&job.policy.tenant, &job.policy.actor)` on the job row
+    // (see `owned_job` above), which is where it belongs -- not by the physical
+    // scope identity of a store that has exactly one.
     let scope = authority.namespace("analytics-jobs", "control");
+    let identity = eg_jobs::analytics_job_scope_identity().map_err(|error| error.to_string())?;
     let expected = store
         .mutation_version(authority.tenant_scope(), &scope)
         .map_err(|error| error.to_string())?;
     let batch_id =
         crate::server::mutation_batch::opaque_request_key("analytics-job", &scope, req_id, method);
     let now = crate::server::dispatch::authoritative_now_ms();
-    let batch = crate::server::mutation_batch::compile_opaque_method(
+    let batch = crate::server::mutation_batch::compile_opaque_method_in_scope(
         crate::server::mutation_batch::CompileBatch {
             batch_id: &batch_id,
             request_id: req_id,
             attempt_nonce,
             principal: Some(authority.actor_scope()),
-            tenant: authority.tenant_scope(),
+            tenant: identity.tenant().as_str(),
             graph: &scope,
             placement_epoch: 0,
             idempotency_key: &batch_id,
@@ -619,6 +637,7 @@ fn compile_job_batch(
         MutationSurface::Job,
         DurabilityDomain::AnalyticsJob,
         "analytics_job_operation",
+        Some(identity.clone()),
     )?;
     Ok((batch, now))
 }

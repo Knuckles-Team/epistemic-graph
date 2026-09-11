@@ -91,6 +91,28 @@ fn copy_dir(src: &std::path::Path, dst: &std::path::Path) {
     }
 }
 
+/// Rebind every kernel-owned store file in `copy` against its original in `src`.
+///
+/// A store's physical root is derived from its `(dev, ino)` and re-checked on
+/// every open -- that is what stops a byte copy being served as the original --
+/// so a copy is unopenable at its new path until its root is rebound. Without
+/// this, `RedbBackend::open` on the copy fails closed with "mutation store root
+/// incarnation mismatch" before reading a row. `shard_migrate::migrate_in_place`
+/// does exactly this for its own build source, for exactly this reason.
+fn rebind_copied_tree(copy: &std::path::Path, src: &std::path::Path) {
+    for entry in std::fs::read_dir(copy).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        let original = src.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            rebind_copied_tree(&path, &original);
+        } else if path.extension().is_some_and(|ext| ext == "redb") {
+            eg_storage::rebind_copied_store(&path, &original)
+                .unwrap_or_else(|error| panic!("rebind {}: {error}", path.display()));
+        }
+    }
+}
+
 fn clear_key_envs() {
     std::env::remove_var(ENCRYPTION_KEY_ENV);
     std::env::remove_var(TXN_RECOVERY_KEY_ENV);
@@ -204,10 +226,21 @@ async fn compare_and_set_node_embedding(
     .await
 }
 
-/// (1) REGRESSION GUARD — the OLD coupled behavior really does break existing plaintext
-/// reads once the shared key is configured. Kept as a live test (not just a comment) so
-/// a future refactor that accidentally re-couples the two ciphers gets caught here
-/// instead of in production again.
+/// (1) REGRESSION GUARD — configuring the data-at-rest key over a POPULATED PLAINTEXT
+/// store is destructive, and the engine must never do it silently. Kept as a live test
+/// (not just a comment) so a future refactor that re-couples the two ciphers, or drops
+/// the guard, gets caught here instead of in production again.
+///
+/// WHERE it is caught moved, and this test moved with it (eg-f3 burndown, 2026-09-11).
+/// When the production incident happened, the coupling was caught late: the open
+/// succeeded and the first READ of a pre-existing value failed with "encrypted durable
+/// value is missing sealed framing". `RedbBackend::open` now carries an encryption
+/// canary and fails CLOSED at open instead, naming the condition and the documented
+/// offline re-encryption procedure. That is strictly stronger — nothing is served at
+/// all, rather than served until the first read — so this guard pins the open refusal
+/// and additionally proves the store is untouched: with the key removed again, the
+/// pre-existing plaintext value still reads back byte-for-byte. A build that re-coupled
+/// the ciphers and dropped the canary would open here and fail the first assertion.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reproduces_old_destructive_behavior_as_a_regression_guard() {
     let _guard = KEY_ENV_LOCK.lock().await;
@@ -218,27 +251,41 @@ async fn reproduces_old_destructive_behavior_as_a_regression_guard() {
     seed_plaintext_store(&dir_s).await;
 
     // Simulate "just add the key" — the exact remediation a prior lane tried against
-    // production. Reopening with the data cipher now installed must fail to read the
-    // pre-existing plaintext node: this is the destructive-read bug, reproduced safely
-    // against a throwaway directory.
+    // production, reproduced safely against a throwaway directory.
     std::env::set_var(ENCRYPTION_KEY_ENV, "just-add-the-key");
-    let reopened = RedbBackend::open(dir_s.clone(), 64).expect("reopen");
-    let read_result = reopened.read_node_blocking(PRE_EXISTING_GRAPH, PRE_EXISTING_NODE);
-    reopened.shutdown();
+    let refusal = match RedbBackend::open(dir_s.clone(), 64) {
+        Ok(backend) => {
+            // `RedbBackend` deliberately does not derive `Debug` (it owns live
+            // handles), so destructure rather than widen a trait bound for a test.
+            backend.shutdown();
+            clear_key_envs();
+            panic!(
+                "enabling at-rest encryption over a POPULATED PLAINTEXT store must fail \
+                 closed at open; it opened instead, which is the destructive-read \
+                 condition this guard exists to catch"
+            );
+        }
+        Err(message) => message,
+    };
     clear_key_envs();
+    assert!(
+        refusal.contains("PLAINTEXT") && refusal.contains("destructive-read"),
+        "the refusal must name the condition and the documented remediation, got: {refusal}"
+    );
 
-    assert!(
-        read_result.is_err(),
-        "expected the old coupled-cipher behavior to fail closed on pre-existing \
-         plaintext once a data-at-rest key is configured — got {read_result:?}. If this \
-         now succeeds, either redb_backend.rs regressed to the old shared-cipher wiring \
-         or the read path changed and this guard needs updating."
+    // NON-DESTRUCTIVE: the refusal changed nothing. With the key removed the
+    // pre-existing plaintext value still reads back exactly as it was written.
+    let reopened = RedbBackend::open(dir_s.clone(), 64).expect("reopen with no key configured");
+    let node_bytes = reopened
+        .read_node_blocking(PRE_EXISTING_GRAPH, PRE_EXISTING_NODE)
+        .expect("pre-existing plaintext node must still be readable")
+        .expect("pre-existing node must be present");
+    let decoded: serde_json::Value = rmp_serde::from_slice(&node_bytes).unwrap();
+    assert_eq!(
+        decoded["secret"], PLAINTEXT_SECRET_PROP,
+        "a refused at-rest-encryption open must leave the plaintext store untouched"
     );
-    let message = read_result.unwrap_err();
-    assert!(
-        message.contains("sealed framing") || message.contains("missing"),
-        "expected the specific 'sealed framing' failure the production incident hit, got: {message}"
-    );
+    reopened.shutdown();
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -261,6 +308,11 @@ async fn dedicated_recovery_key_unblocks_txn_commit_without_touching_existing_pl
     // never mutating the seeded directory in place.
     let work_dir = fresh_dir("decoupled-fix");
     copy_dir(&baseline_dir, &work_dir);
+    // A copy is not openable at its new path until its physical root is rebound
+    // -- see `rebind_copied_tree`. This step used to be missing, so the reopen
+    // below failed closed with "mutation store root incarnation mismatch" before
+    // the recovery-key behaviour under test was ever reached.
+    rebind_copied_tree(&work_dir, &baseline_dir);
     let work_s = work_dir.to_string_lossy().to_string();
 
     // THE FIX under test: set ONLY the dedicated recovery key. The data-at-rest key

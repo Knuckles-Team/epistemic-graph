@@ -110,6 +110,31 @@ impl MutationBatchRecord {
             })
     }
 
+    /// The TENANT whose authority committed this record.
+    ///
+    /// Read from the envelope's preserved `AuthorityContext`, NOT from
+    /// `batch.identity.tenant()` -- for exactly the reason `committing_actor`
+    /// above does not read `serving_principal`. RF-RULING-004's application note
+    /// makes a graph-scoped batch's `identity` the SHARD's own scope: the durable
+    /// bind path (`redb_store::shard::bind_caller_batch`) rewrites
+    /// `bound.identity = graph_scope_identity(graph_fname)` before the record is
+    /// stored, whose tenant is the reserved `GRAPH_SHARD_TENANT` sentinel a
+    /// caller is explicitly forbidden to use. Comparing THAT against a caller's
+    /// tenant compares the engine against itself and can never match.
+    ///
+    /// `bind_caller_batch` does not touch the envelope's authority, so the
+    /// caller's real tenant is still there, exactly as compiled. A missing
+    /// operation envelope is an `Err`, never `None`: a record that names no
+    /// committing tenant must fail closed, not read as "matches every tenant".
+    pub fn committing_tenant(&self) -> Result<&str, String> {
+        self.batch
+            .envelope
+            .operation()
+            .map(|operation| operation.authority.tenant.as_str())
+            .filter(|tenant| !tenant.is_empty())
+            .ok_or_else(|| "committed MutationBatch carries no tenant authority".to_string())
+    }
+
     pub fn validate_identity(&self) -> Result<(), String> {
         self.batch.validate_identity()?;
         require_same_identity(

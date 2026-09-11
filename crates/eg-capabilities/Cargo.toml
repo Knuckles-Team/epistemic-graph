@@ -108,6 +108,35 @@ canonical-ledger = [
     "quantum",
     "asr-native",
     "viz",
+    # `timeseries`, `probabilistic` and `program-optimization` gate wire `Op`/DTO
+    # items on eg-types' side and NO `Method` variant, so `policy()`'s exhaustive
+    # Method match neither needs nor references them -- which is why they are (and
+    # stay) absent from the unconditional `[dependencies.eg-types] features` list
+    # above: forcing them on THERE would, through feature unification, turn on
+    # `eg-types/{timeseries,probabilistic}` across the whole engine build, because
+    # the root package links this crate behind `server`.
+    #
+    # They belong HERE, though, and their absence was a real gate defect
+    # (eg-f3 burndown, 2026-09-11). `method.request.json` is a JSON Schema of the
+    # request BODIES, and those bodies embed `Op`/DTO types -- so these three
+    # features change the schema even though they change no Method. The committed
+    # artifact was generated under `--features contract` (without them) while
+    # `committed_contract_artifacts_match_the_registry` runs under
+    # `cargo test --workspace --all-features` (with them, via unification), so the
+    # gate compared two DIFFERENT wire universes and reported the committed
+    # contract STALE by 10,352 bytes with nothing actually stale. Measured: the
+    # canonical profile plus exactly these three reproduces the all-features
+    # generation byte-for-byte (855,270 bytes).
+    #
+    # `canonical-ledger` is the right home because nothing in the engine's build
+    # graph enables it -- only `contract` (the generator) and an explicit
+    # `--all-features` do -- so this restores "the complete supported wire
+    # inventory, not a projection of whichever optional surfaces happened to be
+    # enabled for one build" without changing one byte of the shipped build's
+    # feature set.
+    "eg-types/timeseries",
+    "eg-types/probabilistic",
+    "eg-types/program-optimization",
 ]
 # CONCEPT:INT-P2-1 -- see the module doc above. Mirrors `eg-types/jobs` 1:1: NEVER
 # enable one without the other (this feature enables `eg-types/jobs` itself, so a

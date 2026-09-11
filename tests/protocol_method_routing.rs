@@ -103,17 +103,24 @@ async fn t04_create_graph_then_list_graphs() {
     assert!(list.error.is_none(), "ListGraphs: {:?}", list.error);
 }
 
-/// OBSERVED, and NOT what this test originally assumed: dispatching the
-/// exact same signed `CreateGraph` envelope twice does NOT reach
-/// `CreateGraph`'s own lifecycle-replay branch (`lifecycle_was_committed`,
-/// `dispatch_case_11_create_graph` post-refactor) at all -- the durable
-/// replay-nonce ledger in `dispatch()`'s auth layer, which runs BEFORE
-/// `dispatch_inner`, already rejects the second identical envelope with
-/// "nonce already used". `CreateGraph`'s own idempotent-replay branch is
-/// reachable only via a distinct envelope (a different request `id`/nonce)
-/// that names the SAME idempotency_key derived by `lifecycle_batch_id` --
-/// not exercised here; see the lane report's `dispatch_case_11_create_graph`
-/// entry. This test now pins the auth-layer rejection it actually observes.
+/// Dispatching the exact same signed `CreateGraph` envelope twice does NOT
+/// reach `CreateGraph`'s own lifecycle-replay branch (`lifecycle_was_committed`,
+/// `dispatch_case_11_create_graph` post-refactor): the duplicated ATTEMPT is
+/// refused as a consumed nonce first. `CreateGraph`'s own idempotent-replay
+/// branch is reachable only via a distinct envelope (a different request
+/// `id`/nonce) that names the SAME idempotency_key derived by
+/// `lifecycle_batch_id` -- not exercised here.
+///
+/// WHICH LAYER refuses it moved, deliberately, and this test moved with it.
+/// It used to pin `auth.rs`'s transport replay ledger verbatim ("nonce already
+/// used (replay rejected)"). That ledger is now explicitly read-only protection
+/// for NON-mutating requests (`auth.rs`: "a per-node transport replay ledger
+/// would reject legitimate retries before the authoritative scope ledger can
+/// resolve operation replay"), so a mutation's duplicated attempt is now refused
+/// by the authoritative scope ledger instead, by its code name
+/// `REPLAY_NONCE_CONSUMED`. The code, not the English sentence, is what this
+/// pins: the rest of that diagnostic names the idempotency key, which embeds the
+/// process id and is therefore not a stable byte string.
 #[tokio::test]
 async fn t05_replayed_identical_signed_envelope_rejected_by_nonce_ledger() {
     let state = state();
@@ -132,11 +139,14 @@ async fn t05_replayed_identical_signed_envelope_rejected_by_nonce_ledger() {
         first.error
     );
     let second = Box::pin(test_support::dispatch(&state, request.clone())).await;
-    assert_eq!(
-        second.error.as_deref(),
-        Some("nonce already used (replay rejected)"),
-        "replaying the identical signed envelope: {:?}",
-        second.error
+    let refusal = second
+        .error
+        .as_deref()
+        .expect("replaying the identical signed envelope must be refused");
+    assert!(
+        refusal.contains("REPLAY_NONCE_CONSUMED"),
+        "replaying the identical signed envelope must be refused by the \
+         authoritative scope ledger as a consumed nonce, got: {refusal}"
     );
 }
 

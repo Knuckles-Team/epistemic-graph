@@ -77,4 +77,6 @@ pub use model::{
     JobId, JobPlacement, JobPolicy, JobState, ResourceBudget, RetryPolicy, WorkerLease,
 };
 pub use result::{ReproducibilityManifest, ResultColumn, TypedJobResult};
-pub use store::{JobError, JobStore, SubmitSpec, TenantJobQuota, WorkerClaim};
+pub use store::{
+    analytics_job_scope_identity, JobError, JobStore, SubmitSpec, TenantJobQuota, WorkerClaim,
+};

@@ -953,6 +953,35 @@ pub(crate) async fn commit_work_item(
         request_id
     };
     let identity = work_item_batch_identity(graph, &tenant, identity_request_id, &method)?;
+    // The batch id and the idempotency key must be functions of the SAME inputs,
+    // or a legitimate retry is refused as a conflict.
+    //
+    // A TERMINAL WorkItem method carries its own `idempotency_key` in its body,
+    // and `work_item_batch_identity` derives BOTH `batch_id` and
+    // `idempotency_key` from it (`work:<d>` / `work-idem:<d>`, over the same
+    // digest of graph+tenant+body key) -- stable across a retry by construction.
+    // Overriding the key with the caller's envelope key while leaving the batch
+    // id body-derived broke exactly that pairing, and the Raft-native route made
+    // it certain rather than occasional: `replicated_mutation` reconstructs the
+    // applied carrier with `idempotency_key = RaftMutationContext::batch_id`,
+    // which is `opaque_request_key("raft-native", graph, request_id, method)` --
+    // an ATTEMPT-SCOPED digest that includes the transport request id. So a
+    // retried `ReserveWorkItemResources` recomputed the same `work:<d>` batch id
+    // and a DIFFERENT `raft-native:<d>` key, and admission refused it with
+    // "IDEMPOTENCY_CONFLICT: batch id ... is already bound to idempotency key
+    // ...". No terminal WorkItem method routed through Raft could ever be
+    // retried idempotently.
+    //
+    // Only Claim/Renew/CasWorkItemMetadata have no body key -- the branch
+    // `work_item_batch_identity` marks `uses_native_row_cas: false`, whose batch
+    // id is itself transport-derived, so key and batch id still move together.
+    // Those keep the authenticated envelope key as their retry identity, which is
+    // what `identity_request_id` above already assumes.
+    let batch_idempotency_key = if identity.uses_native_row_cas {
+        identity.idempotency_key.as_str()
+    } else {
+        stable_idempotency_key.unwrap_or(&identity.idempotency_key)
+    };
     let submit_batch = matches!(&method, Method::SubmitWorkItems { .. });
     let submit = submit_batch || matches!(&method, Method::SubmitWorkItem { .. });
     // Resource-host inventory is committed through the same native WorkItem
@@ -985,7 +1014,7 @@ pub(crate) async fn commit_work_item(
             tenant: &tenant,
             graph,
             placement_epoch,
-            idempotency_key: stable_idempotency_key.unwrap_or(&identity.idempotency_key),
+            idempotency_key: batch_idempotency_key,
             expected_graph_version: Some(expected_graph_version),
             fencing_token: placement_fencing_token,
             created_at_ms,

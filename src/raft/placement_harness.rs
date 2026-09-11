@@ -341,10 +341,19 @@ async fn catalog_persists_and_reloads_with_epoch() {
             .placement_assign(TENANT, GROUP_B)
             .await
             .expect("assign");
-        multi.stop_listener();
-        multi.close_group(GROUP_A).await.unwrap();
-        multi.close_group(GROUP_B).await.unwrap();
-        multi.close_group(super::DEFAULT_GROUP).await.unwrap();
+        // `close_group` removes a group and shuts its Raft down, but it is NOT a
+        // node teardown: the heartbeat-flush and leader-balance tasks, the
+        // connection tasks, and -- decisively -- the owning `Arc<MultiRaft>` that
+        // `MultiRaft::start` published into `ServerState::multi_raft` all stay
+        // alive. That publication plus the manager's own `ctx.state` handle form
+        // a REFERENCE CYCLE (see `MultiRaft::shutdown`'s own comment about it),
+        // so dropping the locals here released nothing and the backend Arc stayed
+        // above one for good -- which `reopen_backend` then reported, correctly,
+        // as "3 other reference(s) ... a node task outlived the group that was
+        // closed". `shutdown()` is the teardown that breaks the cycle: it stops
+        // the control-plane workers, drains every group, stops the persistence
+        // writer, and clears its own `state.multi_raft` publication.
+        multi.shutdown().await;
         epoch
     };
     let backend2 = fixture::reopen_backend(backend, &dir).expect("reopen");
