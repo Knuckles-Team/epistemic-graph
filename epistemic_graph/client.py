@@ -6067,7 +6067,7 @@ class EdgeClient:
             self._client, {"source_id": source_id, "target_id": target_id}
         )
 
-    async def list(self) -> builtins.list[tuple[str, str, builtins.list[int] | bytes]]:
+    async def list(self) -> builtins.list[tuple[str, str, bytes]]:
         """Dump EVERY edge in the graph (unbounded full-graph read).
 
         On a large graph this is refused by the engine's overload backstop
@@ -15304,7 +15304,11 @@ class SyncEpistemicGraphClient:
         future = asyncio.run_coroutine_threadsafe(
             _gen.graph.send_clear_graph(self._client), self._loop
         )
-        return future.result()
+        # Block for completion and let the coroutine's exception propagate, but
+        # discard the engine's ack string: the async twin `GraphClient.clear`
+        # is `-> None` and drops it too, so the synchronous wrapper must not
+        # leak a different result shape.
+        future.result()
 
     def supports(self, op: str) -> bool:
         """Synchronously negotiate one advertised operation.

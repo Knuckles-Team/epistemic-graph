@@ -1946,7 +1946,10 @@ mod agent_library_security_tests {
 
     #[tokio::test]
     async fn signed_public_dispatch_persists_publish_retire_action_and_receipts() {
-        let secret = "agent-library-public-dispatch-secret";
+        // Synthetic HMAC fixture for `ServerState::new_for_test` inside
+        // `#[cfg(all(test, feature = "redb"))]`: it authenticates nothing outside
+        // this process and is never a live credential.
+        let secret = "agent-library-public-dispatch-secret"; // sanitizer:ignore
         let directory = tempfile::tempdir().unwrap();
         let mut server_state = crate::server::state::ServerState::new_for_test(
             secret,

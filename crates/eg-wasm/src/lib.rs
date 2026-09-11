@@ -316,8 +316,17 @@ impl UdfRegistry {
 }
 
 /// A tiny std-Mutex wrapper so the crate needs no `parking_lot` dep (the engine uses
-/// it elsewhere, but this leaf crate stays dep-light). `lock()` panics only on
-/// poisoning, which cannot happen here (no panic is held across the guard).
+/// it elsewhere, but this leaf crate stays dep-light).
+///
+/// Poisoning policy: the guarded value is the compiled-module REGISTRY, which is
+/// rebuildable — every entry can be re-registered from its source module. Per
+/// `clippy.toml`'s stated rule that is the `lock_recovering` case: recover rather
+/// than convert one panic into a permanent outage for every later caller. The root
+/// crate's `crate::lock_recovery` is the canonical implementation, but this is a
+/// dep-light LEAF crate that must not depend on the root, so the choice is made
+/// here instead — with the same substance, which is that recovery is REPORTED and
+/// never silent. Silent recovery is the thing the rule actually forbids: it hides
+/// that some other thread panicked mid-update.
 mod parking_lot_lite {
     pub struct Mutex<T>(std::sync::Mutex<T>);
     impl<T: Default> Default for Mutex<T> {
@@ -327,7 +336,19 @@ mod parking_lot_lite {
     }
     impl<T> Mutex<T> {
         pub fn lock(&self) -> std::sync::MutexGuard<'_, T> {
-            self.0.lock().unwrap_or_else(|p| p.into_inner())
+            // `into_inner` is a `disallowed_methods` entry because recovering
+            // SILENTLY hides a broken invariant. The report below is what makes
+            // this a decision rather than the reflex the rule forbids; stderr is
+            // the only channel available without taking a logging dependency.
+            #[allow(clippy::disallowed_methods)]
+            self.0.lock().unwrap_or_else(|poisoned| {
+                eprintln!(
+                    "eg-wasm: recovered the poisoned UDF-registry mutex; a previous \
+                     holder panicked mid-update, so a registration may be incomplete. \
+                     The registry is rebuildable, so serving continues."
+                );
+                poisoned.into_inner()
+            })
         }
     }
 }

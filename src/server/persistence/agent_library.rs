@@ -1111,8 +1111,8 @@ fn agent_library_operations(
     entry: &AgentLibraryEntry,
 ) -> Vec<MutationOperation> {
     let event_type = match kind {
-        AgentLibraryMutationKind::Publish => "agent_library_publish_v1",
-        AgentLibraryMutationKind::Retire => "agent_library_retire_v1",
+        AgentLibraryMutationKind::Publish => "agent_library_publish",
+        AgentLibraryMutationKind::Retire => "agent_library_retire",
     };
     vec![MutationOperation {
         ordinal: 0,

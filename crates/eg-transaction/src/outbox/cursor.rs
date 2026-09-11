@@ -77,12 +77,13 @@ fn ack_in<D: OwnerDomain>(
 ) -> Result<Acked, String> {
     match prepare_ack(write, identity, lease, now_ms)? {
         PreparedAck::Replayed(cursor) => Ok(Acked::Replayed(cursor)),
-        PreparedAck::Advance {
-            scope,
-            delivery,
-            cursor,
-            claim_cursor,
-        } => {
+        PreparedAck::Advance(advance) => {
+            let PreparedAdvance {
+                scope,
+                delivery,
+                cursor,
+                claim_cursor,
+            } = *advance;
             commit_ack(
                 write,
                 &scope,
@@ -123,18 +124,27 @@ pub(crate) fn ack_in_transaction<D: OwnerDomain>(
     }
 }
 
+/// Everything a validated advance needs in order to write. Named and boxed as
+/// one payload because the fields are a single unit -- the delivery row, the
+/// cursor it produces and the claim cursor it moves are only ever built and
+/// consumed together.
+struct PreparedAdvance {
+    scope: String,
+    delivery: OutboxDelivery,
+    cursor: MutationProjectionCursor,
+    claim_cursor: OutboxClaimCursor,
+}
+
 enum PreparedAck {
     Replayed(MutationProjectionCursor),
-    Advance {
-        scope: String,
-        delivery: OutboxDelivery,
-        cursor: MutationProjectionCursor,
-        /// Boxed to keep this call-local result small: unlike the other
-        /// `Advance` fields, this one carries two full [`OutboxPosition`]s
-        /// (`resolved_through` and `acked_through`). `PreparedAck` never
-        /// crosses a durable boundary, so the box has no wire effect.
-        claim_cursor: Box<OutboxClaimCursor>,
-    },
+    /// Boxed to keep this call-local result small: the advance payload is far
+    /// larger than `Replayed` -- it carries a delivery row, a projection cursor
+    /// and a claim cursor holding two full [`OutboxPosition`]s
+    /// (`resolved_through` and `acked_through`) -- so an unboxed variant would
+    /// make every `PreparedAck`, replay included, pay the advance's width.
+    /// `PreparedAck` never crosses a durable boundary, so the box has no wire
+    /// effect.
+    Advance(Box<PreparedAdvance>),
 }
 
 /// Perform every acknowledgement check before the first delivery-side write.
@@ -177,12 +187,12 @@ fn prepare_ack<D: OwnerDomain>(
     {
         claim_cursor.resolved_through = Some(position.clone());
     }
-    Ok(PreparedAck::Advance {
+    Ok(PreparedAck::Advance(Box::new(PreparedAdvance {
         scope,
         delivery,
         cursor,
-        claim_cursor: Box::new(claim_cursor),
-    })
+        claim_cursor,
+    })))
 }
 
 /// Fail a superseded, expired or released lease; replay an already-delivered
