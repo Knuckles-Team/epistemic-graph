@@ -117,14 +117,23 @@ impl AgentLibraryStore {
                     return Err(error);
                 }
             };
-        let shape_digest = request.graph.shape.shape_digest();
+        // The replay identity is minted from the DRAFT digest, not the shape
+        // digest. Two publishes of the same shape that differ in version or
+        // synthesis evidence are different operations: keying on the shape
+        // alone made a retry that CORRECTED the evidence resolve as a replay of
+        // the uncorrected publish, dropping the correction and reporting
+        // success. The ceiling is deliberately outside this digest -- it is not
+        // derived until the composition is resolved below, and a retry must be
+        // able to replay a committed publish without re-resolving children that
+        // may have been retired since.
+        let draft_digest = eg_types::agent_graph::draft_definition_digest(&request.graph);
         let operation = match agent_library_operation_identity(
             &owner,
             &replay_context,
             "graph-publish",
             &request.graph.graph_id,
             expected_revision,
-            Some(&shape_digest),
+            Some(&draft_digest),
         ) {
             Ok(operation) => operation,
             Err(error) => {
@@ -171,13 +180,15 @@ impl AgentLibraryStore {
                 return Err(error);
             }
         };
-        // Recorded on the receipt path via the outbox headers rather than
-        // discarded: the composed ceiling is what an executor has to honour,
-        // and it cannot recompute it without re-resolving the whole tree.
-        let _ = composition;
-
+        // The composed ceiling is STAMPED ON THE ENTRY, inside its definition
+        // digest, and echoed in the outbox headers. It is what an executor and
+        // `kg-delegate` have to honour, and neither can recompute it without
+        // re-resolving the whole tree -- so discarding it here (as this code
+        // once did) left delegation with nothing to check a caller's declared
+        // ceiling against, and it was accepted unverified.
         let entry = match AgentGraphEntry::create(
             request.graph,
+            composition.total_work,
             next,
             AgentLibraryLifecycle::Published,
             replay_context.created_at_ms,
@@ -685,7 +696,9 @@ fn graph_operations(
         domain: DurabilityDomain::ControlPlane,
         method: Method::ApplyMutation {
             event_type: event_type.to_string(),
-            query: entry.shape_digest.clone(),
+            // The whole record, not just what it does: two revisions with the
+            // same shape but different metadata are different mutations.
+            query: entry.definition_digest.clone(),
         },
     }]
 }
@@ -703,6 +716,17 @@ fn graph_outbox_headers(entry: &AgentGraphEntry) -> BTreeMap<String, String> {
             entry.entry_revision.to_string(),
         ),
         ("shape_digest".to_string(), entry.shape_digest.clone()),
+        (
+            "definition_digest".to_string(),
+            entry.definition_digest.clone(),
+        ),
+        // The ceiling admission derived, on the receipt path. A consumer
+        // reading the stream learns what this revision was admitted to cost
+        // without re-resolving the composition tree.
+        (
+            "composed_work_ceiling".to_string(),
+            entry.composed_work_ceiling.to_string(),
+        ),
         ("definition_actor_scope".to_string(), entry.actor_scope.clone()),
         ("definition_purpose_id".to_string(), entry.purpose_id.clone()),
         (
@@ -971,12 +995,12 @@ mod tests {
                 AgentGraphEdge {
                     from: "research".into(),
                     to: "write".into(),
-                    condition_ref: None,
+                    condition: None,
                 },
                 AgentGraphEdge {
                     from: "write".into(),
                     to: "done".into(),
-                    condition_ref: None,
+                    condition: None,
                 },
             ],
             max_iterations: 10,
@@ -1076,6 +1100,73 @@ mod tests {
             1,
             "a replay must not append a second revision"
         );
+    }
+
+    #[test]
+    fn a_retry_that_corrects_the_synthesis_evidence_is_not_a_replay() {
+        // The publish replay identity used to be minted from `shape_digest`
+        // alone, so a retry of a timed-out publish that CORRECTED the synthesis
+        // evidence resolved as a replay of the uncorrected commit: the
+        // correction was silently dropped and the caller was told it worked.
+        // Keyed on the draft digest it is a different operation, and reusing
+        // the key for it is a NAMED refusal instead.
+        let (_dir, store) = open_store();
+        store
+            .publish_graph(AgentGraphPublishRequest {
+                context: context(&store, "tenant-a", "key-1", 1, 0, "agent-graph:publish"),
+                graph: draft("tenant-a", "graph-a"),
+            })
+            .unwrap();
+
+        let mut corrected = draft("tenant-a", "graph-a");
+        corrected.synthesis_evidence = Some(component("evidence:run-17", 'c'));
+        assert_eq!(
+            corrected.shape.shape_digest(),
+            draft("tenant-a", "graph-a").shape.shape_digest(),
+            "the shape is untouched, which is what made this a false replay"
+        );
+        let mut retry = context(&store, "tenant-a", "key-1", 2, 0, "agent-graph:publish");
+        retry.created_at_ms = 99;
+        let error = store
+            .publish_graph(AgentGraphPublishRequest {
+                context: retry,
+                graph: corrected,
+            })
+            .unwrap_err();
+        assert!(error.contains("IDEMPOTENCY_CONFLICT"), "got: {error}");
+        assert_eq!(
+            store.graph_revisions("tenant-a", "graph-a").unwrap()[0].synthesis_evidence,
+            None,
+            "and the committed revision is untouched"
+        );
+    }
+
+    #[test]
+    fn the_admitted_ceiling_is_persisted_on_the_revision() {
+        // `kg-delegate` checks a caller's declared `composed_work_ceiling`
+        // against this field. It was computed inside the write transaction and
+        // then discarded (`let _ = composition;`), under a comment claiming the
+        // outbox headers recorded it -- they did not, and neither did anything
+        // else, so delegation had nothing to compare against.
+        let (_dir, store) = open_store();
+        let published = store
+            .publish_graph(AgentGraphPublishRequest {
+                context: context(&store, "tenant-a", "key-1", 1, 0, "agent-graph:publish"),
+                graph: draft("tenant-a", "graph-a"),
+            })
+            .unwrap();
+        // No child graphs, so the composed ceiling is the shape's own bound.
+        assert_eq!(
+            published.result.graph.composed_work_ceiling,
+            u64::from(shape().max_iterations)
+        );
+        let current = store.current_graph("tenant-a", "graph-a").unwrap().unwrap();
+        assert_eq!(
+            current.composed_work_ceiling,
+            published.result.graph.composed_work_ceiling,
+            "it must survive the round trip through redb"
+        );
+        current.validate().expect("the persisted row re-derives its own digest");
     }
 
     #[test]

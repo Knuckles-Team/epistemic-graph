@@ -13,19 +13,35 @@ use crate::agent_component::AgentComponentKind;
 use crate::contract::Nonce;
 use crate::mutation_batch::ScopeTenantId;
 
-/// Bumped to 2 by RF-ADR-008, which added [`AgentRuntimeContract`] to the
-/// definition. The new field participates in `definition_digest`, so a v1
-/// entry's recorded digest can never re-derive under v2 -- the version is what
-/// makes that a typed rejection instead of a confusing digest mismatch.
-pub const AGENT_LIBRARY_ENTRY_SCHEMA_VERSION: u16 = 4;
+/// Advanced whenever the meaning of a stored entry changes, so a reader built
+/// against the older meaning gives a typed version rejection instead of a
+/// confusing digest mismatch. RF-ADR-008 took it to 4 when
+/// [`AgentRuntimeContract`] joined `definition_digest`; the pre-freeze contract
+/// review takes it to 5, because [`AgentLibraryEntry::tool_surface_digest`]
+/// -- the value delegation admits as the capability proof -- now covers
+/// `runtime.toolset_refs` as well as `tools`. The stored fields are unchanged,
+/// but what an entry PROVES is not, and a reader that computes the old proof
+/// from a v5 entry would under-state the agent's tool surface.
+pub const AGENT_LIBRARY_ENTRY_SCHEMA_VERSION: u16 = 5;
 pub const AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION: u16 = 1;
 pub const AGENT_LIBRARY_RESULT_SCHEMA_VERSION: u16 = 1;
 pub const AGENT_LIBRARY_RESULT_SCHEMA_ID: &str = "agent-library-result.v1";
-/// Hash-domain separator. Advanced with the schema version (RF-ADR-008) so a v1
-/// and a v2 definition cannot collide even if their remaining fields match.
-/// This is a format-identity constant, which RF-ADR-006 exempts from the
+/// Hash-domain separator. Advanced with the schema version so two entries that
+/// mean different things cannot share a definition digest even when their
+/// remaining fields match -- at v5, two byte-identical entries carry different
+/// capability proofs, so they are not the same definition. This is a
+/// format-identity constant, which RF-ADR-006 exempts from the
 /// no-version-suffixes rule.
-pub const AGENT_LIBRARY_DEFINITION_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-library-definition/v4";
+pub const AGENT_LIBRARY_DEFINITION_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-library-definition/v5";
+
+/// Hash-domain separator for [`AgentLibraryEntry::tool_surface_digest`], the
+/// value delegation admits as an agent's capability proof. Separate from the
+/// definition domain because the two answer different questions: the definition
+/// digest is "is this the same agent?", the tool-surface digest is "does this
+/// agent hold exactly these tools?". Also a format-identity constant
+/// (RF-ADR-006).
+pub const AGENT_LIBRARY_TOOL_SURFACE_DIGEST_DOMAIN: &[u8] =
+    b"au-eg/agent-library-tool-surface/v1";
 
 const MAX_TEXT_BYTES: usize = 4 * 1024;
 const MAX_REFERENCE_COUNT: usize = 1_024;
@@ -157,8 +173,19 @@ pub struct AgentRuntimeContract {
     /// `@agent.output_validator` functions, by reference.
     pub output_validator_refs: Vec<ComponentDependency>,
     /// Grouped tool sources — a `FunctionToolset`, an MCP server, a skill pack.
-    /// `tool_refs` on the entry stays the FLATTENED resolution of these, so a
-    /// reader that only cares which tools exist never has to walk the grouping.
+    ///
+    /// `tools` on the entry is the flattened resolution of these WHERE THE
+    /// PUBLISHER CAN FLATTEN THEM, so a reader that only cares which individual
+    /// tools exist need not walk the grouping. The engine does not, and cannot,
+    /// enforce that: a toolset is an L1 reference, its contents live in the
+    /// system that owns it, and resolving an MCP server's tool list is not
+    /// something this contract can do at publish time. Treating the flattening
+    /// as an invariant would therefore be asserting a property nothing checks.
+    ///
+    /// So the capability proof covers BOTH lists instead — see
+    /// [`AgentLibraryEntry::tool_surface_digest`]. An agent that names a toolset
+    /// it did not flatten still has that toolset inside the digest delegation
+    /// admits, rather than a proof over a strict subset of what it can call.
     pub toolset_refs: Vec<ComponentDependency>,
     pub model_settings: AgentModelSettings,
     pub retry_policy: AgentRetryPolicy,
@@ -387,14 +414,27 @@ impl AgentLibraryEntry {
         })
     }
 
-    /// The digest of this agent's tool set.
+    /// The digest of this agent's whole TOOL SURFACE: its flat `tools` and the
+    /// `toolset_refs` it draws further tools from.
     ///
-    /// DERIVED from the pinned dependencies rather than stored. The old
-    /// `tool_set_digest` field was a second, independent statement of the same
-    /// fact, and a stored set digest CAN disagree with the set it describes --
-    /// nothing recomputed it. A derived one cannot.
-    pub fn tool_set_digest(&self) -> String {
-        set_digest(b"au-eg/agent-library-tool-set/v1", &self.tools)
+    /// This is what `kg-delegate` admits as `capability_digest`, so its input
+    /// set is the answer to "what may this agent call?". Covering `tools` alone
+    /// made that proof cover a strict SUBSET of the surface: an entry could
+    /// pin `tools: [read-only-tool]` and `toolset_refs: [mcp-server:admin]`,
+    /// and the admitted proof would say nothing about the second. Both lists
+    /// are hashed with their own length prefix, so moving a reference from one
+    /// to the other moves the digest.
+    ///
+    /// DERIVED from the pinned dependencies rather than stored. A stored set
+    /// digest is a second, independent statement of the same fact and CAN
+    /// disagree with the set it describes -- nothing recomputed it. A derived
+    /// one cannot.
+    pub fn tool_surface_digest(&self) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(AGENT_LIBRARY_TOOL_SURFACE_DIGEST_DOMAIN);
+        put_dependencies(&mut hasher, &self.tools);
+        put_dependencies(&mut hasher, &self.runtime.toolset_refs);
+        format!("{DIGEST_PREFIX}{}", hex::encode(hasher.finalize()))
     }
 
     pub fn skill_set_digest(&self) -> String {
@@ -1366,6 +1406,39 @@ mod tests {
         // that is stored but not hashed can be altered after publication without
         // invalidating the entry -- a silent swap of the model settings, the
         // output contract, or the token budget an operator approved.
+        // The destructuring is the tripwire: a field added to
+        // `AgentRuntimeContract` stops this test compiling until it is covered.
+        let AgentRuntimeContract {
+            deps_contract: _,
+            output_contract: _,
+            output_mode: _,
+            output_validator_refs: _,
+            toolset_refs: _,
+            model_settings:
+                AgentModelSettings {
+                    temperature_milli: _,
+                    top_p_milli: _,
+                    max_output_tokens: _,
+                    seed: _,
+                    parallel_tool_calls: _,
+                    stop_sequences: _,
+                    request_timeout_ms: _,
+                },
+            retry_policy:
+                AgentRetryPolicy {
+                    model_retries: _,
+                    output_retries: _,
+                },
+            usage_limits:
+                AgentUsageLimits {
+                    request_limit: _,
+                    input_tokens_limit: _,
+                    output_tokens_limit: _,
+                    tool_calls_limit: _,
+                },
+            prompt_mode: _,
+        } = contract();
+
         let mut base = draft();
         base.runtime = contract();
         let baseline = AgentLibraryEntry::publish(base.clone(), 1, 1_000)
@@ -1427,6 +1500,10 @@ mod tests {
         for (field, mutate) in mutations {
             let mut altered = base.clone();
             mutate(&mut altered.runtime);
+            assert_ne!(
+                altered, base,
+                "{field}: the mutator changed nothing, so the test proves nothing"
+            );
             let digest = AgentLibraryEntry::publish(altered, 1, 1_000)
                 .unwrap_or_else(|error| panic!("{field} variant publishes: {error}"))
                 .definition_digest;
@@ -1598,5 +1675,148 @@ mod tests {
         let tombstone = entry.retire(2, 2_000).expect("retires");
         assert_eq!(tombstone.runtime, contract());
         assert_eq!(tombstone.definition_digest, entry.definition_digest);
+    }
+
+    // ---- digest coverage ----
+
+    #[test]
+    fn every_stored_definition_field_moves_the_digest() {
+        // A stored-but-UNHASHED field is how an approved agent gets silently
+        // altered: the digest an approver signed off on still matches after the
+        // change. The destructuring is the tripwire -- a field added to
+        // `AgentLibraryEntryDraft` stops this test compiling until it is
+        // covered below.
+        let AgentLibraryEntryDraft {
+            agent_id: _,
+            package_id: _,
+            version: _,
+            role: _,
+            role_digest: _,
+            system_prompt: _,
+            tools: _,
+            skills: _,
+            model_profile: _,
+            model_identity: _,
+            ontologies: _,
+            tenant_id: _,
+            actor_scope: _,
+            purpose_id: _,
+            policy_digest: _,
+            source_revision: _,
+            source_revision_digest: _,
+            runtime: _,
+            instantiated_from: _,
+        } = full_draft();
+
+        type Mutator = (&'static str, fn(&mut AgentLibraryEntryDraft));
+        let mutators: &[Mutator] = &[
+            ("agent_id", |d| d.agent_id = "agent:other".into()),
+            ("package_id", |d| d.package_id = "package:other".into()),
+            ("version", |d| d.version = "2.0.0".into()),
+            ("role", |d| d.role = "role:reviewer".into()),
+            ("role_digest", |d| d.role_digest = digest('c')),
+            ("system_prompt", |d| {
+                d.system_prompt =
+                    dependency("prompt:other", AgentComponentKind::SystemPrompt, 'c')
+            }),
+            ("tools", |d| {
+                d.tools = vec![dependency("tool:other", AgentComponentKind::Tool, 'c')]
+            }),
+            ("skills", |d| {
+                d.skills = vec![dependency("skill:other", AgentComponentKind::Skill, 'c')]
+            }),
+            ("model_profile", |d| {
+                d.model_profile =
+                    dependency("model-profile:other", AgentComponentKind::ModelProfile, 'c')
+            }),
+            ("model_identity", |d| {
+                d.model_identity = "model:other".into()
+            }),
+            ("ontologies", |d| {
+                d.ontologies = vec![dependency("ontology:other", AgentComponentKind::Ontology, 'c')]
+            }),
+            ("tenant_id", |d| d.tenant_id = "tenant-b".into()),
+            ("actor_scope", |d| d.actor_scope = "operator".into()),
+            ("purpose_id", |d| d.purpose_id = "agent-rebuild".into()),
+            ("policy_digest", |d| d.policy_digest = digest('c')),
+            ("source_revision", |d| {
+                d.source_revision = "source-revision:43".into()
+            }),
+            ("source_revision_digest", |d| {
+                d.source_revision_digest = digest('c')
+            }),
+            // Every individual runtime field is covered by
+            // `every_runtime_field_changes_the_definition_digest`; this proves
+            // the sub-struct is reached from the top-level draft at all.
+            ("runtime", |d| d.runtime.model_settings.seed = Some(4_242)),
+            ("instantiated_from", |d| d.instantiated_from = None),
+        ];
+
+        let baseline = AgentLibraryEntry::publish(full_draft(), 1, 1_000)
+            .expect("baseline publishes")
+            .definition_digest;
+        for (field, mutate) in mutators {
+            let mut altered = full_draft();
+            mutate(&mut altered);
+            assert_ne!(
+                altered,
+                full_draft(),
+                "{field}: the mutator changed nothing, so the test proves nothing"
+            );
+            let moved = AgentLibraryEntry::publish(altered, 1, 1_000)
+                .unwrap_or_else(|error| panic!("{field} must still publish: {error}"))
+                .definition_digest;
+            assert_ne!(
+                moved, baseline,
+                "{field} is stored but not covered by the definition digest"
+            );
+        }
+    }
+
+    /// A draft with every optional slot populated, so a mutator always has
+    /// something to change. `draft()` leaves `runtime` default and
+    /// `instantiated_from` absent, which would make those two mutators vacuous.
+    fn full_draft() -> AgentLibraryEntryDraft {
+        let mut full = draft();
+        full.runtime = contract();
+        full.instantiated_from = Some(crate::agent_template::TemplateInstanceRef {
+            template_id: "template:researcher".into(),
+            entry_revision: 3,
+            definition_digest: digest('9'),
+            bindings: std::collections::BTreeMap::from([(
+                "model".to_string(),
+                dependency("model-profile:cheap", AgentComponentKind::ModelProfile, 'b'),
+            )]),
+        });
+        full
+    }
+
+    #[test]
+    fn the_capability_proof_covers_the_toolsets_too() {
+        // `tool_surface_digest` is what `kg-delegate` admits as
+        // `capability_digest`. Covering `tools` alone made that proof cover a
+        // strict SUBSET of what the agent can call: an entry could pin a
+        // read-only tool and an admin MCP toolset, and the proof would say
+        // nothing about the second.
+        let base = AgentLibraryEntry::publish(draft(), 1, 1_000).expect("publishes");
+        let mut with_toolset = draft();
+        with_toolset.runtime.toolset_refs =
+            vec![dependency("toolset:mcp:admin", AgentComponentKind::Toolset, 'e')];
+        let widened = AgentLibraryEntry::publish(with_toolset, 1, 1_000).expect("publishes");
+
+        assert_eq!(base.tools, widened.tools, "the flat tool list is untouched");
+        assert_ne!(
+            base.tool_surface_digest(),
+            widened.tool_surface_digest(),
+            "adding a toolset must move the capability proof"
+        );
+
+        // The flat list still moves it too -- widening the input set must not
+        // have cost the original coverage.
+        let mut other_tool = draft();
+        other_tool.tools = vec![dependency("tool:other", AgentComponentKind::Tool, '3')];
+        let other_tool = AgentLibraryEntry::publish(other_tool, 1, 1_000).expect("publishes");
+        assert_ne!(base.tool_surface_digest(), other_tool.tool_surface_digest());
+
     }
 }

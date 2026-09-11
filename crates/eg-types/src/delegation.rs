@@ -12,7 +12,14 @@ use crate::agent_library::AgentLibraryEntry;
 use crate::epistemic_operations::RequestContext;
 
 /// Current RF-020 delegation contract version.
-pub const KG_DELEGATE_VERSION: u16 = 1;
+///
+/// Advanced to 2 by the pre-freeze contract review. The request shape changed
+/// when a delegation stopped naming one agent and started naming a
+/// [`DelegationTarget`] -- `target` where a scalar `agent_entry` stood, plus
+/// `model_digest` becoming optional because a graph has no single model. A
+/// client built against the earlier shape must get a typed version rejection,
+/// not a `deny_unknown_fields` parse error about a field it has never heard of.
+pub const KG_DELEGATE_VERSION: u16 = 2;
 
 /// Bounds applied before any request field is copied into a WorkItem row.
 pub const MAX_DELEGATION_ID_BYTES: usize = 512;
@@ -28,8 +35,10 @@ pub const MAX_DELEGATION_IN_FLIGHT: u64 = 4_096;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum KgDelegateSchemaVersion {
-    #[serde(rename = "1")]
-    V1,
+    /// Format identity, not a component name (RF-ADR-006). See
+    /// [`KG_DELEGATE_VERSION`] for what changed.
+    #[serde(rename = "2")]
+    V2,
 }
 
 /// The retained Agent Library identity pinned by a delegation.
@@ -318,7 +327,7 @@ pub struct KgDelegateRequest {
 
 impl KgDelegateRequest {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, KgDelegateSchemaVersion::V1) {
+        if !matches!(self.schema_version, KgDelegateSchemaVersion::V2) {
             return Err("unsupported kg-delegate schema version".to_string());
         }
         self.validate_identity_and_inputs()?;
@@ -506,7 +515,7 @@ mod tests {
     fn request() -> KgDelegateRequest {
         let entry = entry_ref();
         KgDelegateRequest {
-            schema_version: KgDelegateSchemaVersion::V1,
+            schema_version: KgDelegateSchemaVersion::V2,
             context: context(),
             delegation_id: "delegation:1".into(),
             run_id: "run:1".into(),

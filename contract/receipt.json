@@ -1,7 +1,7 @@
 {
   "artifact_digests": {
     "contract/methods.json": "d135b963bd2be62320a8c40547915b6d84c6f43ca597137e1fc7760f599d56be",
-    "contract/schemas/method.request.json": "b9a843484d487e03b64f5b011253fbe4da14f638701939ca6924aae6b14ac21d",
+    "contract/schemas/method.request.json": "7b6ee8a6c5e81ca405106dcc36188d61eaafffdfb54430721f55567c1632f4ab",
     "contract/schemas/result.Bool.json": "f4bcf35f07ea1acd8a6067aa0279864f120fc1eb6e308afb0720e034b2d57744",
     "contract/schemas/result.Count.json": "c139342b656a7d5b0bf598ad6a64f92992dc1071ab8f6568bcfa55422f1f326a",
     "contract/schemas/result.EdgeList.json": "837e5e87b9131e55b1136b2fd5588b002ff9c26eeaad14892a3b3f2b83e1cbc2",
@@ -29,7 +29,7 @@
     "epistemic_graph/generated/transactions.py": "620eca482b86fd65c956204e308ef15a4d6765fa21887a4a93dbe40dd85998be"
   },
   "cargo_lock_sha256": "78962b424ed5c7e698355184f879428097eb06bba78e8493fadc8b09025b5da3",
-  "contract_digest": "576a96aff7bc2327dea0e778754b6f924acb3bc0d6c8b365e126968ace55bf0c",
+  "contract_digest": "de7c449e77e1e2e677e14ca28eaa28bc744ce398288bf95847611d62d5f4c109",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -52,25 +52,25 @@
     },
     "AGENT_GRAPH_ENTRY_SCHEMA_VERSION": {
       "sites": [
-        "crates/eg-types/src/agent_graph.rs:40"
+        "crates/eg-types/src/agent_graph.rs:47"
       ],
-      "value": "1"
+      "value": "2"
     },
     "AGENT_LIBRARY_ENTRY_SCHEMA_VERSION": {
       "sites": [
-        "crates/eg-types/src/agent_library.rs:20"
+        "crates/eg-types/src/agent_library.rs:25"
       ],
-      "value": "4"
+      "value": "5"
     },
     "AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION": {
       "sites": [
-        "crates/eg-types/src/agent_library.rs:21"
+        "crates/eg-types/src/agent_library.rs:26"
       ],
       "value": "1"
     },
     "AGENT_LIBRARY_RESULT_SCHEMA_VERSION": {
       "sites": [
-        "crates/eg-types/src/agent_library.rs:22"
+        "crates/eg-types/src/agent_library.rs:27"
       ],
       "value": "1"
     },
@@ -82,9 +82,9 @@
     },
     "AGENT_TEMPLATE_SCHEMA_VERSION": {
       "sites": [
-        "crates/eg-types/src/agent_template.rs:45"
+        "crates/eg-types/src/agent_template.rs:50"
       ],
-      "value": "1"
+      "value": "2"
     },
     "ANALYTICS_JOB_SCOPE_INCARNATION": {
       "sites": [
@@ -142,7 +142,7 @@
     },
     "CONSENSUS_TXN_SCHEMA_VERSION": {
       "sites": [
-        "src/server/handlers/txn.rs:2370"
+        "src/server/handlers/txn.rs:2455"
       ],
       "value": "1"
     },
@@ -343,6 +343,6 @@
     "dispatch-only": 82,
     "undeclared": 223
   },
-  "source_tree_oid": "d17374de7257bc4e53a0a4b2f6f743f496fe19a5d1fb6269b014b23eb6443a06",
+  "source_tree_oid": "8ebe61073d1632aae5863512df2f3bd9597e00a9d0be0ff3ce26169518a02ec0",
   "typed_result_methods": 129
 }

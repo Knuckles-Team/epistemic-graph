@@ -886,6 +886,15 @@ mod tests {
     }
 
     fn tool(component_id: &str, capability: &str, effect: ToolEffect) -> AgentComponentDraft {
+        tool_for("tenant-a", component_id, capability, effect)
+    }
+
+    fn tool_for(
+        tenant_id: &str,
+        component_id: &str,
+        capability: &str,
+        effect: ToolEffect,
+    ) -> AgentComponentDraft {
         AgentComponentDraft {
             component_id: component_id.to_string(),
             kind: AgentComponentKind::Tool,
@@ -905,7 +914,7 @@ mod tests {
             requires: Vec::new(),
             provides: Vec::new(),
             attributes: Default::default(),
-            tenant_id: "tenant-a".to_string(),
+            tenant_id: tenant_id.to_string(),
             actor_scope: "action-scope:a".to_string(),
             purpose_id: "agent-component:publish".to_string(),
             policy_digest: super::super::agent_library::current_agent_library_policy_digest()
@@ -922,12 +931,24 @@ mod tests {
         expected_revision: u64,
         purpose_id: &str,
     ) -> AgentLibraryMutationContext {
+        context_for("tenant-a", store, key, nonce, expected_revision, purpose_id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn context_for(
+        tenant_id: &str,
+        store: &AgentLibraryStore,
+        key: &str,
+        nonce: u8,
+        expected_revision: u64,
+        purpose_id: &str,
+    ) -> AgentLibraryMutationContext {
         AgentLibraryMutationContext {
             request_id: u64::from(nonce),
             principal: store.owner_principal().to_string(),
             caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
             attempt_nonce: Nonce::from_bytes([nonce; 32]),
-            tenant_id: "tenant-a".to_string(),
+            tenant_id: tenant_id.to_string(),
             actor_scope: "action-scope:a".to_string(),
             purpose_id: purpose_id.to_string(),
             policy_revision: "policy-v1".to_string(),
@@ -1108,12 +1129,66 @@ mod tests {
 
     #[test]
     fn a_search_is_scoped_to_its_tenant() {
+        // Searching the HIGHER-sorting tenant proves nothing: the scan is
+        // `heads.range((tenant_id, "")..)`, so with only `tenant-a` rows seeded
+        // a search for `tenant-b` starts past every row and returns empty
+        // before any isolation logic runs -- the per-row prefix check whose
+        // comment says "without this the scan walks into the NEXT tenant's
+        // components" would never execute, and deleting it would not fail.
+        //
+        // So: seed BOTH tenants and search the LOWER-sorting one, which is the
+        // only arrangement in which the open-ended range actually reaches a
+        // foreign row and has to break on it.
         let (_dir, store) = open_store();
         seed_search_corpus(&store);
+        for (index, (id, capability)) in [
+            ("tool:web", "eg:capability/retrieval/web-search"),
+            ("tool:vector", "eg:capability/retrieval/vector-search"),
+            ("tool:summarize", "eg:capability/analysis/summarize"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            let nonce = u8::try_from(index + 100).unwrap();
+            store
+                .publish_component(AgentComponentPublishRequest {
+                    context: context_for(
+                        "tenant-b",
+                        &store,
+                        &format!("tenant-b-key-{index}"),
+                        nonce,
+                        0,
+                        "agent-component:publish",
+                    ),
+                    component: tool_for("tenant-b", id, capability, ToolEffect::Read),
+                })
+                .unwrap();
+        }
+        assert!(
+            "tenant-a" < "tenant-b",
+            "this test only reaches the guard while tenant-a sorts first"
+        );
+
         let found = store
+            .search_components(&search("tenant-a", Some("eg:task/research"), false))
+            .unwrap();
+        assert!(!found.is_empty(), "the searched tenant's own rows must match");
+        assert!(
+            found.iter().all(|component| component.tenant_id == "tenant-a"),
+            "another tenant's components must not leak: {:?}",
+            found
+                .iter()
+                .map(|component| (&component.tenant_id, &component.component_id))
+                .collect::<Vec<_>>()
+        );
+
+        // And the higher-sorting tenant still resolves its own rows, so the
+        // break is scoping the scan rather than truncating it.
+        let theirs = store
             .search_components(&search("tenant-b", Some("eg:task/research"), false))
             .unwrap();
-        assert!(found.is_empty(), "another tenant's components must not leak");
+        assert!(!theirs.is_empty());
+        assert!(theirs.iter().all(|component| component.tenant_id == "tenant-b"));
     }
 
     #[test]

@@ -42,8 +42,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::agent_component::{AgentComponentKind, ComponentDependency};
 use crate::agent_library::{AgentLibraryEntryDraft, AgentLibraryLifecycle};
 
-pub const AGENT_TEMPLATE_SCHEMA_VERSION: u16 = 1;
-pub const AGENT_TEMPLATE_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-template-definition/v1";
+/// Advanced to 2 by the pre-freeze contract review. A template's digest folds
+/// in its base agent's own digest, and that digest's domain moved
+/// (`agent-library-definition/v4` -> `/v5`), so every template digest moved
+/// with it. Bumping here is what makes a v1 template a typed rejection rather
+/// than a template whose recorded digest silently no longer re-derives.
+pub const AGENT_TEMPLATE_SCHEMA_VERSION: u16 = 2;
+/// Format-identity constant (RF-ADR-006), advanced with the schema version.
+pub const AGENT_TEMPLATE_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-template-definition/v2";
 
 const MAX_TEXT_BYTES: usize = 4 * 1024;
 const MAX_PARAMS: usize = 32;

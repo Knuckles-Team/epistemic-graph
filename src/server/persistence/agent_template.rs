@@ -105,7 +105,7 @@ impl AgentLibraryStore {
         // The replay identity is minted from the DEFINITION the caller asked
         // for, so a byte-identical retry resolves to the same operation rather
         // than becoming a second revision. Computed before the entry exists,
-        // exactly as `agent_graph` mints its identity from `shape_digest`.
+        // exactly as `agent_graph` mints its identity from its draft digest.
         let definition_digest = eg_types::agent_template::draft_definition_digest(&request.template);
         let replay_context =
             match admitted_context(&request.context, "agent-template:publish") {

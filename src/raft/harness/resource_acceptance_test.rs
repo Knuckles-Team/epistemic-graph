@@ -739,7 +739,7 @@ fn delegation_method(entry: &eg_types::AgentLibraryEntry) -> Method {
     };
     Method::KgDelegate {
         request: Box::new(eg_types::KgDelegateRequest {
-            schema_version: eg_types::KgDelegateSchemaVersion::V1,
+            schema_version: eg_types::KgDelegateSchemaVersion::V2,
             context,
             delegation_id: "rmdd27-delegation".to_string(),
             run_id: "rmdd27-run".to_string(),
@@ -749,7 +749,7 @@ fn delegation_method(entry: &eg_types::AgentLibraryEntry) -> Method {
             },
             input_ref: "cas:rmdd27-delegate-input".to_string(),
             command_digest: IMMUTABLE_DIGEST.to_string(),
-            capability_digest: raw_digest(&entry.tool_set_digest()),
+            capability_digest: raw_digest(&entry.tool_surface_digest()),
             catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
             policy_digest: entry.policy_digest.clone(),
             model_digest: Some(raw_digest(&entry.model_profile_digest())),
@@ -884,7 +884,7 @@ fn restart_delegate_method(entry: &eg_types::AgentLibraryEntry) -> Method {
     let unprefixed = |digest: &str| digest.strip_prefix("sha256:").unwrap().to_string();
     Method::KgDelegate {
         request: Box::new(eg_types::KgDelegateRequest {
-            schema_version: eg_types::KgDelegateSchemaVersion::V1,
+            schema_version: eg_types::KgDelegateSchemaVersion::V2,
             context: eg_types::epistemic_operations::RequestContext {
                 schema_version: eg_types::epistemic_operations::RequestContextSchemaVersion::V2,
                 request_id: "rmdd27-restart-delegate-request".to_string(),
@@ -908,7 +908,7 @@ fn restart_delegate_method(entry: &eg_types::AgentLibraryEntry) -> Method {
             target: eg_types::delegation::DelegationTarget::Agent { entry: agent_entry },
             input_ref: "cas:rmdd27-restart-input".to_string(),
             command_digest: raw_digest('2'),
-            capability_digest: unprefixed(&entry.tool_set_digest()),
+            capability_digest: unprefixed(&entry.tool_surface_digest()),
             catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
             policy_digest: entry.policy_digest.clone(),
             model_digest: Some(unprefixed(&entry.model_profile_digest())),
@@ -932,7 +932,7 @@ fn missing_authority_delegate_method() -> Method {
     let now_ms = unix_ms();
     Method::KgDelegate {
         request: Box::new(eg_types::KgDelegateRequest {
-            schema_version: eg_types::KgDelegateSchemaVersion::V1,
+            schema_version: eg_types::KgDelegateSchemaVersion::V2,
             context: eg_types::epistemic_operations::RequestContext {
                 schema_version: eg_types::epistemic_operations::RequestContextSchemaVersion::V2,
                 request_id: "rmdd27-missing-authority-request".to_string(),

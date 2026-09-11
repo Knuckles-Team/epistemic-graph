@@ -298,7 +298,7 @@
         },
         {
           "const": "predicate",
-          "description": "A predicate behind a graph decision node or edge condition\n(`decision_ref`, `condition_ref`).",
+          "description": "A predicate behind a graph decision node or edge condition\n(`AgentGraphNodeKind::Decision::decision`, `AgentGraphEdge::condition`).\nBoth slots pin a `ComponentDependency` of this kind, so republishing a\npredicate cannot re-route an already-approved graph.",
           "type": "string"
         }
       ]
@@ -570,13 +570,17 @@
       "additionalProperties": false,
       "description": "A directed edge, optionally conditional.",
       "properties": {
-        "condition_ref": {
+        "condition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null,
-          "description": "Only meaningful out of a [`AgentGraphNodeKind::Decision`]; `None` is an\nunconditional edge.",
-          "type": [
-            "string",
-            "null"
-          ]
+          "description": "Only meaningful out of a [`AgentGraphNodeKind::Decision`]; `None` is an\nunconditional edge.\n\nPinned for the same reason a decision node's predicate is: an unpinned\ncondition would let a republished predicate silently re-route an\napproved graph."
         },
         "from": {
           "type": "string"
@@ -775,16 +779,16 @@
         },
         {
           "additionalProperties": false,
-          "description": "Choose an outgoing edge by evaluating each edge's condition.",
+          "description": "Choose an outgoing edge by evaluating each edge's condition.\n\nThe predicate is PINNED, like every other reference in a shape.\nA bare `decision_ref: String` was the one remaining hole: republishing\nthe predicate an approved, digest-pinned graph routes through would\nchange which branch that graph executes, and no `shape_digest` would\nmove. [`AgentComponentKind::Predicate`] exists for exactly this slot.",
           "properties": {
             "decision": {
               "properties": {
-                "decision_ref": {
-                  "type": "string"
+                "decision": {
+                  "$ref": "#/$defs/ComponentDependency"
                 }
               },
               "required": [
-                "decision_ref"
+                "decision"
               ],
               "type": "object"
             }
@@ -1628,7 +1632,7 @@
           "$ref": "#/$defs/AgentRetryPolicy"
         },
         "toolset_refs": {
-          "description": "Grouped tool sources — a `FunctionToolset`, an MCP server, a skill pack.\n`tool_refs` on the entry stays the FLATTENED resolution of these, so a\nreader that only cares which tools exist never has to walk the grouping.",
+          "description": "Grouped tool sources — a `FunctionToolset`, an MCP server, a skill pack.\n\n`tools` on the entry is the flattened resolution of these WHERE THE\nPUBLISHER CAN FLATTEN THEM, so a reader that only cares which individual\ntools exist need not walk the grouping. The engine does not, and cannot,\nenforce that: a toolset is an L1 reference, its contents live in the\nsystem that owns it, and resolving an MCP server's tool list is not\nsomething this contract can do at publish time. Treating the flattening\nas an invariant would therefore be asserting a property nothing checks.\n\nSo the capability proof covers BOTH lists instead — see\n[`AgentLibraryEntry::tool_surface_digest`]. An agent that names a toolset\nit did not flatten still has that toolset inside the digest delegation\nadmits, rather than a proof over a strict subset of what it can call.",
           "items": {
             "$ref": "#/$defs/ComponentDependency"
           },
@@ -6382,10 +6386,13 @@
       "type": "object"
     },
     "KgDelegateSchemaVersion": {
-      "enum": [
-        "1"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "const": "2",
+          "description": "Format identity, not a component name (RF-ADR-006). See\n[`KG_DELEGATE_VERSION`] for what changed.",
+          "type": "string"
+        }
+      ]
     },
     "KnowledgeResultFamily": {
       "description": "The seven result-producing families sharing the native batch currency.",

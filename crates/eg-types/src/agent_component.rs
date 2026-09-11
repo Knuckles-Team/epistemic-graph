@@ -98,7 +98,9 @@ pub enum AgentComponentKind {
     /// An `@agent.output_validator` (`output_validator_refs`).
     OutputValidator,
     /// A predicate behind a graph decision node or edge condition
-    /// (`decision_ref`, `condition_ref`).
+    /// (`AgentGraphNodeKind::Decision::decision`, `AgentGraphEdge::condition`).
+    /// Both slots pin a `ComponentDependency` of this kind, so republishing a
+    /// predicate cannot re-route an already-approved graph.
     Predicate,
 }
 
@@ -1509,5 +1511,171 @@ mod tests {
         assert_eq!(tombstone.definition_digest, entry.definition_digest);
         assert_eq!(tombstone.facts, entry.facts);
         assert!(tombstone.retire(3, 3_000).is_err(), "retiring twice must fail");
+    }
+
+    // ---- digest coverage ----
+
+    /// A tool component with every optional slot populated, so no mutator below
+    /// is vacuous. `draft()` leaves `content_ref`, `classification`,
+    /// `requires`, `provides` and `attributes` empty and its facts `Opaque`.
+    fn full_draft() -> AgentComponentDraft {
+        let mut full = draft("tool:search", AgentComponentKind::Tool);
+        full.content_ref = Some("cas:tool:search".into());
+        full.facts = AgentComponentFacts::Tool {
+            effect: ToolEffect::Read,
+            required_scopes: vec!["scope:read".into()],
+        };
+        full.provenance = ComponentProvenance::McpServer {
+            server_component_id: "mcp:search-server".into(),
+            upstream_name: "search".into(),
+        };
+        full.classification = vec!["eg:capability/retrieval/web-search".into()];
+        full.requires = vec![ComponentDependency {
+            component_id: "mcp:search-server".into(),
+            kind: AgentComponentKind::McpServer,
+            definition_digest: digest('a'),
+        }];
+        full.provides = vec!["eg:capability/retrieval/web-search".into()];
+        full.attributes = BTreeMap::from([("vendor".to_string(), "acme".to_string())]);
+        full
+    }
+
+    #[test]
+    fn every_stored_definition_field_moves_the_digest() {
+        // A stored-but-UNHASHED field is how a reviewed component gets
+        // silently altered: the digest an approver signed off on still matches
+        // after the change. The destructuring is the tripwire -- a field added
+        // to `AgentComponentDraft` stops this test compiling until it is
+        // covered below.
+        let AgentComponentDraft {
+            component_id: _,
+            kind: _,
+            version: _,
+            content_digest: _,
+            content_ref: _,
+            facts: _,
+            provenance: _,
+            summary: _,
+            classification: _,
+            requires: _,
+            provides: _,
+            attributes: _,
+            tenant_id: _,
+            actor_scope: _,
+            purpose_id: _,
+            policy_digest: _,
+            source_revision: _,
+            source_revision_digest: _,
+        } = full_draft();
+
+        type Mutator = (&'static str, fn(&mut AgentComponentDraft));
+        let mutators: &[Mutator] = &[
+            ("component_id", |d| d.component_id = "tool:other".into()),
+            ("kind", |d| {
+                // Tool facts belong to a Tool, so the facts move with the kind
+                // or publish refuses the draft for an unrelated reason.
+                d.kind = AgentComponentKind::Skill;
+                d.facts = AgentComponentFacts::Opaque;
+            }),
+            ("version", |d| d.version = "2.0.0".into()),
+            ("content_digest", |d| d.content_digest = digest('c')),
+            ("content_ref", |d| d.content_ref = None),
+            ("facts", |d| {
+                d.facts = AgentComponentFacts::Tool {
+                    effect: ToolEffect::Write,
+                    required_scopes: vec!["scope:read".into()],
+                }
+            }),
+            ("provenance", |d| d.provenance = ComponentProvenance::Native),
+            ("summary", |d| d.summary = "a different tool".into()),
+            ("classification", |d| {
+                d.classification = vec!["eg:capability/analysis/summarize".into()]
+            }),
+            ("requires", |d| {
+                d.requires = vec![ComponentDependency {
+                    component_id: "mcp:other-server".into(),
+                    kind: AgentComponentKind::McpServer,
+                    definition_digest: digest('b'),
+                }]
+            }),
+            ("provides", |d| {
+                d.provides = vec!["eg:capability/analysis/summarize".into()]
+            }),
+            ("attributes", |d| {
+                d.attributes = BTreeMap::from([("vendor".to_string(), "other".to_string())])
+            }),
+            ("tenant_id", |d| d.tenant_id = "tenant-b".into()),
+            ("actor_scope", |d| d.actor_scope = "operator".into()),
+            ("purpose_id", |d| d.purpose_id = "agent-rebuild".into()),
+            ("policy_digest", |d| d.policy_digest = digest('c')),
+            ("source_revision", |d| d.source_revision = "rev-2".into()),
+            ("source_revision_digest", |d| {
+                d.source_revision_digest = digest('c')
+            }),
+        ];
+
+        let baseline = AgentComponentEntry::publish(full_draft(), 1, 1_000)
+            .expect("baseline publishes")
+            .definition_digest;
+        for (field, mutate) in mutators {
+            let mut altered = full_draft();
+            mutate(&mut altered);
+            assert_ne!(
+                altered,
+                full_draft(),
+                "{field}: the mutator changed nothing, so the test proves nothing"
+            );
+            let moved = AgentComponentEntry::publish(altered, 1, 1_000)
+                .unwrap_or_else(|error| panic!("{field} must still publish: {error}"))
+                .definition_digest;
+            assert_ne!(
+                moved, baseline,
+                "{field} is stored but not covered by the definition digest"
+            );
+        }
+    }
+
+    #[test]
+    fn declaring_a_set_in_another_order_is_the_same_component() {
+        // `classification`, `requires` and `provides` are SETS -- duplicates are
+        // refused -- so declaration order carries no meaning and must not make
+        // an otherwise identical publish a different revision. The sorts in
+        // `definition_digest` are what makes that true; nothing else permutes
+        // these lists.
+        let mut base = full_draft();
+        base.classification = vec![
+            "eg:capability/retrieval/web-search".into(),
+            "eg:capability/analysis/summarize".into(),
+        ];
+        base.provides = vec![
+            "eg:capability/retrieval/web-search".into(),
+            "eg:capability/analysis/summarize".into(),
+        ];
+        base.requires = vec![
+            ComponentDependency {
+                component_id: "mcp:search-server".into(),
+                kind: AgentComponentKind::McpServer,
+                definition_digest: digest('a'),
+            },
+            ComponentDependency {
+                component_id: "mcp:other-server".into(),
+                kind: AgentComponentKind::McpServer,
+                definition_digest: digest('b'),
+            },
+        ];
+        let mut permuted = base.clone();
+        permuted.classification.reverse();
+        permuted.provides.reverse();
+        permuted.requires.reverse();
+        assert_ne!(permuted, base, "the permutation must actually permute");
+
+        assert_eq!(
+            AgentComponentEntry::publish(base, 1, 1_000)
+                .expect("publishes")
+                .definition_digest,
+            AgentComponentEntry::publish(permuted, 1, 1_000)
+                .expect("publishes")
+                .definition_digest
+        );
     }
 }

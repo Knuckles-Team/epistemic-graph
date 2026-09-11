@@ -605,25 +605,19 @@ fn validate_retained_target(
             // with. A caller that could raise it would escape the bound the
             // composition check enforced at publish -- which is the whole point
             // of carrying it rather than trusting the executor to recompute.
-            let admitted = eg_types::agent_graph::validate_composition(
-                &retained_graph.tenant_id,
-                &retained_graph.shape,
-                |_, _| {
-                    Err("kg-delegate cannot resolve composed children at admission".to_string())
-                },
-            )
-            .map(|facts| facts.total_work);
-            // A graph with no child graphs resolves nothing and yields its own
-            // ceiling; one WITH children cannot be re-derived here without the
-            // store, so its recorded ceiling is accepted as validated at
-            // publish and only range-checked.
-            if let Ok(total_work) = admitted {
-                if graph.composed_work_ceiling != total_work {
-                    return Err(
-                        "kg-delegate agent graph composed_work_ceiling is not the admitted ceiling"
-                            .to_string(),
-                    );
-                }
+            //
+            // Compared against the PERSISTED value, not a re-derivation. The
+            // re-derivation this once attempted could not resolve child graphs
+            // from here (it had no store), so for the only case that matters --
+            // a graph WITH children -- it always errored, the comparison was
+            // skipped, and the caller's own number was accepted subject to
+            // nothing but `1..=MAX_COMPOSITION_WORK`. A graph admitted at 2,000
+            // could be delegated declaring 1,000,000.
+            if graph.composed_work_ceiling != retained_graph.composed_work_ceiling {
+                return Err(
+                    "kg-delegate agent graph composed_work_ceiling is not the admitted ceiling"
+                        .to_string(),
+                );
             }
             // A graph pins no scalar model; its shape digest is the capability
             // binding, since it transitively covers every agent and component.
@@ -664,10 +658,10 @@ fn validate_execution_bindings(
         );
     }
     let expected_capability =
-        unprefixed_digest("tool_set_digest", &retained_agent.tool_set_digest())?;
+        unprefixed_digest("tool_surface_digest", &retained_agent.tool_surface_digest())?;
     if request.capability_digest != expected_capability {
         return Err(
-            "kg-delegate capability digest does not match retained Agent Library tool set"
+            "kg-delegate capability digest does not match retained Agent Library tool surface"
                 .to_string(),
         );
     }
@@ -742,8 +736,8 @@ fn delegation_metadata(
             json!(retained_agent.system_prompt_digest()),
         ),
         (
-            "agent_tool_set_digest".to_string(),
-            json!(retained_agent.tool_set_digest()),
+            "agent_tool_surface_digest".to_string(),
+            json!(retained_agent.tool_surface_digest()),
         ),
         (
             "agent_skill_set_digest".to_string(),
@@ -809,7 +803,7 @@ pub(crate) fn result_from_submit(
 ) -> Result<KgDelegateResult, String> {
     let decision = validate_submit_result(bound, &result)?;
     Ok(KgDelegateResult {
-        schema_version: eg_types::delegation::KgDelegateSchemaVersion::V1,
+        schema_version: eg_types::delegation::KgDelegateSchemaVersion::V2,
         decision,
         delegation_id: bound.request.delegation_id.clone(),
         run_id: bound.request.run_id.clone(),
@@ -1068,7 +1062,7 @@ mod tests {
         entry: &AgentLibraryEntry,
     ) -> KgDelegateRequest {
         KgDelegateRequest {
-            schema_version: KgDelegateSchemaVersion::V1,
+            schema_version: KgDelegateSchemaVersion::V2,
             context,
             delegation_id: "delegation:1".into(),
             run_id: "run:1".into(),
@@ -1078,7 +1072,7 @@ mod tests {
             },
             input_ref: "cas:input:1".into(),
             command_digest: digest('2'),
-            capability_digest: unprefixed_digest("tool_set_digest", &entry.tool_set_digest())
+            capability_digest: unprefixed_digest("tool_surface_digest", &entry.tool_surface_digest())
                 .unwrap(),
             catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
             policy_digest: entry.policy_digest.clone(),
@@ -1112,14 +1106,14 @@ mod tests {
             bind_request(request("tenant:1", &entry), &verified(), &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap();
         assert_eq!(bound.work_item.context.tenant_id, "tenant:1");
         assert_eq!(bound.work_item.provenance_refs.len(), 4);
-        // The delegation's capability currency IS the retained entry's tool-set
+        // The delegation's capability currency IS the retained entry's tool-surface
         // digest in unprefixed form -- a real content digest over the pinned
         // tools, not a fixture constant. `execution_digest_mismatch_is_rejected
         // _before_lowering` proves any other value is refused, so asserting the
         // derived value here is what binds the lowered WorkItem to the entry.
         assert_eq!(
             bound.work_item.metadata["capability_digest"],
-            json!(unprefixed_digest("tool_set_digest", &entry.tool_set_digest()).unwrap())
+            json!(unprefixed_digest("tool_surface_digest", &entry.tool_surface_digest()).unwrap())
         );
         assert_eq!(
             bound.work_item.metadata["agent_model_profile_digest"],

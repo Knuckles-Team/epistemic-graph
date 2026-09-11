@@ -10,8 +10,9 @@
 //! So EG bakes in a controlled vocabulary with two relations:
 //!
 //! * **broader** — a subsumption hierarchy over capabilities and modalities, so
-//!   a component providing `eg:capability/web-search` satisfies a requirement
-//!   for `eg:capability/retrieval` without anything having to say so.
+//!   a component providing `eg:capability/retrieval/web-search` satisfies a
+//!   requirement for `eg:capability/retrieval` without anything having to say
+//!   so.
 //! * **requires** — from a task to the capabilities that task needs, so
 //!   "an agent doing research" resolves to a capability set *in the graph*
 //!   rather than in a prompt.

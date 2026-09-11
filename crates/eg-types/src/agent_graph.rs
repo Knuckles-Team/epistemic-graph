@@ -37,8 +37,23 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use crate::agent_component::{AgentComponentKind, ComponentDependency};
 use crate::agent_library::AgentLibraryLifecycle;
 
-pub const AGENT_GRAPH_ENTRY_SCHEMA_VERSION: u16 = 1;
-pub const AGENT_GRAPH_SHAPE_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-graph-shape/v1";
+/// Advanced to 2 by the pre-freeze contract review, which changed both halves
+/// of a graph's identity: a decision node and an edge condition now pin a
+/// [`ComponentDependency`] instead of naming a bare string (so `shape_digest`'s
+/// input set moved), and the entry gained a `definition_digest` plus the
+/// admitted `composed_work_ceiling`. A v1 record can never re-derive either
+/// digest, and the version is what makes that a typed rejection instead of a
+/// confusing mismatch.
+pub const AGENT_GRAPH_ENTRY_SCHEMA_VERSION: u16 = 2;
+/// Format-identity constant (RF-ADR-006), advanced with the schema version.
+pub const AGENT_GRAPH_SHAPE_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-graph-shape/v2";
+/// Hash domain for the digest of what a CALLER asked to publish: every
+/// [`AgentGraphDraft`] field. Distinct from the shape domain because the two
+/// answer different questions -- see [`AgentGraphEntry::definition_digest`].
+pub const AGENT_GRAPH_DRAFT_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-graph-draft/v1";
+/// Hash domain for the digest of the published RECORD: the draft plus the
+/// composed work ceiling admission derived for it.
+pub const AGENT_GRAPH_DEFINITION_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-graph-definition/v1";
 
 /// Bounds. A graph arrives from a caller or an optimizer, so every list it
 /// carries is capped: an unbounded shape is an unbounded amount of work
@@ -89,7 +104,13 @@ pub enum AgentGraphNodeKind {
         shape_digest: String,
     },
     /// Choose an outgoing edge by evaluating each edge's condition.
-    Decision { decision_ref: String },
+    ///
+    /// The predicate is PINNED, like every other reference in a shape.
+    /// A bare `decision_ref: String` was the one remaining hole: republishing
+    /// the predicate an approved, digest-pinned graph routes through would
+    /// change which branch that graph executes, and no `shape_digest` would
+    /// move. [`AgentComponentKind::Predicate`] exists for exactly this slot.
+    Decision { decision: ComponentDependency },
     /// Take every outgoing edge concurrently.
     Fanout,
     /// Wait for every inbound edge before continuing.
@@ -153,8 +174,12 @@ pub struct AgentGraphEdge {
     pub to: String,
     /// Only meaningful out of a [`AgentGraphNodeKind::Decision`]; `None` is an
     /// unconditional edge.
+    ///
+    /// Pinned for the same reason a decision node's predicate is: an unpinned
+    /// condition would let a republished predicate silently re-route an
+    /// approved graph.
     #[serde(default)]
-    pub condition_ref: Option<String>,
+    pub condition: Option<ComponentDependency>,
 }
 
 /// The composed shape: nodes, edges, and where a run starts.
@@ -219,8 +244,8 @@ impl AgentGraphShape {
                     edge.from
                 ));
             }
-            if let Some(condition) = &edge.condition_ref {
-                validate_text("condition_ref", condition)?;
+            if let Some(condition) = &edge.condition {
+                validate_dependency("condition", condition, AgentComponentKind::Predicate)?;
                 if !matches!(from.kind, AgentGraphNodeKind::Decision { .. }) {
                     return Err(format!(
                         "agent graph edge '{}' -> '{}' is conditional but leaves a {} node, \
@@ -350,17 +375,17 @@ impl AgentGraphShape {
 
         let mut edges: Vec<&AgentGraphEdge> = self.edges.iter().collect();
         edges.sort_by(|left, right| {
-            (&left.from, &left.to, &left.condition_ref).cmp(&(
+            (&left.from, &left.to, &left.condition).cmp(&(
                 &right.from,
                 &right.to,
-                &right.condition_ref,
+                &right.condition,
             ))
         });
         hasher.update((edges.len() as u64).to_be_bytes());
         for edge in edges {
             put_text(&mut hasher, &edge.from);
             put_text(&mut hasher, &edge.to);
-            put_opt_text(&mut hasher, edge.condition_ref.as_deref());
+            put_opt_dependency(&mut hasher, edge.condition.as_ref());
         }
         format!("{DIGEST_PREFIX}{}", hex::encode(hasher.finalize()))
     }
@@ -399,8 +424,8 @@ impl AgentGraphNode {
                 validate_text("graph_id", graph_id)?;
                 validate_digest("shape_digest", shape_digest)?;
             }
-            AgentGraphNodeKind::Decision { decision_ref } => {
-                validate_text("decision_ref", decision_ref)?;
+            AgentGraphNodeKind::Decision { decision } => {
+                validate_dependency("decision", decision, AgentComponentKind::Predicate)?;
             }
             AgentGraphNodeKind::Fanout | AgentGraphNodeKind::Join | AgentGraphNodeKind::End => {}
         }
@@ -454,9 +479,7 @@ impl AgentGraphNode {
                 hasher.update((bindings.len() as u64).to_be_bytes());
                 for (name, value) in bindings {
                     put_text(hasher, name);
-                    put_text(hasher, &value.component_id);
-                    put_text(hasher, value.kind.as_str());
-                    put_text(hasher, &value.definition_digest);
+                    put_dependency(hasher, value);
                 }
             }
             AgentGraphNodeKind::Graph {
@@ -466,19 +489,11 @@ impl AgentGraphNode {
                 put_text(hasher, graph_id);
                 put_text(hasher, shape_digest);
             }
-            AgentGraphNodeKind::Decision { decision_ref } => put_text(hasher, decision_ref),
+            AgentGraphNodeKind::Decision { decision } => put_dependency(hasher, decision),
             AgentGraphNodeKind::Fanout | AgentGraphNodeKind::Join | AgentGraphNodeKind::End => {}
         }
         for component in [self.deps_contract.as_ref(), self.output_contract.as_ref()] {
-            match component {
-                None => hasher.update([0u8]),
-                Some(component) => {
-                    hasher.update([1u8]);
-                    put_text(hasher, &component.component_id);
-                    put_text(hasher, component.kind.as_str());
-                    put_text(hasher, &component.definition_digest);
-                }
-            }
+            put_opt_dependency(hasher, component);
         }
     }
 }
@@ -518,21 +533,71 @@ pub struct AgentGraphEntry {
     pub policy_digest: String,
     #[serde(default)]
     pub synthesis_evidence: Option<ComponentDependency>,
+    /// The composed work ceiling ADMISSION derived for this revision --
+    /// [`CompositionFacts::total_work`] from the publish that created it.
+    ///
+    /// Stamped by the engine, never supplied by the caller: it is an admission
+    /// verdict, and a caller could only restate it by re-resolving the whole
+    /// composition tree client-side to name a number the engine must compute
+    /// anyway. It is stored because it cannot be re-derived from this record
+    /// alone -- deriving it needs every child revision -- and it is inside
+    /// `definition_digest` because a stored-but-unhashed ceiling is one an
+    /// edited durable row could raise while the entry still validated.
+    ///
+    /// This is the value a delegation's declared `composed_work_ceiling` is
+    /// checked against. Before it existed the check could not run for any graph
+    /// WITH children, and the caller's own number was accepted unverified.
+    pub composed_work_ceiling: u64,
     pub entry_revision: u64,
     pub lifecycle: AgentLibraryLifecycle,
     pub shape_digest: String,
+    /// Digest of this revision's whole immutable definition: the shape digest
+    /// AND the metadata around it -- version, tenant, actor scope, purpose,
+    /// policy digest, synthesis evidence, admitted ceiling. The impl block
+    /// below says why both digests exist and which one a composing parent pins.
+    pub definition_digest: String,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
 }
 
+/// # Two digests, two jobs
+///
+/// `shape_digest` answers *"does this graph DO the same thing?"* -- nodes,
+/// edges, entry node, iteration ceiling, and nothing else.
+///
+/// `definition_digest` answers *"is this the same published RECORD?"* -- the
+/// shape digest plus version, tenant, actor scope, purpose, policy digest,
+/// synthesis evidence and the admitted composed ceiling.
+///
+/// A [`AgentGraphNodeKind::Graph`] node pins the **shape** digest, deliberately.
+/// What a parent composes is the child's behaviour; the child's governance is
+/// re-checked live at every resolution (tenant equality, and the HEAD's
+/// lifecycle rather than the pinned revision's), so pinning a stale copy of it
+/// would buy nothing and cost a great deal: a purely administrative republish
+/// of a child -- a new version string, corrected synthesis evidence, a
+/// re-issued policy digest after a policy rotation -- would invalidate every
+/// parent that composed it and force a cascading republish of the entire tree
+/// for a change that alters no behaviour.
+///
+/// The record digest is what durable IDENTITY is minted from. Before it
+/// existed, the publish replay identity came from `shape_digest`, so a retry
+/// that CORRECTED the synthesis evidence at the same expected revision resolved
+/// as a replay: the correction was dropped and the caller was told it
+/// succeeded.
 impl AgentGraphEntry {
+    /// `composed_work_ceiling` is [`CompositionFacts::total_work`] from the
+    /// admission that is creating this revision. It is a parameter rather than
+    /// a draft field because it is the engine's verdict, not the caller's
+    /// request.
     pub fn publish(
         draft: AgentGraphDraft,
+        composed_work_ceiling: u64,
         entry_revision: u64,
         published_at_ms: u64,
     ) -> Result<Self, String> {
         Self::create(
             draft,
+            composed_work_ceiling,
             entry_revision,
             AgentLibraryLifecycle::Published,
             published_at_ms,
@@ -542,6 +607,7 @@ impl AgentGraphEntry {
 
     pub fn create(
         draft: AgentGraphDraft,
+        composed_work_ceiling: u64,
         entry_revision: u64,
         lifecycle: AgentLibraryLifecycle,
         created_at_ms: u64,
@@ -555,6 +621,7 @@ impl AgentGraphEntry {
             return Err("agent graph entry update time precedes creation time".to_string());
         }
         let shape_digest = draft.shape.shape_digest();
+        let definition_digest = definition_digest(&draft, composed_work_ceiling);
         let entry = Self {
             schema_version: AGENT_GRAPH_ENTRY_SCHEMA_VERSION,
             graph_id: draft.graph_id,
@@ -565,9 +632,11 @@ impl AgentGraphEntry {
             purpose_id: draft.purpose_id,
             policy_digest: draft.policy_digest,
             synthesis_evidence: draft.synthesis_evidence,
+            composed_work_ceiling,
             entry_revision,
             lifecycle,
             shape_digest,
+            definition_digest,
             created_at_ms,
             updated_at_ms,
         };
@@ -598,15 +667,30 @@ impl AgentGraphEntry {
         if self.schema_version != AGENT_GRAPH_ENTRY_SCHEMA_VERSION {
             return Err("agent graph entry schema version is unsupported".to_string());
         }
-        self.as_draft().validate()?;
+        let draft = self.as_draft();
+        draft.validate()?;
         if self.entry_revision == 0 {
             return Err("agent graph entry revision must start at one".to_string());
+        }
+        // The ceiling admission derived is bounded by the same global cap the
+        // composition walk enforces, so a row carrying an out-of-range one is
+        // refused here rather than trusted by delegation.
+        if self.composed_work_ceiling == 0 || self.composed_work_ceiling > MAX_COMPOSITION_WORK {
+            return Err(
+                "agent graph composed_work_ceiling is outside the admitted range".to_string(),
+            );
         }
         if !is_digest(&self.shape_digest) {
             return Err("agent graph shape_digest is not a sha256 digest".to_string());
         }
         if self.shape_digest != self.shape.shape_digest() {
             return Err("agent graph shape_digest does not match its shape".to_string());
+        }
+        if !is_digest(&self.definition_digest) {
+            return Err("agent graph definition_digest is not a sha256 digest".to_string());
+        }
+        if self.definition_digest != definition_digest(&draft, self.composed_work_ceiling) {
+            return Err("agent graph definition digest does not match its fields".to_string());
         }
         Ok(())
     }
@@ -647,19 +731,86 @@ impl AgentGraphDraft {
     }
 }
 
+/// The digest of what a caller asked to publish: every draft field.
+///
+/// Public because the durable store needs it BEFORE an entry exists -- the
+/// replay identity of a publish attempt is minted from the definition the
+/// caller asked for, so a byte-identical retry resolves to the same operation
+/// while a retry that corrects any field is a different one. Mirrors
+/// [`crate::agent_library::draft_definition_digest`] and
+/// [`crate::agent_template::draft_definition_digest`].
+///
+/// It deliberately does NOT cover the composed work ceiling: the ceiling is
+/// derived by resolving the composition tree, which happens after the replay
+/// decision, and a retry must be able to replay a committed publish without
+/// re-resolving children that may have been retired since.
+pub fn draft_definition_digest(draft: &AgentGraphDraft) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(AGENT_GRAPH_DRAFT_DIGEST_DOMAIN);
+    put_text(&mut hasher, &draft.graph_id);
+    put_text(&mut hasher, &draft.version);
+    // The shape's own digest, so a graph's identity moves whenever what it
+    // DOES moves, without restating the whole shape here.
+    put_text(&mut hasher, &draft.shape.shape_digest());
+    put_text(&mut hasher, &draft.tenant_id);
+    put_text(&mut hasher, &draft.actor_scope);
+    put_text(&mut hasher, &draft.purpose_id);
+    put_text(&mut hasher, &draft.policy_digest);
+    put_opt_dependency(&mut hasher, draft.synthesis_evidence.as_ref());
+    format!("{DIGEST_PREFIX}{}", hex::encode(hasher.finalize()))
+}
+
+/// The digest of the published record: the draft plus what admission derived.
+fn definition_digest(draft: &AgentGraphDraft, composed_work_ceiling: u64) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(AGENT_GRAPH_DEFINITION_DIGEST_DOMAIN);
+    put_text(&mut hasher, &draft_definition_digest(draft));
+    hasher.update(composed_work_ceiling.to_be_bytes());
+    format!("{DIGEST_PREFIX}{}", hex::encode(hasher.finalize()))
+}
+
 fn put_text(hasher: &mut Sha256, value: &str) {
     hasher.update((value.len() as u64).to_be_bytes());
     hasher.update(value.as_bytes());
 }
 
-fn put_opt_text(hasher: &mut Sha256, value: Option<&str>) {
-    match value {
+fn put_dependency(hasher: &mut Sha256, dependency: &ComponentDependency) {
+    put_text(hasher, &dependency.component_id);
+    put_text(hasher, dependency.kind.as_str());
+    put_text(hasher, &dependency.definition_digest);
+}
+
+/// Hash an optional pinned reference with an explicit presence discriminant.
+///
+/// Without the leading byte, `None` and a present-but-empty reference would
+/// hash identically, so a caller could drop a condition from an edge without
+/// changing the shape digest.
+fn put_opt_dependency(hasher: &mut Sha256, dependency: Option<&ComponentDependency>) {
+    match dependency {
         None => hasher.update([0u8]),
-        Some(text) => {
+        Some(dependency) => {
             hasher.update([1u8]);
-            put_text(hasher, text);
+            put_dependency(hasher, dependency);
         }
     }
+}
+
+/// One pinned reference in a slot that accepts exactly one component kind.
+fn validate_dependency(
+    field: &str,
+    dependency: &ComponentDependency,
+    expected: AgentComponentKind,
+) -> Result<(), String> {
+    validate_text(field, &dependency.component_id)?;
+    validate_digest(field, &dependency.definition_digest)?;
+    if dependency.kind != expected {
+        return Err(format!(
+            "agent graph {field} must reference a {} component, got {}",
+            expected.as_str(),
+            dependency.kind.as_str()
+        ));
+    }
+    Ok(())
 }
 
 fn is_digest(value: &str) -> bool {
@@ -1208,11 +1359,19 @@ mod tests {
         }
     }
 
+    fn predicate(reference: &str, seed: char) -> ComponentDependency {
+        ComponentDependency {
+            component_id: reference.into(),
+            kind: AgentComponentKind::Predicate,
+            definition_digest: digest(seed),
+        }
+    }
+
     fn edge(from: &str, to: &str) -> AgentGraphEdge {
         AgentGraphEdge {
             from: from.into(),
             to: to.into(),
-            condition_ref: None,
+            condition: None,
         }
     }
 
@@ -1246,10 +1405,53 @@ mod tests {
 
     #[test]
     fn a_well_formed_graph_publishes_and_round_trips() {
-        let entry = AgentGraphEntry::publish(draft(), 1, 1_000).expect("publishes");
+        let entry = AgentGraphEntry::publish(draft(), 10, 1, 1_000).expect("publishes");
         entry.validate().expect("valid");
         assert_eq!(entry.as_draft(), draft());
         assert_eq!(entry.shape_digest, shape().shape_digest());
+        assert_eq!(entry.composed_work_ceiling, 10);
+    }
+
+    #[test]
+    fn the_admitted_ceiling_is_inside_the_definition_digest() {
+        // A stored-but-unhashed ceiling is one an edited durable row could
+        // raise while the entry still validated -- and `kg-delegate` checks a
+        // caller's declared ceiling against exactly this field.
+        let admitted = AgentGraphEntry::publish(draft(), 10, 1, 1_000).expect("publishes");
+        let raised = AgentGraphEntry::publish(draft(), 1_000, 1, 1_000).expect("publishes");
+        assert_ne!(admitted.definition_digest, raised.definition_digest);
+        assert_eq!(
+            admitted.shape_digest, raised.shape_digest,
+            "the ceiling is not part of what the graph DOES, so the shape digest must not move"
+        );
+
+        let mut tampered = admitted.clone();
+        tampered.composed_work_ceiling = 1_000;
+        let error = tampered.validate().expect_err("a raised ceiling must be refused");
+        assert!(error.contains("definition digest does not match"), "got: {error}");
+    }
+
+    #[test]
+    fn metadata_that_does_not_change_the_shape_still_changes_the_record() {
+        // The publish replay identity is minted from the draft digest. Keying
+        // it on the shape alone made a retry that CORRECTED the synthesis
+        // evidence resolve as a replay of the uncorrected publish.
+        let mut corrected = draft();
+        corrected.synthesis_evidence = Some(ComponentDependency {
+            component_id: "evidence:run-17".into(),
+            kind: AgentComponentKind::Ontology,
+            definition_digest: digest('c'),
+        });
+        assert_eq!(
+            corrected.shape.shape_digest(),
+            draft().shape.shape_digest(),
+            "the shape is untouched"
+        );
+        assert_ne!(
+            draft_definition_digest(&corrected),
+            draft_definition_digest(&draft()),
+            "correcting the evidence must be a different publish, not a replay of the old one"
+        );
     }
 
     #[test]
@@ -1298,7 +1500,7 @@ mod tests {
                 plain(
                     "review",
                     AgentGraphNodeKind::Decision {
-                        decision_ref: "decision:good-enough".into(),
+                        decision: predicate("predicate:good-enough", 'd'),
                     },
                 ),
                 agent_node("revise", Some(findings.clone()), Some(findings)),
@@ -1309,12 +1511,12 @@ mod tests {
                 AgentGraphEdge {
                     from: "review".into(),
                     to: "revise".into(),
-                    condition_ref: Some("condition:needs-work".into()),
+                    condition: Some(predicate("predicate:needs-work", 'e')),
                 },
                 AgentGraphEdge {
                     from: "review".into(),
                     to: "done".into(),
-                    condition_ref: Some("condition:accepted".into()),
+                    condition: Some(predicate("predicate:accepted", 'f')),
                 },
                 edge("revise", "review"),
             ],
@@ -1360,7 +1562,7 @@ mod tests {
     #[test]
     fn a_conditional_edge_out_of_a_non_decision_node_is_refused() {
         let mut broken = shape();
-        broken.edges[0].condition_ref = Some("condition:whatever".into());
+        broken.edges[0].condition = Some(predicate("predicate:whatever", 'd'));
         let error = broken.validate().expect_err("must be refused");
         assert!(error.contains("not a decision node"), "got: {error}");
     }
@@ -1723,10 +1925,12 @@ mod tests {
 
     #[test]
     fn a_retired_graph_keeps_its_shape_and_digest() {
-        let entry = AgentGraphEntry::publish(draft(), 1, 1_000).expect("publishes");
+        let entry = AgentGraphEntry::publish(draft(), 10, 1, 1_000).expect("publishes");
         let tombstone = entry.retire(2, 2_000).expect("retires");
         assert_eq!(tombstone.lifecycle, AgentLibraryLifecycle::Retired);
         assert_eq!(tombstone.shape_digest, entry.shape_digest);
+        assert_eq!(tombstone.definition_digest, entry.definition_digest);
+        assert_eq!(tombstone.composed_work_ceiling, entry.composed_work_ceiling);
         assert!(tombstone.retire(3, 3_000).is_err(), "retiring twice must fail");
     }
 
@@ -1747,5 +1951,281 @@ mod tests {
             .validate()
             .expect_err("iteration ceiling")
             .contains("max_iterations"));
+    }
+
+    // ---- digest coverage ----
+
+    /// A shape that exercises every node kind and every hashed node/edge field,
+    /// so no mutator below is vacuous.
+    ///
+    /// draft -> review(decision) -> {revise -> review | expand -> team ->
+    /// review | done}. Reachable, terminating, and contract-agreeing.
+    fn rich_shape() -> AgentGraphShape {
+        let findings = component("contract:findings", 'a');
+        AgentGraphShape {
+            entry_node: "draft".into(),
+            nodes: vec![
+                agent_node("draft", None, Some(findings.clone())),
+                plain(
+                    "review",
+                    AgentGraphNodeKind::Decision {
+                        decision: predicate("predicate:good-enough", 'd'),
+                    },
+                ),
+                agent_node("revise", Some(findings.clone()), Some(findings)),
+                AgentGraphNode {
+                    node_id: "expand".into(),
+                    kind: AgentGraphNodeKind::Template {
+                        template_id: "template:researcher".into(),
+                        definition_digest: digest('2'),
+                        bindings: BTreeMap::from([(
+                            "model".to_string(),
+                            ComponentDependency {
+                                component_id: "model-profile:cheap".into(),
+                                kind: AgentComponentKind::ModelProfile,
+                                definition_digest: digest('3'),
+                            },
+                        )]),
+                    },
+                    deps_contract: None,
+                    output_contract: None,
+                },
+                AgentGraphNode {
+                    node_id: "team".into(),
+                    kind: AgentGraphNodeKind::Graph {
+                        graph_id: "graph:child".into(),
+                        shape_digest: digest('4'),
+                    },
+                    deps_contract: None,
+                    output_contract: None,
+                },
+                plain("done", AgentGraphNodeKind::End),
+            ],
+            edges: vec![
+                edge("draft", "review"),
+                AgentGraphEdge {
+                    from: "review".into(),
+                    to: "revise".into(),
+                    condition: Some(predicate("predicate:needs-work", 'e')),
+                },
+                AgentGraphEdge {
+                    from: "review".into(),
+                    to: "expand".into(),
+                    condition: Some(predicate("predicate:expand", 'f')),
+                },
+                AgentGraphEdge {
+                    from: "review".into(),
+                    to: "done".into(),
+                    condition: Some(predicate("predicate:accepted", '0')),
+                },
+                edge("revise", "review"),
+                edge("expand", "team"),
+                edge("team", "review"),
+            ],
+            max_iterations: 5,
+        }
+    }
+
+    #[test]
+    fn every_shape_field_moves_the_shape_digest() {
+        // `shape_digest` is what a composing parent pins and what a delegation
+        // admits as a graph's capability proof. A stored-but-UNHASHED shape
+        // field is one an approved graph could have changed under it without
+        // the digest an approver signed off on ceasing to match.
+        //
+        // The destructuring is the tripwire: a field added to the shape, a node
+        // or an edge stops this test compiling until it is covered below.
+        rich_shape().validate().expect("the fixture must be a legal shape");
+        let AgentGraphShape {
+            entry_node: _,
+            nodes: _,
+            edges: _,
+            max_iterations: _,
+        } = rich_shape();
+        let AgentGraphNode {
+            node_id: _,
+            kind: _,
+            deps_contract: _,
+            output_contract: _,
+        } = rich_shape().nodes[0].clone();
+        let AgentGraphEdge {
+            from: _,
+            to: _,
+            condition: _,
+        } = rich_shape().edges[0].clone();
+        // And a node KIND added without digest coverage stops it compiling too.
+        let _kinds = |kind: &AgentGraphNodeKind| match kind {
+            AgentGraphNodeKind::Agent {
+                agent_id: _,
+                definition_digest: _,
+            } => (),
+            AgentGraphNodeKind::Template {
+                template_id: _,
+                definition_digest: _,
+                bindings: _,
+            } => (),
+            AgentGraphNodeKind::Graph {
+                graph_id: _,
+                shape_digest: _,
+            } => (),
+            AgentGraphNodeKind::Decision { decision: _ } => (),
+            AgentGraphNodeKind::Fanout => (),
+            AgentGraphNodeKind::Join => (),
+            AgentGraphNodeKind::End => (),
+        };
+
+        // Mutations are hashed directly rather than published: `entry_node`
+        // cannot be repointed without orphaning a node, and the digest is a
+        // pure function of the shape, so requiring validity here would only
+        // cost coverage of the field most worth covering.
+        type Mutator = (&'static str, fn(&mut AgentGraphShape));
+        let mutators: &[Mutator] = &[
+            ("entry_node", |s| s.entry_node = "revise".into()),
+            ("max_iterations", |s| s.max_iterations = 6),
+            ("node.node_id", |s| s.nodes[0].node_id = "drafting".into()),
+            ("node.kind (variant)", |s| s.nodes[5].kind = AgentGraphNodeKind::Join),
+            ("node.kind agent_id", |s| {
+                s.nodes[0].kind = AgentGraphNodeKind::Agent {
+                    agent_id: "agent:other".into(),
+                    definition_digest: digest('1'),
+                }
+            }),
+            ("node.kind agent definition_digest", |s| {
+                s.nodes[0].kind = AgentGraphNodeKind::Agent {
+                    agent_id: "agent:draft".into(),
+                    definition_digest: digest('9'),
+                }
+            }),
+            ("node.kind decision", |s| {
+                s.nodes[1].kind = AgentGraphNodeKind::Decision {
+                    decision: predicate("predicate:other", 'd'),
+                }
+            }),
+            ("node.kind decision digest", |s| {
+                s.nodes[1].kind = AgentGraphNodeKind::Decision {
+                    decision: predicate("predicate:good-enough", '9'),
+                }
+            }),
+            ("node.kind template_id", |s| {
+                let bindings = match &s.nodes[3].kind {
+                    AgentGraphNodeKind::Template { bindings, .. } => bindings.clone(),
+                    other => panic!("fixture node 3 must be the template node, got {other:?}"),
+                };
+                s.nodes[3].kind = AgentGraphNodeKind::Template {
+                    template_id: "template:other".into(),
+                    definition_digest: digest('2'),
+                    bindings,
+                };
+            }),
+            ("node.kind template bindings", |s| {
+                s.nodes[3].kind = AgentGraphNodeKind::Template {
+                    template_id: "template:researcher".into(),
+                    definition_digest: digest('2'),
+                    bindings: BTreeMap::from([(
+                        "model".to_string(),
+                        ComponentDependency {
+                            component_id: "model-profile:expensive".into(),
+                            kind: AgentComponentKind::ModelProfile,
+                            definition_digest: digest('3'),
+                        },
+                    )]),
+                };
+            }),
+            ("node.kind graph shape_digest", |s| {
+                s.nodes[4].kind = AgentGraphNodeKind::Graph {
+                    graph_id: "graph:child".into(),
+                    shape_digest: digest('9'),
+                }
+            }),
+            ("node.deps_contract", |s| {
+                s.nodes[2].deps_contract = Some(component("contract:other", 'c'))
+            }),
+            ("node.output_contract", |s| s.nodes[2].output_contract = None),
+            ("edge.from", |s| s.edges[4].from = "expand".into()),
+            ("edge.to", |s| s.edges[0].to = "done".into()),
+            ("edge.condition", |s| {
+                s.edges[1].condition = Some(predicate("predicate:other", 'e'))
+            }),
+            ("edge.condition presence", |s| s.edges[1].condition = None),
+        ];
+
+        let baseline = rich_shape().shape_digest();
+        for (field, mutate) in mutators {
+            let mut altered = rich_shape();
+            mutate(&mut altered);
+            assert_ne!(
+                altered,
+                rich_shape(),
+                "{field}: the mutator changed nothing, so the test proves nothing"
+            );
+            assert_ne!(
+                altered.shape_digest(),
+                baseline,
+                "{field} is stored but not covered by the shape digest"
+            );
+        }
+    }
+
+    #[test]
+    fn every_stored_definition_field_moves_the_digest() {
+        // The record digest is what the publish replay identity is minted from.
+        // A stored-but-UNHASHED entry field is one a retry could silently
+        // change while still resolving as a replay of the earlier publish --
+        // which is exactly how a corrected `synthesis_evidence` was dropped.
+        let AgentGraphDraft {
+            graph_id: _,
+            version: _,
+            shape: _,
+            tenant_id: _,
+            actor_scope: _,
+            purpose_id: _,
+            policy_digest: _,
+            synthesis_evidence: _,
+        } = rich_draft();
+
+        type Mutator = (&'static str, fn(&mut AgentGraphDraft));
+        let mutators: &[Mutator] = &[
+            ("graph_id", |d| d.graph_id = "graph:other".into()),
+            ("version", |d| d.version = "2.0.0".into()),
+            ("shape", |d| d.shape.max_iterations = 6),
+            ("tenant_id", |d| d.tenant_id = "tenant-b".into()),
+            ("actor_scope", |d| d.actor_scope = "operator".into()),
+            ("purpose_id", |d| d.purpose_id = "agent-rebuild".into()),
+            ("policy_digest", |d| d.policy_digest = digest('c')),
+            ("synthesis_evidence", |d| d.synthesis_evidence = None),
+        ];
+
+        let baseline = AgentGraphEntry::publish(rich_draft(), 10, 1, 1_000)
+            .expect("baseline publishes")
+            .definition_digest;
+        for (field, mutate) in mutators {
+            let mut altered = rich_draft();
+            mutate(&mut altered);
+            assert_ne!(
+                altered,
+                rich_draft(),
+                "{field}: the mutator changed nothing, so the test proves nothing"
+            );
+            let moved = AgentGraphEntry::publish(altered, 10, 1, 1_000)
+                .unwrap_or_else(|error| panic!("{field} must still publish: {error}"))
+                .definition_digest;
+            assert_ne!(
+                moved, baseline,
+                "{field} is stored but not covered by the definition digest"
+            );
+        }
+    }
+
+    /// A draft whose optional slots are populated, so `synthesis_evidence` has
+    /// something to clear.
+    fn rich_draft() -> AgentGraphDraft {
+        let mut rich = draft();
+        rich.shape = rich_shape();
+        rich.synthesis_evidence = Some(ComponentDependency {
+            component_id: "evidence:run-17".into(),
+            kind: AgentComponentKind::Ontology,
+            definition_digest: digest('c'),
+        });
+        rich
     }
 }

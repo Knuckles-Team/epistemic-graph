@@ -163,28 +163,20 @@ impl AgentLibraryStore {
         Ok(entries)
     }
 
-    /// Return a reference for one retained published revision in history.
-    /// This is a historical lookup: it deliberately does not claim that the
-    /// revision is the current delegable head after a later retirement. The
-    /// reference is derived from the authoritative revision row, so callers
-    /// cannot make a local cache the source of truth.
-    pub fn entry_ref(
-        &self,
-        tenant_id: &str,
-        agent_id: &str,
-        revision: u64,
-    ) -> Result<Option<eg_types::delegation::AgentLibraryEntryRef>, String> {
-        let Some(entry) = self
-            .revisions(tenant_id, agent_id)?
-            .into_iter()
-            .find(|entry| entry.entry_revision == revision && !entry.is_retired())
-        else {
-            return Ok(None);
-        };
-        Ok(Some(
-            eg_types::delegation::AgentLibraryEntryRef::from_entry(&entry),
-        ))
-    }
+    // There is deliberately NO `entry_ref(tenant, agent, revision)` here.
+    //
+    // It existed, was `pub`, had no caller, and was named exactly what an
+    // integrator reaches for when it wants a delegation target -- while
+    // filtering on the PINNED revision's lifecycle. A tombstone is a separate,
+    // later revision, so the pinned row stays `Published` forever and that
+    // filter can never see a retirement: the function would happily hand back a
+    // reference to a withdrawn agent. The graph and template resolvers document
+    // and avoid exactly this trap (`resolve_composed_graph`,
+    // `instantiate_template`), and so does `retained_agent` on the delegation
+    // path, which reads the HEAD's lifecycle first.
+    //
+    // Anything that needs a delegable reference must go through a resolver that
+    // checks the head. `revisions()` above still serves the historical read.
 
     /// Read the terminal mutation receipt for one caller operation, if it has
     /// committed. This is the typed status route's durable source of truth.
