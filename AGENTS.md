@@ -361,6 +361,7 @@ authoritative inventory.
 | **Launch N shards** | `EPISTEMIC_GRAPH_SECRET=… scripts/run_shards.sh [N]` |
 | **Check compilation** | `cargo check --features server` |
 | **Pre-commit checks** | `pre-commit run --all-files` |
+| **What the shape scanners accept** | [`docs/quality-gate-terms.md`](docs/quality-gate-terms.md) — the cccc exhaustive-dispatch rule and the measured KISS thresholds |
 | **Constrained-parallelism gate (GOC-70)** | `scripts/constrained_parallelism_gate.sh` — runs `--lib` PLUS the concurrency-sensitive integration binaries under `taskset -c 0,1` (2-core CI is the reference environment, not our build hosts; see below) |
 
 Measured baseline (see `docs/benchmarks.md`): `AddNode` p50 ≈ 0.187 ms, p99 ≈
@@ -948,6 +949,15 @@ not caused by your edits**. The standing goal is a clean, working codebase with
 already documented in this file as a known, unavoidable limitation. You **MUST
 NOT** commit until `pre-commit run --all-files` passes cleanly; if a check
 legitimately cannot pass, stop and explain why rather than bypassing it.
+
+The two **shape** scanners (cccc complexity, KISS) have written terms of
+acceptance: [`docs/quality-gate-terms.md`](docs/quality-gate-terms.md). Read it
+before arguing with one of their findings, and before changing a threshold.
+Every exception there is a rule about a class of code with the measurement
+attached — never a list of files, never a frozen count, never an in-line
+suppression. If your finding is not covered by a rule on that page, it is debt:
+fix it. If you believe it should be covered, add the rule and its measurement to
+that page — do not raise a threshold and do not add an in-line suppression.
 
 ## GOC-70 — every test must pass on a resource-constrained runner
 

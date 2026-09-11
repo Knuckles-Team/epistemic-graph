@@ -163,11 +163,13 @@ def test_complexity_parser_keeps_nested_children_and_duplicate_names():
             "name": "outer",
             "cyclomatic": 2,
             "cognitive": 1,
+            "line": 4,
             "children": [
                 {
                     "name": "inner",
                     "cyclomatic": 11,
                     "cognitive": 2,
+                    "line": 6,
                     "children": [],
                 }
             ],
@@ -180,24 +182,77 @@ def test_complexity_parser_keeps_nested_children_and_duplicate_names():
             "name": "outer",
             "cyclomatic": 3,
             "cognitive": 4,
+            "line": 40,
             "children": [],
         },
         "",
         measured,
     )
 
-    assert measured["outer"] == [(2, 1), (3, 4)]
-    assert measured["outer.inner"] == [(11, 2)]
+    assert measured["outer"] == [(2, 1, 4, False), (3, 4, 40, False)]
+    assert measured["outer.inner"] == [(11, 2, 6, False)]
+
+
+def test_complexity_parser_requires_a_start_line():
+    """A row with no line cannot be classified, so it must not be measurable.
+
+    Silently treating it as non-exempt would also make it silently
+    unreportable; the gate distinguishes "cannot run" from "found nothing".
+    """
+    complexity = _load_script("check_complexity_staged")
+    with pytest.raises(SystemExit) as raised:
+        complexity._walk(
+            {"name": "outer", "cyclomatic": 2, "cognitive": 1, "children": []},
+            "",
+            {},
+        )
+    assert raised.value.code == 2
 
 
 def test_complexity_judge_catches_over_cap_duplicate_name():
     complexity = _load_script("check_complexity_staged")
-    before = {"submit": [(30, 20)]}
-    after = {"submit": [(30, 20), (12, 16)]}
+    metrics = complexity.Metrics
+    before = {"submit": [metrics(30, 20, 1, False)]}
+    after = {"submit": [metrics(30, 20, 1, False), metrics(12, 16, 60, False)]}
 
     assert complexity.judge(before, after, 10, 15) == [
         ("NEW", "submit", (0, 0), (12, 16))
     ]
+
+
+def test_complexity_accepts_exhaustive_dispatch_growing_by_a_variant():
+    """Adding an enum variant to an accepted dispatcher is not a regression.
+
+    Keeping the match exhaustive is the entire reason the exemption exists; a
+    gate that then failed the variant addition would push the author toward the
+    lookup table the rule is designed to prevent.
+    """
+    complexity = _load_script("check_complexity_staged")
+    metrics = complexity.Metrics
+    before = {"dispatch_kind": [metrics(32, 1, 2076, True)]}
+    after = {"dispatch_kind": [metrics(33, 1, 2076, True)]}
+
+    assert complexity.judge(before, after, 10, 15) == []
+
+
+def test_complexity_fails_when_a_dispatcher_leaves_the_accepted_class():
+    """Growing a catch-all arm restores the full cyclomatic value at once."""
+    complexity = _load_script("check_complexity_staged")
+    metrics = complexity.Metrics
+    before = {"dispatch_kind": [metrics(32, 1, 2076, True)]}
+    after = {"dispatch_kind": [metrics(32, 1, 2076, False)]}
+
+    assert complexity.judge(before, after, 10, 15) == [
+        ("WORSE", "dispatch_kind", (0, 1), (32, 1))
+    ]
+
+
+def test_complexity_never_exempts_cognitive_complexity():
+    complexity = _load_script("check_complexity_staged")
+    metrics = complexity.Metrics
+    after = {"handle": [metrics(32, 16, 10, True)]}
+
+    assert complexity.judge({}, after, 10, 15) == [("NEW", "handle", (0, 0), (32, 16))]
 
 
 def test_complexity_parser_rejects_missing_report_summary(monkeypatch):

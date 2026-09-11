@@ -19,6 +19,19 @@ So this hook scopes to the DIFF, and its rule is:
 That is deliberately NOT a baseline (CX MR-11 / the workspace no-ratchet rule).
 Nothing is written to disk, no count is frozen, no finding is marked "accepted",
 and the REAL absolute numbers for every touched file are printed on every run.
+
+TERMS OF ACCEPTANCE FOR THE CYCLOMATIC CAP
+------------------------------------------
+One class of function is exempt from the CYCLOMATIC cap only -- never from the
+cognitive cap -- because for it the cyclomatic number measures the wrong thing:
+a flat, genuinely exhaustive `match`. `scripts/rust_exhaustive_match.py` states
+the rule and the measurement behind it. Membership is recomputed from the
+STAGED SOURCE on every run, there is no list of files or functions anywhere,
+and the rule is strictly tighter than the absence of a rule it replaces: it
+newly exposes every high-cyclomatic dispatcher that ends in a catch-all arm,
+which is NOT exhaustive and is therefore ordinary debt. Exempt functions are
+counted on screen for every touched file, so the exemption is visible, not
+silent.
     The comparison is recomputed live from git on each invocation, so the only
 property it grants is "the tail cannot grow" -- pre-existing debt stays visible,
 stays failing in the census, and must still be burned down deliberately.
@@ -49,9 +62,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from rust_exhaustive_match import exhaustive_dispatch_exempt  # noqa: E402
 from scanner_contract import (  # noqa: E402
     CCCC_MAX_COGNITIVE,
     CCCC_MAX_CYCLOMATIC,
@@ -68,6 +83,39 @@ from scanner_contract import (  # noqa: E402
 
 DEFAULT_MAX_CYCLOMATIC = CCCC_MAX_CYCLOMATIC
 DEFAULT_MAX_COGNITIVE = CCCC_MAX_COGNITIVE
+
+#: Rust is the only language the exhaustive-dispatch rule can speak about; a
+#: Python or JavaScript function has no `match` arms for rustc to check, so it
+#: is never exempt. Measured on this tree: 24 of the cyclomatic-only over-cap
+#: functions are Python or JavaScript, and all 24 stay in the backlog.
+RUST_SUFFIX = ".rs"
+
+
+class Metrics(NamedTuple):
+    """One measured function row, plus whether the dispatch rule accepts it.
+
+    ``exempt`` is never read from disk and never persisted. It is recomputed
+    from the source under measurement on every run by
+    ``rust_exhaustive_match.exhaustive_dispatch_exempt``.
+    """
+
+    cyclomatic: int
+    cognitive: int
+    line: int
+    exempt: bool
+
+    @property
+    def graded_cyclomatic(self) -> int:
+        """The cyclomatic value this gate JUDGES, as opposed to reports.
+
+        Zero for an accepted exhaustive dispatcher, so that adding an enum
+        variant -- the whole point of keeping the match exhaustive -- does not
+        register as a regression. The instant the function stops qualifying,
+        its full cyclomatic value returns and the change reads as the large
+        regression it is.
+        """
+        return 0 if self.exempt else self.cyclomatic
+
 
 #: Extensions cccc 1.6.0 actually dispatches. A file outside this set is skipped
 #: rather than handed to cccc, so an unsupported type cannot look like "0
@@ -286,21 +334,27 @@ def _blob(
     return _blob_result(root, rev_path, suffix, tmp, allow_missing, result)
 
 
-def _function_metrics(fn: dict) -> tuple[int, int]:
+def _function_metrics(fn: dict) -> Metrics:
+    """One validated row. ``line`` is required: the dispatch rule reads source.
+
+    A row without a usable start line cannot be classified, and an
+    unclassifiable row must never be exempt, so a missing or nonsensical line
+    is an environment failure rather than a silently unclassifiable row.
+    """
     if not isinstance(fn, dict):
         _fail_env("cccc returned a function that is not an object")
-    for field in ("name", "cyclomatic", "cognitive"):
+    for field in ("name", "cyclomatic", "cognitive", "line"):
         if field not in fn:
             _fail_env(f"cccc function is missing {field}")
     if not isinstance(fn["name"], str) or not fn["name"]:
         _fail_env("cccc function has an invalid name")
-    values = (fn["cyclomatic"], fn["cognitive"])
+    values = (fn["cyclomatic"], fn["cognitive"], fn["line"])
     if any(
         isinstance(value, bool) or not isinstance(value, int) or value < 0
         for value in values
     ):
         _fail_env(f"cccc function {fn['name']!r} has invalid complexity metrics")
-    return values
+    return Metrics(fn["cyclomatic"], fn["cognitive"], fn["line"], False)
 
 
 def _function_children(fn: dict) -> list:
@@ -313,7 +367,7 @@ def _function_children(fn: dict) -> list:
     return children
 
 
-def _function_details(fn: dict, prefix: str) -> tuple[str, tuple[int, int], list]:
+def _function_details(fn: dict, prefix: str) -> tuple[str, Metrics, list]:
     if not isinstance(fn, dict):
         _fail_env("cccc returned a function that is not an object")
     if not isinstance(fn.get("name"), str) or not fn["name"]:
@@ -404,10 +458,10 @@ def _validated_file_functions(file_report: object, path: str) -> list:
     return functions
 
 
-def _measurement_rows(raw: str, path: str) -> dict[str, list[tuple[int, int]]]:
+def _measurement_rows(raw: str, path: str) -> dict[str, list[Metrics]]:
     doc = _parse_cccc_document(raw, path)
     files = _validated_measurement_files(doc, path)
-    out: dict[str, list[tuple[int, int]]] = {}
+    out: dict[str, list[Metrics]] = {}
     for file_report in files:
         functions = _validated_file_functions(file_report, path)
         try:
@@ -418,41 +472,88 @@ def _measurement_rows(raw: str, path: str) -> dict[str, list[tuple[int, int]]]:
     return out
 
 
-def measure(path: str) -> dict[str, list[tuple[int, int]]]:
-    """{qualified_name: [(cyclomatic, cognitive), ...]} for one file.
+def _rust_source(path: str) -> str | None:
+    """The Rust text of a measured blob, or None when the rule cannot apply.
 
-    A list per name, not a pair -- names collide. See `_walk`.
+    None for a non-Rust file and for any file that cannot be read: both make
+    every row non-exempt, which is the fail-closed direction.
     """
-    return _measurement_rows(_run_cccc(path), path)
+    if Path(path).suffix.lower() != RUST_SUFFIX:
+        return None
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
 
 
-def _new_findings(name: str, rows: list, max_cyc: int, max_cog: int) -> list:
+def _graded(
+    rows: dict[str, list[Metrics]],
+    source: str | None,
+    max_cyc: int,
+    max_cog: int,
+) -> dict[str, list[Metrics]]:
+    """Stamp each row with the exhaustive-dispatch verdict for its own source."""
+    return {
+        name: [
+            row._replace(
+                exempt=exhaustive_dispatch_exempt(
+                    source, row.line, row.cyclomatic, row.cognitive, max_cyc, max_cog
+                )
+            )
+            for row in measured
+        ]
+        for name, measured in rows.items()
+    }
+
+
+def measure(
+    path: str,
+    max_cyc: int = DEFAULT_MAX_CYCLOMATIC,
+    max_cog: int = DEFAULT_MAX_COGNITIVE,
+) -> dict[str, list[Metrics]]:
+    """{qualified_name: [Metrics, ...]} for one file, dispatch rule applied.
+
+    A list per name, not a single row -- names collide. See `_walk`.
+    """
+    rows = _measurement_rows(_run_cccc(path), path)
+    return _graded(rows, _rust_source(path), max_cyc, max_cog)
+
+
+def _new_findings(name: str, rows: list[Metrics], max_cyc: int, max_cog: int) -> list:
     """Rows for a name absent from HEAD: each is judged on the caps alone."""
     return [
-        ("NEW", name, (0, 0), (cyc, cog))
-        for cyc, cog in rows
-        if cyc > max_cyc or cog > max_cog
+        ("NEW", name, (0, 0), (row.cyclomatic, row.cognitive))
+        for row in rows
+        if _over_cap(row, max_cyc, max_cog)
     ]
 
 
-def _flatten(measured: dict) -> list[tuple[int, int]]:
-    """Every (cyclomatic, cognitive) row across every name, duplicates included."""
+def _flatten(measured: dict) -> list[Metrics]:
+    """Every measured row across every name, duplicates included."""
     return [row for rows in measured.values() for row in rows]
 
 
-def _worst(rows: list) -> tuple[int, int]:
-    """The worst cyclomatic and worst cognitive carried by one name."""
-    return max(c for c, _ in rows), max(g for _, g in rows)
+def _worst(rows: list[Metrics]) -> tuple[int, int]:
+    """The worst GRADED cyclomatic and worst cognitive carried by one name.
+
+    Graded, not raw: an accepted exhaustive dispatcher contributes 0 on the
+    cyclomatic axis, so growing the enum it dispatches over is not a
+    regression. Cognitive complexity is never graded and never exempt.
+    """
+    return (
+        max(row.graded_cyclomatic for row in rows),
+        max(row.cognitive for row in rows),
+    )
 
 
-def _over_cap(row: tuple[int, int], max_cyc: int, max_cog: int) -> bool:
-    return row[0] > max_cyc or row[1] > max_cog
+def _over_cap(row: Metrics, max_cyc: int, max_cog: int) -> bool:
+    return row.graded_cyclomatic > max_cyc or row.cognitive > max_cog
 
 
 def _new_duplicate_findings(
     name: str,
-    prior: list[tuple[int, int]],
-    rows: list[tuple[int, int]],
+    prior: list[Metrics],
+    rows: list[Metrics],
     max_cyc: int = DEFAULT_MAX_CYCLOMATIC,
     max_cog: int = DEFAULT_MAX_COGNITIVE,
 ) -> list:
@@ -467,18 +568,25 @@ def _new_duplicate_findings(
     prior_count = sum(_over_cap(row, max_cyc, max_cog) for row in prior)
     after_rows = sorted(
         (row for row in rows if _over_cap(row, max_cyc, max_cog)),
-        key=lambda row: (row[0], row[1]),
+        key=lambda row: (row.graded_cyclomatic, row.cognitive),
     )
-    added_count = len(after_rows) - prior_count
+    # A row can also cross a cap without any row being ADDED -- for instance a
+    # dispatcher that grew a catch-all arm and so left the accepted class. That
+    # is a worsening of an existing row, which `_worst` reports; counting it
+    # here as well would report one function twice.
+    added_count = min(len(after_rows) - prior_count, len(rows) - len(prior))
     if added_count <= 0:
         return []
-    return [("NEW", name, (0, 0), row) for row in after_rows[:added_count]]
+    return [
+        ("NEW", name, (0, 0), (row.cyclomatic, row.cognitive))
+        for row in after_rows[:added_count]
+    ]
 
 
 def _regression(
     name: str,
-    prior: list[tuple[int, int]],
-    rows: list[tuple[int, int]],
+    prior: list[Metrics],
+    rows: list[Metrics],
     max_cyc: int = DEFAULT_MAX_CYCLOMATIC,
     max_cog: int = DEFAULT_MAX_COGNITIVE,
 ) -> list:
@@ -497,8 +605,8 @@ def _regression(
 
 
 def judge(
-    before: dict[str, list[tuple[int, int]]],
-    after: dict[str, list[tuple[int, int]]],
+    before: dict[str, list[Metrics]],
+    after: dict[str, list[Metrics]],
     max_cyc: int,
     max_cog: int,
 ) -> list[tuple[str, str, tuple[int, int], tuple[int, int]]]:
@@ -506,7 +614,9 @@ def judge(
 
     NEW = absent from HEAD and over a cap. WORSE = present in HEAD and up on
     either metric. A pre-existing over-cap function left alone yields nothing --
-    the module docstring explains why that is scope, not a baseline.
+    the module docstring explains why that is scope, not a baseline. A function
+    the exhaustive-dispatch rule accepts is judged on cognitive complexity
+    alone; it is still counted and printed by `_report_file`.
     """
     findings: list = []
     for name, rows in sorted(after.items()):
@@ -518,25 +628,43 @@ def judge(
     return findings
 
 
+def _file_totals(
+    flat: list[Metrics], max_cyc: int, max_cog: int
+) -> tuple[int, int, int, int]:
+    """(worst cyclomatic, worst cognitive, over-cap count, accepted count).
+
+    The first three are the RAW measurement -- never the graded one -- because
+    this is the line that keeps pre-existing debt on screen.
+    """
+    return (
+        max(row.cyclomatic for row in flat),
+        max(row.cognitive for row in flat),
+        sum(1 for row in flat if row.cyclomatic > max_cyc or row.cognitive > max_cog),
+        sum(1 for row in flat if row.exempt),
+    )
+
+
 def _report_file(
     rel: str,
-    after: dict[str, list[tuple[int, int]]],
+    after: dict[str, list[Metrics]],
     max_cyc: int = DEFAULT_MAX_CYCLOMATIC,
     max_cog: int = DEFAULT_MAX_COGNITIVE,
 ) -> None:
     """Print the REAL absolute numbers for a touched file, on every run.
 
-    The no-ratchet rule in code: pre-existing debt in a file you touched stays on
-    screen even though this hook does not fail on it.
+    The no-ratchet rule in code: pre-existing debt in a file you touched stays
+    on screen even though this hook does not fail on it -- and so does the
+    count the exhaustive-dispatch rule accepted, because an exemption nobody
+    can see is a baseline by another name.
     """
     if not after:
         return
     flat = _flatten(after)
-    worst_cyc, worst_cog = _worst(flat)
-    over = sum(1 for c, g in flat if c > max_cyc or g > max_cog)
+    worst_cyc, worst_cog, over, exempt = _file_totals(flat, max_cyc, max_cog)
+    accepted = f", {exempt} accepted as exhaustive dispatch" if exempt else ""
     print(
         f"  {rel}: {len(flat)} fn, worst cyc {worst_cyc}, worst cog {worst_cog}, "
-        f"{over} already over {max_cyc}/{max_cog}"
+        f"{over} already over {max_cyc}/{max_cog}{accepted}"
     )
 
 
@@ -562,18 +690,31 @@ def check_file(root: str, rel: str, tmp: str, max_cyc: int, max_cog: int) -> lis
     after_path = _blob(root, f":{rel}", suffix, tmp)
     if after_path is None:
         _fail_env(f"staged blob {rel} could not be materialized")
-    after = measure(after_path)
+    after = measure(after_path, max_cyc, max_cog)
     _report_file(rel, after, max_cyc, max_cog)
     before_path = _blob(root, f"HEAD:{rel}", suffix, tmp, allow_missing=True)
-    before = measure(before_path) if before_path else {}
+    before = measure(before_path, max_cyc, max_cog) if before_path else {}
     findings = judge(before, after, max_cyc, max_cog)
     _print_findings(rel, findings, max_cyc, max_cog)
     return findings
 
 
 ADVICE = """
-Split the function into named parts, or replace the branching with a dict
-dispatch table. Measured on real shapes with cccc 1.6.0:
+If the finding is a cyclomatic-only one on a flat `match`, check it against the
+terms of acceptance in scripts/rust_exhaustive_match.py FIRST: a genuinely
+exhaustive match (no `_ =>`, no bare binding arm, cognitive within cap, and
+nothing much else branching in the body) is already accepted and would not have
+been reported. If it WAS reported, one of those four conditions does not hold --
+most often a catch-all arm, which means the match is not exhaustive, decomposing
+it forfeits no rustc guarantee, and it is ordinary debt.
+
+Do NOT reach for a macro or a lookup table to make an exhaustive match smaller:
+the macro only hides the arms from the scanner, and the lookup table trades
+compile-time exhaustiveness for a metric. Both are worse code with a better
+number.
+
+Otherwise: split the function into named parts, or replace the branching with a
+dict dispatch table. Measured on real shapes with cccc 1.6.0:
 
     dict dispatch table          cyclomatic  2   cognitive  1   <- wins BOTH
     extraction (parent)                      2              1   <- wins BOTH...
@@ -585,8 +726,12 @@ Flattening nesting into a longer chain trades one metric for the other and is
 not a fix. Recurse until every function you created is under BOTH caps.
 
 Do NOT raise a threshold and do NOT add a suppression comment to pass this --
-an in-line suppression is a one-line baseline. If the complexity is genuinely
-irreducible, record a time-boxed entry with an owner in scripts/gate_deferrals.tsv.
+an in-line suppression is a one-line baseline, and this repository has no
+deferrals ledger to put one in. If you believe the complexity is genuinely
+irreducible, the only honest move is to argue for a RULE about the class of code
+it belongs to, with the measurement attached, the way
+scripts/rust_exhaustive_match.py does -- and to write it down in
+docs/quality-gate-terms.md.
 """
 
 

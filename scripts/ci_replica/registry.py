@@ -269,6 +269,11 @@ BUILD_AFFECTING_FILE_PATTERNS: tuple[str, ...] = (
     "scripts/check_kiss_staged.sh",
     "scripts/list_scanner_sources.py",
     "scripts/validate_cccc_census.py",
+    # The terms of acceptance for the cyclomatic cap and the census split that
+    # reports them: both change what a gate accepts, so a diff in either must
+    # not be skippable on the grounds that no Rust source changed.
+    "scripts/rust_exhaustive_match.py",
+    "scripts/report_complexity_terms.py",
 )
 
 
