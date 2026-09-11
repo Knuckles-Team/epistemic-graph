@@ -8,6 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::agent_graph::AgentGraphEntry;
 use crate::agent_library::AgentLibraryEntry;
 use crate::epistemic_operations::RequestContext;
 
@@ -16,9 +17,15 @@ use crate::epistemic_operations::RequestContext;
 /// Advanced to 2 by the pre-freeze contract review. The request shape changed
 /// when a delegation stopped naming one agent and started naming a
 /// [`DelegationTarget`] -- `target` where a scalar `agent_entry` stood, plus
-/// `model_digest` becoming optional because a graph has no single model. A
-/// client built against the earlier shape must get a typed version rejection,
-/// not a `deny_unknown_fields` parse error about a field it has never heard of.
+/// `model_digest` becoming optional because a graph has no single model, and
+/// [`AgentGraphEntryRef`] pinning the graph's `definition_digest` where it once
+/// pinned its `shape_digest`. A client built against the earlier shape must get
+/// a typed version rejection, not a `deny_unknown_fields` parse error about a
+/// field it has never heard of.
+///
+/// All of those landed in one unreleased pre-freeze window, so no peer can hold
+/// a partially-advanced V2; the version is not re-advanced per amendment within
+/// that window, only once the contract is frozen.
 pub const KG_DELEGATE_VERSION: u16 = 2;
 
 /// Bounds applied before any request field is copied into a WorkItem row.
@@ -112,12 +119,34 @@ impl AgentLibraryEntryRef {
 
 /// One pinned agent GRAPH, as a delegation target (RF-ADR-008).
 ///
-/// Mirrors [`AgentLibraryEntryRef`], with `shape_digest` where an entry has
-/// `definition_digest`. That one substitution carries far more than it looks:
-/// a shape digest covers every node, and an agent node pins its
-/// `definition_digest`, which pins every component it is assembled from. So
-/// pinning the shape pins the ENTIRE tree transitively -- which is why a graph
-/// target needs no separate `model_digest` (see
+/// Mirrors [`AgentLibraryEntryRef`] exactly: both pin the record's
+/// `definition_digest`.
+///
+/// # Why a delegation pins the RECORD digest and a composing parent does not
+///
+/// A [`crate::agent_graph::AgentGraphNodeKind::Graph`] node deliberately pins
+/// the child's `shape_digest` -- what a parent composes is the child's
+/// BEHAVIOUR, and the child's governance is re-checked live at every
+/// resolution, so pinning a stale copy of it would force a cascading republish
+/// of an entire tree for a change that alters no behaviour.
+///
+/// A delegation is the opposite question. It names a record IDENTITY, and it is
+/// the audit point: `synthesis_evidence` -- which RF-ADR-008 section D says is what
+/// makes a synthesized graph auditable and reproducible -- is inside
+/// `definition_digest` and outside `shape_digest`, as are `version`, the actor
+/// scope, the purpose, the policy digest and the admitted
+/// `composed_work_ceiling`. A delegation that pinned only the shape would
+/// attest to what ran while leaving WHY it was composed unpinned.
+///
+/// Do not "unify" the two by giving both the same digest: they answer different
+/// questions, and [`crate::agent_graph::AgentGraphEntry`]'s own impl-block doc
+/// carries the other half of this note.
+///
+/// The behaviour pin is not lost: `definition_digest` is a hash OVER
+/// `shape_digest`, and a shape digest covers every node, while an agent node
+/// pins its own `definition_digest`, which pins every component it is assembled
+/// from. So the record digest still pins the ENTIRE tree transitively -- which
+/// is why a graph target needs no separate `model_digest` (see
 /// [`KgDelegateRequest::model_digest`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -126,7 +155,9 @@ pub struct AgentGraphEntryRef {
     pub tenant_id: String,
     pub graph_id: String,
     pub entry_revision: u64,
-    pub shape_digest: String,
+    /// The published RECORD digest -- see the type doc for why this is the
+    /// record digest and not the shape digest.
+    pub definition_digest: String,
     pub actor_scope: String,
     pub purpose_id: String,
     pub policy_digest: String,
@@ -142,13 +173,36 @@ pub struct AgentGraphEntryRef {
 }
 
 impl AgentGraphEntryRef {
+    /// The reference a retained revision would be pinned by.
+    ///
+    /// Mirrors [`AgentLibraryEntryRef::from_entry`] so admission can compare the
+    /// WHOLE reference rather than one field: comparing only the digest leaves
+    /// the scope/purpose/policy/ceiling fields checked by separate code that a
+    /// later edit could drop without any test noticing.
+    pub fn from_entry(entry: &AgentGraphEntry) -> Self {
+        Self {
+            tenant_id: entry.tenant_id.clone(),
+            graph_id: entry.graph_id.clone(),
+            entry_revision: entry.entry_revision,
+            definition_digest: entry.definition_digest.clone(),
+            actor_scope: entry.actor_scope.clone(),
+            purpose_id: entry.purpose_id.clone(),
+            policy_digest: entry.policy_digest.clone(),
+            composed_work_ceiling: entry.composed_work_ceiling,
+        }
+    }
+
+    pub fn matches_entry(&self, entry: &AgentGraphEntry) -> bool {
+        self == &Self::from_entry(entry)
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         bounded_text("tenant_id", &self.tenant_id, MAX_DELEGATION_REF_BYTES)?;
         bounded_text("graph_id", &self.graph_id, MAX_DELEGATION_REF_BYTES)?;
         if self.entry_revision == 0 {
             return Err("delegated agent graph revision must be a retained revision".to_string());
         }
-        validate_digest("shape_digest", &self.shape_digest)?;
+        validate_prefixed_digest("definition_digest", &self.definition_digest)?;
         bounded_text("actor_scope", &self.actor_scope, MAX_ACTOR_SCOPE_BYTES)?;
         bounded_text("purpose_id", &self.purpose_id, MAX_PURPOSE_BYTES)?;
         validate_prefixed_digest("policy_digest", &self.policy_digest)?;
@@ -169,7 +223,7 @@ impl AgentGraphEntryRef {
     pub fn provenance_ref(&self) -> String {
         format!(
             "agent-graph:{}:{}:{}:{}",
-            self.tenant_id, self.graph_id, self.entry_revision, self.shape_digest
+            self.tenant_id, self.graph_id, self.entry_revision, self.definition_digest
         )
     }
 }
@@ -230,7 +284,7 @@ impl DelegationTarget {
     pub fn pinned_digest(&self) -> &str {
         match self {
             Self::Agent { entry } => &entry.definition_digest,
-            Self::Graph { graph } => &graph.shape_digest,
+            Self::Graph { graph } => &graph.definition_digest,
         }
     }
 
@@ -306,10 +360,11 @@ pub struct KgDelegateRequest {
     ///
     /// `Some` for an agent target and `None` for a graph, and both directions
     /// are enforced. A graph has no single model -- it has one per agent node --
-    /// and its `shape_digest` already pins every one of them transitively, so a
-    /// scalar here would either be a lie or a duplicate of something the shape
-    /// digest covers better. Requiring it to be absent keeps the two cases from
-    /// being conflated by a caller that fills in a plausible value.
+    /// and its pinned `definition_digest` covers the shape digest, which pins
+    /// every one of them transitively, so a scalar here would either be a lie
+    /// or a duplicate of something the shape digest covers better. Requiring it
+    /// to be absent keeps the two cases from being conflated by a caller that
+    /// fills in a plausible value.
     #[serde(default)]
     pub model_digest: Option<String>,
     pub idempotency_key: String,
@@ -362,7 +417,7 @@ impl KgDelegateRequest {
             (Some(_), true) => {
                 return Err(
                     "a graph delegation must not pin a model_digest: a graph has one model per \
-                     agent node, and its shape_digest already pins every one of them"
+                     agent node, and its pinned definition digest already pins every one of them"
                         .to_string(),
                 )
             }
@@ -565,7 +620,7 @@ mod tests {
             tenant_id: "tenant-a".into(),
             graph_id: "graph:research-team".into(),
             entry_revision: 1,
-            shape_digest: digest('9'),
+            definition_digest: prefixed_digest('9'),
             actor_scope: "agent-runner".into(),
             purpose_id: "agent-delegation".into(),
             policy_digest: format!("sha256:{}", "7".repeat(64)),
@@ -586,9 +641,11 @@ mod tests {
         request.model_digest = None;
         request.validate().expect("a graph target is admissible");
         assert!(request.target.is_graph());
-        // The shape digest IS the binding: it covers every node, each agent node
-        // pins its definition digest, and that pins every component.
-        assert_eq!(request.target.pinned_digest(), digest('9'));
+        // The RECORD digest is what a delegation pins: it is a hash over the
+        // shape digest -- which covers every node, each agent node pinning its
+        // own definition digest, and that pinning every component -- plus the
+        // synthesis evidence and governance metadata the shape digest omits.
+        assert_eq!(request.target.pinned_digest(), prefixed_digest('9'));
         assert_eq!(request.target.target_id(), "graph:research-team");
     }
 

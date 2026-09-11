@@ -779,8 +779,12 @@ pub(crate) async fn handle_agent_component(
                 Err(error) => Response::err(req_id, error),
             }
         }
+        // One PAGE, as an object carrying `entries` + `next_cursor` -- never a
+        // bare array. Pagination is unavoidable here (this is the one read whose
+        // result grows with the tenant), and an array could only grow a cursor
+        // by breaking every reader.
         AgentComponentOp::Search { request } => match store.search_components(&request) {
-            Ok(entries) => match ResultPayload::raw(&entries) {
+            Ok(page) => match ResultPayload::raw(&page) {
                 Ok(payload) => Response::ok(req_id, payload),
                 Err(error) => Response::err(req_id, error),
             },
@@ -1797,6 +1801,23 @@ mod agent_library_security_tests {
         }
     }
 
+    /// `definition`, with every component it pins actually published.
+    ///
+    /// A publish now RESOLVES each pinned component inside its write
+    /// transaction, so a route test that expects the publish to REACH the store
+    /// has to seed them; a test that expects a refusal before the store does
+    /// not.
+    fn seeded_definition(
+        store: &crate::server::persistence::agent_library::AgentLibraryStore,
+        tenant_id: &str,
+    ) -> AgentLibraryEntryDraft {
+        let mut draft = definition(tenant_id);
+        crate::server::persistence::agent_component::seed_draft_components_for_test(
+            store, &mut draft, 50,
+        );
+        draft
+    }
+
     fn definition(tenant_id: &str) -> AgentLibraryEntryDraft {
         AgentLibraryEntryDraft {
             agent_id: "agent-a".to_string(),
@@ -1909,6 +1930,14 @@ mod agent_library_security_tests {
         };
         rmp_serde::from_slice(&bytes).expect("decode Agent Library route result")
     }
+
+    /// Outbox rows the fixture's own component seeds contribute.
+    ///
+    /// An agent publish now RESOLVES its pinned components, so the five
+    /// components `seeded_definition` publishes are real owner writes with real
+    /// outbox rows. The agent-library assertions below stay discriminating: they
+    /// still pin the number of AGENT rows, offset by a constant.
+    const SEEDED_COMPONENT_OUTBOX: usize = 5;
 
     fn native_outbox_count(
         store: &crate::server::persistence::agent_library::AgentLibraryStore,
@@ -2044,7 +2073,7 @@ mod agent_library_security_tests {
                 op: AgentLibraryOp::Publish {
                     request: Box::new(AgentLibraryPublishRequest {
                         context: forged_context(&store, "tenant-shared"),
-                        entry: definition("tenant-shared"),
+                        entry: seeded_definition(&store, "tenant-shared"),
                     }),
                 },
             },
@@ -2125,7 +2154,7 @@ mod agent_library_security_tests {
             AgentLibraryOp::Publish {
                 request: Box::new(AgentLibraryPublishRequest {
                     context: forged_context(&store, "tenant-shared"),
-                    entry: definition("tenant-shared"),
+                    entry: seeded_definition(&store, "tenant-shared"),
                 }),
             },
             "public-publish-nonce",
@@ -2144,7 +2173,7 @@ mod agent_library_security_tests {
             store.revisions("tenant-shared", "agent-a").unwrap().len(),
             1
         );
-        assert_eq!(native_outbox_count(&store), 1);
+        assert_eq!(native_outbox_count(&store), SEEDED_COMPONENT_OUTBOX + 1);
 
         // A retry with a fresh authenticated nonce after reopening the owner
         // resolves from the native replay receipt. It must not append another
@@ -2156,7 +2185,7 @@ mod agent_library_security_tests {
             AgentLibraryOp::Publish {
                 request: Box::new(AgentLibraryPublishRequest {
                     context: forged_context(&store, "tenant-shared"),
-                    entry: definition("tenant-shared"),
+                    entry: seeded_definition(&store, "tenant-shared"),
                 }),
             },
             "public-publish-retry-nonce",
@@ -2172,7 +2201,7 @@ mod agent_library_security_tests {
             let guard = state.read().await;
             guard.agent_library.as_ref().unwrap().clone()
         };
-        assert_eq!(native_outbox_count(&store), 1);
+        assert_eq!(native_outbox_count(&store), SEEDED_COMPONENT_OUTBOX + 1);
 
         // All three query operations stay on the native snapshot/status paths;
         // none creates an outbox record.
@@ -2222,7 +2251,7 @@ mod agent_library_security_tests {
             .await;
             assert!(response.error.is_none(), "query failed: {response:?}");
         }
-        assert_eq!(native_outbox_count(&store), 1);
+        assert_eq!(native_outbox_count(&store), SEEDED_COMPONENT_OUTBOX + 1);
 
         let mut retire_body = forged_context(&store, "tenant-shared");
         retire_body.expected_revision = Some(1);
@@ -2259,7 +2288,7 @@ mod agent_library_security_tests {
             store.revisions("tenant-shared", "agent-a").unwrap().len(),
             2
         );
-        assert_eq!(native_outbox_count(&store), 2);
+        assert_eq!(native_outbox_count(&store), SEEDED_COMPONENT_OUTBOX + 2);
 
         // Copy the live owner through its backup seam and inspect the copied
         // durable rows. This proves the public signed route reached the native
@@ -2403,7 +2432,7 @@ mod agent_library_security_tests {
         // The original publish key with changed content is a conflict. Even
         // with a fresh nonce, the native operation identity rejects it before
         // any owner row, receipt, or outbox mutation.
-        let mut changed = definition("tenant-shared");
+        let mut changed = seeded_definition(&store, "tenant-shared");
         changed.role = "different-role".to_string();
         let mut changed_context = forged_context(&store, "tenant-shared");
         changed_context.expected_revision = Some(0);
@@ -2428,7 +2457,7 @@ mod agent_library_security_tests {
             conflict.error.is_some(),
             "changed payload unexpectedly succeeded"
         );
-        assert_eq!(native_outbox_count(&store), 2);
+        assert_eq!(native_outbox_count(&store), SEEDED_COMPONENT_OUTBOX + 2);
 
         // The same authenticated route boundary rejects a body that names a
         // different tenant, and scope omissions fail before the owner opens.
@@ -2468,7 +2497,7 @@ mod agent_library_security_tests {
             AgentLibraryOp::Publish {
                 request: Box::new(AgentLibraryPublishRequest {
                     context: forged_context(&store, "tenant-shared"),
-                    entry: definition("tenant-shared"),
+                    entry: seeded_definition(&store, "tenant-shared"),
                 }),
             },
             "missing-write-nonce",

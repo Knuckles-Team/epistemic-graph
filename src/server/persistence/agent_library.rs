@@ -338,6 +338,31 @@ impl AgentLibraryStore {
             self.mutations.commit_replay_receipt(txn)?;
             return Ok(result);
         }
+        // L2 -> L1: every component this agent is assembled from must actually
+        // exist, at the exact revision it pins, in this tenant, under the kind
+        // the slot expects, and not withdrawn.
+        //
+        // Local validation checks only that a pin is WELL-FORMED. Without this
+        // resolution, 64 invented hex characters publish an agent that claims a
+        // component -- a tool, a system prompt, a model profile -- it was never
+        // granted, and `capability_digest` then attests to the claim. It also
+        // makes the documented property true: "republishing a component changes
+        // its digest, so an agent assembled from the old one no longer
+        // resolves" has no meaning until something resolves it.
+        //
+        // Inside this transaction, deliberately: resolving from a separate read
+        // could admit an agent whose component was retired between the two.
+        // After the replay check, so a retry of a committed publish is not
+        // re-resolved against a tree that may have changed since.
+        if let Err(error) = self.resolve_component_pins_in_write(
+            &txn,
+            &request.context.tenant_id,
+            "agent library entry",
+            &request.entry.dependencies(),
+        ) {
+            txn.abort()?;
+            return Err(error);
+        }
         let previous_updated_at_ms = if expected_revision == 0 {
             0
         } else {
@@ -1787,45 +1812,78 @@ mod tests {
         format!("sha256:{}", byte.to_string().repeat(64))
     }
 
-    fn draft(tenant_id: &str, agent_id: &str) -> AgentLibraryEntryDraft {
+    /// How many component batches `draft` commits before an agent can publish:
+    /// system prompt, tool, skill, model profile, ontology.
+    const SEEDED_COMPONENT_BATCHES: usize = 5;
+
+    /// Publish one L1 component and return the pin that resolves it.
+    ///
+    /// Shared with the other three layers' test modules -- see
+    /// `seed_component_for_test`.
+    fn component_pin(
+        store: &AgentLibraryStore,
+        tenant_id: &str,
+        component_id: &str,
+        kind: eg_types::agent_component::AgentComponentKind,
+        seed: u8,
+    ) -> eg_types::agent_component::ComponentDependency {
+        super::super::agent_component::seed_component_for_test(
+            store,
+            tenant_id,
+            component_id,
+            kind,
+            seed,
+        )
+    }
+
+    fn draft(
+        store: &AgentLibraryStore,
+        tenant_id: &str,
+        agent_id: &str,
+    ) -> AgentLibraryEntryDraft {
+        use eg_types::agent_component::AgentComponentKind;
         AgentLibraryEntryDraft {
             agent_id: agent_id.to_string(),
             package_id: "agent-package".to_string(),
             version: "1.0.0".to_string(),
             role: "researcher".to_string(),
             role_digest: digest('1'),
-            system_prompt: eg_types::agent_component::ComponentDependency {
-                component_id: "prompt:agent-v1".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
-                definition_digest: digest('2'),
-            },
-            tools: vec![
-                eg_types::agent_component::ComponentDependency {
-                    component_id: "tool:search".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::Tool,
-                    definition_digest: digest('3'),
-                },
-            ],
-            skills: vec![
-                eg_types::agent_component::ComponentDependency {
-                    component_id: "skill:reason".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::Skill,
-                    definition_digest: digest('4'),
-                },
-            ],
-            model_profile: eg_types::agent_component::ComponentDependency {
-                component_id: "model-profile:default".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
-                definition_digest: digest('5'),
-            },
+            system_prompt: component_pin(
+                store,
+                tenant_id,
+                "prompt:agent",
+                AgentComponentKind::SystemPrompt,
+                1,
+            ),
+            tools: vec![component_pin(
+                store,
+                tenant_id,
+                "tool:search",
+                AgentComponentKind::Tool,
+                2,
+            )],
+            skills: vec![component_pin(
+                store,
+                tenant_id,
+                "skill:reason",
+                AgentComponentKind::Skill,
+                3,
+            )],
+            model_profile: component_pin(
+                store,
+                tenant_id,
+                "model-profile:default",
+                AgentComponentKind::ModelProfile,
+                4,
+            ),
             model_identity: "model:default".to_string(),
-            ontologies: vec![
-                eg_types::agent_component::ComponentDependency {
-                    component_id: "ontology:agent".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::Ontology,
-                    definition_digest: digest('6'),
-                },
-            ],
+            ontologies: vec![component_pin(
+                store,
+                tenant_id,
+                "ontology:agent",
+                AgentComponentKind::Ontology,
+                5,
+            )],
             tenant_id: tenant_id.to_string(),
             actor_scope: "definition:builder-a".to_string(),
             purpose_id: "agent-library:definition".to_string(),
@@ -1870,7 +1928,7 @@ mod tests {
     fn real_store_replays_atomically_scopes_tenants_and_restores() {
         let source_dir = tempfile::tempdir().unwrap();
         let store = AgentLibraryStore::open(source_dir.path().to_str().unwrap()).unwrap();
-        let definition = draft("tenant-a", "agent-a");
+        let definition = draft(&store, "tenant-a", "agent-a");
         let publish_context = context(
             &store,
             "tenant-a",
@@ -2059,7 +2117,14 @@ mod tests {
             .unwrap_err()
             .contains("REPLAY_NONCE_CONSUMED"));
         let read_a = store.kernel.read_scope(&owner_a).unwrap();
-        assert_eq!(eg_transaction::read_batches(&read_a).unwrap().len(), 1);
+        // One agent-library batch, plus the components the fixture had to
+        // publish first: an agent publish now RESOLVES every pinned component,
+        // so the seeds are part of this owner's ledger. Still discriminating --
+        // a second agent batch would make it SEEDED_COMPONENT_BATCHES + 2.
+        assert_eq!(
+            eg_transaction::read_batches(&read_a).unwrap().len(),
+            SEEDED_COMPONENT_BATCHES + 1
+        );
         assert_eq!(
             eg_transaction::read_outbox(&read_a, &first_batch_id)
                 .unwrap()
@@ -2262,7 +2327,7 @@ mod tests {
             .unwrap_err()
             .contains("resurrected"));
 
-        let tenant_b_definition = draft("tenant-b", "agent-b");
+        let tenant_b_definition = draft(&store, "tenant-b", "agent-b");
         let tenant_b = store
             .publish(AgentLibraryPublishRequest {
                 context: context(
@@ -2391,6 +2456,208 @@ mod tests {
         );
     }
 
+    // ---- L2 -> L1: every pinned component is RESOLVED at admission ----
+    //
+    // Before this, `persistence/agent_library.rs` contained no reference to the
+    // component tables at all: a pin was checked for well-formedness and
+    // nothing else, so 64 invented hex characters published an agent claiming a
+    // tool it was never granted, and `capability_digest` then attested to the
+    // claim. L1 had no production reader.
+
+    fn publish_draft(
+        store: &AgentLibraryStore,
+        entry: AgentLibraryEntryDraft,
+        key: &str,
+        nonce: u8,
+    ) -> Result<AgentLibraryWriteResult, String> {
+        let context = context(
+            store,
+            &entry.tenant_id.clone(),
+            key,
+            nonce,
+            0,
+            'a',
+            "policy-v1",
+            "agent-library:publish",
+            10,
+        );
+        store.publish(AgentLibraryPublishRequest { context, entry })
+    }
+
+    #[test]
+    fn an_agent_pinning_a_component_that_does_not_exist_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
+        let mut entry = draft(&store, "tenant-a", "agent-a");
+        entry.tools[0].component_id = "tool:never-published".to_string();
+        let error = publish_draft(&store, entry, "key-1", 1)
+            .expect_err("an unresolvable pin must never become a revision");
+        assert!(
+            error.contains("does not exist in this tenant"),
+            "got: {error}"
+        );
+        assert!(store.current("tenant-a", "agent-a").unwrap().is_none());
+    }
+
+    #[test]
+    fn an_agent_pinning_an_invented_digest_is_refused() {
+        // The failure scenario the unresolved edge allowed: the component id is
+        // real, the kind is right, the digest is 64 valid hex characters -- and
+        // no revision was ever published with it.
+        let dir = tempfile::tempdir().unwrap();
+        let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
+        let mut entry = draft(&store, "tenant-a", "agent-a");
+        entry.tools[0].definition_digest = digest('9');
+        let error = publish_draft(&store, entry, "key-1", 1)
+            .expect_err("a fabricated digest must never become a revision");
+        assert!(
+            error.contains("no retained revision matches the pinned definition digest"),
+            "got: {error}"
+        );
+    }
+
+    #[test]
+    fn an_agent_pinning_a_component_under_the_wrong_kind_is_refused() {
+        // Local validation checks the kind against the SLOT. This checks it
+        // against the component that was actually published -- the half nothing
+        // could check without resolving.
+        let dir = tempfile::tempdir().unwrap();
+        let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
+        let mut entry = draft(&store, "tenant-a", "agent-a");
+        let prompt = entry.system_prompt.clone();
+        entry.tools[0] = eg_types::agent_component::ComponentDependency {
+            component_id: prompt.component_id.clone(),
+            kind: eg_types::agent_component::AgentComponentKind::Tool,
+            definition_digest: prompt.definition_digest.clone(),
+        };
+        let error = publish_draft(&store, entry, "key-1", 1)
+            .expect_err("a prompt wired into a tool slot must be refused");
+        assert!(error.contains("but it is a system_prompt"), "got: {error}");
+    }
+
+    #[test]
+    fn an_agent_pinning_another_tenants_component_is_refused() {
+        // Resolution is by (id, kind, digest) alone, so without the tenant
+        // prefix a caller who learns a digest would hold a component it was
+        // never granted.
+        let dir = tempfile::tempdir().unwrap();
+        let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
+        let theirs = component_pin(
+            &store,
+            "tenant-b",
+            "tool:theirs",
+            eg_types::agent_component::AgentComponentKind::Tool,
+            9,
+        );
+        let mut entry = draft(&store, "tenant-a", "agent-a");
+        entry.tools[0] = theirs;
+        let error = publish_draft(&store, entry, "key-1", 1)
+            .expect_err("a cross-tenant pin must be refused");
+        assert!(
+            error.contains("does not exist in this tenant"),
+            "got: {error}"
+        );
+    }
+
+    #[test]
+    fn an_agent_pinning_a_retired_component_is_refused_but_old_pins_still_resolve() {
+        // A retired component stays RESOLVABLE -- agents that already pin it
+        // keep working -- while nothing NEW may be built on it. The same
+        // retained-but-not-buildable rule composition applies to graphs.
+        let dir = tempfile::tempdir().unwrap();
+        let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
+        let entry = draft(&store, "tenant-a", "agent-a");
+        publish_draft(&store, entry.clone(), "key-1", 1).expect("publishes while live");
+
+        let retire_context = AgentLibraryMutationContext {
+            request_id: 950,
+            principal: store.owner_principal().to_string(),
+            caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
+            attempt_nonce: Nonce::from_bytes([0xD0u8; 32]),
+            tenant_id: "tenant-a".to_string(),
+            actor_scope: "action-scope:seed".to_string(),
+            purpose_id: "agent-component:retire".to_string(),
+            policy_revision: "policy-v1".to_string(),
+            policy_digest: current_agent_library_policy_digest().unwrap(),
+            policy_decision_id: "agent-component:decision:policy-v1".to_string(),
+            idempotency_key: "component-retire:tool:search".to_string(),
+            expected_revision: Some(1),
+            trace_id: None,
+            created_at_ms: 20,
+        };
+        store
+            .retire_component(eg_types::agent_component::AgentComponentRetireRequest {
+                context: retire_context,
+                component_id: "tool:search".to_string(),
+            })
+            .expect("retires");
+
+        let mut next = entry.clone();
+        next.agent_id = "agent-b".to_string();
+        let error = publish_draft(&store, next, "key-2", 2)
+            .expect_err("nothing new may be built on a withdrawn component");
+        assert!(error.contains("which is retired"), "got: {error}");
+
+        // The agent published BEFORE the retirement is untouched.
+        assert!(store.current("tenant-a", "agent-a").unwrap().is_some());
+    }
+
+    #[test]
+    fn a_component_pinning_a_component_that_does_not_exist_is_refused() {
+        // L1 -> L1: a component's own `requires` are pinned references too.
+        let dir = tempfile::tempdir().unwrap();
+        let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
+        let context = AgentLibraryMutationContext {
+            request_id: 960,
+            principal: store.owner_principal().to_string(),
+            caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
+            attempt_nonce: Nonce::from_bytes([0xD1u8; 32]),
+            tenant_id: "tenant-a".to_string(),
+            actor_scope: "action-scope:seed".to_string(),
+            purpose_id: "agent-component:publish".to_string(),
+            policy_revision: "policy-v1".to_string(),
+            policy_digest: current_agent_library_policy_digest().unwrap(),
+            policy_decision_id: "agent-component:decision:policy-v1".to_string(),
+            idempotency_key: "component-requires".to_string(),
+            expected_revision: Some(0),
+            trace_id: None,
+            created_at_ms: 5,
+        };
+        let error = store
+            .publish_component(eg_types::agent_component::AgentComponentPublishRequest {
+                context,
+                component: eg_types::agent_component::AgentComponentDraft {
+                    component_id: "skill:depends".to_string(),
+                    kind: eg_types::agent_component::AgentComponentKind::Skill,
+                    version: "1.0.0".to_string(),
+                    content_digest: digest('1'),
+                    content_ref: None,
+                    facts: eg_types::agent_component::AgentComponentFacts::Opaque,
+                    provenance: eg_types::agent_component::ComponentProvenance::Native,
+                    summary: "a skill with a dependency".to_string(),
+                    classification: Vec::new(),
+                    requires: vec![eg_types::agent_component::ComponentDependency {
+                        component_id: "tool:never-published".to_string(),
+                        kind: eg_types::agent_component::AgentComponentKind::Tool,
+                        definition_digest: digest('9'),
+                    }],
+                    provides: Vec::new(),
+                    attributes: Default::default(),
+                    tenant_id: "tenant-a".to_string(),
+                    actor_scope: "action-scope:seed".to_string(),
+                    purpose_id: "agent-component:publish".to_string(),
+                    policy_digest: current_agent_library_policy_digest().unwrap(),
+                    source_revision: "rev-seed".to_string(),
+                    source_revision_digest: digest('8'),
+                },
+            })
+            .expect_err("an unresolvable `requires` must be refused");
+        assert!(
+            error.contains("does not exist in this tenant"),
+            "got: {error}"
+        );
+    }
+
     #[test]
     fn revision_limit_guard_is_checked_before_owner_rows() {
         assert_eq!(
@@ -2406,7 +2673,7 @@ mod tests {
     fn status_rejects_persisted_batch_result_tamper_after_reopen() {
         let source_dir = tempfile::tempdir().unwrap();
         let store = AgentLibraryStore::open(source_dir.path().to_str().unwrap()).unwrap();
-        let definition = draft("tenant-a", "agent-a");
+        let definition = draft(&store, "tenant-a", "agent-a");
         let publish_context = context(
             &store,
             "tenant-a",
@@ -2470,7 +2737,7 @@ mod tests {
     fn recovery_rejects_redirected_replay_batch_link() {
         let source_dir = tempfile::tempdir().unwrap();
         let store = AgentLibraryStore::open(source_dir.path().to_str().unwrap()).unwrap();
-        let definition = draft("tenant-a", "agent-a");
+        let definition = draft(&store, "tenant-a", "agent-a");
         store
             .publish(AgentLibraryPublishRequest {
                 context: context(

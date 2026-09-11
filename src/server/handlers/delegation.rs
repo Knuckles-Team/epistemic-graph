@@ -492,10 +492,10 @@ fn lower_work_item(
         policy_digest: request.policy_digest.clone(),
         catalog_digest: request.catalog_digest.clone(),
         // The native work item carries one model digest. An agent delegation
-        // supplies it directly; a graph has none, so it supplies its shape
-        // digest -- which is the honest answer rather than a placeholder,
-        // because the shape pins every agent node and therefore every model the
-        // run may use.
+        // supplies it directly; a graph has none, so it supplies the digest it
+        // pins -- its record digest, which covers the shape digest and so pins
+        // every agent node and therefore every model the run may use. An honest
+        // answer rather than a placeholder.
         model_digest: request.model_digest.clone().unwrap_or_else(|| {
             request
                 .target
@@ -596,11 +596,6 @@ fn validate_retained_target(
         }
         (eg_types::delegation::DelegationTarget::Graph { graph }, RetainedTarget::Graph(retained_graph)) => {
             retained_graph.validate()?;
-            if graph.shape_digest != retained_graph.shape_digest {
-                return Err(
-                    "kg-delegate agent graph is not the retained revision/shape digest".to_string(),
-                );
-            }
             // The composed ceiling must be the one this graph was ADMITTED
             // with. A caller that could raise it would escape the bound the
             // composition check enforced at publish -- which is the whole point
@@ -619,8 +614,24 @@ fn validate_retained_target(
                         .to_string(),
                 );
             }
-            // A graph pins no scalar model; its shape digest is the capability
+            // The WHOLE reference, exactly as the agent arm compares the whole
+            // `AgentLibraryEntryRef`. A delegation pins the record digest, not
+            // the shape digest: it names a record IDENTITY, and
+            // `synthesis_evidence` -- the artifact that makes a synthesized
+            // graph auditable -- is inside `definition_digest` and outside
+            // `shape_digest`. (A composing parent still pins the SHAPE; see
+            // `AgentGraphEntryRef`'s type doc for why the two differ.)
+            if **graph != eg_types::delegation::AgentGraphEntryRef::from_entry(retained_graph) {
+                return Err(
+                    "kg-delegate agent graph is not the retained revision/definition digest"
+                        .to_string(),
+                );
+            }
+            // A graph pins no scalar model; its SHAPE digest is the capability
             // binding, since it transitively covers every agent and component.
+            // Deliberately not the record digest the reference pins: a
+            // capability proof is about what will RUN, and two records that do
+            // the same thing must present the same capability.
             let expected_capability =
                 unprefixed_digest("shape_digest", &retained_graph.shape_digest)?;
             if request.capability_digest != expected_capability {
@@ -1267,6 +1278,360 @@ mod tests {
             result_from_submit(&bound, result).unwrap().decision,
             KgDelegateDecision::Replayed
         );
+    }
+
+    // ---- L3 end to end: publish a NESTED graph, then delegate it ----
+    //
+    // The graph-delegation admission branch had no test of any kind: this
+    // module constructed `RetainedTarget::Graph` zero times, so "L3 is now
+    // runnable" was an untested claim, and `retained_graph` plus the
+    // shape-digest/ceiling/capability checks were all unexercised. These go
+    // through the REAL store so the retained entry is one admission actually
+    // minted -- a hand-built entry would not prove the two halves agree.
+
+    #[cfg(feature = "redb")]
+    fn graph_test_store() -> (tempfile::TempDir, AgentLibraryStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
+        (dir, store)
+    }
+
+    #[cfg(feature = "redb")]
+    fn graph_context(
+        store: &AgentLibraryStore,
+        key: &str,
+        nonce: u8,
+        expected_revision: u64,
+    ) -> eg_types::agent_library::AgentLibraryMutationContext {
+        eg_types::agent_library::AgentLibraryMutationContext {
+            request_id: u64::from(nonce),
+            principal: store.owner_principal().to_string(),
+            caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
+            attempt_nonce: eg_types::contract::Nonce::from_bytes([nonce; 32]),
+            tenant_id: "tenant-a".to_string(),
+            actor_scope: "action-scope:a".to_string(),
+            purpose_id: "agent-graph:publish".to_string(),
+            policy_revision: "policy-v1".to_string(),
+            policy_digest:
+                crate::server::persistence::agent_library::current_agent_library_policy_digest()
+                    .unwrap(),
+            policy_decision_id: "agent-graph:decision:policy-v1".to_string(),
+            idempotency_key: key.to_string(),
+            expected_revision: Some(expected_revision),
+            trace_id: None,
+            created_at_ms: 10,
+        }
+    }
+
+    #[cfg(feature = "redb")]
+    fn graph_component(id: &str, seed: char) -> eg_types::agent_component::ComponentDependency {
+        eg_types::agent_component::ComponentDependency {
+            component_id: id.into(),
+            kind: eg_types::agent_component::AgentComponentKind::Schema,
+            definition_digest: prefixed_digest(seed),
+        }
+    }
+
+    /// The child: one agent, then end, producing `contract:report`.
+    #[cfg(feature = "redb")]
+    fn child_graph_shape() -> eg_types::agent_graph::AgentGraphShape {
+        use eg_types::agent_graph::{AgentGraphEdge, AgentGraphNode, AgentGraphNodeKind};
+        eg_types::agent_graph::AgentGraphShape {
+            entry_node: "work".into(),
+            nodes: vec![
+                AgentGraphNode {
+                    node_id: "work".into(),
+                    kind: AgentGraphNodeKind::Agent {
+                        agent_id: "agent:work".into(),
+                        definition_digest: prefixed_digest('3'),
+                    },
+                    deps_contract: None,
+                    output_contract: Some(graph_component("contract:report", 'b')),
+                },
+                AgentGraphNode {
+                    node_id: "done".into(),
+                    kind: AgentGraphNodeKind::End,
+                    deps_contract: None,
+                    output_contract: None,
+                },
+            ],
+            edges: vec![AgentGraphEdge {
+                from: "work".into(),
+                to: "done".into(),
+                condition: None,
+            }],
+            max_iterations: 4,
+        }
+    }
+
+    /// The parent: one step that RUNS the child graph, pinned by shape digest.
+    #[cfg(feature = "redb")]
+    fn parent_graph_shape(child_shape_digest: &str) -> eg_types::agent_graph::AgentGraphShape {
+        use eg_types::agent_graph::{AgentGraphEdge, AgentGraphNode, AgentGraphNodeKind};
+        eg_types::agent_graph::AgentGraphShape {
+            entry_node: "team".into(),
+            nodes: vec![
+                AgentGraphNode {
+                    node_id: "team".into(),
+                    kind: AgentGraphNodeKind::Graph {
+                        graph_id: "graph:child".into(),
+                        shape_digest: child_shape_digest.into(),
+                    },
+                    deps_contract: None,
+                    output_contract: Some(graph_component("contract:report", 'b')),
+                },
+                AgentGraphNode {
+                    node_id: "done".into(),
+                    kind: AgentGraphNodeKind::End,
+                    deps_contract: None,
+                    output_contract: None,
+                },
+            ],
+            edges: vec![AgentGraphEdge {
+                from: "team".into(),
+                to: "done".into(),
+                condition: None,
+            }],
+            max_iterations: 3,
+        }
+    }
+
+    #[cfg(feature = "redb")]
+    fn publish_graph_shape(
+        store: &AgentLibraryStore,
+        graph_id: &str,
+        shape: eg_types::agent_graph::AgentGraphShape,
+        key: &str,
+        nonce: u8,
+    ) -> eg_types::agent_graph::AgentGraphEntry {
+        store
+            .publish_graph(eg_types::agent_graph::AgentGraphPublishRequest {
+                context: graph_context(store, key, nonce, 0),
+                graph: eg_types::agent_graph::AgentGraphDraft {
+                    graph_id: graph_id.to_string(),
+                    version: "1.0.0".to_string(),
+                    shape,
+                    tenant_id: "tenant-a".to_string(),
+                    actor_scope: "action-scope:a".to_string(),
+                    purpose_id: "agent-graph:publish".to_string(),
+                    policy_digest:
+                        crate::server::persistence::agent_library::current_agent_library_policy_digest()
+                            .unwrap(),
+                    synthesis_evidence: None,
+                },
+            })
+            .expect("publishes")
+            .result
+            .graph
+    }
+
+    /// Publish child + parent and return the RETAINED parent, resolved the way
+    /// admission resolves it.
+    #[cfg(feature = "redb")]
+    fn nested_graph(store: &AgentLibraryStore) -> eg_types::agent_graph::AgentGraphEntry {
+        let child = publish_graph_shape(store, "graph:child", child_graph_shape(), "key-child", 1);
+        let parent = publish_graph_shape(
+            store,
+            "graph:parent",
+            parent_graph_shape(&child.shape_digest),
+            "key-parent",
+            2,
+        );
+        let retained = retained_graph(store, "tenant-a", "graph:parent", parent.entry_revision)
+            .expect("the published parent is retained");
+        assert_eq!(retained, parent);
+        retained
+    }
+
+    #[cfg(feature = "redb")]
+    fn graph_request(graph: &eg_types::agent_graph::AgentGraphEntry) -> KgDelegateRequest {
+        KgDelegateRequest {
+            schema_version: KgDelegateSchemaVersion::V2,
+            context: context("tenant-a"),
+            delegation_id: "delegation:1".into(),
+            run_id: "run:1".into(),
+            trace_id: "trace:run:1".into(),
+            target: eg_types::delegation::DelegationTarget::Graph {
+                graph: Box::new(eg_types::delegation::AgentGraphEntryRef::from_entry(graph)),
+            },
+            input_ref: "cas:input:1".into(),
+            command_digest: digest('2'),
+            // A graph's capability binding is its SHAPE digest -- what will run
+            // -- not the record digest the reference pins.
+            capability_digest: unprefixed_digest("shape_digest", &graph.shape_digest).unwrap(),
+            catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
+            policy_digest: graph.policy_digest.clone(),
+            // A graph has one model per agent node, so it pins none.
+            model_digest: None,
+            idempotency_key: "delegate-idempotency:1".into(),
+            kind: "agent.execute".into(),
+            actor_scope: graph.actor_scope.clone(),
+            purpose: graph.purpose_id.clone(),
+            work_item_id: Some("workitem:1".into()),
+            priority: 10,
+            max_attempts: 3,
+            deadline_unix: Some(2_000.0),
+            max_tenant_in_flight: 10,
+        }
+    }
+
+    #[cfg(feature = "redb")]
+    fn graph_verified() -> VerifiedRequestContext {
+        VerifiedRequestContext::verified_for_test_with_scopes(
+            "agent:1",
+            "tenant-a",
+            &["work:delegate"],
+        )
+    }
+
+    #[cfg(feature = "redb")]
+    #[test]
+    fn a_published_nested_graph_is_delegated_end_to_end() {
+        let (_dir, store) = graph_test_store();
+        let graph = nested_graph(&store);
+        // The parent runs the child: 3 iterations x the child's 4.
+        assert_eq!(graph.composed_work_ceiling, 12);
+
+        let bound = bind_request(
+            graph_request(&graph),
+            &graph_verified(),
+            &RetainedTarget::Graph(graph.clone()),
+            "tenant-a",
+        )
+        .expect("a retained nested graph is admissible");
+
+        assert_eq!(
+            bound.work_item.metadata["target_kind"],
+            json!("agent_graph")
+        );
+        assert_eq!(
+            bound.work_item.metadata["agent_graph_shape_digest"],
+            json!(graph.shape_digest)
+        );
+        assert_eq!(bound.work_item.metadata["agent_graph_node_count"], json!(2));
+        // The work item's single model digest is the RECORD digest the
+        // delegation pins, unprefixed -- the honest answer for a target that
+        // has one model per agent node rather than one of its own.
+        assert_eq!(
+            bound.work_item.model_digest,
+            graph.definition_digest.strip_prefix("sha256:").unwrap()
+        );
+        assert!(bound
+            .work_item
+            .provenance_refs
+            .iter()
+            .any(|reference| reference.starts_with("agent-graph:")));
+    }
+
+    #[cfg(feature = "redb")]
+    #[test]
+    fn a_graph_delegation_that_raises_its_admitted_ceiling_is_refused() {
+        // The escape this field exists to close: a caller declaring a ceiling
+        // the composition check never admitted would fan out past the bound
+        // publish enforced.
+        let (_dir, store) = graph_test_store();
+        let graph = nested_graph(&store);
+        let mut request = graph_request(&graph);
+        let eg_types::delegation::DelegationTarget::Graph { graph: reference } = &mut request.target
+        else {
+            panic!("the fixture builds a graph target");
+        };
+        reference.composed_work_ceiling = 1_000_000;
+        let error = bind_request(
+            request,
+            &graph_verified(),
+            &RetainedTarget::Graph(graph.clone()),
+            "tenant-a",
+        )
+        .expect_err("a self-raised ceiling must be refused");
+        assert!(
+            error.contains("composed_work_ceiling is not the admitted ceiling"),
+            "got: {error}"
+        );
+    }
+
+    #[cfg(feature = "redb")]
+    #[test]
+    fn a_graph_delegation_pinning_the_wrong_record_digest_is_refused() {
+        // Each of these three is a DISTINCT refusal on the graph arm, and each
+        // is asserted by its own message: an `error.contains("digest")` would
+        // pass on any of them, and on several unrelated ones.
+        let (_dir, store) = graph_test_store();
+        let graph = nested_graph(&store);
+
+        let mut wrong_digest = graph_request(&graph);
+        if let eg_types::delegation::DelegationTarget::Graph { graph: reference } =
+            &mut wrong_digest.target
+        {
+            reference.definition_digest = prefixed_digest('9');
+        }
+        let error = bind_request(
+            wrong_digest,
+            &graph_verified(),
+            &RetainedTarget::Graph(graph.clone()),
+            "tenant-a",
+        )
+        .expect_err("a mispinned record must be refused");
+        assert!(
+            error.contains("is not the retained revision/definition digest"),
+            "got: {error}"
+        );
+
+        let mut wrong_capability = graph_request(&graph);
+        wrong_capability.capability_digest = digest('9');
+        let error = bind_request(
+            wrong_capability,
+            &graph_verified(),
+            &RetainedTarget::Graph(graph.clone()),
+            "tenant-a",
+        )
+        .expect_err("a capability digest that is not the shape must be refused");
+        assert!(
+            error.contains("capability digest does not match the retained graph shape"),
+            "got: {error}"
+        );
+
+        // A graph reference resolved against an AGENT is the kind-mismatch arm.
+        let entry = agent_entry();
+        let error = bind_request(
+            graph_request(&graph),
+            &graph_verified(),
+            &RetainedTarget::Agent(entry),
+            "tenant-a",
+        )
+        .expect_err("a target-kind mismatch must be refused");
+        assert!(
+            error.contains("resolved a different target kind than the request named")
+                || error.contains("outside authenticated tenant"),
+            "got: {error}"
+        );
+    }
+
+    #[cfg(feature = "redb")]
+    #[test]
+    fn a_graph_delegation_pinning_the_shape_digest_would_not_even_validate() {
+        // The regression this reference shape closes. The graph reference once
+        // pinned `shape_digest` and validated it UNPREFIXED, while every stored
+        // graph digest is `sha256:<hex>`: a prefixed value failed validation and
+        // an unprefixed one failed the comparison, so the graph arm could never
+        // admit anything. Nothing caught it because nothing ever built a graph
+        // target end to end.
+        let (_dir, store) = graph_test_store();
+        let graph = nested_graph(&store);
+        let mut unprefixed = graph_request(&graph);
+        if let eg_types::delegation::DelegationTarget::Graph { graph: reference } =
+            &mut unprefixed.target
+        {
+            reference.definition_digest = graph
+                .definition_digest
+                .strip_prefix("sha256:")
+                .unwrap()
+                .to_string();
+        }
+        let error = unprefixed
+            .validate()
+            .expect_err("an unprefixed digest is not the stored form");
+        assert!(error.contains("sha256: digest form"), "got: {error}");
     }
 
     #[cfg(feature = "raft")]

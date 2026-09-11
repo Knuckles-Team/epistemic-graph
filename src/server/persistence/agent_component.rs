@@ -54,6 +54,36 @@ const MAX_AGENT_COMPONENT_ROW_BYTES: usize = 16 * 1024 * 1024;
 const MAX_AGENT_COMPONENT_ROW_ITEMS: usize = 200_000;
 const MAX_AGENT_COMPONENT_REVISIONS: usize = 16_384;
 const MAX_AGENT_COMPONENT_HISTORY_BYTES: usize = 256 * 1024 * 1024;
+/// Head rows one search PAGE may examine.
+///
+/// Correctly named for what it bounds, unlike the revision bound this once
+/// borrowed: `MAX_AGENT_COMPONENT_REVISIONS` means "revisions of ONE component"
+/// and says nothing about how many components a tenant may hold. Reusing it
+/// made a tenant past 16,384 components permanently unsearchable -- a refusal
+/// with no cursor to page past it. This bounds one page's work instead; a tenant
+/// larger than it pages, it is never refused.
+const MAX_AGENT_COMPONENT_SEARCH_SCAN: usize = 4_096;
+/// Encoded row bytes one search PAGE may accumulate.
+///
+/// The count bound alone does not bound the response: every other read op in
+/// this family pairs a count with a byte bound, and search was the one that did
+/// not. Exceeded by at most one row, because a page that returned nothing would
+/// not make progress.
+const MAX_AGENT_COMPONENT_SEARCH_BYTES: usize = 8 * 1024 * 1024;
+/// Most DISTINCT component pins one publish may resolve.
+///
+/// A publish adds one point lookup per distinct pin, so the fan-out needs its
+/// own bound rather than inheriting whatever the per-list bounds multiply out
+/// to. Set above the largest LEGAL pin count so it refuses abuse, never a
+/// record that validates: an entry may pin `MAX_REFERENCE_COUNT` tools, skills,
+/// ontologies, toolset refs and validator refs plus four scalars.
+const MAX_RESOLVED_COMPONENT_PINS: usize = 8_192;
+/// Most revision rows one publish may read while resolving its pins.
+///
+/// The second half of the cost bound: the pin count caps how many components
+/// are looked up, this caps how deep each lookup may search when a pin names
+/// something other than the component's HEAD.
+const MAX_COMPONENT_PIN_RESOLUTION_ROWS: usize = 131_072;
 
 /// What a committed graph write returns to the caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +167,28 @@ impl AgentLibraryStore {
         } {
             self.mutations.commit_replay_receipt(txn)?;
             return Ok(result);
+        }
+
+        // L1 -> L1: a component's own `requires` are pinned references too, and
+        // the same argument applies -- resolution is by (id, kind, digest)
+        // alone, so an unresolved pin is a claim nothing checks.
+        //
+        // The reference graph stays acyclic for the reason the module header
+        // gives: a dependency can only pin a digest that already exists.
+        // Resolution does not need a cycle check, it needs to prove the pin is
+        // real.
+        {
+            let pins: Vec<&eg_types::agent_component::ComponentDependency> =
+                request.component.requires.iter().collect();
+            if let Err(error) = self.resolve_component_pins_in_write(
+                &txn,
+                &request.context.tenant_id,
+                "agent component",
+                &pins,
+            ) {
+                txn.abort()?;
+                return Err(error);
+            }
         }
 
         let entry = match AgentComponentEntry::create(
@@ -331,24 +383,53 @@ impl AgentLibraryStore {
     /// asking "what could I build with today", so a superseded revision or a
     /// withdrawn component is not an answer -- while both remain readable by
     /// id, because an existing agent that pinned one still needs to resolve it.
+    ///
+    /// # Three bounds, one page
+    ///
+    /// A page stops at whichever comes first: the caller's `limit`, the scan
+    /// bound, or the byte bound. Each caps a different resource -- how much the
+    /// caller asked for, how much of the corpus this call walks, and how large
+    /// the response may get -- and none of them REFUSES. Whenever a page stops
+    /// early it returns a cursor, so every one of the three is resumable and a
+    /// large tenant is paged rather than cut off. That is the difference from
+    /// the unpaginated form this replaces, where the single scan bound was a
+    /// permanent cliff and the response size was bounded only by the corpus.
+    ///
+    /// A page can legitimately be EMPTY and still carry a cursor: the scan bound
+    /// applies to rows examined, not rows matched. Callers loop until
+    /// `next_cursor` is `None`.
     pub fn search_components(
         &self,
         request: &eg_types::agent_component::AgentComponentSearchRequest,
-    ) -> Result<Vec<AgentComponentEntry>, String> {
+    ) -> Result<eg_types::agent_component::AgentComponentSearchPage, String> {
         request.validate()?;
+        let resume_after = match &request.cursor {
+            Some(cursor) => Some(eg_types::agent_component::decode_search_cursor(
+                &request.tenant_id,
+                cursor,
+            )?),
+            None => None,
+        };
+        let limit = request.page_limit();
         let read = self.read()?;
         let heads = read.open_owner_table(eg_storage::AGENT_COMPONENT_HEADS)?;
         let revisions = read.open_owner_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
         let mut matched = Vec::new();
         let mut scanned = 0usize;
+        let mut bytes = 0usize;
+        // The last row this page CONSUMED, so the cursor always resumes
+        // strictly after a row the caller has already been shown. Every bound
+        // is therefore checked BEFORE a row is consumed, never after.
+        let mut last_consumed: Option<String> = None;
+        let mut truncated = false;
+        // A cursor only supplies the component half of the key; the tenant half
+        // is always the request's, so paging cannot walk out of the tenant
+        // prefix no matter what a caller hands back.
+        let start = resume_after.as_deref().unwrap_or("");
         for row in heads
-            .range((request.tenant_id.as_str(), "")..)
+            .range((request.tenant_id.as_str(), start)..)
             .map_err(|error| error.to_string())?
         {
-            scanned += 1;
-            if scanned > MAX_AGENT_COMPONENT_REVISIONS {
-                return Err("agent component search exceeds its scan bound".to_string());
-            }
             let (key, head_revision) = row.map_err(|error| error.to_string())?;
             let (row_tenant, component_id) = key.value();
             // `range_from` is open-ended: without this the scan walks into the
@@ -356,18 +437,192 @@ impl AgentLibraryStore {
             if row_tenant != request.tenant_id {
                 break;
             }
+            // The cursor is EXCLUSIVE; the range start is inclusive.
+            if resume_after.as_deref() == Some(component_id) {
+                continue;
+            }
+            if matched.len() >= limit
+                || scanned >= MAX_AGENT_COMPONENT_SEARCH_SCAN
+                || (scanned > 0 && bytes >= MAX_AGENT_COMPONENT_SEARCH_BYTES)
+            {
+                truncated = true;
+                break;
+            }
+            scanned += 1;
             let Some(value) = revisions
                 .get((row_tenant, component_id, head_revision.value()))
                 .map_err(|error| error.to_string())?
             else {
                 return Err("agent component head points to a missing revision".to_string());
             };
+            bytes = bytes.saturating_add(value.value().len());
             let entry = decode_component(value.value())?;
             if request.matches(&entry) {
                 matched.push(entry);
             }
+            last_consumed = Some(component_id.to_string());
         }
-        Ok(matched)
+        let next_cursor = if truncated {
+            last_consumed.map(|component_id| {
+                eg_types::agent_component::encode_search_cursor(
+                    &request.tenant_id,
+                    &component_id,
+                )
+            })
+        } else {
+            None
+        };
+        Ok(eg_types::agent_component::AgentComponentSearchPage {
+            entries: matched,
+            next_cursor,
+        })
+    }
+
+    /// Resolve every pinned L1 component reference, inside the write
+    /// transaction that is admitting the record which pins them.
+    ///
+    /// # Why this exists
+    ///
+    /// A pinned reference is resolved by `(component_id, kind,
+    /// definition_digest)` alone. Without this, a caller who merely KNOWS a
+    /// digest -- or invents 64 hex characters -- publishes a record claiming a
+    /// component it was never granted, and every downstream reader is told the
+    /// claim is legitimate. RF-ADR-008 gives exactly that justification for the
+    /// one edge it originally built (graph composition); it applies verbatim
+    /// here, and without it L1 has no production reader at all: the layer whose
+    /// purpose is to make "which agents use this tool?" a traversal is
+    /// write-only.
+    ///
+    /// # Why INSIDE the transaction
+    ///
+    /// Same reason `validate_composition` resolves inside the graph publish
+    /// txn: resolving from a separate read could admit a record whose
+    /// dependency was retired between the two reads.
+    ///
+    /// # What is checked, per pin
+    ///
+    /// It must exist in THIS tenant; its kind must be the kind the pin names
+    /// (and local validation has already checked that kind against the slot);
+    /// a retained revision must carry the exact pinned `definition_digest`; and
+    /// the component's HEAD must not be retired -- a retired component stays
+    /// RESOLVABLE, so records that already pin it keep working, but nothing new
+    /// may be built on something withdrawn. That is the same
+    /// retained-but-not-buildable rule composition already applies to graphs.
+    pub(super) fn resolve_component_pins_in_write(
+        &self,
+        write: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+        tenant_id: &str,
+        subject: &str,
+        pins: &[&eg_types::agent_component::ComponentDependency],
+    ) -> Result<(), String> {
+        // Deduplicated: an agent that pins the same prompt component from two
+        // slots should cost one lookup, not two, and the fan-out bound should
+        // count what is actually resolved.
+        let mut distinct: std::collections::BTreeSet<(&str, &str, &str)> =
+            std::collections::BTreeSet::new();
+        for pin in pins {
+            distinct.insert((
+                pin.component_id.as_str(),
+                pin.kind.as_str(),
+                pin.definition_digest.as_str(),
+            ));
+        }
+        if distinct.len() > MAX_RESOLVED_COMPONENT_PINS {
+            return Err(format!(
+                "{subject} pins more than {MAX_RESOLVED_COMPONENT_PINS} distinct components"
+            ));
+        }
+        let heads = write.open_read_table(eg_storage::AGENT_COMPONENT_HEADS)?;
+        let revisions = write.open_read_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
+        let mut rows = 0usize;
+        for (component_id, kind, definition_digest) in distinct {
+            let Some(head_revision) = heads.get((tenant_id, component_id))?.map(|v| v.value())
+            else {
+                return Err(format!(
+                    "{subject} pins component '{component_id}', which does not exist in this tenant"
+                ));
+            };
+            rows += 1;
+            let head = revisions
+                .get((tenant_id, component_id, head_revision))?
+                .ok_or_else(|| "agent component head points to a missing revision".to_string())?;
+            let head = decode_component(head.value())?;
+            if head.lifecycle == AgentLibraryLifecycle::Retired {
+                return Err(format!(
+                    "{subject} pins component '{component_id}', which is retired"
+                ));
+            }
+            // The HEAD first: the overwhelmingly common pin is the current
+            // revision, and hitting it turns the whole resolution into one read.
+            //
+            // The fallback scan reuses the table handle opened above rather than
+            // opening its own: redb refuses a second open of the same table
+            // while the first handle is alive, so a helper that opened it again
+            // turned every non-HEAD pin into a transaction error.
+            let resolved = if head.definition_digest == definition_digest {
+                Some(head)
+            } else {
+                let mut found = None;
+                let mut scanned = 0usize;
+                for row in revisions.range_from((tenant_id, component_id, 0))? {
+                    let (key, value) = row.map_err(|error| error.to_string())?;
+                    let (row_tenant, row_component, _) = key.value();
+                    // `range_from` is open-ended, so the prefix has to be
+                    // re-checked per row: without the break this walks into the
+                    // NEXT component's revisions and could resolve a digest
+                    // belonging to a different one.
+                    if row_tenant != tenant_id || row_component != component_id {
+                        break;
+                    }
+                    scanned += 1;
+                    rows += 1;
+                    if scanned > MAX_AGENT_COMPONENT_REVISIONS {
+                        return Err(
+                            "agent component history exceeds its retained revision bound"
+                                .to_string(),
+                        );
+                    }
+                    if rows > MAX_COMPONENT_PIN_RESOLUTION_ROWS {
+                        return Err(format!(
+                            "{subject} reference resolution exceeds its \
+                             {MAX_COMPONENT_PIN_RESOLUTION_ROWS}-row bound"
+                        ));
+                    }
+                    let entry = decode_component(value.value())?;
+                    if entry.definition_digest == definition_digest {
+                        found = Some(entry);
+                        break;
+                    }
+                }
+                found
+            };
+            let Some(resolved) = resolved else {
+                return Err(format!(
+                    "{subject} pins a revision of component '{component_id}' that was never \
+                     published: no retained revision matches the pinned definition digest"
+                ));
+            };
+            // Belt and braces against a row that does not match its physical
+            // key: the scan is already tenant-prefixed.
+            if resolved.tenant_id != tenant_id {
+                return Err(format!(
+                    "{subject} pins component '{component_id}', which belongs to another tenant"
+                ));
+            }
+            if resolved.kind.as_str() != kind {
+                return Err(format!(
+                    "{subject} pins component '{component_id}' as a {kind}, but it is a {}",
+                    resolved.kind.as_str()
+                ));
+            }
+            if rows > MAX_COMPONENT_PIN_RESOLUTION_ROWS {
+                return Err(format!(
+                    "{subject} reference resolution exceeds its {MAX_COMPONENT_PIN_RESOLUTION_ROWS}\
+                     -row bound"
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn component_at_revision_in_write(
@@ -872,6 +1127,146 @@ fn replayed_component(
 /// not have to name the library store to reach the graph surface.
 pub type AgentComponentStoreRef = Arc<AgentLibraryStore>;
 
+/// Publish one L1 component and return the pin that resolves it.
+///
+/// Shared by every test module that has to build an agent, a template instance
+/// or a graph: publishing now RESOLVES each pinned component, so a fixture can
+/// no longer invent a digest -- it has to be the component's real
+/// `definition_digest`. One definition, so the four modules cannot drift.
+///
+/// Idempotent per store, and deterministic: a component's digest is a hash over
+/// its content alone -- no revision, no timestamp -- so seeding the same
+/// component into several stores yields byte-identical pins.
+#[cfg(test)]
+pub(crate) fn seed_component_for_test(
+    store: &AgentLibraryStore,
+    tenant_id: &str,
+    component_id: &str,
+    kind: eg_types::agent_component::AgentComponentKind,
+    nonce_index: u8,
+) -> eg_types::agent_component::ComponentDependency {
+    use eg_types::agent_component::{
+        AgentComponentDraft, AgentComponentFacts, AgentComponentKind, ComponentProvenance,
+        PromptMode, ToolEffect,
+    };
+    let definition_digest = match store
+        .current_component(tenant_id, component_id)
+        .expect("read a seeded component")
+    {
+        Some(existing) => existing.definition_digest,
+        None => {
+            let facts = match kind {
+                AgentComponentKind::SystemPrompt => AgentComponentFacts::SystemPrompt {
+                    prompt_mode: PromptMode::Static,
+                    token_estimate: 128,
+                    variables: Vec::new(),
+                },
+                AgentComponentKind::Tool => AgentComponentFacts::Tool {
+                    effect: ToolEffect::Read,
+                    required_scopes: Vec::new(),
+                },
+                AgentComponentKind::Toolset => AgentComponentFacts::Toolset {
+                    transport: eg_types::agent_component::ToolsetTransport::Function,
+                },
+                AgentComponentKind::ModelProfile => AgentComponentFacts::ModelProfile {
+                    provider: "seed-provider".to_string(),
+                    model_identity: "model:seed".to_string(),
+                    context_window_tokens: 8_192,
+                    max_output_tokens: 1_024,
+                    supports_tools: true,
+                    supports_structured_output: true,
+                    supports_vision: false,
+                },
+                _ => AgentComponentFacts::Opaque,
+            };
+            // A seeding nonce can never collide with a test's own: every test
+            // module builds its nonces as `[n; 32]` for a small `n`.
+            let mut nonce_bytes = [0xEEu8; 32];
+            nonce_bytes[0] = 0xA0u8.wrapping_add(nonce_index);
+            let policy_digest =
+                super::agent_library::current_agent_library_policy_digest().unwrap();
+            store
+                .publish_component(AgentComponentPublishRequest {
+                    context: AgentLibraryMutationContext {
+                        request_id: 80_000 + u64::from(nonce_index),
+                        principal: store.owner_principal().to_string(),
+                        caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
+                        attempt_nonce: eg_types::contract::Nonce::from_bytes(nonce_bytes),
+                        tenant_id: tenant_id.to_string(),
+                        actor_scope: "action-scope:component-seed".to_string(),
+                        purpose_id: "agent-component:publish".to_string(),
+                        policy_revision: "policy-v1".to_string(),
+                        policy_digest: policy_digest.clone(),
+                        policy_decision_id: "agent-component:decision:policy-v1".to_string(),
+                        idempotency_key: format!("component-seed:{tenant_id}:{component_id}"),
+                        expected_revision: Some(0),
+                        trace_id: None,
+                        created_at_ms: 5,
+                    },
+                    component: AgentComponentDraft {
+                        component_id: component_id.to_string(),
+                        kind,
+                        version: "1.0.0".to_string(),
+                        content_digest: format!("sha256:{}", "1".repeat(64)),
+                        content_ref: None,
+                        facts,
+                        provenance: ComponentProvenance::Native,
+                        summary: format!("seeded {component_id}"),
+                        classification: Vec::new(),
+                        requires: Vec::new(),
+                        provides: Vec::new(),
+                        attributes: Default::default(),
+                        tenant_id: tenant_id.to_string(),
+                        actor_scope: "action-scope:component-seed".to_string(),
+                        purpose_id: "agent-component:publish".to_string(),
+                        policy_digest,
+                        source_revision: "component-seed:1".to_string(),
+                        source_revision_digest: format!("sha256:{}", "8".repeat(64)),
+                    },
+                })
+                .expect("the fixture's component publishes")
+                .result
+                .component
+                .definition_digest
+        }
+    };
+    eg_types::agent_component::ComponentDependency {
+        component_id: component_id.to_string(),
+        kind,
+        definition_digest,
+    }
+}
+
+/// Seed every component an agent draft pins and rewrite each pin to the real
+/// digest.
+#[cfg(test)]
+pub(crate) fn seed_draft_components_for_test(
+    store: &AgentLibraryStore,
+    draft: &mut eg_types::agent_library::AgentLibraryEntryDraft,
+    nonce_base: u8,
+) {
+    let tenant_id = draft.tenant_id.clone();
+    let mut pins: Vec<&mut eg_types::agent_component::ComponentDependency> =
+        vec![&mut draft.system_prompt, &mut draft.model_profile];
+    pins.extend(draft.tools.iter_mut());
+    pins.extend(draft.skills.iter_mut());
+    pins.extend(draft.ontologies.iter_mut());
+    pins.extend(draft.runtime.toolset_refs.iter_mut());
+    pins.extend(draft.runtime.output_validator_refs.iter_mut());
+    pins.extend(draft.runtime.deps_contract.iter_mut());
+    pins.extend(draft.runtime.output_contract.iter_mut());
+    for (index, pin) in pins.into_iter().enumerate() {
+        let seeded = seed_component_for_test(
+            store,
+            &tenant_id,
+            &pin.component_id,
+            pin.kind,
+            nonce_base.wrapping_add(u8::try_from(index).unwrap_or(0)),
+        );
+        pin.definition_digest = seeded.definition_digest;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1089,6 +1484,8 @@ mod tests {
             capabilities: Vec::new(),
             kinds: Vec::new(),
             read_only,
+            limit: None,
+            cursor: None,
         }
     }
 
@@ -1098,7 +1495,8 @@ mod tests {
         seed_search_corpus(&store);
         let found = store
             .search_components(&search("tenant-a", Some("eg:task/research"), false))
-            .unwrap();
+            .unwrap()
+            .entries;
         let ids: Vec<&str> = found.iter().map(|c| c.component_id.as_str()).collect();
         // Both retrieval tools match the task's general `retrieval` need by
         // subsumption, and so does the summarizer.
@@ -1114,7 +1512,8 @@ mod tests {
         seed_search_corpus(&store);
         let found = store
             .search_components(&search("tenant-a", Some("eg:task/operate"), true))
-            .unwrap();
+            .unwrap()
+            .entries;
         assert!(
             found.iter().all(|c| !c.is_side_effecting()),
             "read_only must exclude every write tool"
@@ -1123,7 +1522,8 @@ mod tests {
         // proving the filter is doing work rather than the corpus being empty.
         let unfiltered = store
             .search_components(&search("tenant-a", Some("eg:task/operate"), false))
-            .unwrap();
+            .unwrap()
+            .entries;
         assert!(unfiltered.iter().any(|c| c.is_side_effecting()));
     }
 
@@ -1171,7 +1571,8 @@ mod tests {
 
         let found = store
             .search_components(&search("tenant-a", Some("eg:task/research"), false))
-            .unwrap();
+            .unwrap()
+            .entries;
         assert!(!found.is_empty(), "the searched tenant's own rows must match");
         assert!(
             found.iter().all(|component| component.tenant_id == "tenant-a"),
@@ -1186,7 +1587,8 @@ mod tests {
         // break is scoping the scan rather than truncating it.
         let theirs = store
             .search_components(&search("tenant-b", Some("eg:task/research"), false))
-            .unwrap();
+            .unwrap()
+            .entries;
         assert!(!theirs.is_empty());
         assert!(theirs.iter().all(|component| component.tenant_id == "tenant-b"));
     }
@@ -1207,6 +1609,7 @@ mod tests {
             store
                 .search_components(&search("tenant-a", Some("eg:task/research"), false))
                 .unwrap()
+                .entries
                 .len(),
             1
         );
@@ -1219,6 +1622,7 @@ mod tests {
         assert!(store
             .search_components(&search("tenant-a", Some("eg:task/research"), false))
             .unwrap()
+            .entries
             .is_empty());
         assert!(store
             .current_component("tenant-a", "tool:web")
@@ -1238,5 +1642,183 @@ mod tests {
             .search_components(&search("tenant-a", None, false))
             .expect_err("an unconstrained search must be refused");
         assert!(error.contains("task or at least one capability"), "got: {error}");
+    }
+
+    // ---- pagination ----
+
+    fn paged(
+        tenant: &str,
+        task: Option<&str>,
+        limit: u32,
+        cursor: Option<String>,
+    ) -> AgentComponentSearchRequest {
+        let mut request = search(tenant, task, false);
+        request.limit = Some(limit);
+        request.cursor = cursor;
+        request
+    }
+
+    #[test]
+    fn a_search_pages_through_a_tenant_and_returns_exactly_the_unpaged_set() {
+        // The point of the cursor: a tenant is never cut off, however small the
+        // page. At `limit = 1` the corpus is only reachable by paging, so this
+        // fails outright if the cursor does not advance.
+        let (_dir, store) = open_store();
+        seed_search_corpus(&store);
+        let whole: Vec<String> = store
+            .search_components(&search("tenant-a", Some("eg:task/research"), false))
+            .unwrap()
+            .entries
+            .into_iter()
+            .map(|component| component.component_id)
+            .collect();
+        assert!(whole.len() >= 3, "the corpus must need more than one page");
+
+        let mut seen: Vec<String> = Vec::new();
+        let mut cursor = None;
+        let mut pages = 0usize;
+        loop {
+            let page = store
+                .search_components(&paged(
+                    "tenant-a",
+                    Some("eg:task/research"),
+                    1,
+                    cursor.clone(),
+                ))
+                .unwrap();
+            assert!(page.entries.len() <= 1, "a page must honour its limit");
+            seen.extend(page.entries.into_iter().map(|c| c.component_id));
+            pages += 1;
+            assert!(pages < 64, "paging must terminate");
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        assert_eq!(seen, whole, "paging must yield the unpaged set, in order");
+    }
+
+    #[test]
+    fn paging_cannot_walk_out_of_the_tenant_prefix() {
+        // The cursor supplies only the COMPONENT half of the key; the tenant
+        // half is always the request's. So even resuming from the very last row
+        // of the lower-sorting tenant -- the only position from which the
+        // open-ended range reaches a foreign row -- must not surface one.
+        let (_dir, store) = open_store();
+        seed_search_corpus(&store);
+        for (index, (id, capability)) in [
+            ("tool:web", "eg:capability/retrieval/web-search"),
+            ("tool:vector", "eg:capability/retrieval/vector-search"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            let nonce = u8::try_from(index + 100).unwrap();
+            store
+                .publish_component(AgentComponentPublishRequest {
+                    context: context_for(
+                        "tenant-b",
+                        &store,
+                        &format!("tenant-b-key-{index}"),
+                        nonce,
+                        0,
+                        "agent-component:publish",
+                    ),
+                    component: tool_for("tenant-b", id, capability, ToolEffect::Read),
+                })
+                .unwrap();
+        }
+        assert!("tenant-a" < "tenant-b");
+
+        let mut cursor = None;
+        let mut pages = 0usize;
+        loop {
+            let page = store
+                .search_components(&paged(
+                    "tenant-a",
+                    Some("eg:task/research"),
+                    1,
+                    cursor.clone(),
+                ))
+                .unwrap();
+            assert!(
+                page.entries.iter().all(|c| c.tenant_id == "tenant-a"),
+                "a foreign row leaked while paging: {:?}",
+                page.entries
+                    .iter()
+                    .map(|c| (&c.tenant_id, &c.component_id))
+                    .collect::<Vec<_>>()
+            );
+            pages += 1;
+            assert!(pages < 64, "paging must terminate");
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+    }
+
+    #[test]
+    fn another_tenants_cursor_is_refused_by_name() {
+        let (_dir, store) = open_store();
+        seed_search_corpus(&store);
+        let cursor = store
+            .search_components(&paged("tenant-a", Some("eg:task/research"), 1, None))
+            .unwrap()
+            .next_cursor
+            .expect("a truncated page mints a cursor");
+        let error = store
+            .search_components(&paged(
+                "tenant-b",
+                Some("eg:task/research"),
+                1,
+                Some(cursor.clone()),
+            ))
+            .expect_err("a transplanted cursor must be refused");
+        assert!(error.contains("not minted for this tenant"), "got: {error}");
+        // And the same cursor is still good for the tenant it was minted for,
+        // so the refusal is the binding rather than the cursor being unusable.
+        store
+            .search_components(&paged(
+                "tenant-a",
+                Some("eg:task/research"),
+                1,
+                Some(cursor),
+            ))
+            .expect("its own tenant still resumes");
+    }
+
+    #[test]
+    fn a_malformed_cursor_is_refused_by_name() {
+        let (_dir, store) = open_store();
+        seed_search_corpus(&store);
+        for bad in ["zz", &"a".repeat(31), "0123456789abcdef"] {
+            let error = store
+                .search_components(&paged(
+                    "tenant-a",
+                    Some("eg:task/research"),
+                    1,
+                    Some(bad.to_string()),
+                ))
+                .expect_err("a forged cursor must be refused");
+            assert!(
+                error.contains("malformed") || error.contains("not minted"),
+                "got: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_search_limit_outside_its_bound_is_refused() {
+        let (_dir, store) = open_store();
+        for limit in [
+            0,
+            eg_types::agent_component::MAX_AGENT_COMPONENT_SEARCH_LIMIT + 1,
+        ] {
+            let error = store
+                .search_components(&paged("tenant-a", Some("eg:task/research"), limit, None))
+                .expect_err("an out-of-range limit must be refused");
+            assert!(error.contains("limit must be"), "got: {error}");
+        }
     }
 }

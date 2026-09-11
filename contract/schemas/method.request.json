@@ -457,7 +457,7 @@
     },
     "AgentComponentSearchRequest": {
       "additionalProperties": false,
-      "description": "Find components by what they can do.\n\nThe wire form of *\"what does an agent trying to do XYZ need?\"*. Either\n`task` (resolved to capabilities through the native ontology) or explicit\n`capabilities` may be given; giving both intersects them.",
+      "description": "Find components by what they can do.\n\nThe wire form of *\"what does an agent trying to do XYZ need?\"*. Either\n`task` (resolved to capabilities through the native ontology) or explicit\n`capabilities` may be given; giving both intersects them.\n\n# Why this is paginated\n\nThis is the capability-discovery query the whole component layer exists to\nserve, so it is the one read whose result set grows with the tenant rather\nthan with the request. An unpaginated form has two failure modes and no\nrecovery from either: the response size is bounded only by the corpus, and a\ntenant whose component count passes the scan bound is refused on EVERY\nsearch forever. [`AgentComponentSearchPage`] exists so neither is possible,\nand it is an object rather than a bare array because turning an array into\nan object later is a read-side wire break.",
       "properties": {
         "capabilities": {
           "default": [],
@@ -467,6 +467,14 @@
           },
           "type": "array"
         },
+        "cursor": {
+          "default": null,
+          "description": "Where to resume, from a previous page's\n[`AgentComponentSearchPage::next_cursor`].\n\nOPAQUE: it is produced by the engine and only ever handed back\nunmodified. It carries a binding to the tenant it was minted for, so one\ntenant's cursor is refused by name against another's search rather than\nsilently resuming somewhere.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "kinds": {
           "default": [],
           "description": "Restrict to these kinds. Empty means every kind.",
@@ -474,6 +482,16 @@
             "$ref": "#/$defs/AgentComponentKind"
           },
           "type": "array"
+        },
+        "limit": {
+          "default": null,
+          "description": "How many entries this page may carry, at most\n[`MAX_AGENT_COMPONENT_SEARCH_LIMIT`]. `None` requests the maximum.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "read_only": {
           "default": false,
@@ -597,7 +615,7 @@
     },
     "AgentGraphEntryRef": {
       "additionalProperties": false,
-      "description": "One pinned agent GRAPH, as a delegation target (RF-ADR-008).\n\nMirrors [`AgentLibraryEntryRef`], with `shape_digest` where an entry has\n`definition_digest`. That one substitution carries far more than it looks:\na shape digest covers every node, and an agent node pins its\n`definition_digest`, which pins every component it is assembled from. So\npinning the shape pins the ENTIRE tree transitively -- which is why a graph\ntarget needs no separate `model_digest` (see\n[`KgDelegateRequest::model_digest`]).",
+      "description": "One pinned agent GRAPH, as a delegation target (RF-ADR-008).\n\nMirrors [`AgentLibraryEntryRef`] exactly: both pin the record's\n`definition_digest`.\n\n# Why a delegation pins the RECORD digest and a composing parent does not\n\nA [`crate::agent_graph::AgentGraphNodeKind::Graph`] node deliberately pins\nthe child's `shape_digest` -- what a parent composes is the child's\nBEHAVIOUR, and the child's governance is re-checked live at every\nresolution, so pinning a stale copy of it would force a cascading republish\nof an entire tree for a change that alters no behaviour.\n\nA delegation is the opposite question. It names a record IDENTITY, and it is\nthe audit point: `synthesis_evidence` -- which RF-ADR-008 section D says is what\nmakes a synthesized graph auditable and reproducible -- is inside\n`definition_digest` and outside `shape_digest`, as are `version`, the actor\nscope, the purpose, the policy digest and the admitted\n`composed_work_ceiling`. A delegation that pinned only the shape would\nattest to what ran while leaving WHY it was composed unpinned.\n\nDo not \"unify\" the two by giving both the same digest: they answer different\nquestions, and [`crate::agent_graph::AgentGraphEntry`]'s own impl-block doc\ncarries the other half of this note.\n\nThe behaviour pin is not lost: `definition_digest` is a hash OVER\n`shape_digest`, and a shape digest covers every node, while an agent node\npins its own `definition_digest`, which pins every component it is assembled\nfrom. So the record digest still pins the ENTIRE tree transitively -- which\nis why a graph target needs no separate `model_digest` (see\n[`KgDelegateRequest::model_digest`]).",
       "properties": {
         "actor_scope": {
           "type": "string"
@@ -607,6 +625,10 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "definition_digest": {
+          "description": "The published RECORD digest -- see the type doc for why this is the\nrecord digest and not the shape digest.",
+          "type": "string"
         },
         "entry_revision": {
           "format": "uint64",
@@ -622,9 +644,6 @@
         "purpose_id": {
           "type": "string"
         },
-        "shape_digest": {
-          "type": "string"
-        },
         "tenant_id": {
           "type": "string"
         }
@@ -633,7 +652,7 @@
         "tenant_id",
         "graph_id",
         "entry_revision",
-        "shape_digest",
+        "definition_digest",
         "actor_scope",
         "purpose_id",
         "policy_digest",
@@ -6327,7 +6346,7 @@
         },
         "model_digest": {
           "default": null,
-          "description": "The model a single-agent delegation will run on.\n\n`Some` for an agent target and `None` for a graph, and both directions\nare enforced. A graph has no single model -- it has one per agent node --\nand its `shape_digest` already pins every one of them transitively, so a\nscalar here would either be a lie or a duplicate of something the shape\ndigest covers better. Requiring it to be absent keeps the two cases from\nbeing conflated by a caller that fills in a plausible value.",
+          "description": "The model a single-agent delegation will run on.\n\n`Some` for an agent target and `None` for a graph, and both directions\nare enforced. A graph has no single model -- it has one per agent node --\nand its pinned `definition_digest` covers the shape digest, which pins\nevery one of them transitively, so a scalar here would either be a lie\nor a duplicate of something the shape digest covers better. Requiring it\nto be absent keeps the two cases from being conflated by a caller that\nfills in a plausible value.",
           "type": [
             "string",
             "null"

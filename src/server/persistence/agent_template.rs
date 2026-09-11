@@ -1138,11 +1138,21 @@ mod tests {
         // instance is admitted, delegated and pinned with no template-aware
         // branch anywhere. The only thing it carries is its provenance.
         let (_dir, store) = open_store();
-        publish(&store, "key-1", 1, 0, template("tenant-a", "template:researcher"));
-        let bindings = BTreeMap::from([(
-            "model".to_string(),
-            dep("model-profile:haiku", AgentComponentKind::ModelProfile, 'b'),
-        )]);
+        // The instance publishes through the ordinary library path, which now
+        // RESOLVES every pinned component against the durable store -- so the
+        // template's base and the binding have to name components that really
+        // exist, exactly as a real template does.
+        let mut template = template("tenant-a", "template:researcher");
+        super::super::agent_component::seed_draft_components_for_test(&store, &mut template.base, 30);
+        let haiku = super::super::agent_component::seed_component_for_test(
+            &store,
+            "tenant-a",
+            "model-profile:haiku",
+            AgentComponentKind::ModelProfile,
+            40,
+        );
+        publish(&store, "key-1", 1, 0, template);
+        let bindings = BTreeMap::from([("model".to_string(), haiku)]);
         let draft = store
             .instantiate_template(&instantiate(
                 "tenant-a",

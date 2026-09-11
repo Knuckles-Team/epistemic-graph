@@ -50,6 +50,18 @@ use crate::agent_library::AgentLibraryLifecycle;
 
 pub const AGENT_COMPONENT_SCHEMA_VERSION: u16 = 1;
 pub const AGENT_COMPONENT_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-component-definition/v1";
+/// Format-identity constant (RF-ADR-006) for the tenant binding inside an
+/// opaque search cursor. See [`encode_search_cursor`].
+pub const AGENT_COMPONENT_SEARCH_CURSOR_DOMAIN: &[u8] = b"au-eg/agent-component-search-cursor/v1";
+
+/// Most components one search PAGE may return.
+///
+/// A page bound, not a corpus bound: a caller past it pages, it does not get
+/// refused. Distinct from [`MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES`] and from
+/// the store's scan/byte bounds, each of which caps a different resource.
+pub const MAX_AGENT_COMPONENT_SEARCH_LIMIT: u32 = 256;
+/// Longest opaque cursor a caller may hand back.
+pub const MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES: usize = 16 * 1024;
 
 const MAX_TEXT_BYTES: usize = 4 * 1024;
 const MAX_DEPENDENCIES: usize = 256;
@@ -895,6 +907,17 @@ pub struct AgentComponentStatusRequest {
 /// The wire form of *"what does an agent trying to do XYZ need?"*. Either
 /// `task` (resolved to capabilities through the native ontology) or explicit
 /// `capabilities` may be given; giving both intersects them.
+///
+/// # Why this is paginated
+///
+/// This is the capability-discovery query the whole component layer exists to
+/// serve, so it is the one read whose result set grows with the tenant rather
+/// than with the request. An unpaginated form has two failure modes and no
+/// recovery from either: the response size is bounded only by the corpus, and a
+/// tenant whose component count passes the scan bound is refused on EVERY
+/// search forever. [`AgentComponentSearchPage`] exists so neither is possible,
+/// and it is an object rather than a bare array because turning an array into
+/// an object later is a read-side wire break.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -915,6 +938,19 @@ pub struct AgentComponentSearchRequest {
     /// that has to filter afterwards can forget to.
     #[serde(default)]
     pub read_only: bool,
+    /// How many entries this page may carry, at most
+    /// [`MAX_AGENT_COMPONENT_SEARCH_LIMIT`]. `None` requests the maximum.
+    #[serde(default)]
+    pub limit: Option<u32>,
+    /// Where to resume, from a previous page's
+    /// [`AgentComponentSearchPage::next_cursor`].
+    ///
+    /// OPAQUE: it is produced by the engine and only ever handed back
+    /// unmodified. It carries a binding to the tenant it was minted for, so one
+    /// tenant's cursor is refused by name against another's search rather than
+    /// silently resuming somewhere.
+    #[serde(default)]
+    pub cursor: Option<String>,
 }
 
 impl AgentComponentSearchRequest {
@@ -932,7 +968,26 @@ impl AgentComponentSearchRequest {
                 "agent component search needs a task or at least one capability".to_string(),
             );
         }
+        if let Some(limit) = self.limit {
+            if limit == 0 || limit > MAX_AGENT_COMPONENT_SEARCH_LIMIT {
+                return Err(format!(
+                    "agent component search limit must be 1..={MAX_AGENT_COMPONENT_SEARCH_LIMIT}"
+                ));
+            }
+        }
+        if let Some(cursor) = &self.cursor {
+            if cursor.is_empty() || cursor.len() > MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES {
+                return Err("agent component search cursor is outside its bound".to_string());
+            }
+        }
         Ok(())
+    }
+
+    /// The page size this request asks for, defaulted and already bounded.
+    pub fn page_limit(&self) -> usize {
+        self.limit
+            .unwrap_or(MAX_AGENT_COMPONENT_SEARCH_LIMIT)
+            .min(MAX_AGENT_COMPONENT_SEARCH_LIMIT) as usize
     }
 
     /// The capabilities a component must satisfy to match.
@@ -967,6 +1022,69 @@ impl AgentComponentSearchRequest {
             .any(|required| component.satisfies_capability(required))
     }
 }
+
+/// One page of a capability search.
+///
+/// An object, never a bare array: `next_cursor` has to live somewhere, and a
+/// read that starts life as a JSON array can only grow one by breaking every
+/// reader.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AgentComponentSearchPage {
+    pub entries: Vec<AgentComponentEntry>,
+    /// `Some` when more of the tenant remains to be scanned. Hand it back
+    /// unmodified to continue; `None` means the corpus is exhausted.
+    ///
+    /// A page may be EMPTY and still carry a cursor: the engine bounds how much
+    /// it scans per page, so a sparse match over a large tenant makes progress
+    /// across several pages instead of doing unbounded work in one. A caller
+    /// therefore loops until `next_cursor` is `None`, not until a page is empty.
+    pub next_cursor: Option<String>,
+}
+
+/// Mint the opaque cursor that resumes a search after `component_id`.
+///
+/// The encoded form is a tenant-bound tag followed by the resume key. The tag
+/// is what stops a cursor from being transplanted: resumption uses the
+/// REQUEST's tenant for the scan prefix, so a foreign cursor could never reach
+/// another tenant's rows, but it could silently resume at a meaningless offset,
+/// and a named refusal is better than a quiet wrong answer.
+pub fn encode_search_cursor(tenant_id: &str, component_id: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(AGENT_COMPONENT_SEARCH_CURSOR_DOMAIN);
+    put_text(&mut hasher, tenant_id);
+    put_text(&mut hasher, component_id);
+    let tag = hasher.finalize();
+    format!(
+        "{}{}",
+        hex::encode(&tag[..SEARCH_CURSOR_TAG_BYTES]),
+        hex::encode(component_id.as_bytes())
+    )
+}
+
+/// Recover the resume key from an opaque cursor, or refuse it by name.
+pub fn decode_search_cursor(tenant_id: &str, cursor: &str) -> Result<String, String> {
+    const TAG_HEX: usize = SEARCH_CURSOR_TAG_BYTES * 2;
+    if cursor.len() <= TAG_HEX
+        || cursor.len() > MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES
+        || cursor.len() % 2 != 0
+    {
+        return Err("agent component search cursor is malformed".to_string());
+    }
+    let raw = hex::decode(&cursor[TAG_HEX..])
+        .map_err(|_| "agent component search cursor is malformed".to_string())?;
+    let component_id = String::from_utf8(raw)
+        .map_err(|_| "agent component search cursor is malformed".to_string())?;
+    validate_text("cursor component_id", &component_id)
+        .map_err(|_| "agent component search cursor is malformed".to_string())?;
+    if encode_search_cursor(tenant_id, &component_id) != cursor {
+        return Err("agent component search cursor was not minted for this tenant".to_string());
+    }
+    Ok(component_id)
+}
+
+const SEARCH_CURSOR_TAG_BYTES: usize = 16;
 
 /// Typed component wire operations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

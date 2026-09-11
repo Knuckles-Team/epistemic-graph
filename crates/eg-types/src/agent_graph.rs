@@ -584,6 +584,12 @@ pub struct AgentGraphEntry {
 /// that CORRECTED the synthesis evidence at the same expected revision resolved
 /// as a replay: the correction was dropped and the caller was told it
 /// succeeded.
+///
+/// A DELEGATION pins the record digest too, for the same reason and not the
+/// composing parent's: a delegation names a record identity and is the audit
+/// point, so it must pin the thing that covers `synthesis_evidence`. The other
+/// half of this note lives on [`crate::delegation::AgentGraphEntryRef`]. Do not
+/// "unify" the two pins -- they answer different questions.
 impl AgentGraphEntry {
     /// `composed_work_ceiling` is [`CompositionFacts::total_work`] from the
     /// admission that is creating this revision. It is a parameter rather than
@@ -1674,17 +1680,148 @@ mod tests {
         }
     }
 
-    /// A parent whose single step is the leaf child.
-    fn parent_of_leaf(max_iterations: u32) -> AgentGraphShape {
+    /// A parent whose single step is the named child.
+    fn parent_of(child: &str, max_iterations: u32) -> AgentGraphShape {
         AgentGraphShape {
             entry_node: "team".into(),
             nodes: vec![
-                graph_node("team", "graph:leaf", None, Some(component("contract:report", 'b'))),
+                graph_node("team", child, None, Some(component("contract:report", 'b'))),
                 plain("done", AgentGraphNodeKind::End),
             ],
             edges: vec![edge("team", "done")],
             max_iterations,
         }
+    }
+
+    /// A parent whose single step is the leaf child.
+    fn parent_of_leaf(max_iterations: u32) -> AgentGraphShape {
+        parent_of("graph:leaf", max_iterations)
+    }
+
+    /// A level with TWO nodes composing the SAME child -- one diamond.
+    fn two_of(child: &str, max_iterations: u32) -> AgentGraphShape {
+        AgentGraphShape {
+            entry_node: "left".into(),
+            nodes: vec![
+                graph_node("left", child, None, Some(component("contract:report", 'b'))),
+                graph_node("right", child, None, Some(component("contract:report", 'b'))),
+                plain("done", AgentGraphNodeKind::End),
+            ],
+            edges: vec![edge("left", "right"), edge("right", "done")],
+            max_iterations,
+        }
+    }
+
+    /// A level composing `width` DISTINCT children, chained.
+    fn wide_root(width: usize, child_prefix: &str) -> AgentGraphShape {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        for index in 0..width {
+            nodes.push(graph_node(
+                &format!("n{index}"),
+                &format!("{child_prefix}{index}"),
+                None,
+                Some(component("contract:report", 'b')),
+            ));
+            if index + 1 < width {
+                edges.push(edge(&format!("n{index}"), &format!("n{}", index + 1)));
+            }
+        }
+        nodes.push(plain("done", AgentGraphNodeKind::End));
+        edges.push(edge(&format!("n{}", width - 1), "done"));
+        AgentGraphShape {
+            entry_node: "n0".into(),
+            nodes,
+            edges,
+            max_iterations: 1,
+        }
+    }
+
+    fn one_iteration_leaf() -> AgentGraphShape {
+        let mut leaf = leaf();
+        leaf.max_iterations = 1;
+        leaf
+    }
+
+    #[test]
+    fn the_work_bound_multiplies_across_three_levels_not_only_two() {
+        // With two LEGAL shapes the product tops out at exactly 1000 x 1000, so
+        // a two-level test reaches the ceiling only at the extreme and never
+        // exercises the case the bound exists for: levels that are each
+        // unremarkable and only unacceptable multiplied. Three levels of 100 is
+        // exactly MAX_COMPOSITION_WORK, and no shape here is anywhere near its
+        // own `max_iterations` ceiling.
+        let resolve = |graph_id: &str, _: &str| {
+            Ok(resolved(match graph_id {
+                "graph:mid" => parent_of_leaf(100),
+                "graph:leaf" => {
+                    let mut leaf = leaf();
+                    leaf.max_iterations = 100;
+                    leaf
+                }
+                other => panic!("unexpected child '{other}'"),
+            }))
+        };
+        let facts = validate_composition("tenant-a", &parent_of("graph:mid", 100), resolve)
+            .expect("100 x 100 x 100 is exactly MAX_COMPOSITION_WORK");
+        assert_eq!(facts.total_work, MAX_COMPOSITION_WORK);
+        assert_eq!(facts.depth, 2, "the root is 0, so three levels is depth 2");
+        assert_eq!(facts.resolutions, 2);
+
+        // One more iteration at the ROOT. Every level is still modest on its
+        // own; only the product across all three moved.
+        let error = validate_composition("tenant-a", &parent_of("graph:mid", 101), resolve)
+            .expect_err("the three-level product exceeds the ceiling");
+        assert!(error.contains("MULTIPLY"), "got: {error}");
+        assert!(error.contains("node executions"), "got: {error}");
+    }
+
+    #[test]
+    fn memoization_is_what_keeps_a_nested_diamond_from_being_exponential() {
+        // A SINGLE-level diamond cannot prove memoization: with one level both
+        // the memoized and the unmemoized walk resolve twice, so deleting the
+        // memo lookup leaves that test green. Nest three diamonds and the two
+        // diverge -- 6 resolutions memoized, 14 without -- because each level
+        // is otherwise re-walked once per path into it.
+        let facts = validate_composition("tenant-a", &two_of("graph:a", 5), |graph_id, _| {
+            Ok(resolved(match graph_id {
+                "graph:a" => two_of("graph:b", 5),
+                "graph:b" => two_of("graph:leaf", 5),
+                "graph:leaf" => {
+                    let mut leaf = leaf();
+                    leaf.max_iterations = 5;
+                    leaf
+                }
+                other => panic!("unexpected child '{other}'"),
+            }))
+        })
+        .expect("a nested diamond is a DAG, not a cycle");
+        assert_eq!(
+            facts.resolutions, 6,
+            "without the memo lookup this is 14: every shared subtree is \
+             re-walked once per path into it"
+        );
+        assert_eq!(facts.total_work, 5 * 5 * 5 * 5);
+        assert_eq!(facts.depth, 3);
+    }
+
+    #[test]
+    fn a_composition_that_resolves_too_many_children_is_refused_by_name() {
+        // Depth and product are bounded; the number of RESOLUTIONS is a third,
+        // independent cost -- a wide composition can stay shallow and cheap to
+        // run while making admission do unbounded work.
+        let error = validate_composition("tenant-a", &wide_root(200, "graph:c-"), |graph_id, _| {
+            Ok(resolved(if let Some(suffix) = graph_id.strip_prefix("graph:c-") {
+                wide_root(2, &format!("graph:d-{suffix}-"))
+            } else {
+                one_iteration_leaf()
+            }))
+        })
+        .expect_err("600 resolutions must be refused");
+        assert!(
+            error.contains(&format!("resolves more than {MAX_COMPOSITION_RESOLUTIONS}")),
+            "got: {error}"
+        );
     }
 
     #[test]

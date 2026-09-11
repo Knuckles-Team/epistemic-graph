@@ -376,6 +376,49 @@ pub struct AgentLibraryEntry {
     pub updated_at_ms: u64,
 }
 
+impl AgentLibraryEntryDraft {
+    /// Every L1 component this draft pins -- the same list
+    /// [`AgentLibraryEntry::dependencies`] returns, available BEFORE a revision
+    /// exists.
+    ///
+    /// Admission needs it there: a draft's pins are resolved against the durable
+    /// component store inside the publish transaction, which happens before the
+    /// entry is minted.
+    pub fn dependencies(&self) -> Vec<&ComponentDependency> {
+        pinned_components(
+            &self.system_prompt,
+            &self.model_profile,
+            &self.tools,
+            &self.skills,
+            &self.ontologies,
+            &self.runtime,
+        )
+    }
+}
+
+/// The one definition of "what an agent is assembled from".
+///
+/// Shared by the draft and the entry so the two can never drift: a slot missing
+/// from one list would be a reference nothing resolves.
+fn pinned_components<'a>(
+    system_prompt: &'a ComponentDependency,
+    model_profile: &'a ComponentDependency,
+    tools: &'a [ComponentDependency],
+    skills: &'a [ComponentDependency],
+    ontologies: &'a [ComponentDependency],
+    runtime: &'a AgentRuntimeContract,
+) -> Vec<&'a ComponentDependency> {
+    let mut all = vec![system_prompt, model_profile];
+    all.extend(tools);
+    all.extend(skills);
+    all.extend(ontologies);
+    all.extend(&runtime.toolset_refs);
+    all.extend(&runtime.output_validator_refs);
+    all.extend(runtime.deps_contract.iter());
+    all.extend(runtime.output_contract.iter());
+    all
+}
+
 impl AgentLibraryEntry {
     /// Every L1 component this agent is assembled from, in one list.
     ///
@@ -383,15 +426,14 @@ impl AgentLibraryEntry {
     /// is answered by asking each agent what it depends on, rather than by
     /// matching strings across six differently-named fields.
     pub fn dependencies(&self) -> Vec<&ComponentDependency> {
-        let mut all = vec![&self.system_prompt, &self.model_profile];
-        all.extend(&self.tools);
-        all.extend(&self.skills);
-        all.extend(&self.ontologies);
-        all.extend(&self.runtime.toolset_refs);
-        all.extend(&self.runtime.output_validator_refs);
-        all.extend(self.runtime.deps_contract.iter());
-        all.extend(self.runtime.output_contract.iter());
-        all
+        pinned_components(
+            &self.system_prompt,
+            &self.model_profile,
+            &self.tools,
+            &self.skills,
+            &self.ontologies,
+            &self.runtime,
+        )
     }
 
     /// Whether this agent is assembled from `component_id`, at any pinned

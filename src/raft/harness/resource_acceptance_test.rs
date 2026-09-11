@@ -584,7 +584,7 @@ fn delegation_library_draft() -> eg_types::AgentLibraryEntryDraft {
 
 #[cfg(feature = "redb")]
 async fn seed_delegation_library(cluster: &Cluster) -> eg_types::AgentLibraryEntry {
-    let draft = delegation_library_draft();
+    let mut draft = delegation_library_draft();
     let policy_digest = draft.policy_digest.clone();
     let caller_principal = crate::server::mutation_batch::principal_fingerprint(AUTH_AGENT)
         .expect("harness caller principal fingerprint");
@@ -596,6 +596,11 @@ async fn seed_delegation_library(cluster: &Cluster) -> eg_types::AgentLibraryEnt
             .await
             .ensure_agent_library()
             .expect("open Agent Library owner");
+        // Every node's store gets the same components, so every node's pins --
+        // and therefore every node's `definition_digest` -- are identical.
+        crate::server::persistence::agent_component::seed_draft_components_for_test(
+            &store, &mut draft, 1,
+        );
         let context = eg_types::AgentLibraryMutationContext {
             request_id: 10_000 + node_id,
             principal: store.owner_principal().to_string(),
@@ -793,9 +798,66 @@ fn decode_delegation_result(response: crate::protocol::Response) -> eg_types::Kg
     .expect("decode typed kg-delegate result")
 }
 
+/// The restart fixture's agent, before its pins are seeded.
+///
+/// Extracted so `seed_draft_components_for_test` can rewrite each pin to the real
+/// component digest before the publish, which now resolves them.
+#[cfg(feature = "redb")]
+fn restart_delegate_draft(
+    digest: &dyn Fn(char) -> String,
+) -> eg_types::AgentLibraryEntryDraft {
+    eg_types::AgentLibraryEntryDraft {
+            agent_id: "rmdd27-selected-agent".to_string(),
+            package_id: "rmdd27-agent-package".to_string(),
+            version: "1.0.0".to_string(),
+            role: "worker".to_string(),
+            role_digest: digest('a'),
+            system_prompt: eg_types::agent_component::ComponentDependency {
+                component_id: "prompt:rmdd27-agent-v1".to_string(),
+                kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
+                definition_digest: digest('b'),
+            },
+            tools: vec![
+                eg_types::agent_component::ComponentDependency {
+                    component_id: "tool:rmdd27-search".to_string(),
+                    kind: eg_types::agent_component::AgentComponentKind::Tool,
+                    definition_digest: digest('c'),
+                },
+            ],
+            skills: vec![
+                eg_types::agent_component::ComponentDependency {
+                    component_id: "skill:rmdd27-reason".to_string(),
+                    kind: eg_types::agent_component::AgentComponentKind::Skill,
+                    definition_digest: digest('d'),
+                },
+            ],
+            model_profile: eg_types::agent_component::ComponentDependency {
+                component_id: "model-profile:rmdd27-default".to_string(),
+                kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
+                definition_digest: digest('e'),
+            },
+            model_identity: "model:rmdd27-default".to_string(),
+            ontologies: vec![
+                eg_types::agent_component::ComponentDependency {
+                    component_id: "ontology:rmdd27-core".to_string(),
+                    kind: eg_types::agent_component::AgentComponentKind::Ontology,
+                    definition_digest: digest('f'),
+                },
+            ],
+            tenant_id: TENANT.to_string(),
+            actor_scope: "definition:rmdd27-selected-agent".to_string(),
+            purpose_id: "delegation.execute".to_string(),
+            policy_digest: digest('0'),
+            source_revision: "rmdd27-agent-source:1".to_string(),
+            source_revision_digest: digest('1'),
+            runtime: Default::default(),
+            instantiated_from: None,
+    }
+}
+
 #[cfg(feature = "redb")]
 fn seed_restart_delegate_entry(persist_dir: &str) -> eg_types::AgentLibraryEntry {
-    use eg_types::agent_library::{AgentLibraryEntryDraft, AgentLibraryMutationContext};
+    use eg_types::agent_library::AgentLibraryMutationContext;
     use eg_types::contract::Nonce;
 
     let digest = |seed: char| format!("sha256:{}", seed.to_string().repeat(64));
@@ -804,6 +866,12 @@ fn seed_restart_delegate_entry(persist_dir: &str) -> eg_types::AgentLibraryEntry
     let policy_digest =
         crate::server::persistence::agent_library::current_agent_library_policy_digest()
             .expect("derive Agent Library policy digest");
+    let mut entry_draft = restart_delegate_draft(&digest);
+    crate::server::persistence::agent_component::seed_draft_components_for_test(
+        &store,
+        &mut entry_draft,
+        20,
+    );
     let entry = store
         .publish(eg_types::AgentLibraryPublishRequest {
             context: AgentLibraryMutationContext {
@@ -822,53 +890,7 @@ fn seed_restart_delegate_entry(persist_dir: &str) -> eg_types::AgentLibraryEntry
                 trace_id: Some("rmdd27-agent-library-publish-trace".to_string()),
                 created_at_ms: unix_ms(),
             },
-            entry: AgentLibraryEntryDraft {
-                agent_id: "rmdd27-selected-agent".to_string(),
-                package_id: "rmdd27-agent-package".to_string(),
-                version: "1.0.0".to_string(),
-                role: "worker".to_string(),
-                role_digest: digest('a'),
-                system_prompt: eg_types::agent_component::ComponentDependency {
-                    component_id: "prompt:rmdd27-agent-v1".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
-                    definition_digest: digest('b'),
-                },
-                tools: vec![
-                    eg_types::agent_component::ComponentDependency {
-                        component_id: "tool:rmdd27-search".to_string(),
-                        kind: eg_types::agent_component::AgentComponentKind::Tool,
-                        definition_digest: digest('c'),
-                    },
-                ],
-                skills: vec![
-                    eg_types::agent_component::ComponentDependency {
-                        component_id: "skill:rmdd27-reason".to_string(),
-                        kind: eg_types::agent_component::AgentComponentKind::Skill,
-                        definition_digest: digest('d'),
-                    },
-                ],
-                model_profile: eg_types::agent_component::ComponentDependency {
-                    component_id: "model-profile:rmdd27-default".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
-                    definition_digest: digest('e'),
-                },
-                model_identity: "model:rmdd27-default".to_string(),
-                ontologies: vec![
-                    eg_types::agent_component::ComponentDependency {
-                        component_id: "ontology:rmdd27-core".to_string(),
-                        kind: eg_types::agent_component::AgentComponentKind::Ontology,
-                        definition_digest: digest('f'),
-                    },
-                ],
-                tenant_id: TENANT.to_string(),
-                actor_scope: "definition:rmdd27-selected-agent".to_string(),
-                purpose_id: "delegation.execute".to_string(),
-                policy_digest: digest('0'),
-                source_revision: "rmdd27-agent-source:1".to_string(),
-                source_revision_digest: digest('1'),
-                runtime: Default::default(),
-                instantiated_from: None,
-            },
+            entry: entry_draft,
         })
         .expect("publish retained Agent Library definition")
         .entry;
