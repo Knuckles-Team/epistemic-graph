@@ -856,7 +856,10 @@ async fn apply_served_modality(
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
     let caller = ctx.caller;
-    #[cfg(feature = "raft")]
+    // NOT `#[cfg(feature = "raft")]`: the MutationCtx built below reads
+    // `attempt_nonce`/`idempotency_key` off this binding unconditionally, so
+    // gating it made the shipped `full` build (modality-serving on, raft off)
+    // fail to compile with E0425. `--all-features` turns `raft` on and hides it.
     let verified_context = ctx.verified_context;
     let tenant_scope = ctx.tenant_scope;
     let gateway_authz_ctx = ctx.gateway_authz_ctx;

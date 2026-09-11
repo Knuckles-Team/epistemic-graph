@@ -633,8 +633,8 @@ fn component_operations(
     entry: &AgentComponentEntry,
 ) -> Vec<MutationOperation> {
     let event_type = match kind {
-        AgentComponentMutationKind::Publish => "agent_component_publish_v1",
-        AgentComponentMutationKind::Retire => "agent_component_retire_v1",
+        AgentComponentMutationKind::Publish => "agent_component_publish",
+        AgentComponentMutationKind::Retire => "agent_component_retire",
     };
     vec![MutationOperation {
         ordinal: 0,

@@ -298,8 +298,17 @@ def secret_violations(file_path: Path, relative: Path) -> list[str]:
         lines = file_path.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError):
         return [f"Source file could not be inspected: '{relative}'"]
+    # Name the sanctioned remedy in the finding itself. Without it the message
+    # says only that a line looks like a credential, and the cheapest way to a
+    # green gate is to rename the variable or reword the value until the regex
+    # stops matching -- a habit that launders real credentials just as well as
+    # synthetic ones. Pointing at the reviewed inline marker keeps the
+    # exemption written down, next to the literal, with a reason.
     return [
-        f"Potential unmasked secret ({label}) detected in {relative}:{idx}"
+        f"Potential unmasked secret ({label}) detected in {relative}:{idx}. "
+        f"If this is a reviewed synthetic fixture, mark that line "
+        f"'{SANITIZER_IGNORE_MARKER}' with a reason -- do NOT rename the "
+        f"variable or reword the value to evade the pattern."
         for idx, line in enumerate(lines, 1)
         for label in line_secret_labels(line)
     ]

@@ -1629,12 +1629,16 @@ mod internal_replay_tests {
                 &program,
                 &candidate,
                 parent_ref,
-                result_ref,
-                result_input_dataset_ref,
-                result_input_content_digest.to_string(),
-                result_input_snapshot_version,
-                corpus_ref,
-                result_input_snapshot_version,
+                eg_program::ProgramResultInput {
+                    result_ref,
+                    dataset_ref: result_input_dataset_ref,
+                    content_digest: result_input_content_digest.to_string(),
+                    snapshot_version: result_input_snapshot_version,
+                },
+                eg_program::ProgramCorpusBinding {
+                    corpus_ref,
+                    snapshot_version: result_input_snapshot_version,
+                },
                 seed,
             )
             .expect("construct promotion identity from the public constructor")
