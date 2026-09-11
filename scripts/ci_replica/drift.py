@@ -170,5 +170,3 @@ def consistency_check(
         f"dependency found."
     )
     return True
-
-

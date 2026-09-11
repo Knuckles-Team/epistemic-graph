@@ -366,5 +366,3 @@ def check_toolchain_requirements(
                     f"check)."
                 )
     return None
-
-

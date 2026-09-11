@@ -279,7 +279,20 @@ def _validate_path_field(index: int, field: str, value: object) -> None:
         fail(f"dupehound finding {index} has an empty {field}")
 
 
+# dupehound emits this PLAIN-TEXT sentinel on stdout -- not JSON -- when the
+# requested range contains nothing it can analyse, even under `--json`. A
+# whitespace-only edit to a Python file is exactly such a range, and the gate
+# used to hand that line to `json.loads` and hard-fail with "invalid JSON".
+# Failing in the benign case is worse than not running: it teaches everyone to
+# bypass the gate, and a bypassed gate protects nothing. This is matched
+# EXACTLY and only on a clean exit, so a genuine crash, a truncated stream or
+# any other non-JSON output still fails loudly.
+NO_CHANGES_SENTINEL = "dupehound check: no changes to check"
+
+
 def finding_document(output: str) -> list[dict[str, Any]]:
+    if output.strip() == NO_CHANGES_SENTINEL:
+        return []
     try:
         document = json.loads(output)
     except (TypeError, UnicodeError, json.JSONDecodeError) as exc:

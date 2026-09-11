@@ -297,5 +297,3 @@ def build_plan_for_workflow(
     known = spec.executable_jobs | set(spec.job_skip_reasons)
     stale = sorted(j for j in known if j not in jobs)
     return plan, sorted(unclassified), stale
-
-

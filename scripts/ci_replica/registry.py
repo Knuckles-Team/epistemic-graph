@@ -328,5 +328,3 @@ def diff_touches_build_affecting_files(
     changed = [line.strip() for line in out.splitlines() if line.strip()]
     hits = build_affecting_files(changed)
     return (len(hits) == 0, hits)
-
-
