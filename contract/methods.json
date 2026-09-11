@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 412,
+  "method_count": 413,
   "methods": [
     {
       "consumer_profiles": [
@@ -13956,6 +13956,48 @@
       "request_schema": {
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AgentComponent"
+      },
+      "result_provenance": {
+        "kind": "dispatch-only"
+      },
+      "result_schema": {
+        "kind": "opaque",
+        "payload": "Raw"
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "storage",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "AgentTemplate",
+      "note": "RF-ADR-008 item C. Runtime-conditional like the three layers beside it: Current/History/Status/Instantiate are authenticated tenant-bound read snapshots (Instantiate binds parameters and returns a draft, committing nothing); Publish/Retire atomically commit native template revisions, action provenance, replay receipts and outbox through ControlRedb into the SAME agent_library.redb owner. Its own authz action because publishing a parameterized FAMILY of agents is a distinct privilege from publishing one",
+      "policy": {
+        "audited": false,
+        "authz_action": "agent:template-write",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/AgentTemplate"
       },
       "result_provenance": {
         "kind": "dispatch-only"

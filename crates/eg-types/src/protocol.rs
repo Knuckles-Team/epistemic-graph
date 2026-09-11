@@ -577,6 +577,21 @@ pub enum Method {
     AgentComponent {
         op: crate::agent_component::AgentComponentOp,
     },
+    /// Publish, retire, inspect or INSTANTIATE one durable agent template --
+    /// RF-ADR-008 item C: a published agent plus declared axes of variation.
+    /// `Instantiate` is the operation this layer exists for; it binds
+    /// parameters and returns an ordinary `AgentLibraryEntryDraft`, so an
+    /// instance is admitted and delegated with no template-aware branch
+    /// anywhere downstream.
+    ///
+    /// Not boxed at this level, for the same reason the three layers beside it
+    /// are not: the only oversized request is the publish draft, and
+    /// `AgentTemplateOp::Publish` already boxes it, so this variant is no
+    /// larger than `AgentComponent` next to it (asserted by
+    /// `the_publish_request_is_boxed_so_a_template_op_stays_small`).
+    AgentTemplate {
+        op: crate::agent_template::AgentTemplateOp,
+    },
     /// Authenticate and lower an Agent Library delegation through the native
     /// WorkItem admission command log. The retained library entry is resolved
     /// by the library owner at the handler boundary.

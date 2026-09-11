@@ -82,6 +82,17 @@ declared_owner_tables!(
     AnnCodeRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "eg_ann"),
     AgentLibraryRevisionRows: AgentLibraryOwner => ((String, String, u64), Vec<u8>, "agent_library"),
     AgentLibraryHeadRows: AgentLibraryOwner => ((String, String), u64, "agent_library_heads"),
+    // The other three RF-ADR-008 layers share the AgentLibrary owner file, so
+    // they are declared here for the same reason the first one is: a table
+    // that exists in `OwnerLayout::AgentLibrary` but not in this registry has
+    // no cutover disposition, and `owner_table_access` has nothing to answer
+    // with but `unreachable!()`.
+    AgentGraphRevisionRows: AgentLibraryOwner => ((String, String, u64), Vec<u8>, "agent_graph"),
+    AgentGraphHeadRows: AgentLibraryOwner => ((String, String), u64, "agent_graph_heads"),
+    AgentComponentRevisionRows: AgentLibraryOwner => ((String, String, u64), Vec<u8>, "agent_component"),
+    AgentComponentHeadRows: AgentLibraryOwner => ((String, String), u64, "agent_component_heads"),
+    AgentTemplateRevisionRows: AgentLibraryOwner => ((String, String, u64), Vec<u8>, "agent_template"),
+    AgentTemplateHeadRows: AgentLibraryOwner => ((String, String), u64, "agent_template_heads"),
 );
 
 /// Closed dispatch over the declared owner tables. The `unreachable!` arm is a
@@ -141,7 +152,13 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         | "node_info_meta"
         | "cluster_hierarchy"
         | "agent_library"
-        | "agent_library_heads" => OwnerTableAccess::DomainService,
+        | "agent_library_heads"
+        | "agent_graph"
+        | "agent_graph_heads"
+        | "agent_component"
+        | "agent_component_heads"
+        | "agent_template"
+        | "agent_template_heads" => OwnerTableAccess::DomainService,
         name if name.starts_with("__sql_") => OwnerTableAccess::DomainService,
         // Every graph-shard table is reached through the shard's own admitted
         // owner write, never as a shared service: one shard file is one

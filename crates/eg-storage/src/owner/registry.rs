@@ -208,6 +208,16 @@ pub const AGENT_COMPONENT_REVISIONS: TableDefinition<'static, (&str, &str, u64),
 /// Current head revision for each `(tenant, component)` pair.
 pub const AGENT_COMPONENT_HEADS: TableDefinition<'static, (&str, &str), u64> =
     TableDefinition::new("agent_component_heads");
+/// Append-only agent TEMPLATE revisions (RF-ADR-008 item C): a published agent
+/// plus its declared axes of variation. Same owner as the components, agents
+/// and graphs its base is assembled from -- a template is a generator of
+/// ordinary library entries, not a separate entity family, so a fourth
+/// physical store would split one authority (RF-RULING-004).
+pub const AGENT_TEMPLATE_REVISIONS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+    TableDefinition::new("agent_template");
+/// Current head revision for each `(tenant, template)` pair.
+pub const AGENT_TEMPLATE_HEADS: TableDefinition<'static, (&str, &str), u64> =
+    TableDefinition::new("agent_template_heads");
 
 macro_rules! visit_owner_tables {
     ($layout:expr, $visit:ident) => {{
@@ -306,6 +316,8 @@ macro_rules! visit_owner_tables {
                 $visit!(AGENT_GRAPH_HEADS);
                 $visit!(AGENT_COMPONENT_REVISIONS);
                 $visit!(AGENT_COMPONENT_HEADS);
+                $visit!(AGENT_TEMPLATE_REVISIONS);
+                $visit!(AGENT_TEMPLATE_HEADS);
             }
         }
     }};

@@ -46,7 +46,11 @@ class MethodPolicyRow:
 # it serves yet.
 # 411 -> 412: RF-ADR-008 layer 1 admitted `AgentComponent` (storage), the parts
 # agents and graphs are assembled from.
-EXPECTED_METHOD_POLICY_ROWS = 412
+# 412 -> 413: RF-ADR-008 item C admitted `AgentTemplate` (storage), the
+# parameterized agent family. It takes its OWN `agent:template-write` /
+# `agent:template-read` actions rather than the library's: publishing a
+# generator of agents is a distinct privilege from publishing one agent.
+EXPECTED_METHOD_POLICY_ROWS = 413
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

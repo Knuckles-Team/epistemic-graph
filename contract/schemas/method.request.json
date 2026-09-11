@@ -1647,6 +1647,262 @@
       ],
       "type": "object"
     },
+    "AgentTemplateDraft": {
+      "additionalProperties": false,
+      "description": "Caller-supplied inputs for one template revision.",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "base": {
+          "$ref": "#/$defs/AgentLibraryEntryDraft",
+          "description": "The default agent. Valid and runnable on its own."
+        },
+        "params": {
+          "items": {
+            "$ref": "#/$defs/TemplateParam"
+          },
+          "type": "array"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "template_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "template_id",
+        "version",
+        "base",
+        "params",
+        "tenant_id",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest"
+      ],
+      "type": "object"
+    },
+    "AgentTemplateInstantiateRequest": {
+      "additionalProperties": false,
+      "description": "Bind a template's parameters and get back an ordinary agent draft.\n\nA READ: it resolves durable state and computes, but commits nothing. The\ncaller publishes the returned draft through `AgentLibrary::Publish` exactly\nas it would a hand-authored one -- which is the whole point of the design,\nand the reason there is no template-aware branch in admission or delegation.\n\n`entry_revision` pins which template revision to bind. `None` means the\nhead. Pinning matters because [`TemplateInstanceRef`] records a revision:\nreproducing an existing instance means binding the revision it named, not\nwhatever the head has since become.",
+      "properties": {
+        "agent_id": {
+          "description": "The instance's own agent id. Supplied, not derived -- see\n[`AgentTemplateEntry::instantiate`].",
+          "type": "string"
+        },
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "entry_revision": {
+          "default": null,
+          "description": "The revision to bind, or the head when absent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "template_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "template_id",
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "AgentTemplateMutationKind": {
+      "description": "Which durable mutation a template operation performs.",
+      "enum": [
+        "publish",
+        "retire"
+      ],
+      "type": "string"
+    },
+    "AgentTemplateOp": {
+      "description": "Typed template wire operations.",
+      "oneOf": [
+        {
+          "description": "Boxed for the same reason as the other three layers: a publish request\ncarries a whole draft -- and this one embeds an entire\n[`AgentLibraryEntryDraft`] as its base, so it is the largest of the\nfour -- and would otherwise set the size of every `Method`. `Box` is\ntransparent to serde, so the wire form is unchanged.",
+          "properties": {
+            "op": {
+              "const": "publish",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/AgentTemplatePublishRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "retire",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/AgentTemplateRetireRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "current",
+              "type": "string"
+            },
+            "template_id": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "template_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "history",
+              "type": "string"
+            },
+            "template_id": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "template_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "status",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/AgentTemplateStatusRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Bind parameters and return an ordinary agent draft -- the query this\nlayer exists for. A read: nothing is committed until the caller\npublishes the draft through the agent library.\n\nNOT boxed, unlike `Publish`: this request carries only ids and a\nbounded binding map, so it is smaller than `Status`'s mutation context\nand boxing it would buy an allocation on a read path for nothing.",
+          "properties": {
+            "op": {
+              "const": "instantiate",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/AgentTemplateInstantiateRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AgentTemplatePublishRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/AgentLibraryMutationContext",
+          "description": "Shared with the other three layers: templates are published into the\nsame owner as the components, agents and graphs they are built from, so\nthey share its mutation context rather than growing a parallel copy of\nit."
+        },
+        "template": {
+          "$ref": "#/$defs/AgentTemplateDraft"
+        }
+      },
+      "required": [
+        "context",
+        "template"
+      ],
+      "type": "object"
+    },
+    "AgentTemplateRetireRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/AgentLibraryMutationContext"
+        },
+        "template_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "context",
+        "template_id"
+      ],
+      "type": "object"
+    },
+    "AgentTemplateStatusRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/AgentLibraryMutationContext"
+        },
+        "kind": {
+          "$ref": "#/$defs/AgentTemplateMutationKind"
+        },
+        "template_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "context",
+        "template_id",
+        "kind"
+      ],
+      "type": "object"
+    },
     "AgentUsageLimits": {
       "additionalProperties": false,
       "description": "Per-run consumption ceilings (pydantic-ai `UsageLimits`).\n\n`None` means \"the engine's bounded default\", never \"unlimited\" — an agent\ndefinition cannot opt out of a ceiling, only decline to tighten it.",
@@ -10874,6 +11130,40 @@
       ],
       "type": "object"
     },
+    "TemplateParam": {
+      "additionalProperties": false,
+      "description": "One declared axis of variation.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/AgentComponentKind",
+          "description": "The kind the replacement must be. Checked against both the base\ncomponent and the binding, so a parameter cannot be used to smuggle a\ntool in where a model profile belongs."
+        },
+        "name": {
+          "description": "What a caller names when binding.",
+          "type": "string"
+        },
+        "replaces": {
+          "description": "The component in the base definition this parameter replaces.\n\nIdentified by `component_id`, not by slot index. An index would be\nbrittle in exactly the way that matters: reordering a tool list -- which\n`definition_digest` deliberately treats as a no-op, since order carries\nno meaning -- would silently repoint every parameter.",
+          "type": "string"
+        },
+        "required": {
+          "description": "When false, leaving this parameter unbound keeps the base component.",
+          "type": "boolean"
+        },
+        "summary": {
+          "description": "Human-facing description of the axis, bounded.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "replaces",
+        "kind",
+        "required",
+        "summary"
+      ],
+      "type": "object"
+    },
     "TensorElementwiseOp": {
       "description": "TENSOR — the scalar op `TensorOpKind::Elementwise` applies to every element\n(CONCEPT:EG-KG.storage.content-addressed-dedup). Mirrors eg-tensor's `ElementwiseOp`; pure serde here.",
       "enum": [
@@ -11881,6 +12171,33 @@
           "properties": {
             "op": {
               "$ref": "#/$defs/AgentLibraryOp"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "AgentTemplate": {
+      "additionalProperties": false,
+      "description": "Publish, retire, inspect or INSTANTIATE one durable agent template --\nRF-ADR-008 item C: a published agent plus declared axes of variation.\n`Instantiate` is the operation this layer exists for; it binds\nparameters and returns an ordinary `AgentLibraryEntryDraft`, so an\ninstance is admitted and delegated with no template-aware branch\nanywhere downstream.\n\nNot boxed at this level, for the same reason the three layers beside it\nare not: the only oversized request is the publish draft, and\n`AgentTemplateOp::Publish` already boxes it, so this variant is no\nlarger than `AgentComponent` next to it (asserted by\n`the_publish_request_is_boxed_so_a_template_op_stays_small`).",
+      "properties": {
+        "method": {
+          "const": "AgentTemplate",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/AgentTemplateOp"
             }
           },
           "required": [

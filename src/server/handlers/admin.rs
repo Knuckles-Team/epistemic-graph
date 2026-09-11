@@ -789,6 +789,155 @@ pub(crate) async fn handle_agent_component(
     }
 }
 
+/// Publish, retire, inspect or INSTANTIATE one durable agent template
+/// (RF-ADR-008 item C).
+///
+/// Same store as the three layers beside it. `Instantiate` is the operation
+/// the layer exists for, and it is a READ: it binds parameters and returns an
+/// ordinary `AgentLibraryEntryDraft`, which the caller then publishes through
+/// `Method::AgentLibrary`. Nothing here commits an instance, so the library
+/// write privilege is still what admits one.
+#[cfg(feature = "redb")]
+pub(crate) async fn handle_agent_template(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified: &crate::server::auth::VerifiedRequestContext,
+    op: eg_types::agent_template::AgentTemplateOp,
+) -> Response {
+    use crate::protocol::ResultPayload;
+    use eg_types::agent_template::AgentTemplateOp;
+
+    if let Err(error) = op.validate() {
+        return Response::err(req_id, error);
+    }
+    // Every operation is tenant-bound, including the reads. Checked once here
+    // rather than in each arm, so a new arm cannot forget it.
+    if op.tenant_id() != verified.tenant() {
+        return Response::err(
+            req_id,
+            "ACCESS_DENIED: agent template tenant must match verified request tenant",
+        );
+    }
+    let store = {
+        let mut guard = state.write().await;
+        match guard.ensure_agent_library() {
+            Ok(store) => store,
+            Err(error) => return Response::err(req_id, error),
+        }
+    };
+    match op {
+        AgentTemplateOp::Publish { mut request } => {
+            let context = match bind_agent_library_context(
+                &store,
+                req_id,
+                verified,
+                request.context,
+                "agent-template:publish",
+                true,
+            ) {
+                Ok(context) => context,
+                Err(error) => return Response::err(req_id, error),
+            };
+            // Definition provenance is bound to the AUTHENTICATED caller, not
+            // to whatever the body claimed -- the same rule the three layers
+            // beside it apply. The base's own tenant has to move with it or
+            // `AgentTemplateDraft::validate` refuses the pair.
+            request.template.tenant_id = context.tenant_id.clone();
+            request.template.base.tenant_id = context.tenant_id.clone();
+            request.template.actor_scope = context.actor_scope.clone();
+            request.template.purpose_id = context.purpose_id.clone();
+            request.template.policy_digest = context.policy_digest.clone();
+            request.context = context;
+            match store.publish_template(*request) {
+                Ok(result) => match ResultPayload::raw(&result.result) {
+                    Ok(payload) => Response::ok(req_id, payload),
+                    Err(error) => Response::err(req_id, error),
+                },
+                Err(error) => Response::err(req_id, error),
+            }
+        }
+        AgentTemplateOp::Retire { mut request } => {
+            let context = match bind_agent_library_context(
+                &store,
+                req_id,
+                verified,
+                request.context,
+                "agent-template:retire",
+                true,
+            ) {
+                Ok(context) => context,
+                Err(error) => return Response::err(req_id, error),
+            };
+            request.context = context;
+            match store.retire_template(request) {
+                Ok(result) => match ResultPayload::raw(&result.result) {
+                    Ok(payload) => Response::ok(req_id, payload),
+                    Err(error) => Response::err(req_id, error),
+                },
+                Err(error) => Response::err(req_id, error),
+            }
+        }
+        AgentTemplateOp::Current {
+            tenant_id,
+            template_id,
+        } => match store.current_template(&tenant_id, &template_id) {
+            Ok(entry) => match ResultPayload::raw(&entry) {
+                Ok(payload) => Response::ok(req_id, payload),
+                Err(error) => Response::err(req_id, error),
+            },
+            Err(error) => Response::err(req_id, error),
+        },
+        AgentTemplateOp::History {
+            tenant_id,
+            template_id,
+        } => match store.template_revisions(&tenant_id, &template_id) {
+            Ok(entries) => match ResultPayload::raw(&entries) {
+                Ok(payload) => Response::ok(req_id, payload),
+                Err(error) => Response::err(req_id, error),
+            },
+            Err(error) => Response::err(req_id, error),
+        },
+        AgentTemplateOp::Status { mut request } => {
+            let purpose = match request.kind {
+                eg_types::agent_template::AgentTemplateMutationKind::Publish => {
+                    "agent-template:publish"
+                }
+                eg_types::agent_template::AgentTemplateMutationKind::Retire => {
+                    "agent-template:retire"
+                }
+            };
+            let context = match bind_agent_library_context(
+                &store,
+                req_id,
+                verified,
+                request.context,
+                purpose,
+                false,
+            ) {
+                Ok(context) => context,
+                Err(error) => return Response::err(req_id, error),
+            };
+            request.context = context;
+            match store.template_status(request) {
+                Ok(result) => match ResultPayload::raw(&result.map(|result| result.result)) {
+                    Ok(payload) => Response::ok(req_id, payload),
+                    Err(error) => Response::err(req_id, error),
+                },
+                Err(error) => Response::err(req_id, error),
+            }
+        }
+        AgentTemplateOp::Instantiate { request } => {
+            match store.instantiate_template(&request) {
+                Ok(draft) => match ResultPayload::raw(&draft) {
+                    Ok(payload) => Response::ok(req_id, payload),
+                    Err(error) => Response::err(req_id, error),
+                },
+                Err(error) => Response::err(req_id, error),
+            }
+        }
+    }
+}
+
 /// Publish, retire, or inspect one durable agent GRAPH (RF-ADR-008).
 ///
 /// Routed to the SAME store as [`handle_agent_library`]: a graph is published

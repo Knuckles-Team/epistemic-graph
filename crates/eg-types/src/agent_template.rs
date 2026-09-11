@@ -448,6 +448,16 @@ fn count_occurrences(
         .count()
 }
 
+/// The content digest of one template DEFINITION, independent of its revision.
+///
+/// Public because the durable store needs it before an entry exists: the
+/// replay identity of a publish attempt is minted from the definition the
+/// caller asked for, so a byte-identical retry resolves to the same operation.
+/// Mirrors [`crate::agent_library::draft_definition_digest`].
+pub fn draft_definition_digest(draft: &AgentTemplateDraft) -> String {
+    definition_digest(draft)
+}
+
 fn definition_digest(draft: &AgentTemplateDraft) -> String {
     let mut hasher = Sha256::new();
     hasher.update(AGENT_TEMPLATE_DIGEST_DOMAIN);
@@ -507,6 +517,244 @@ fn validate_text(field: &str, value: &str) -> Result<(), String> {
         return Err(format!("agent template {field} is invalid"));
     }
     Ok(())
+}
+
+/// Which durable mutation a template operation performs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum AgentTemplateMutationKind {
+    Publish,
+    Retire,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AgentTemplatePublishRequest {
+    /// Shared with the other three layers: templates are published into the
+    /// same owner as the components, agents and graphs they are built from, so
+    /// they share its mutation context rather than growing a parallel copy of
+    /// it.
+    pub context: crate::agent_library::AgentLibraryMutationContext,
+    pub template: AgentTemplateDraft,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AgentTemplateRetireRequest {
+    pub context: crate::agent_library::AgentLibraryMutationContext,
+    pub template_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AgentTemplateStatusRequest {
+    pub context: crate::agent_library::AgentLibraryMutationContext,
+    pub template_id: String,
+    pub kind: AgentTemplateMutationKind,
+}
+
+/// Bind a template's parameters and get back an ordinary agent draft.
+///
+/// A READ: it resolves durable state and computes, but commits nothing. The
+/// caller publishes the returned draft through `AgentLibrary::Publish` exactly
+/// as it would a hand-authored one -- which is the whole point of the design,
+/// and the reason there is no template-aware branch in admission or delegation.
+///
+/// `entry_revision` pins which template revision to bind. `None` means the
+/// head. Pinning matters because [`TemplateInstanceRef`] records a revision:
+/// reproducing an existing instance means binding the revision it named, not
+/// whatever the head has since become.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AgentTemplateInstantiateRequest {
+    pub tenant_id: String,
+    pub template_id: String,
+    /// The revision to bind, or the head when absent.
+    #[serde(default)]
+    pub entry_revision: Option<u64>,
+    /// The instance's own agent id. Supplied, not derived -- see
+    /// [`AgentTemplateEntry::instantiate`].
+    pub agent_id: String,
+    #[serde(default)]
+    pub bindings: BTreeMap<String, ComponentDependency>,
+}
+
+impl AgentTemplateInstantiateRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_text("tenant_id", &self.tenant_id)?;
+        validate_text("template_id", &self.template_id)?;
+        validate_text("agent_id", &self.agent_id)?;
+        if self.entry_revision == Some(0) {
+            return Err("agent template instantiate revision must be a retained revision".into());
+        }
+        // Bounded before any store work: an unbounded binding map would let a
+        // caller set the cost of the resolve.
+        if self.bindings.len() > MAX_PARAMS {
+            return Err("agent template instantiate names too many bindings".to_string());
+        }
+        for (name, binding) in &self.bindings {
+            validate_text("binding name", name)?;
+            validate_text("binding component_id", &binding.component_id)?;
+            validate_digest("binding definition_digest", &binding.definition_digest)?;
+        }
+        Ok(())
+    }
+}
+
+/// Typed template wire operations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum AgentTemplateOp {
+    /// Boxed for the same reason as the other three layers: a publish request
+    /// carries a whole draft -- and this one embeds an entire
+    /// [`AgentLibraryEntryDraft`] as its base, so it is the largest of the
+    /// four -- and would otherwise set the size of every `Method`. `Box` is
+    /// transparent to serde, so the wire form is unchanged.
+    Publish {
+        request: Box<AgentTemplatePublishRequest>,
+    },
+    Retire {
+        request: AgentTemplateRetireRequest,
+    },
+    Current {
+        tenant_id: String,
+        template_id: String,
+    },
+    History {
+        tenant_id: String,
+        template_id: String,
+    },
+    Status {
+        request: AgentTemplateStatusRequest,
+    },
+    /// Bind parameters and return an ordinary agent draft -- the query this
+    /// layer exists for. A read: nothing is committed until the caller
+    /// publishes the draft through the agent library.
+    ///
+    /// NOT boxed, unlike `Publish`: this request carries only ids and a
+    /// bounded binding map, so it is smaller than `Status`'s mutation context
+    /// and boxing it would buy an allocation on a read path for nothing.
+    Instantiate {
+        request: AgentTemplateInstantiateRequest,
+    },
+}
+
+impl AgentTemplateOp {
+    /// Whether this operation commits a durable revision.
+    ///
+    /// The access layer and the capability policy both need this split, and
+    /// deriving it here means they cannot disagree about it. `Instantiate`
+    /// belongs on the read side deliberately: it produces a draft, and the
+    /// separate `AgentLibrary::Publish` that stores the result is what carries
+    /// the write privilege.
+    pub fn is_mutation(&self) -> bool {
+        matches!(self, Self::Publish { .. } | Self::Retire { .. })
+    }
+
+    pub fn tenant_id(&self) -> &str {
+        match self {
+            Self::Publish { request } => &request.context.tenant_id,
+            Self::Retire { request } => &request.context.tenant_id,
+            Self::Status { request } => &request.context.tenant_id,
+            Self::Instantiate { request } => &request.tenant_id,
+            Self::Current { tenant_id, .. } | Self::History { tenant_id, .. } => tenant_id,
+        }
+    }
+
+    pub fn template_id(&self) -> &str {
+        match self {
+            Self::Publish { request } => &request.template.template_id,
+            Self::Retire { request } => &request.template_id,
+            Self::Status { request } => &request.template_id,
+            Self::Instantiate { request } => &request.template_id,
+            Self::Current { template_id, .. } | Self::History { template_id, .. } => template_id,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::Publish { request } => {
+                request.context.validate()?;
+                request.template.validate()?;
+                if request.context.tenant_id != request.template.tenant_id {
+                    return Err(
+                        "agent template publish context tenant does not match the template's"
+                            .to_string(),
+                    );
+                }
+                Ok(())
+            }
+            Self::Retire { request } => {
+                request.context.validate()?;
+                validate_text("template_id", &request.template_id)
+            }
+            Self::Status { request } => {
+                request.context.validate()?;
+                validate_text("template_id", &request.template_id)
+            }
+            Self::Instantiate { request } => request.validate(),
+            Self::Current {
+                tenant_id,
+                template_id,
+            }
+            | Self::History {
+                tenant_id,
+                template_id,
+            } => {
+                validate_text("tenant_id", tenant_id)?;
+                validate_text("template_id", template_id)
+            }
+        }
+    }
+}
+
+/// What a committed template mutation returns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AgentTemplateCommittedResult {
+    pub schema_version: u16,
+    pub template: AgentTemplateEntry,
+    pub batch_id: String,
+    pub committed_version: u64,
+}
+
+/// The outbox event one committed template revision emits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AgentTemplateOutboxEvent {
+    pub schema_version: u16,
+    pub kind: AgentTemplateMutationKind,
+    pub template: AgentTemplateEntry,
+    pub performing_actor: String,
+    pub action_actor_scope: String,
+}
+
+impl AgentTemplateOutboxEvent {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != AGENT_TEMPLATE_SCHEMA_VERSION {
+            return Err("agent template outbox schema version is unsupported".to_string());
+        }
+        self.template.validate()?;
+        let expected = match self.template.lifecycle {
+            AgentLibraryLifecycle::Published => AgentTemplateMutationKind::Publish,
+            AgentLibraryLifecycle::Retired => AgentTemplateMutationKind::Retire,
+        };
+        if self.kind != expected {
+            return Err(
+                "agent template outbox kind does not match the entry's lifecycle".to_string(),
+            );
+        }
+        validate_text("performing_actor", &self.performing_actor)?;
+        validate_text("action_actor_scope", &self.action_actor_scope)
+    }
 }
 
 #[cfg(test)]
@@ -835,5 +1083,230 @@ mod tests {
             AgentTemplateEntry::publish(reordered, 1, 1_000).unwrap().definition_digest,
             template().definition_digest
         );
+    }
+    // ---- wire operations ----
+
+    fn context() -> crate::agent_library::AgentLibraryMutationContext {
+        crate::agent_library::AgentLibraryMutationContext {
+            request_id: 1,
+            principal: format!("principal:sha256:{}", "0".repeat(64)),
+            caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
+            attempt_nonce: crate::contract::Nonce::from_bytes([7; 32]),
+            tenant_id: "tenant-a".into(),
+            actor_scope: "agent-builder".into(),
+            purpose_id: "agent-template:publish".into(),
+            policy_revision: "policy-v1".into(),
+            policy_digest: digest('8'),
+            policy_decision_id: "agent-template:decision".into(),
+            idempotency_key: "key-1".into(),
+            expected_revision: Some(0),
+            trace_id: None,
+            created_at_ms: 10,
+        }
+    }
+
+    #[test]
+    fn publish_and_retire_are_the_only_mutating_operations() {
+        // The access layer and the capability policy both delegate to this, so
+        // a misclassification here would silently move a write onto the read
+        // path in BOTH of them at once.
+        assert!(AgentTemplateOp::Publish {
+            request: Box::new(AgentTemplatePublishRequest {
+                context: context(),
+                template: draft(),
+            }),
+        }
+        .is_mutation());
+        assert!(AgentTemplateOp::Retire {
+            request: AgentTemplateRetireRequest {
+                context: context(),
+                template_id: "template:researcher".into(),
+            },
+        }
+        .is_mutation());
+        for op in [
+            AgentTemplateOp::Current {
+                tenant_id: "tenant-a".into(),
+                template_id: "template:researcher".into(),
+            },
+            AgentTemplateOp::History {
+                tenant_id: "tenant-a".into(),
+                template_id: "template:researcher".into(),
+            },
+            AgentTemplateOp::Status {
+                request: AgentTemplateStatusRequest {
+                    context: context(),
+                    template_id: "template:researcher".into(),
+                    kind: AgentTemplateMutationKind::Publish,
+                },
+            },
+            AgentTemplateOp::Instantiate {
+                request: AgentTemplateInstantiateRequest {
+                    tenant_id: "tenant-a".into(),
+                    template_id: "template:researcher".into(),
+                    entry_revision: None,
+                    agent_id: "agent:cheap".into(),
+                    bindings: BTreeMap::new(),
+                },
+            },
+        ] {
+            assert!(!op.is_mutation(), "{op:?} must classify as a read");
+        }
+    }
+
+    #[test]
+    fn a_publish_whose_context_names_another_tenant_is_refused() {
+        let mut request = AgentTemplatePublishRequest {
+            context: context(),
+            template: draft(),
+        };
+        request.context.tenant_id = "tenant-b".into();
+        let error = AgentTemplateOp::Publish {
+            request: Box::new(request),
+        }
+        .validate()
+        .expect_err("a cross-tenant publish must be refused");
+        assert!(error.contains("tenant"), "got: {error}");
+    }
+
+    #[test]
+    fn an_instantiate_refuses_an_unbounded_binding_map_by_name() {
+        let mut bindings = BTreeMap::new();
+        for index in 0..=MAX_PARAMS {
+            bindings.insert(
+                format!("param-{index}"),
+                dep("tool:x", AgentComponentKind::Tool, '3'),
+            );
+        }
+        let error = AgentTemplateOp::Instantiate {
+            request: AgentTemplateInstantiateRequest {
+                tenant_id: "tenant-a".into(),
+                template_id: "template:researcher".into(),
+                entry_revision: None,
+                agent_id: "agent:cheap".into(),
+                bindings,
+            },
+        }
+        .validate()
+        .expect_err("an over-large binding map must be refused");
+        assert!(error.contains("too many bindings"), "got: {error}");
+    }
+
+    #[test]
+    fn an_instantiate_cannot_pin_revision_zero() {
+        // Revision zero is "no revision yet", never a retained one. Accepting
+        // it would turn a typo into a head read the caller did not ask for.
+        let error = AgentTemplateOp::Instantiate {
+            request: AgentTemplateInstantiateRequest {
+                tenant_id: "tenant-a".into(),
+                template_id: "template:researcher".into(),
+                entry_revision: Some(0),
+                agent_id: "agent:cheap".into(),
+                bindings: BTreeMap::new(),
+            },
+        }
+        .validate()
+        .expect_err("revision zero must be refused");
+        assert!(error.contains("retained revision"), "got: {error}");
+    }
+
+    #[test]
+    fn the_publish_request_is_boxed_so_a_template_op_stays_small() {
+        // A template's publish request embeds an entire agent draft as its
+        // base, so it is the largest request of the four layers. Unboxed it
+        // would set the size of every `Method` in the protocol.
+        use std::mem::size_of;
+        assert!(
+            size_of::<AgentTemplateOp>()
+                <= size_of::<crate::agent_component::AgentComponentOp>(),
+            "AgentTemplateOp is {} bytes, larger than the AgentComponentOp it mirrors ({})",
+            size_of::<AgentTemplateOp>(),
+            size_of::<crate::agent_component::AgentComponentOp>()
+        );
+    }
+
+    #[test]
+    fn an_outbox_event_whose_kind_contradicts_its_lifecycle_is_refused() {
+        let event = AgentTemplateOutboxEvent {
+            schema_version: AGENT_TEMPLATE_SCHEMA_VERSION,
+            kind: AgentTemplateMutationKind::Retire,
+            template: template(),
+            performing_actor: "principal:a".into(),
+            action_actor_scope: "agent-builder".into(),
+        };
+        let error = event
+            .validate()
+            .expect_err("a published entry cannot carry a retire event");
+        assert!(error.contains("lifecycle"), "got: {error}");
+    }
+
+    // ---- digest coverage ----
+
+    #[test]
+    fn every_stored_definition_field_moves_the_digest() {
+        // A stored-but-UNHASHED field is how an approved template gets
+        // silently altered: the digest an approver signed off on still
+        // matches after the change. The destructuring is the tripwire -- a
+        // field added to `AgentTemplateDraft` stops this test compiling until
+        // it is covered below.
+        let AgentTemplateDraft {
+            template_id: _,
+            version: _,
+            base: _,
+            params: _,
+            tenant_id: _,
+            actor_scope: _,
+            purpose_id: _,
+            policy_digest: _,
+        } = draft();
+
+        type Mutator = (&'static str, fn(&mut AgentTemplateDraft));
+        let mutators: &[Mutator] = &[
+            ("template_id", |d| d.template_id = "template:other".into()),
+            ("version", |d| d.version = "2.0.0".into()),
+            ("base", |d| d.base.version = "9.9.9".into()),
+            ("params.name", |d| {
+                d.params[0].name = "model-tier".into();
+            }),
+            ("params.replaces", |d| {
+                d.params[1].replaces = "tool:summarize".into();
+            }),
+            ("params.kind", |d| {
+                // `replaces` has to move with the kind, or the parameter no
+                // longer names anything in the base and publish refuses it.
+                d.params[1].kind = AgentComponentKind::Skill;
+                d.params[1].replaces = "skill:research".into();
+            }),
+            ("params.required", |d| d.params[0].required = true),
+            ("params.summary", |d| {
+                d.params[0].summary = "a different axis".into();
+            }),
+            ("tenant_id", |d| {
+                // The base carries the same tenant and validate() enforces it.
+                d.tenant_id = "tenant-b".into();
+                d.base.tenant_id = "tenant-b".into();
+            }),
+            ("actor_scope", |d| d.actor_scope = "operator".into()),
+            ("purpose_id", |d| d.purpose_id = "agent-rebuild".into()),
+            ("policy_digest", |d| d.policy_digest = digest('a')),
+        ];
+
+        let baseline = template().definition_digest;
+        for (field, mutate) in mutators {
+            let mut altered = draft();
+            mutate(&mut altered);
+            assert_ne!(
+                altered,
+                draft(),
+                "{field}: the mutator changed nothing, so the test proves nothing"
+            );
+            let moved = AgentTemplateEntry::publish(altered, 1, 1_000)
+                .unwrap_or_else(|error| panic!("{field} must still publish: {error}"))
+                .definition_digest;
+            assert_ne!(
+                moved, baseline,
+                "{field} is stored but not covered by the definition digest"
+            );
+        }
     }
 }

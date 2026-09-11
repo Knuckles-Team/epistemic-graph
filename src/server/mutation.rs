@@ -4983,6 +4983,7 @@ mod tests {
         // one authority in two (RF-RULING-004).
         ("AgentGraph", "native MutationBatch in agent_library.redb: graph revision + head + kernel receipt/outbox in one WTX via eg-transaction, exactly like AgentLibrary alongside it"),
         ("AgentComponent", "native MutationBatch in agent_library.redb: component revision + head + kernel receipt/outbox in one WTX via eg-transaction, alongside the agents and graphs that reference it"),
+        ("AgentTemplate", "native MutationBatch in agent_library.redb: template revision + head + kernel receipt/outbox in one WTX via eg-transaction, alongside the components, agents and graphs its base is assembled from"),
         ("ImportSqliteFile", "native SQL-catalog MutationBatch: all imported tables + exact result/coordinator metadata in one WTX"),
         // ── Process-global registries on ServerState: opaque control-redb sagas,
         // no GraphCore/graph_name; dispatched directly in the top-level match. ──
@@ -5206,6 +5207,7 @@ mod tests {
         covered.insert("AgentLibrary");
         covered.insert("AgentGraph");
         covered.insert("AgentComponent");
+        covered.insert("AgentTemplate");
         covered.insert("PlacementAdmin");
         // Self-translates into a gateway-routed `Method::AddNode` before this
         // classifier ever runs on it -- see `cluster_mutation_route`'s

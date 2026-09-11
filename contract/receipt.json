@@ -1,7 +1,7 @@
 {
   "artifact_digests": {
-    "contract/methods.json": "5df4c63538a5ba33beca587796dfe6c9c00ec393f20e467e2fb406626abb6feb",
-    "contract/schemas/method.request.json": "b5366948d52d4b97ad6f267fe9b0b35cca2e658c54864a2e400aeb8ff980237c",
+    "contract/methods.json": "d135b963bd2be62320a8c40547915b6d84c6f43ca597137e1fc7760f599d56be",
+    "contract/schemas/method.request.json": "b9a843484d487e03b64f5b011253fbe4da14f638701939ca6924aae6b14ac21d",
     "contract/schemas/result.Bool.json": "f4bcf35f07ea1acd8a6067aa0279864f120fc1eb6e308afb0720e034b2d57744",
     "contract/schemas/result.Count.json": "c139342b656a7d5b0bf598ad6a64f92992dc1071ab8f6568bcfa55422f1f326a",
     "contract/schemas/result.EdgeList.json": "837e5e87b9131e55b1136b2fd5588b002ff9c26eeaad14892a3b3f2b83e1cbc2",
@@ -10,11 +10,11 @@
     "contract/schemas/result.NodeList.json": "584c3712101c532f50581a956cf755b9e84b280bbe2d189ece85b9e577365e4b",
     "contract/schemas/result.String.json": "a3e272c53a4f5de4d4d6d51ff824bf63bfb22b3aa59609d990cd53065148a4ab",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "crates/eg-capabilities/generated/method_catalog.rs": "0feb1fab9d657a5fbd6fa8fcc29fc3df039788bbf9c7deba301b8d0e3c868c72",
-    "docs/capabilities.generated.md": "27536fa5b213dc7ef13a950085b28518cf705196afd6f2322959c0684c910990",
+    "crates/eg-capabilities/generated/method_catalog.rs": "08c6872b61a12f9ed2c43933029ec7d4dc8bcbd4ea5046752bc766f1c79ec00f",
+    "docs/capabilities.generated.md": "acbecda5236957bd3ac1beac380e73e23f35d86045c3f1d3f45d2359a2fc33e7",
     "epistemic_graph/contract/__init__.py": "36e6ba4cbab070e0f32c5974af8bca0cacb1d7391e9a256a2ba947acb85899c4",
-    "epistemic_graph/generated/__init__.py": "2b4d65b68c4d8e79746467cb70d79c0a2f60c55a27a7e43328dee05d7f5eda74",
-    "epistemic_graph/generated/_ids.py": "af52ea86932671f71e19a81b6a1ffabc27aa518ab35bf517fab6df6e096f2f6e",
+    "epistemic_graph/generated/__init__.py": "9b15fea31b46f31a26694be84268f667d830215b2c003ad6cbbb211a242238d8",
+    "epistemic_graph/generated/_ids.py": "e6404c1afb52f2357eb2712c6be0a50576fb5444648d03918355e4b4955ea09f",
     "epistemic_graph/generated/_runtime.py": "9c654cf9a7e4e3304d0e0f933fb791f06a6ed78a6e4e1f2f82d24f577185a6fa",
     "epistemic_graph/generated/cluster.py": "9db77471e24e9c6612b48ad3625b1c46e08e9122a0da47d55066e45e1b4ec8d3",
     "epistemic_graph/generated/compute.py": "912901c873d200bd03e44e5f9a378dc8cd4767fdf4cc6f9b4e99f0540a265145",
@@ -25,11 +25,11 @@
     "epistemic_graph/generated/query.py": "d191dcb24f729b13bdfad6de34427be550d9e355eb0ecce4891da3ea53683970",
     "epistemic_graph/generated/reasoning.py": "7eebd7ced3443ca2f7a35b2ca531185219a96a17427f6dc44fbb898c131be384",
     "epistemic_graph/generated/security.py": "4e639b62478973d2e9cc0cada8b5ed5541e33625b0ac35db0f4492e481471dc2",
-    "epistemic_graph/generated/storage.py": "214146e07bbaf48e87db033c8bf0a749fed098be255dfc5688c0b9cba20a6833",
+    "epistemic_graph/generated/storage.py": "768804103220681735de4834d7c3c0bcb9dbcc9c3091d3af7eb306fde1e498bc",
     "epistemic_graph/generated/transactions.py": "620eca482b86fd65c956204e308ef15a4d6765fa21887a4a93dbe40dd85998be"
   },
   "cargo_lock_sha256": "78962b424ed5c7e698355184f879428097eb06bba78e8493fadc8b09025b5da3",
-  "contract_digest": "c124ed5e4ccdc57451ba69b3ae0fd4ae9fd7731e07389d17552aa33f70b2f1f5",
+  "contract_digest": "04b90c8a1abd8ae639a3e03ec51f8d8b432c9ea0e28c544f59d4e40223b7ed75",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -333,16 +333,16 @@
   },
   "generator": "eg-capabilities/gen_contract",
   "internal_only_methods": 19,
-  "method_count": 412,
-  "opaque_result_methods": 283,
-  "python_client_methods": 393,
+  "method_count": 413,
+  "opaque_result_methods": 284,
+  "python_client_methods": 394,
   "result_provenance": {
     "annotation-only": 36,
     "confirmed": 68,
     "contradicted": 4,
-    "dispatch-only": 81,
+    "dispatch-only": 82,
     "undeclared": 223
   },
-  "source_tree_oid": "fbc92bf16ef63516478440d312cf970b886c848e3ba9c9111c35f666b72e45db",
+  "source_tree_oid": "a6abb16962d6fe6f3c3e81b3c1f54404df22229cd11ee32f3137949f3c2b2ad7",
   "typed_result_methods": 129
 }

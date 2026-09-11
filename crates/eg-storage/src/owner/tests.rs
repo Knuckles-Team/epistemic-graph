@@ -52,7 +52,13 @@ fn owner_layout_registry_has_frozen_cardinality() {
     assert_eq!(owner_table_names(OwnerLayout::TenantCatalog).len(), 1);
     assert_eq!(owner_table_names(OwnerLayout::NodeInfo).len(), 2);
     assert_eq!(owner_table_names(OwnerLayout::ClusterHierarchy).len(), 1);
-    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 2);
+    // Eight, not two: `agent_library.redb` is ONE physical authority carrying
+    // all four RF-ADR-008 layers, each as a revisions+heads pair --
+    // `agent_library`, `agent_graph`, `agent_component` (all three landed
+    // 2026-09-10) and `agent_template` (item C). Splitting any of them into
+    // its own owner file would split one authority in two (RF-RULING-004), so
+    // this count grows by two per layer by design.
+    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 8);
     // The authoritative graph shard `graph-N.redb`: 53 tables. That is the
     // complete physical census of the shard file (39 in `redb_store.rs`, 4
     // capacity-lease, 3 work-item-capability, 10 development-lane, plus
@@ -113,7 +119,13 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // (`cas_chunks`, `cas_refcount`) are unchanged; the Agent Library adds
     // two Agent Library tables, and the SQL source-authority plus checkpoint
     // head rows add one each: 120 = 116 + 2 + 1 + 1.
-    assert_eq!((names.len(), service, shared), (120, 118, 2));
+    // 120 -> 126: the three RF-ADR-008 layers that joined the Agent Library
+    // owner after that count was written -- `agent_graph`, `agent_component`
+    // (2026-09-10) and `agent_template` (item C) -- a revisions+heads pair
+    // each. All six are `DomainService`, reached only through the store's own
+    // admitted owner write, so `shared` is still the same two blob tables:
+    // 126 = 120 + 6, service 124 = 118 + 6.
+    assert_eq!((names.len(), service, shared), (126, 124, 2));
 }
 
 #[test]
@@ -733,7 +745,13 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // and the graph shard's 50 new names joined it with
     // `OwnerLayout::GraphShard`, plus the two Agent Library tables. 18 + 66 +
     // 50 + 2 + the tenant-wide SQL source authority and checkpoint-head rows = 138.
-    assert_eq!(names.len(), 138);
+    // 138 -> 144: the six tables the other three RF-ADR-008 agent layers added
+    // to the SAME `agent_library.redb` owner -- `agent_graph`,
+    // `agent_component` and `agent_template`, a revisions+heads pair each.
+    // Every one of them is a durable mutation table, so a plain (non-mutation)
+    // recovery must refuse a file carrying its marker exactly as it refuses
+    // `agent_library`'s.
+    assert_eq!(names.len(), 144);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

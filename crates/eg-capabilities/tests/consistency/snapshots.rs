@@ -98,7 +98,15 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
 /// the real answer depends on data the static table cannot see.
 pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     // Publish/Retire write; Current/History/Status remain authenticated reads.
+    // All four RF-ADR-008 agent-hierarchy layers have this shape: each
+    // delegates `access::requires_write` to its own op's `is_mutation()`,
+    // while the registry row carries the conservative `mutates = true` upper
+    // bound. `AgentComponent`'s `Search` and `AgentTemplate`'s `Instantiate`
+    // are reads for the same reason the `Current`/`History` arms are.
+    "AgentComponent",
+    "AgentGraph",
     "AgentLibrary",
+    "AgentTemplate",
     "CypherQuery",
     "GraphLearnFit",
     "GraphLearnPredict",

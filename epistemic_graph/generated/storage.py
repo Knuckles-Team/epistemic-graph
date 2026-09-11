@@ -228,6 +228,96 @@ async def send_agent_library(
     return OpaqueResult("AgentLibrary", payload)
 
 
+class AgentGraphRequest(BaseModel):
+    """Request body for AgentGraph - contract/schemas/method.request.json#/methods/AgentGraph."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Any
+
+
+async def send_agent_graph(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """AgentGraph - agent:graph-write, ControlRedb, replay OperationIdentity.
+
+    Result: opaque (Raw) - the contract declares no result schema.
+    Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
+    """
+    AgentGraphRequest.model_validate(params or {})
+    payload = await client._send(
+        "AgentGraph",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("AgentGraph", payload)
+
+
+class AgentComponentRequest(BaseModel):
+    """Request body for AgentComponent - contract/schemas/method.request.json#/methods/AgentComponent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Any
+
+
+async def send_agent_component(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """AgentComponent - agent:component-write, ControlRedb, replay OperationIdentity.
+
+    Result: opaque (Raw) - the contract declares no result schema.
+    Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
+    """
+    AgentComponentRequest.model_validate(params or {})
+    payload = await client._send(
+        "AgentComponent",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("AgentComponent", payload)
+
+
+class AgentTemplateRequest(BaseModel):
+    """Request body for AgentTemplate - contract/schemas/method.request.json#/methods/AgentTemplate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Any
+
+
+async def send_agent_template(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """AgentTemplate - agent:template-write, ControlRedb, replay OperationIdentity.
+
+    Result: opaque (Raw) - the contract declares no result schema.
+    Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
+    """
+    AgentTemplateRequest.model_validate(params or {})
+    payload = await client._send(
+        "AgentTemplate",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("AgentTemplate", payload)
+
+
 class TsAppendRequest(BaseModel):
     """Request body for TsAppend - contract/schemas/method.request.json#/methods/TsAppend."""
 

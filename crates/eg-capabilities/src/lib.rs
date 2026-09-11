@@ -385,6 +385,42 @@ fn served_modality_policy(op: &eg_types::modality::ServedModalityOp) -> MethodPo
     }
 }
 
+/// Templates take the same shape as the three layers below them, with their own
+/// authz action: publishing a parameterized FAMILY of agents is a distinct
+/// privilege from publishing one agent. Collapsing them onto the library's
+/// actions would mean anyone who can publish a single agent can also mint a
+/// generator that produces an unbounded number of them -- each one an ordinary
+/// library entry downstream, because that is exactly what instantiation is for.
+///
+/// `Instantiate` is on the READ side: it resolves a stored template and returns
+/// a draft. The separate `AgentLibrary::Publish` that stores the result is
+/// where the write privilege is spent, so nothing is admitted without a
+/// library write.
+fn agent_template_policy(op: &eg_types::agent_template::AgentTemplateOp) -> MethodPolicy {
+    let mutates = op.is_mutation();
+    MethodPolicy {
+        mutates,
+        durability_domain: if mutates {
+            DurabilityDomain::ControlRedb
+        } else {
+            DurabilityDomain::None
+        },
+        authz_action: if mutates {
+            "agent:template-write"
+        } else {
+            "agent:template-read"
+        },
+        idempotent: true,
+        audited: false,
+        emits_cdc: false,
+        txn_participation: if mutates {
+            TxnParticipation::Atomic
+        } else {
+            TxnParticipation::Snapshot
+        },
+    }
+}
+
 fn policy_for_method(method: &Method) -> MethodPolicy {
     if let Method::CypherQuery { mode, .. } = method {
         return cypher_policy(mode);
@@ -397,6 +433,9 @@ fn policy_for_method(method: &Method) -> MethodPolicy {
     }
     if let Method::AgentComponent { op } = method {
         return agent_component_policy(op);
+    }
+    if let Method::AgentTemplate { op } = method {
+        return agent_template_policy(op);
     }
     #[cfg(feature = "modality-serving")]
     if let Method::ServedModality { op } = method {

@@ -763,6 +763,24 @@ async fn dispatch_agent_library_methods(
                 )
             }
         }
+        Method::AgentTemplate { op } => {
+            #[cfg(feature = "redb")]
+            {
+                dispatch_boxed(async {
+                    handlers::admin::handle_agent_template(state, req.id, verified_context, op)
+                        .await
+                })
+                .await
+            }
+            #[cfg(not(feature = "redb"))]
+            {
+                let _ = (state, verified_context, op);
+                Response::err(
+                    req.id,
+                    "Agent templates are not available in this build (requires `redb`)",
+                )
+            }
+        }
         other => return ControlFlow::Continue(other),
     })
 }
