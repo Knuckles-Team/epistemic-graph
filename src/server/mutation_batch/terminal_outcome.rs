@@ -295,39 +295,39 @@ mod tests {
             ),
         ];
         let run_event = RunEvent {
-                schema_version: OUTCOME_BUNDLE_VERSION,
-                // Every identity/currency field below is READ OFF the shaped
-                // bundle, never restated: `RunEvent::validate_for_bundle`
-                // compares all of them, and a literal here would silently
-                // unbind the event the moment a test reshapes the bundle.
-                delegation_id: bundle.delegation_id.clone(),
-                delegator_id: bundle.delegator_id.clone(),
-                selected_agent_id: bundle.selected_agent_id.clone(),
-                executor_lease_actor: bundle.executor_lease_actor.clone(),
-                outcome: bundle.outcome.clone(),
-                work_item_id: bundle.work_item_id.clone(),
-                run_id: bundle.run_id.clone(),
-                fence_token: bundle.fence_token,
-                outbox_id: bundle.outbox_id.clone(),
-                result_ref: bundle.result_ref.clone(),
-                capability_digest: bundle.capability_digest.clone(),
-                catalog_digest: bundle.catalog_digest.clone(),
-                policy_digest: bundle.policy_digest.clone(),
-                model_digest: bundle.model_digest.clone(),
-                event_sequence: bundle.event_sequence,
-                completeness: bundle.completeness,
-                missing_refs: bundle.missing_refs.clone(),
-                // A degraded bundle completes through the `degraded` event kind;
-                // both kinds bind the same `outcome_ref` (see
-                // `validate_for_bundle`'s completion-reference match).
-                kind: match bundle.completeness {
-                    OutcomeCompleteness::Complete => "outcome".into(),
-                    _ => "degraded".to_string(),
-                },
-                tool_call_ref: None,
-                outcome_ref: Some(bundle.outcome_ref.clone()),
-                payload_digest: digest('f'),
-                timestamp_ms: 10,
+            schema_version: OUTCOME_BUNDLE_VERSION,
+            // Every identity/currency field below is READ OFF the shaped
+            // bundle, never restated: `RunEvent::validate_for_bundle`
+            // compares all of them, and a literal here would silently
+            // unbind the event the moment a test reshapes the bundle.
+            delegation_id: bundle.delegation_id.clone(),
+            delegator_id: bundle.delegator_id.clone(),
+            selected_agent_id: bundle.selected_agent_id.clone(),
+            executor_lease_actor: bundle.executor_lease_actor.clone(),
+            outcome: bundle.outcome.clone(),
+            work_item_id: bundle.work_item_id.clone(),
+            run_id: bundle.run_id.clone(),
+            fence_token: bundle.fence_token,
+            outbox_id: bundle.outbox_id.clone(),
+            result_ref: bundle.result_ref.clone(),
+            capability_digest: bundle.capability_digest.clone(),
+            catalog_digest: bundle.catalog_digest.clone(),
+            policy_digest: bundle.policy_digest.clone(),
+            model_digest: bundle.model_digest.clone(),
+            event_sequence: bundle.event_sequence,
+            completeness: bundle.completeness,
+            missing_refs: bundle.missing_refs.clone(),
+            // A degraded bundle completes through the `degraded` event kind;
+            // both kinds bind the same `outcome_ref` (see
+            // `validate_for_bundle`'s completion-reference match).
+            kind: match bundle.completeness {
+                OutcomeCompleteness::Complete => "outcome".into(),
+                _ => "degraded".to_string(),
+            },
+            tool_call_ref: None,
+            outcome_ref: Some(bundle.outcome_ref.clone()),
+            payload_digest: digest('f'),
+            timestamp_ms: 10,
             cursor_token: "cursor:test:1".into(),
             carrier_digest: digest('0'),
         };

@@ -5369,7 +5369,7 @@ async fn exec_sql_property_graph(
             exec_sql_property_graph_privilege(req_id, scope, sql_method, store).await
         }
         K::GraphTableReadRequiresCatalogAdmission(query) => {
-            exec_sql_graph_table_read(req_id, read_store, read_core, &query)
+            exec_sql_graph_table_read(req_id, read_store.clone(), read_core.clone(), query).await
         }
         _ => Response::err(req_id, "SQL error: read routed to write path".to_string()),
     }
@@ -5449,15 +5449,24 @@ async fn exec_sql_property_graph_ddl(
 /// SQL reads. It contains a property-graph definition only when the caller has
 /// graph SELECT and SELECT/RLS access to every pinned base table, so lowering
 /// cannot bypass the tenant catalog's source authorization.
+///
+/// Lowering runs on the blocking pool, exactly like every other SQL read on
+/// this route (`handle_sql`'s read arm, `exec_sql_write_insert_select`, and the
+/// pgwire `run_read` path all wrap their call the same way). `eg_query`'s
+/// executor builds and `block_on`s its OWN current-thread runtime, which panics
+/// with "Cannot start a runtime from within a runtime" if it is entered from a
+/// reactor worker -- so calling it inline here made every `GRAPH_TABLE` query
+/// panic rather than answer.
 #[cfg(feature = "query")]
-fn exec_sql_graph_table_read(
+async fn exec_sql_graph_table_read(
     req_id: u64,
-    store: &eg_query::TableStore,
-    read_core: &Arc<GraphCore>,
-    query: &eg_query::GraphTableQuery,
+    store: eg_query::TableStore,
+    read_core: Arc<GraphCore>,
+    query: eg_query::GraphTableQuery,
 ) -> Response {
-    match graph_table_rows(store, read_core, query) {
-        Ok(typed) => match typed.rows.iter().map(raw_result_bytes).collect() {
+    let rows = compute_off_lock(req_id, move || graph_table_rows(&store, &read_core, &query)).await;
+    match rows {
+        Ok(Ok(typed)) => match typed.rows.iter().map(raw_result_bytes).collect() {
             Ok(rows) => raw_response(
                 req_id,
                 &crate::protocol::QueryResult {
@@ -5467,7 +5476,8 @@ fn exec_sql_graph_table_read(
             ),
             Err(error) => Response::err(req_id, error),
         },
-        Err(error) => Response::err(req_id, format!("SQL error: {error}")),
+        Ok(Err(error)) => Response::err(req_id, format!("SQL error: {error}")),
+        Err(response) => response,
     }
 }
 
@@ -7130,6 +7140,23 @@ mod dispatch_write_tests {
         );
     }
 
+    /// The opaque catalog scope a verified carrier for `tenant` actually
+    /// serves under.
+    ///
+    /// `tenant_acl_table_store`/`tenant_table_store` are keyed by THIS, never
+    /// by the raw tenant name: `CarrierAuthority::from_verified` wraps every
+    /// non-opaque tenant in `carrier-tenant:<digest>` before anything reaches
+    /// the catalog. A fixture that passes the raw name therefore opens a
+    /// DIFFERENT, empty catalog -- so a storage fault installed there is never
+    /// on the path the dispatch takes, and an assertion about that fault can
+    /// never fire. The passing pgwire sibling
+    /// (`server::wire`'s `ordinary_create_retains_intent_until_owner_repair_
+    /// completes`) gets this right by going through a real `CarrierAuthority`;
+    /// this derives the same scope the same way production does.
+    fn carrier_tenant_scope(tenant: &str) -> String {
+        crate::server::mutation_batch::opaque_coordinator_key("carrier-tenant", "verified", tenant)
+    }
+
     /// A direct signed CREATE that committed its table before owner
     /// registration failed must recover through the exact stable operation
     /// receipt. The retry uses a fresh nonce and the same idempotency key,
@@ -7151,7 +7178,7 @@ mod dispatch_write_tests {
         // recovery proof: physical CREATE can commit, while owner registration
         // fails against the malformed source-authority catalog.
         let acl = crate::server::sql_tables::tenant_acl_table_store(
-            "tenant-shared",
+            &carrier_tenant_scope("tenant-shared"),
             std::path::Path::new(&persist_dir),
         )
         .expect("open tenant ACL store");
@@ -7194,7 +7221,7 @@ mod dispatch_write_tests {
             first.error
         );
         let store = crate::server::sql_tables::tenant_table_store(
-            "tenant-shared",
+            &carrier_tenant_scope("tenant-shared"),
             std::path::Path::new(&persist_dir),
         )
         .expect("open tenant table store");

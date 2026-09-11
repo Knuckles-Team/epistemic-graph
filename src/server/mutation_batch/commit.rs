@@ -347,6 +347,55 @@ pub(crate) async fn commit_program_promotion(
     .await
 }
 
+/// A digest of everything a [`crate::graph::GraphSnapshot`] persists, in a
+/// CANONICAL order.
+///
+/// `GraphSnapshot::to_msgpack()` is not usable as an image identity: `nodes`
+/// and `edges` are `Vec`s materialized by iterating the in-memory maps, and
+/// `SemanticStore` persists its `embeddings` as a `HashMap`. A snapshot built
+/// fresh from the serving core and the same snapshot decoded back off the
+/// ledger therefore hold the SAME rows in different orders and never share a
+/// digest -- so comparing raw `to_msgpack()` bytes reported "differs" for two
+/// identical graphs and made every internal replay of an already-applied
+/// promotion fail closed.
+///
+/// Sorting the row collections (and the embeddings) first makes the comparison
+/// depend on content alone. Every persisted component is still covered --
+/// schema version, integrity policy, nodes, edges, the ordered ledger, the
+/// embedding space and the embeddings themselves -- so this is strictly a
+/// canonicalization of the existing check, not a narrower one.
+fn canonical_graph_image_digest(snapshot: &crate::graph::GraphSnapshot) -> Result<String, String> {
+    let mut nodes: Vec<(&str, &[u8])> = snapshot
+        .nodes
+        .iter()
+        .map(|(node_id, properties)| (node_id.as_str(), properties.as_slice()))
+        .collect();
+    nodes.sort_unstable();
+    let mut edges: Vec<(&str, &str, &[u8])> = snapshot
+        .edges
+        .iter()
+        .map(|(source, target, properties)| {
+            (source.as_str(), target.as_str(), properties.as_slice())
+        })
+        .collect();
+    edges.sort_unstable();
+    let mut embeddings = snapshot.semantic_store.embeddings_snapshot();
+    embeddings.sort_by(|left, right| left.0.cmp(&right.0));
+    let canonical = (
+        snapshot.schema_version,
+        &snapshot.integrity_policy,
+        nodes,
+        edges,
+        // The ledger is an append-ordered log: its order IS its content.
+        &snapshot.ledger,
+        snapshot.semantic_store.space(),
+        embeddings,
+    );
+    let bytes = rmp_serde::to_vec(&canonical)
+        .map_err(|error| format!("canonical graph image encode failed: {error}"))?;
+    Ok(hex::encode(Sha256::digest(bytes)))
+}
+
 fn install_validated_internal_replay_snapshot(
     core: &GraphCore,
     snapshot: crate::graph::GraphSnapshot,
@@ -378,9 +427,9 @@ fn install_validated_internal_replay_snapshot(
             if current == descriptor.target_graph_version
                 && version == descriptor.target_graph_version =>
         {
-            let serving = core.snapshot().to_msgpack()?;
-            let durable = snapshot.to_msgpack()?;
-            if Sha256::digest(serving) != Sha256::digest(durable) {
+            if canonical_graph_image_digest(&core.snapshot())?
+                != canonical_graph_image_digest(&snapshot)?
+            {
                 return Err("serving graph image differs from its committed replay".to_string());
             }
             Ok(())
@@ -389,9 +438,9 @@ fn install_validated_internal_replay_snapshot(
             // A later committed promotion may have advanced the graph after
             // this receipt was written.  A retry must return that receipt
             // without replacing the newer serving image with an older one.
-            let serving = core.snapshot().to_msgpack()?;
-            let durable = snapshot.to_msgpack()?;
-            if Sha256::digest(serving) != Sha256::digest(durable) {
+            if canonical_graph_image_digest(&core.snapshot())?
+                != canonical_graph_image_digest(&snapshot)?
+            {
                 return Err(
                     "serving graph image differs from its newer authoritative state".to_string(),
                 );
@@ -2265,7 +2314,14 @@ mod internal_replay_tests {
             Some("program-worker"),
             "program-graph",
             "program-promotion-one",
-            claim_methods(&first_identity),
+            // The SAME operation the key was committed with above -- the real
+            // `eg_jobs::plan_result_claim` output, not the hand-built
+            // `claim_methods` pair. A replay is identified by its operation, so
+            // presenting different methods under the same idempotency key is an
+            // IDEMPOTENCY_CONFLICT by contract (which is what the other
+            // `claim_methods(..)` call sites here deliberately provoke, each
+            // with its own distinct identity).
+            actual_claim_methods.clone(),
             &first_result,
             &first_identity,
             Some(Nonce::from_bytes([15; 32])),
@@ -2498,7 +2554,27 @@ mod internal_replay_tests {
             .expect("result claim exists in tamper fixture");
         let mut result_value = eg_types::msgpack::decode_property_value(&result_properties)
             .expect("decode result claim tamper fixture");
-        result_value["input_content_digest"] = serde_json::json!("c".repeat(64));
+        // A digest that differs from the claim's real `input_content_digest` BY
+        // CONSTRUCTION. The hardcoded `"c".repeat(64)` that stood here WAS
+        // `second_identity`'s genuine input content digest, so the "tamper"
+        // wrote the same bytes back: the claim stayed valid, resolution
+        // correctly succeeded, and the assertion below proved nothing about
+        // digest binding. Deriving the tampered value from the real one keeps
+        // that collision impossible if the fixture's digests are ever changed.
+        let genuine_input_digest = result_value["input_content_digest"]
+            .as_str()
+            .expect("result claim carries its input content digest")
+            .to_string();
+        let tampered_input_digest = if genuine_input_digest.starts_with('d') {
+            "e".repeat(64)
+        } else {
+            "d".repeat(64)
+        };
+        assert_ne!(
+            tampered_input_digest, genuine_input_digest,
+            "the tampered input digest must actually differ from the real one"
+        );
+        result_value["input_content_digest"] = serde_json::json!(tampered_input_digest);
         result_digest_tamper.add_node(
             result_claim_ref.clone(),
             rmp_serde::to_vec_named(&result_value).expect("encode result claim tamper fixture"),
