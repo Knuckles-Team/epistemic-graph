@@ -98,6 +98,30 @@ repos:
     files: ^(uv\.lock|pyproject\.toml|uv\.toml)$
     pass_filenames: false
     stages: [pre-push, manual]
+  # Python dependency CVE gate -- the twin of `cargo-deny-advisories` below, for
+  # the RESOLVED Python surface (`uv.lock`), not just the Rust one. Ports
+  # agent-utilities' own `scripts/audit_dependencies.py` +
+  # `.security-audit-allow.txt` here unmodified in convention: this repo ships a
+  # Python client and a wheel, and until this hook existed that surface had NO
+  # CVE gate at all (`bandit` above is SAST over our own source, not an advisory
+  # check against installed packages, and `cargo-deny-advisories` covers the
+  # Rust graph only -- see deny.toml, commit 3027965e, for the gap this closes).
+  # Fail-closed the same way as the Rust gate: any OSV advisory against a
+  # resolved dependency is a hard failure unless `.security-audit-allow.txt` has
+  # a justified, <=90-day-expiring line for that exact advisory/package pair,
+  # and the ledger is cross-validated in BOTH directions -- an accepted advisory
+  # that stops appearing in live OSV results (fixed, or no longer resolved)
+  # fails the gate as a stale acceptance, exactly like an unaccepted one fails
+  # as a new finding. Offline is a HARD failure by default (a scanner that
+  # silently passes when it cannot reach the advisory database is worse than no
+  # scanner); `SECURITY_AUDIT_OFFLINE_POLICY=warn` is an explicit, local-only
+  # escape hatch that CI and release certification must never set.
+  - id: dependency-audit
+    name: audit Python dependencies for known CVEs (OSV)
+    entry: python3 scripts/audit_dependencies.py uv.lock
+    language: system
+    files: ^(uv\.lock|pyproject\.toml|\.security-audit-allow\.txt|scripts/audit_dependencies\.py)$
+    pass_filenames: false
 - repo: local
   hooks:
   - id: lane-guard

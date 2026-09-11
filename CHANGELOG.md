@@ -11,6 +11,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 > **Documentation clarification (2026-07-23):** The `epistemic-tms` (paraconsistent truth-maintenance + Dung argumentation) and `epistemic-causal` (Pearl do-calculus) features are **included in the default `full` build as of 2.23.1** (EG-P0-6). Both features are unconditionally present in any served deployment; there is no configuration or flag to disable them.
 
 ### Added
+- **Python dependency CVE gate (`dependency-audit` pre-commit hook, CONCEPT:
+  EG-KG.storage.python-dependency-cve-gate)** — `scripts/audit_dependencies.py`
+  + `.security-audit-allow.txt`, a fail-closed OSV audit of every resolved
+  package in `uv.lock`, ported unmodified in convention from
+  agent-utilities' identically-named script and ledger so EG and AU share one
+  audit contract. Closes a real gap: `cargo-deny-advisories`/`deny.toml`
+  audit the Rust dependency graph only, and `bandit` is SAST over EG's own
+  source, not an advisory check against installed packages, so EG's Python
+  client + wheel had no CVE gate at all until now (see `deny.toml`, commit
+  3027965e). Any advisory against a resolved dependency is a hard failure
+  unless the ledger has a justified, <=90-day-expiring line for that exact
+  advisory/package pair, cross-validated in both directions (a stale
+  acceptance fails the gate too, same property `check_cargo_advisories.sh`
+  enforces on the Rust side). Offline is a hard failure by default;
+  `SECURITY_AUDIT_OFFLINE_POLICY=warn` is a local-only escape hatch CI must
+  never set. Current findings: clean (`uv.lock`'s 30 pinned packages carry no
+  open OSV advisory) — the allow-file starts empty.
 - **Binary tile/streaming protocol for graph payloads (VIZ-2, million-node
   graph visualization program)** — `crates/eg-viz-graph-tiles` (feature
   `viz-graph-tiles`, implies `viz-interactive`): a compact binary wire

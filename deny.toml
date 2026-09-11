@@ -3,19 +3,14 @@
 # Every dependency advisory is a hard failure unless it has a justified, expiring
 # risk acceptance.
 #
-# SCOPE — read this before assuming Python is covered here. This gate audits the
-# RUST dependency graph only. An earlier version of this comment said it mirrored
-# "the fail-closed OSV gate the Python side already runs
-# (`scripts/audit_dependencies.py` + `.security-audit-allow.txt`)". Neither file
-# exists in THIS repository — they live in agent-utilities. So epistemic-graph
-# currently has NO dependency-CVE scanner for its Python surface; `bandit` is SAST
-# over our own source, not an advisory check against installed packages. That
-# matters because this repo ships a Python client and a wheel.
-#
-# Either wire the agent-utilities script in here, or accept that EG's Python deps
-# are audited at the AU layer -- but do not let this file keep asserting a gate
-# that is not present. A comment claiming coverage that does not exist is worse
-# than no comment: it is the reason nobody noticed.
+# SCOPE — this gate audits the RUST dependency graph only. The Python client +
+# wheel dependency graph (`uv.lock`) is a separate, now-covered surface: the
+# `dependency-audit` pre-commit hook (`scripts/audit_dependencies.py` +
+# `.security-audit-allow.txt` at the repo root) is THIS repo's own fail-closed
+# OSV gate for it, ported from agent-utilities' identically-named script and
+# ledger unmodified in convention. `bandit` remains SAST over our own source,
+# not an advisory check against installed packages — it is not a substitute for
+# either audit. See `.security-audit-allow.txt` for the current findings.
 #
 #   * [advisories] — FAIL-CLOSED. cargo-deny denies on ANY matched RUSTSEC advisory
 #     by default; the `ignore` list below is the ONLY escape hatch, and it must stay

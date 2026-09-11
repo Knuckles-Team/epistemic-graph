@@ -1071,6 +1071,16 @@ is what Dependabot flags. Rules:
 4. **Patch CVEs with a version floor at the source, then re-lock.** You **SHOULD** add the
    lower-bound in the extra that pulls the dependency, then re-lock — `uv` resolves one version
    graph-wide, so raising the floor there raises it for the whole lock.
+5. **The lock is audited, not just checked for drift.** `uv-lock` (above) only proves the lock
+   matches `pyproject.toml` — it says nothing about whether a resolved package has a live
+   advisory. `scripts/audit_dependencies.py` + `.security-audit-allow.txt` (the `dependency-audit`
+   pre-commit hook) is the Python twin of the Rust `cargo-deny-advisories` gate below: a
+   fail-closed OSV audit of every resolved `uv.lock` package, ported from agent-utilities'
+   identically-named script and ledger unmodified in convention. Any advisory against a resolved
+   dependency is a hard failure unless `.security-audit-allow.txt` carries a justified,
+   <=90-day-expiring line for that exact advisory/package pair, cross-validated in both
+   directions (a stale acceptance fails the gate too). Offline is a hard failure by default —
+   `SECURITY_AUDIT_OFFLINE_POLICY=warn` is a local-only escape hatch CI must never set.
 
 ## crates.io-only Rust dependency edict (no `git = `, no out-of-workspace `path = `)
 

@@ -1,0 +1,13 @@
+# Packages with an OSV advisory but NO released upstream fix -- risk-accepted.
+# Format: ADVISORY-ID package expires=YYYY-MM-DD # justification (reviewed periodically,
+# max 90-day horizon). scripts/audit_dependencies.py skips exactly these advisory/package
+# pairs; remove an entry once a fix ships so the audit re-flags it and the floor is raised.
+#
+# Twin ledger to agent-utilities' `.security-audit-allow.txt` -- same file, same
+# script, same semantics, run here against THIS repo's `uv.lock` (the Python
+# client + wheel dependency surface). See deny.toml for why this exists
+# separately from the Rust-side `.cargo-audit-allow.txt`.
+#
+# Currently empty: do not add an entry to force this gate green. An entry is
+# added only when a real advisory has NO released fix and the risk is
+# genuinely, explicitly accepted with a dated justification.
