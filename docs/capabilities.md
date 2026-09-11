@@ -399,6 +399,7 @@ See [governed modality serving](architecture/modality_serving.md).
 | Operation | Status | Evidence |
 |-----------|:------:|----------|
 | Multimodal sensor fusion (camera/LiDAR/audio/tactile aligned via ASOF backward-join) → `Op::SensorFuse` | ✅ | composes EG-085 + EG-KG.query.pipelined-execution + tsdb ASOF (CONCEPT:EG-KG.query.multi-rate-sensor-stream) |
+| Multi-rate fusion onto a DECLARED clock (uniform grid or EG-067 tumbling windows, per-channel `Nearest`/`Linear`/`AsofHold` resample → `[timesteps × channels]` tensor + validity mask) → `Op::SensorAlign` | ✅ | `eg_tsdb::fusion` (time half) + `eg_tensor::fusion` (tensor half), driven from a wire plan by eg-plan's `timeseries`-gated executor arm; the grid/interpolating sibling of `Op::SensorFuse`'s union-clock ASOF (CONCEPT:EG-KG.query.multi-rate-sensor-stream) |
 | Action/policy/trajectory memory (`:Trajectory` of `:Step{state,action,reward,next,t}`, discounted return, best/worst retrieval) | ✅ | policy-learning/replay substrate (CONCEPT:EG-KG.compute.discounted-return) |
 | ROS2 bridge — engine CDC events ↔ ROS2 topics over the standard rosbridge-WebSocket JSON protocol (NO DDS C stack) | ✅ | `src/server/ros2_bridge.rs`, pure-Rust `tokio-tungstenite` client to a `rosbridge_server` (CONCEPT:EG-KG.domains.robotics-gpu-distribution); feature `ros2-bridge`, `full-extras`-only. A native DDS/RTPS wire (`ros2-dds`) is the second `full-extras` leg |
 

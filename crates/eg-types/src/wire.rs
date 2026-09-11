@@ -177,6 +177,69 @@ pub enum TensorOpKind {
     },
 }
 
+/// FUSE — the per-channel interpolation mode carried by [`FuseStream`]
+/// (CONCEPT:EG-KG.query.multi-rate-sensor-stream). Chosen PER STREAM because modalities differ: a pose is
+/// `Linear`-interpolable, a discrete mode/label wants `AsofHold`, a noisy raw reading may
+/// want `Nearest`. PURE serde — the resampling math lives in `eg_tsdb::fusion` behind
+/// eg-plan's `timeseries` gate; this is the wire variant.
+#[cfg(feature = "timeseries")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum FuseInterp {
+    /// The closest sample in time to the grid instant (either side); a tie resolves to the
+    /// EARLIER sample so the result is deterministic.
+    Nearest,
+    /// Linear interpolation between the two samples bracketing the grid instant. An instant
+    /// OUTSIDE the sample span is a GAP — no extrapolation.
+    Linear,
+    /// Last-known value at-or-before the grid instant (forward-fill / zero-order hold). An
+    /// instant before the first sample is a GAP.
+    AsofHold,
+}
+
+/// FUSE — one input stream to [`Op::SensorAlign`] (CONCEPT:EG-KG.query.multi-rate-sensor-stream): the sensor
+/// `layer` (a node label / `type`, resolved off the snapshot exactly as `Op::SensorFuse`
+/// resolves its streams) plus the [`FuseInterp`] mode that channel is resampled under.
+/// PURE serde; this is the wire variant.
+#[cfg(feature = "timeseries")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct FuseStream {
+    pub layer: String,
+    pub interp: FuseInterp,
+}
+
+/// FUSE — the DECLARED time base [`Op::SensorAlign`] resamples onto
+/// (CONCEPT:EG-KG.query.multi-rate-sensor-stream). This is what separates `SensorAlign` from `Op::SensorFuse`:
+/// `SensorFuse` fuses onto the UNION clock of the samples themselves (data-driven instants,
+/// tolerance/ASOF only), while `SensorAlign` fuses onto a clock the CALLER declares, so the
+/// output instants are independent of when the sensors happened to fire.
+///
+/// * `Uniform { from_ns, to_ns, step_ns }` — the half-open grid `from_ns, from_ns+step_ns,
+///   … < to_ns`. One fused row per grid instant.
+/// * `Tumbling { width_ns, step_ns }` — EG-067 tumbling windows of `width_ns` aligned as
+///   `(t/width)*width` spanning the union sample span, each internally resampled onto a
+///   `step_ns` sub-grid. One fused row per window.
+///
+/// All bounds are INTEGER nanoseconds, not `f64` seconds: a grid instant has to be exact
+/// (it is an output identity), and integer ns keeps it so.
+#[cfg(feature = "timeseries")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum FuseClock {
+    Uniform {
+        from_ns: i64,
+        to_ns: i64,
+        step_ns: i64,
+    },
+    Tumbling {
+        width_ns: i64,
+        step_ns: i64,
+    },
+}
+
 /// PROBABILISTIC — the evidence for a conjugate Bayesian update carried by
 /// [`ProbQuery::Conditional`] (CONCEPT:EG-KG.compute.uncertainty-values). Mirrors `eg_compute::probabilistic::Evidence`,
 /// but defined HERE (pure serde, no eg-compute dep) so the wire stays Pi-safe; the executor
@@ -683,6 +746,38 @@ pub enum Op {
     SensorFuse {
         streams: Vec<String>,
         tolerance_ns: u64,
+    },
+    /// FUSE (multimodal sensor fusion on a DECLARED clock, CONCEPT:EG-KG.query.multi-rate-sensor-stream) —
+    /// the fixed-grid / tumbling-window sibling of `Op::SensorFuse`. Where `SensorFuse` fuses
+    /// onto the UNION clock of the samples (data-driven instants, ASOF/tolerance only), this
+    /// op resamples every stream onto the time base the caller DECLARES in `clock`
+    /// ([`FuseClock::Uniform`] grid or [`FuseClock::Tumbling`] EG-067 windows), each stream
+    /// under its OWN [`FuseInterp`] mode (`Nearest` / `Linear` / `AsofHold`) — so the output
+    /// instants, and the values at them, are independent of when the sensors happened to fire.
+    /// That is a different semantics, not a different spelling: a `Linear` channel yields a
+    /// genuinely INTERPOLATED reading at a grid instant no sample sits on, which ASOF cannot
+    /// produce.
+    ///
+    /// A SOURCE op: it resolves its streams off the snapshot and REPLACES the input, exactly
+    /// like `SensorFuse` / `TensorScan` / `SpatialScan`. The executor stacks the aligned
+    /// channels into a `[timesteps × channels]` eg-tensor frame + validity mask
+    /// (`eg_tensor::fusion`) and projects ONE row per clock instant: `id` = the instant (or
+    /// window start), `score` = the PRIMARY channel's (stream 0) fused reading — the
+    /// `Op::TsScan` "field 0" projection lifted onto the fused frame — or `None` where that
+    /// channel gapped. An instant at which EVERY channel is a gap emits NO row, so the
+    /// validity mask is what decides emission.
+    ///
+    /// `tolerance_ns` bounds per-channel staleness (`None` = unbounded): a `Nearest`/
+    /// `AsofHold` match farther away than it, or a `Linear` bracket wider than it, is a GAP.
+    ///
+    /// Gated behind `timeseries` (the SensorFuse gating precedent); the alignment math lives
+    /// in `eg_tsdb::fusion` and the tensor stacking in `eg_tensor::fusion`, both behind
+    /// eg-plan's `timeseries` gate — this is the pure-serde wire variant.
+    #[cfg(feature = "timeseries")]
+    SensorAlign {
+        streams: Vec<FuseStream>,
+        clock: FuseClock,
+        tolerance_ns: Option<u64>,
     },
     /// SOURCE (time-series, CONCEPT:EG-KG.query.native-time-series) — seed the RowSet from native TSDB series.
     /// Scans each series in `series` for points in the `[from, to)` timestamp window and
@@ -1761,6 +1856,71 @@ mod timeseries_tests {
             },
             Op::Limit { k: 10 },
         ]);
+        let bytes = rmp_serde::to_vec_named(&plan).unwrap();
+        let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(plan, back);
+    }
+
+    /// The `Op::SensorAlign` variant + its `FuseStream`/`FuseInterp`/`FuseClock` payload
+    /// are pure serde and round-trip through MessagePack (the wire format) unchanged, for
+    /// BOTH clocks — the proof `Method::UnifiedQuery { plan }` can carry a declared-clock
+    /// fusion plan beside the union-clock `Op::SensorFuse`.
+    #[test]
+    fn sensor_align_variant_round_trips() {
+        for clock in [
+            FuseClock::Uniform {
+                from_ns: 0,
+                to_ns: 5_000_000_000,
+                step_ns: 500_000_000,
+            },
+            FuseClock::Tumbling {
+                width_ns: 4_000_000_000,
+                step_ns: 1_000_000_000,
+            },
+        ] {
+            let plan = Plan::new(vec![
+                Op::SensorAlign {
+                    streams: vec![
+                        FuseStream {
+                            layer: "imu".into(),
+                            interp: FuseInterp::Linear,
+                        },
+                        FuseStream {
+                            layer: "gps".into(),
+                            interp: FuseInterp::Nearest,
+                        },
+                        FuseStream {
+                            layer: "mode".into(),
+                            interp: FuseInterp::AsofHold,
+                        },
+                    ],
+                    clock,
+                    tolerance_ns: Some(50_000_000),
+                },
+                Op::Limit { k: 10 },
+            ]);
+            let bytes = rmp_serde::to_vec_named(&plan).unwrap();
+            let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
+            assert_eq!(plan, back);
+        }
+    }
+
+    /// An unbounded tolerance (`None`) round-trips too — the "no staleness bound" case is
+    /// on the wire, not implied by a sentinel.
+    #[test]
+    fn sensor_align_unbounded_tolerance_round_trips() {
+        let plan = Plan::new(vec![Op::SensorAlign {
+            streams: vec![FuseStream {
+                layer: "imu".into(),
+                interp: FuseInterp::Linear,
+            }],
+            clock: FuseClock::Uniform {
+                from_ns: 0,
+                to_ns: 3,
+                step_ns: 1,
+            },
+            tolerance_ns: None,
+        }]);
         let bytes = rmp_serde::to_vec_named(&plan).unwrap();
         let back: Plan = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(plan, back);

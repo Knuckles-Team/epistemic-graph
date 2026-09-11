@@ -1591,6 +1591,206 @@ mod tests {
         );
     }
 
+    /// Decode a `UnifiedQuery` response (`Raw([(id, score?)])`) to its full rows —
+    /// [`unified_ids`] drops the scores, and a fusion proof lives in the scores.
+    ///
+    /// Gated exactly like its callers (`query` + `tsdb`): a `query`-only build compiles no
+    /// test that needs the scores, and an unused helper there would be dead code.
+    #[cfg(all(feature = "query", feature = "tsdb"))]
+    fn unified_rows(resp: &crate::protocol::Response) -> Vec<(String, Option<f32>)> {
+        let raw = match &resp.result {
+            Some(ResultPayload::Raw(bytes)) => bytes,
+            other => panic!("expected Raw rows, got {:?}", other),
+        };
+        rmp_serde::from_slice(raw).unwrap()
+    }
+
+    /// WIRE REACHABILITY of declared-clock sensor fusion (CONCEPT:EG-KG.query.multi-rate-sensor-stream)
+    /// — `Op::SensorAlign` driven through `dispatch`, the outermost entrypoint every wire
+    /// edge (transport / MQTT / broker / ROS2 / SPARQL-HTTP / federation) funnels into.
+    ///
+    /// An executor-level `Plan::execute` proof shows the op WORKS; it cannot show anyone can
+    /// REACH it. This one goes the whole way: a signed verified envelope → envelope
+    /// verification → `requires_write` → the capability policy → the router arm →
+    /// `handle_unified_query` (including `served_tsdb_scope`, which must NOT demand a tsdb
+    /// carrier for an op that reads the graph snapshot rather than the `SeriesStore`) → the
+    /// planner's `PlanCtx` → `sensor_align_op` → `eg_tsdb::fusion` + `eg_tensor::fusion`.
+    /// Nothing here is hand-constructed below the wire: the plan travels INSIDE
+    /// `Method::UnifiedQuery`, which is how a caller expresses one.
+    ///
+    /// The fixture samples only at 0/2/4s, so the three assertions below are mutually
+    /// falsifying: the union-clock `Op::SensorFuse` can only ever return the three SOURCE
+    /// instants, while a 1s grid must return FIVE — two of which (1s, 3s) exist at no sample
+    /// at all — and the readings at them must differ between `Linear` (interpolated 10/30)
+    /// and `AsofHold` (held 0/20). A build that reached the op but dropped the clock, or
+    /// reached the clock but dropped the interpolation mode, fails on one of them.
+    #[cfg(all(feature = "query", feature = "tsdb"))]
+    #[tokio::test]
+    async fn dispatch_drives_declared_clock_sensor_fusion_end_to_end() {
+        use eg_plan::Op;
+        use eg_types::wire::{FuseClock, FuseInterp, FuseStream};
+
+        const NS: i64 = 1_000_000_000;
+        let state = test_state();
+
+        // Seed the sensor layer THROUGH dispatch as well — no back door into the store.
+        let mut id = 1u64;
+        for (t, v) in [(0i64, 0.0f64), (2, 20.0), (4, 40.0)] {
+            let m = Method::AddNode {
+                node_id: format!("imu{t}"),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                    "type": "imu", "valid_from": t * NS, "value": v
+                }))
+                .unwrap(),
+            };
+            assert_ok(&dispatch_on_heap(&state, request(id, "__commons__", None, m)).await);
+            id += 1;
+        }
+
+        let align = |interp| Method::UnifiedQuery {
+            plan: eg_plan::Plan::new(vec![Op::SensorAlign {
+                streams: vec![FuseStream {
+                    layer: "imu".into(),
+                    interp,
+                }],
+                clock: FuseClock::Uniform {
+                    from_ns: 0,
+                    to_ns: 5 * NS,
+                    step_ns: NS,
+                },
+                tolerance_ns: None,
+            }]),
+        };
+
+        // (1) A uniform 1s grid, linearly interpolated: rows at the GRID instants, carrying
+        // readings the samples never contained.
+        let resp = dispatch_on_heap(
+            &state,
+            request(100, "__commons__", None, align(FuseInterp::Linear)),
+        )
+        .await;
+        assert_ok(&resp);
+        assert_eq!(
+            unified_rows(&resp),
+            vec![
+                ("0".to_string(), Some(0.0)),
+                (NS.to_string(), Some(10.0)),
+                ((2 * NS).to_string(), Some(20.0)),
+                ((3 * NS).to_string(), Some(30.0)),
+                ((4 * NS).to_string(), Some(40.0)),
+            ],
+            "the declared grid must survive the whole wire path"
+        );
+
+        // (2) The SAME plan with only the interpolation mode changed must return different
+        // readings — proof the per-channel mode is carried on the wire and honoured.
+        let held = dispatch_on_heap(
+            &state,
+            request(101, "__commons__", None, align(FuseInterp::AsofHold)),
+        )
+        .await;
+        assert_ok(&held);
+        assert_eq!(
+            unified_rows(&held),
+            vec![
+                ("0".to_string(), Some(0.0)),
+                (NS.to_string(), Some(0.0)),
+                ((2 * NS).to_string(), Some(20.0)),
+                ((3 * NS).to_string(), Some(20.0)),
+                ((4 * NS).to_string(), Some(40.0)),
+            ],
+            "AsofHold must hold, not interpolate"
+        );
+
+        // (3) The pre-existing union-clock sibling over the SAME snapshot returns the three
+        // SOURCE instants — so (1) genuinely restored a capability that was absent, and did
+        // not merely re-spell one that already shipped.
+        let union = dispatch_on_heap(
+            &state,
+            request(
+                102,
+                "__commons__",
+                None,
+                Method::UnifiedQuery {
+                    plan: eg_plan::Plan::new(vec![Op::SensorFuse {
+                        streams: vec!["imu".into()],
+                        tolerance_ns: (10 * NS) as u64,
+                    }]),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&union);
+        assert_eq!(
+            unified_ids(&union),
+            vec![
+                "0".to_string(),
+                (2 * NS).to_string(),
+                (4 * NS).to_string()
+            ],
+            "SensorFuse stays on the union clock — a different semantics, not a synonym"
+        );
+    }
+
+    /// WIRE REACHABILITY of the TUMBLING-window clock through `dispatch`: the second
+    /// `FuseClock` shape emits one row per EG-067 window, scored by the window MEAN — a
+    /// different row cardinality from the grid clock over the identical fixture, so this
+    /// cannot pass by accident if `FuseClock::Tumbling` were decoded as `Uniform`.
+    #[cfg(all(feature = "query", feature = "tsdb"))]
+    #[tokio::test]
+    async fn dispatch_drives_tumbling_window_sensor_fusion() {
+        use eg_plan::Op;
+        use eg_types::wire::{FuseClock, FuseInterp, FuseStream};
+
+        const NS: i64 = 1_000_000_000;
+        let state = test_state();
+        let mut id = 1u64;
+        for (t, v) in [(0i64, 0.0f64), (2, 20.0), (4, 40.0)] {
+            let m = Method::AddNode {
+                node_id: format!("imu{t}"),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                    "type": "imu", "valid_from": t * NS, "value": v
+                }))
+                .unwrap(),
+            };
+            assert_ok(&dispatch_on_heap(&state, request(id, "__commons__", None, m)).await);
+            id += 1;
+        }
+
+        let resp = dispatch_on_heap(
+            &state,
+            request(
+                200,
+                "__commons__",
+                None,
+                Method::UnifiedQuery {
+                    plan: eg_plan::Plan::new(vec![Op::SensorAlign {
+                        streams: vec![FuseStream {
+                            layer: "imu".into(),
+                            interp: FuseInterp::AsofHold,
+                        }],
+                        clock: FuseClock::Tumbling {
+                            width_ns: 4 * NS,
+                            step_ns: NS,
+                        },
+                        tolerance_ns: None,
+                    }]),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&resp);
+        // Span [0s, 4s] → windows @0s and @4s. Window @0s sub-grid 0/1/2/3s held → 0,0,20,20
+        // ⇒ mean 10; window @4s sub-grid 4/5/6/7s held → 40,40,40,40 ⇒ mean 40.
+        assert_eq!(
+            unified_rows(&resp),
+            vec![
+                ("0".to_string(), Some(10.0)),
+                ((4 * NS).to_string(), Some(40.0)),
+            ]
+        );
+    }
+
     /// UQL e2e (CONCEPT:AU-KG.query.top-nodes-by-degree): the SAME query written as a UQL TEXT string, served
     /// via `Method::UnifiedQueryText`, returns the BYTE-IDENTICAL result to (a) the
     /// hand-built structured `Method::UnifiedQuery` plan AND (b) the separate-surfaces
