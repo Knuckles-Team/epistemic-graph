@@ -50,7 +50,16 @@ class MethodPolicyRow:
 # parameterized agent family. It takes its OWN `agent:template-write` /
 # `agent:template-read` actions rather than the library's: publishing a
 # generator of agents is a distinct privilege from publishing one agent.
-EXPECTED_METHOD_POLICY_ROWS = 413
+# 413 -> 414: RF-019 admitted `SemanticIndex` (ingestion), the S1-S6 tiered
+# semantic ingestion queue. It is the first row whose authz action is chosen
+# per-operation rather than by a write/read pair: `SemanticIndexOp::authz_action`
+# spans six actions (semantic:binding-write/-read, semantic:source-admit,
+# semantic:stage-claim, semantic:stage-complete, semantic:stage-read), because
+# curating what is indexed, feeding rows into an approved binding, taking work
+# off the queue and declaring a stage durable are four different grants. The row
+# below records the binding-write leg as its conservative upper bound, exactly
+# as the four agent layers record theirs.
+EXPECTED_METHOD_POLICY_ROWS = 414
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

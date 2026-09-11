@@ -610,6 +610,15 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     if let Method::AgentTemplate { op } = method {
         return op.is_mutation();
     }
+    // The semantic index's S1-S6 queue is the same runtime-conditional shape,
+    // and the same rule applies: `is_mutation` lives on the op, so this
+    // classifier and `eg_capabilities::semantic_index_policy` cannot disagree.
+    // Three of its reads-by-name are writes -- subscribing a consumer, claiming
+    // leases, and replaying an already-committed S1 all advance durable rows --
+    // and the op is the one place that fact is recorded.
+    if let Method::SemanticIndex { op } = method {
+        return op.is_mutation();
+    }
     #[cfg(feature = "modality-serving")]
     if let Method::ServedModality { op } = method {
         return op.mutates();

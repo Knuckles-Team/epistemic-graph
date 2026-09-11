@@ -1,7 +1,7 @@
 {
   "artifact_digests": {
-    "contract/methods.json": "d135b963bd2be62320a8c40547915b6d84c6f43ca597137e1fc7760f599d56be",
-    "contract/schemas/method.request.json": "17457bdedd35a86d264f355f00112aa5837349102d961ee390c1776cdf532ec5",
+    "contract/methods.json": "1ce5502cbb901002d4df3516205e82a034f8919942087fa4e3ae3758741125b7",
+    "contract/schemas/method.request.json": "e7f76d4f1416ecfe33dc57f5246aa1fee6a8a54c834913e242009c09d7ee26cb",
     "contract/schemas/result.Bool.json": "f4bcf35f07ea1acd8a6067aa0279864f120fc1eb6e308afb0720e034b2d57744",
     "contract/schemas/result.Count.json": "c139342b656a7d5b0bf598ad6a64f92992dc1071ab8f6568bcfa55422f1f326a",
     "contract/schemas/result.EdgeList.json": "837e5e87b9131e55b1136b2fd5588b002ff9c26eeaad14892a3b3f2b83e1cbc2",
@@ -10,17 +10,17 @@
     "contract/schemas/result.NodeList.json": "584c3712101c532f50581a956cf755b9e84b280bbe2d189ece85b9e577365e4b",
     "contract/schemas/result.String.json": "a3e272c53a4f5de4d4d6d51ff824bf63bfb22b3aa59609d990cd53065148a4ab",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "crates/eg-capabilities/generated/method_catalog.rs": "08c6872b61a12f9ed2c43933029ec7d4dc8bcbd4ea5046752bc766f1c79ec00f",
-    "docs/capabilities.generated.md": "acbecda5236957bd3ac1beac380e73e23f35d86045c3f1d3f45d2359a2fc33e7",
+    "crates/eg-capabilities/generated/method_catalog.rs": "6d6044a771817f5b912e82607ce5642cf0f5f672a0c380654210a2bc02863fe2",
+    "docs/capabilities.generated.md": "5e98d2c213e8a4e9dfe80a50b40750b66a399494cb927bdd6567a8a9f70e4262",
     "epistemic_graph/contract/__init__.py": "36e6ba4cbab070e0f32c5974af8bca0cacb1d7391e9a256a2ba947acb85899c4",
-    "epistemic_graph/generated/__init__.py": "9b15fea31b46f31a26694be84268f667d830215b2c003ad6cbbb211a242238d8",
-    "epistemic_graph/generated/_ids.py": "e6404c1afb52f2357eb2712c6be0a50576fb5444648d03918355e4b4955ea09f",
+    "epistemic_graph/generated/__init__.py": "528ed92e5261236170b443a8987fe1a78344a3b5f610c17f8c87260f910fb0c9",
+    "epistemic_graph/generated/_ids.py": "069a3a59b5811d173831ddc1f74b2644eef1ae98bb488aa56b8ae3b209ea1c36",
     "epistemic_graph/generated/_runtime.py": "9c654cf9a7e4e3304d0e0f933fb791f06a6ed78a6e4e1f2f82d24f577185a6fa",
     "epistemic_graph/generated/cluster.py": "9db77471e24e9c6612b48ad3625b1c46e08e9122a0da47d55066e45e1b4ec8d3",
     "epistemic_graph/generated/compute.py": "912901c873d200bd03e44e5f9a378dc8cd4767fdf4cc6f9b4e99f0540a265145",
     "epistemic_graph/generated/coordination.py": "61432857bbb8b37db7ece42b01db97c5fd85a8655180ca940cb2c37d187b4928",
     "epistemic_graph/generated/graph.py": "50714095cadc9fd7f6f85d7af904e1a93a2841cb41cba42775cc81b3744c36f8",
-    "epistemic_graph/generated/ingestion.py": "4a12d30f795258d2f4dabd6c2ba995671cd5616bc3d4d037ab4de779b974f58d",
+    "epistemic_graph/generated/ingestion.py": "389228d2afecd5fca341f4ccc82fbddd0940058807f1c43f94b5dce15227d2c0",
     "epistemic_graph/generated/messaging.py": "c3ab794f5a3a23f9b0520c4be8ceac1b9dbc0ee1a2069ad2fc9535164096df87",
     "epistemic_graph/generated/query.py": "d191dcb24f729b13bdfad6de34427be550d9e355eb0ecce4891da3ea53683970",
     "epistemic_graph/generated/reasoning.py": "7eebd7ced3443ca2f7a35b2ca531185219a96a17427f6dc44fbb898c131be384",
@@ -29,7 +29,7 @@
     "epistemic_graph/generated/transactions.py": "620eca482b86fd65c956204e308ef15a4d6765fa21887a4a93dbe40dd85998be"
   },
   "cargo_lock_sha256": "78962b424ed5c7e698355184f879428097eb06bba78e8493fadc8b09025b5da3",
-  "contract_digest": "0b130ae749eb232d09230950b361fdc8885e10d16dc8ed739bb17ee5445e593f",
+  "contract_digest": "a7fefa1279778c5135521d66c2a9957693ac2d1a4f7631c7637b59ac4c28cd8a",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -333,16 +333,16 @@
   },
   "generator": "eg-capabilities/gen_contract",
   "internal_only_methods": 19,
-  "method_count": 413,
-  "opaque_result_methods": 284,
-  "python_client_methods": 394,
+  "method_count": 414,
+  "opaque_result_methods": 285,
+  "python_client_methods": 395,
   "result_provenance": {
     "annotation-only": 36,
     "confirmed": 68,
     "contradicted": 4,
-    "dispatch-only": 82,
+    "dispatch-only": 83,
     "undeclared": 223
   },
-  "source_tree_oid": "f43f8fe70aa1f8d9f47a8dbbf8cf4349ddc0634f9064ccd3589e55c945e1b666",
+  "source_tree_oid": "055a28b3effc449f61fb1b45d8e9b03b7dec8f545626538361bbf81a17a14806",
   "typed_result_methods": 129
 }

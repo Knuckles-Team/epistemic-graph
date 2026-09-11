@@ -12,6 +12,7 @@ use super::state::SemanticIndexError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticAuthorizationReceipt {
     pub tenant_id: String,
     pub actor_scope: String,
@@ -30,6 +31,7 @@ pub struct SemanticAuthorizationReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticAuthorizationReceiptDraft {
     pub tenant_id: String,
     pub actor_scope: String,
@@ -118,6 +120,7 @@ impl SemanticAuthorizationReceipt {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticLineage {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -137,6 +140,7 @@ pub struct SemanticLineage {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticLineageDraft {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,

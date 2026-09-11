@@ -763,6 +763,29 @@ async fn dispatch_agent_library_methods(
                 )
             }
         }
+        Method::SemanticIndex { op } => {
+            #[cfg(all(feature = "ann-redb", feature = "query"))]
+            {
+                dispatch_boxed(async {
+                    handlers::semantic_index::handle_semantic_index(
+                        state,
+                        req.id,
+                        verified_context,
+                        op,
+                    )
+                    .await
+                })
+                .await
+            }
+            #[cfg(not(all(feature = "ann-redb", feature = "query")))]
+            {
+                let _ = (state, verified_context, op);
+                Response::err(
+                    req.id,
+                    "The semantic index is not available in this build (requires `ann-redb` and `query`)",
+                )
+            }
+        }
         Method::AgentTemplate { op } => {
             #[cfg(feature = "redb")]
             {

@@ -19,6 +19,7 @@ use super::tombstone::SemanticTombstone;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticBindingStateTransition {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -125,6 +126,7 @@ fn valid_state_transition(from: SemanticBindingState, to: SemanticBindingState) 
 /// compiler/store cutover belongs to the activation slice.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "mutation", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticIndexMutation {
     StoreBinding {
         binding: Box<SemanticBinding>,
@@ -205,6 +207,7 @@ impl SemanticIndexMutation {
 /// [`SemanticIndexMutation::FinalizeGeneration`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "artifact", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticStageArtifact {
     None,
     SqlSourceManifest {
@@ -292,6 +295,7 @@ impl SemanticStageArtifact {
 /// authoritative for global lexical/ANN identities and the active pointer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "artifact", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticGenerationArtifact {
     LexicalIndexManifest {
         manifest: Box<SemanticLexicalIndexManifest>,
@@ -495,6 +499,7 @@ fn validate_supersession(
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticQueueStatus {
     pub queue_profile_id: String,
     pub class: SemanticQueueClass,
@@ -515,6 +520,7 @@ pub struct SemanticQueueStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticIndexStatus {
     Accepted,
     DeferredBackpressured,
@@ -525,6 +531,7 @@ pub enum SemanticIndexStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "code", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticIndexError {
     UnsupportedSelector {
         selector: SemanticSelectorKind,

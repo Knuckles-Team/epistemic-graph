@@ -101,9 +101,12 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // without this count being raised) and `AgentTemplate` (item C). This is
     // the same census `scripts/method_policy_inventory.py` counts from the
     // descriptor side; the two must agree.
+    // 413 -> 414: RF-019's `SemanticIndex`, the S1-S6 tiered semantic ingestion
+    // queue -- the first wire surface over the semantic stage queue rather than
+    // over semantic CONTENT.
     assert_eq!(
         variants.len(),
-        413,
+        414,
         "the wire method census changed; update this exact count deliberately"
     );
 }

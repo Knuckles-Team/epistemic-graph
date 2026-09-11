@@ -42,6 +42,7 @@ pub enum VersionExpectation {
 /// Exact authoritative version transition committed with a durable record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CommittedVersion {
     Graph { source: u64, target: u64 },
     Native { source: u64, target: u64 },

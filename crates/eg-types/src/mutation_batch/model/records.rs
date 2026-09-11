@@ -28,6 +28,7 @@ pub struct MutationBatchRecord {
 /// One durable outbox row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationOutboxRecord {
     pub schema_version: u16,
     pub batch_id: String,
@@ -45,6 +46,7 @@ pub struct MutationOutboxRecord {
 /// Durable lease over an outbox row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MutationOutboxLease {
     pub record: MutationOutboxRecord,
     pub consumer: String,

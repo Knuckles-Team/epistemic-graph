@@ -11,6 +11,7 @@ use super::state::SemanticIndexError;
 /// tenant, generation, or deletion time the receipt authorized.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticTombstone {
     pub tenant_id: String,
     pub binding_id: String,
@@ -22,6 +23,7 @@ pub struct SemanticTombstone {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticTombstoneDraft {
     pub tenant_id: String,
     pub binding_id: String,

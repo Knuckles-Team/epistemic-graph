@@ -18,6 +18,7 @@ pub const SEMANTIC_FILTER_MAX_RESULTS: u32 = 1_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticIndexOperation {
     #[serde(rename = "semantic_binding_create")]
     CreateBinding,
@@ -75,6 +76,7 @@ impl SemanticIndexOperation {
 /// bond; it does not infer approval from a caller role or transport.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticIndexApproval {
     pub approval_id: String,
     pub approval_digest: SemanticDigest,
@@ -91,6 +93,7 @@ pub struct SemanticIndexApproval {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticIndexApprovalDraft {
     pub approval_id: String,
     pub operation: SemanticIndexOperation,
@@ -213,6 +216,7 @@ fn approval_digest(draft: &SemanticIndexApprovalDraft) -> SemanticDigest {
 /// no representable field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticIndexFilter {
     pub source_entity_ids: Vec<String>,
     pub required_source_revision: Option<String>,
@@ -249,6 +253,7 @@ impl SemanticIndexFilter {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "probe", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticSearchProbe {
     CanonicalText {
         text: String,
@@ -299,6 +304,7 @@ impl SemanticSearchProbe {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "operation", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticIndexCommand {
     #[serde(rename = "semantic_binding_create")]
     CreateBinding { draft: Box<SemanticBindingDraft> },
@@ -410,6 +416,7 @@ fn validate_optional_text(field: &str, value: &Option<String>) -> Result<(), Sem
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticIndexRequest {
     pub request_id: String,
     pub tenant_id: String,

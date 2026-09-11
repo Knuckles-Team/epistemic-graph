@@ -126,7 +126,17 @@ def test_missing_domain_declaration_fails_closed() -> None:
     )
     assert missing != source, "the planted deletion must actually change the source"
 
-    with pytest.raises(MethodPolicyInventoryError, match="407 rows instead of 408"):
+    # Derived, not literal. This assertion carried a hard-coded "407 rows
+    # instead of 408" that had already rotted five methods behind the registry
+    # -- so the test that is supposed to prove a DELETED row fails closed was
+    # itself failing for an unrelated reason, and would have gone on masking a
+    # real regression. The expectation is the registry's own count minus the
+    # one row this test deletes.
+    expected = EXPECTED_METHOD_POLICY_ROWS
+    with pytest.raises(
+        MethodPolicyInventoryError,
+        match=f"{expected - 1} rows instead of {expected}",
+    ):
         parse_method_policy_table(missing)
 
 

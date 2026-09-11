@@ -25,6 +25,7 @@ pub const SEMANTIC_ANN_INDEX_SCHEMA: &str = "semantic-ann-index/v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticLexicalIndexIdentity {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -120,6 +121,7 @@ impl SemanticLexicalIndexIdentity {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticAnnIndexIdentity {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -234,6 +236,7 @@ struct AnnIdentityInput<'a> {
 /// Caller-supplied fields; state and final digests are constructor-owned.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticBindingDraft {
     pub binding_id: String,
     pub tenant_id: String,
@@ -260,6 +263,7 @@ pub struct SemanticBindingDraft {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticBinding {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,
@@ -601,6 +605,7 @@ fn binding_digest(
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticVector {
     pub binding_id: String,
     pub binding_digest: SemanticDigest,

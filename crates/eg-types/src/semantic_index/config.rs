@@ -5,6 +5,7 @@ use super::digest::cbor;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticVectorMetric {
     Cosine,
     DotProduct,
@@ -21,6 +22,7 @@ impl SemanticVectorMetric {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticAnnIndexMethod {
     Hnsw,
     IvfPq,
@@ -36,6 +38,7 @@ impl SemanticAnnIndexMethod {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SemanticBindingState {
     Pending,
     Building,
@@ -56,6 +59,7 @@ impl SemanticBindingState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticModelIdentity {
     pub model_id: String,
     pub model_revision: String,
@@ -67,6 +71,7 @@ pub struct SemanticModelIdentity {
 /// final index digest, breaking the otherwise circular binding identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticLexicalIndexSpec {
     pub analyzer_id: String,
     pub analyzer_revision: String,
@@ -90,6 +95,7 @@ impl SemanticLexicalIndexSpec {
 /// index digest; both are derived only after the binding digest exists.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticAnnIndexSpec {
     pub method: SemanticAnnIndexMethod,
     pub parameters_digest: String,

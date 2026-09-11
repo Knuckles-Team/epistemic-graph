@@ -196,6 +196,36 @@ async def send_add_embedding(
     return expect_string("AddEmbedding", payload)
 
 
+class SemanticIndexRequest(BaseModel):
+    """Request body for SemanticIndex - contract/schemas/method.request.json#/methods/SemanticIndex."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Any
+
+
+async def send_semantic_index(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """SemanticIndex - semantic:binding-write, SemanticIndexRedb, replay OperationIdentity.
+
+    Result: opaque (Raw) - the contract declares no result schema.
+    Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
+    """
+    SemanticIndexRequest.model_validate(params or {})
+    payload = await client._send(
+        "SemanticIndex",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("SemanticIndex", payload)
+
+
 class SemanticSearchRequest(BaseModel):
     """Request body for SemanticSearch - contract/schemas/method.request.json#/methods/SemanticSearch."""
 

@@ -10,6 +10,7 @@ use super::{SemanticDigest, SemanticIndexError};
 /// letting the consumer prove which committed revision triggered the scan.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticSourceDirtyIntent {
     /// Tenant and logical SQL mutation scope, excluding lifecycle generation.
     pub source_scope_digest: SemanticDigest,

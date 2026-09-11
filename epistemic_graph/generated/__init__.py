@@ -374,6 +374,7 @@ SEND_BY_METHOD = {
     "Restore": storage.send_restore,
     "Rollback": transactions.send_rollback,
     "RunDatalogReasoning": reasoning.send_run_datalog_reasoning,
+    "SemanticIndex": ingestion.send_semantic_index,
     "SemanticSearch": ingestion.send_semantic_search,
     "SendMessage": messaging.send_send_message,
     "ServedModality": ingestion.send_served_modality,

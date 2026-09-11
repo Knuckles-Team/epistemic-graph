@@ -172,6 +172,11 @@ pub(crate) mod viz;
 // snapshot through the graph mutation gateway.
 #[cfg(feature = "modality-serving")]
 pub(crate) mod modality;
+// RF-019's S1-S6 tiered semantic ingestion queue. Always declared: the module
+// carries its own `#![cfg(all(ann-redb, query))]`, the durable semantic owner
+// plus the authorized SQL source read port it needs, and the router refuses
+// `Method::SemanticIndex` by name in a build without them.
+pub(crate) mod semantic_index;
 // One governed, bounded Arrow KnowledgeBatch result plane for graph, SQL, RDF,
 // vector, time-series, analytics jobs, and cross-modal plans.
 #[cfg(feature = "knowledge-batch")]

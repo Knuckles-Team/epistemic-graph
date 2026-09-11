@@ -281,6 +281,7 @@
 | `IndexRepository` | false | None | `compute:parse` | true | false | false | None |  |
 | `ObserveScreen` | false | None | `compute:vision` | false | false | false | None |  |
 | `AddEmbedding` | true | GraphRedb | `node:write` | false | true | false | Atomic |  |
+| `SemanticIndex` | true | SemanticIndexRedb | `semantic:binding-write` | true | false | false | Atomic | RF-019's S1-S6 tiered ingestion queue. Runtime-conditional like the four agent layers, but over SIX authz actions rather than two: binding lifecycle is semantic:binding-write, S1 admission semantic:source-admit, subscribe/claim/release semantic:stage-claim, stage completion semantic:stage-complete, and the reads semantic:binding-read / semantic:stage-read. The row names the binding-write leg; SemanticIndexOp::authz_action is the authority for each operation |
 | `SemanticSearch` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
 | `Discover` | false | None | `compute:semantic` | true | false | false | Snapshot |  |
 | `Quantum` | false | None | `quantum:run` | true | false | false | None | self-routes before dispatch_graph_op like AnalyticsJob/Statechart, never reaches the graph tamper-evident audit chain; R5 override audit instead rides the response's PlannerDecision.audit trail into the agent-utilities :ToolCall/:QuantumJob provenance |

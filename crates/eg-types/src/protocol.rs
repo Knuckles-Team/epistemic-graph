@@ -592,6 +592,26 @@ pub enum Method {
     AgentTemplate {
         op: crate::agent_template::AgentTemplateOp,
     },
+    /// Drive one durable semantic binding and its S1-S6 tiered ingestion
+    /// queue (RF-019). This is the surface an external connector uses to make
+    /// something searchable: admit a binding, feed authoritative SQL source
+    /// rows into S1, then subscribe a worker, claim stage leases for its queue
+    /// class, and complete each stage against its predecessor proof.
+    ///
+    /// Boxed, unlike the four agent layers beside it: `SemanticIndexOp`'s
+    /// stage-completion variants carry a lease, a transition, an artifact and a
+    /// successor intent together, which is far larger than any agent op and
+    /// would otherwise set the size of EVERY `Method`. `Box` is transparent to
+    /// serde, so the wire form is unchanged.
+    ///
+    /// Declared unconditionally, like the `semantic_index` DTO module it is
+    /// built from: the wire contract is one contract in every build. The
+    /// engine-side durable tier it needs is what carries the `ann-redb` gate,
+    /// so the dispatch arm refuses by name in a build without it -- exactly
+    /// how the four agent layers refuse in a build without `redb`.
+    SemanticIndex {
+        op: Box<crate::semantic_index::SemanticIndexOp>,
+    },
     /// Authenticate and lower an Agent Library delegation through the native
     /// WorkItem admission command log. The retained library entry is resolved
     /// by the library owner at the handler boundary.
