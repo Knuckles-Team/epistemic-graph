@@ -208,7 +208,7 @@ fn apply_apply_mutation(
 /// "reasoning")] pub use eg_compute::reasoning;`) exists only under that feature, and
 /// this function's only caller is the `#[cfg(feature = "reasoning")]
 /// Method::RunDatalogReasoning` arm in `try_handle_gateway` below. Same shape as
-/// BUG-CX-104 / the `dispatch.rs` fix (commit `8f27c425`): a function with no cfg of
+/// BUG-CX-104 / the `dispatch.rs` fix (commit `bc280437`): a function with no cfg of
 /// its own reaching a cfg-gated module. Without this gate, `cargo check
 /// --no-default-features --features server` fails E0433 on every `crate::reasoning::*`
 /// call in this body, even though the function is unreachable in that build.

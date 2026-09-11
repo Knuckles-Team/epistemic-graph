@@ -426,7 +426,7 @@ fn finish_batch(
     // `redb` crate -- but its projection-wakeup encoder is pure serialization +
     // hashing with no redb dependency, and this call site (every `compile_methods`,
     // every backend) carries no cfg of its own. Same shape as BUG-CX-104 / the
-    // `dispatch.rs` fix (commit `8f27c425`): a caller reaching a cfg-gated producer
+    // `dispatch.rs` fix (commit `bc280437`): a caller reaching a cfg-gated producer
     // it doesn't itself gate. `redb_store.rs`/`lib.rs` are outside this lane's
     // ownership (`plans/complex/DISPATCH-REGISTRY.tsv` scopes WD10-P-SLIM to this
     // file + `handlers/graph_ops.rs`), so the fix lives here: branch on the same
