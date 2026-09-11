@@ -10,6 +10,42 @@
 use super::shard::{Shard, ShardWrite};
 use super::*;
 
+/// The maintenance claim key for ONE ATTEMPT at a control-row write.
+///
+/// The kernel's maintenance claim is FIRST-WINS: the second batch presenting a
+/// claim key resolves as a replay, and a replayed member writes nothing and
+/// refuses owner rows. Deriving the key from the operation's SUBJECT
+/// (`matview/put/{name}`, `xshard/decision-clear/{txn_id}`) therefore made every
+/// control table writable exactly ONCE per subject for the life of the store --
+/// a materialized view could never be refreshed after its first
+/// materialization, and cross-shard decision cleanup could never run twice for
+/// one transaction, which is exactly what crash recovery does when it
+/// re-reconciles an in-doubt transaction. Both failed closed with "owner write
+/// requires an admitted mutation batch", from a call site that looks like an
+/// ordinary upsert.
+///
+/// These writes carry no replay requirement: their durability is the caller's
+/// own 2PC record or refresh protocol, not a first-wins claim, and re-running
+/// one must REDO it rather than resolve it. So the claim key is per attempt --
+/// the same rule, for the same reason, that `shard::drain_batch` states for the
+/// drain id. Treating the replay as a silent success instead would have been
+/// worse than the error: it would durably drop every matview refresh after the
+/// first. Regression: `shard_control_tests::
+/// control_rows_are_repeatable_writes_not_first_wins_claims`.
+fn control_write_attempt_id(op_id: &str) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    static NONCE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    let nonce = *NONCE.get_or_init(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos() as u64)
+            .unwrap_or(0)
+    });
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{op_id}/{}-{nonce}:{seq}", std::process::id())
+}
+
 /// Run one control-row mutation as a ledgered maintenance member.
 ///
 /// The control scope is always member zero of an admitted group, even when the
@@ -17,7 +53,8 @@ use super::*;
 /// view state under the same one-storage/one-mutation-owner rule as graph rows.
 macro_rules! control_write {
     ($shard:expr, $op_id:expr, |$owner:ident| $body:block) => {{
-        let (group, batches) = $shard.admit_maintenance(&[], $op_id)?;
+        let attempt_id = control_write_attempt_id($op_id);
+        let (group, batches) = $shard.admit_maintenance(&[], &attempt_id)?;
         let write = ShardWrite::open($shard, &group, &[], &batches)?;
         let result: Result<_, String> =
             (|$owner: &AdmittedOwnerWrite<'_, GraphShardOwner>| $body)(write.control());

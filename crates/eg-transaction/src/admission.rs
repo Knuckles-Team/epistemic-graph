@@ -28,6 +28,19 @@ pub(crate) enum AdmissionState {
         /// the `Idle`/`Applying`/`Finished` steady-state variants; this enum
         /// is process-local (never encoded), so the box has no wire effect.
         record: Box<MutationBatchRecord>,
+        /// The last batch this write actually FINISHED before the replay, if
+        /// any.
+        ///
+        /// A write may carry a SEQUENCE of batches (the change-envelope page
+        /// commits a whole page through one member: `Idle | Finished ->
+        /// Applying` is the transition that allows it), and a replayed member
+        /// writes nothing. So a replay must not displace the terminal
+        /// reference the sequence already earned: `commit_change_envelopes`
+        /// deliberately keeps the LAST FRESH batch as the name it hands
+        /// `commit_group`, and without this a trailing replay would make that
+        /// name fail `validate_commit_admission` with "mutation commit does not
+        /// match a finished batch".
+        finished: Option<Vec<u8>>,
     },
     Poisoned,
 }
@@ -44,10 +57,21 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
                 };
                 Ok(())
             }
+            // A replayed member wrote nothing, so it is not an open batch: the
+            // NEXT batch in the sequence may apply over it. (This states that a
+            // replay applies nothing itself, which `open_owner_admission` and
+            // `finish_batch_admission` still enforce -- they accept only
+            // `Applying`.)
+            AdmissionState::Replayed { .. } => {
+                *state = AdmissionState::Applying {
+                    batch: encoded,
+                    owner: None,
+                };
+                Ok(())
+            }
             AdmissionState::Applying { .. } => {
                 Err("another mutation batch is already admitted".to_string())
             }
-            AdmissionState::Replayed { .. } => Err("a replayed member applies nothing".to_string()),
             AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
         }
     }
@@ -65,12 +89,14 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
                 *state = AdmissionState::Replayed {
                     batch: encoded,
                     record: Box::new(record.clone()),
+                    finished: None,
                 };
                 Ok(())
             }
             AdmissionState::Replayed {
                 batch: existing,
                 record: existing_record,
+                ..
             } if existing.as_slice() == encoded.as_slice() => {
                 let existing_batch =
                     encode_bounded(&existing_record.batch, "replayed mutation batch")?;
@@ -80,6 +106,28 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
                 } else {
                     Err("a replayed batch record does not match its admitted batch".to_string())
                 }
+            }
+            // A replay may follow a COMPLETED batch in the same write: the
+            // sequence's terminal reference is carried forward rather than
+            // overwritten (see `AdmissionState::Replayed::finished`). What
+            // remains refused is a replay over an OPEN (`Applying`) batch --
+            // that really would be two live batches at once.
+            AdmissionState::Finished { batch: finished } => {
+                *state = AdmissionState::Replayed {
+                    batch: encoded,
+                    record: Box::new(record.clone()),
+                    finished: Some(finished.clone()),
+                };
+                Ok(())
+            }
+            AdmissionState::Replayed { finished, .. } => {
+                let finished = finished.clone();
+                *state = AdmissionState::Replayed {
+                    batch: encoded,
+                    record: Box::new(record.clone()),
+                    finished,
+                };
+                Ok(())
             }
             AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
             _ => Err("a replayed batch cannot follow an admitted one".to_string()),
@@ -109,7 +157,15 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
             AdmissionState::Replayed {
                 batch: existing,
                 record,
+                ..
             } if existing.as_slice() == encoded.as_slice() => Ok(Some((**record).clone())),
+            // The named batch is the sequence's last FINISHED one, which a
+            // later replay did not displace: it is not a replay, so there is no
+            // replay record to return.
+            AdmissionState::Replayed {
+                finished: Some(finished),
+                ..
+            } if finished.as_slice() == encoded.as_slice() => Ok(None),
             AdmissionState::Replayed { .. } => {
                 Err("mutation replay commit does not match its admitted batch".to_string())
             }
@@ -215,6 +271,12 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
             AdmissionState::Replayed {
                 batch: replayed, ..
             } if replayed.as_slice() == encoded.as_slice() => Ok(()),
+            // ... and a replay that trailed a completed batch left that batch
+            // as the sequence's terminal reference.
+            AdmissionState::Replayed {
+                finished: Some(finished),
+                ..
+            } if finished.as_slice() == encoded.as_slice() => Ok(()),
             AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
             _ => Err("mutation commit does not match a finished batch".to_string()),
         }

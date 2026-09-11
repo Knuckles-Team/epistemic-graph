@@ -39,9 +39,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-#[cfg(test)]
-use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(feature = "server")]
+#[cfg(any(test, feature = "server"))]
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
 #[cfg(all(test, feature = "server"))]
@@ -92,8 +90,31 @@ type ShardHandle = Arc<OwnedStoreHandle<GraphShardOwner>>;
 /// catalog transaction intentionally commits before reservation cancellation;
 /// injecting a failure at that boundary proves the reservation remains the
 /// retry handle while the destination is still fenced.
+///
+/// Armed for ONE NAMED GRAPH, not globally. It used to be a process-wide
+/// `AtomicBool` consumed by whichever graft reached the boundary first, and
+/// `cargo test` runs this binary's tests in parallel: a sibling graft test
+/// (`reserved_import_and_loser_cleanup_are_one_graph_protocol`) could take the
+/// fault armed for `losing_graph_reservation_retires_staged_owner_rows_before_reopening`,
+/// which left BOTH failing on assertions about state the other test's fault had
+/// changed -- while each passed alone at `--test-threads=1`. Keying it by graph
+/// name is the same device the rendezvous slots below already use, and it
+/// removes the shared state rather than serializing the tests around it.
 #[cfg(test)]
-static FAIL_AFTER_GRAFT_CATALOG_CLEANUP: AtomicBool = AtomicBool::new(false);
+static FAIL_AFTER_GRAFT_CATALOG_CLEANUP: Mutex<Option<String>> = Mutex::new(None);
+
+/// Take the armed catalog-cleanup fault if it names `graph_fname`.
+#[cfg(test)]
+fn take_graft_catalog_cleanup_fault(graph_fname: &str) -> bool {
+    let Ok(mut armed) = FAIL_AFTER_GRAFT_CATALOG_CLEANUP.lock() else {
+        return false;
+    };
+    if armed.as_deref() == Some(graph_fname) {
+        *armed = None;
+        return true;
+    }
+    false
+}
 
 /// Test-only rendezvous after the staged owner transaction and before the
 /// separate catalog transaction.  The graft/import interleave regression holds
@@ -727,7 +748,7 @@ impl Shard {
         };
         remove_staged_catalog()?;
         #[cfg(test)]
-        if FAIL_AFTER_GRAFT_CATALOG_CLEANUP.swap(false, Ordering::SeqCst) {
+        if take_graft_catalog_cleanup_fault(graph_fname) {
             return Err("injected failure after durable graft catalog cleanup".to_string());
         }
 
@@ -1053,6 +1074,39 @@ pub(crate) fn open_kernel_owned_store<D: OwnerDomain>(
     Ok((kernel, mutations, bound))
 }
 
+/// The spelling of one component of a maintenance claim key.
+///
+/// A physical shard key is a STORAGE name: `redb_store::sanitize` represents
+/// every byte outside `[A-Za-z0-9-_.]` as a `~xx` escape (or the whole name as
+/// a bounded `~h<sha256>` key), and an operation id composed from one inherits
+/// the same escapes. The canonical identifier alphabet that `IdempotencyKey`
+/// enforces deliberately excludes `~`
+/// (`eg_types::contract::identifiers::validate_canonical_id`), so embedding
+/// either part verbatim made the drain batch id unconstructible: `admit_drain`
+/// / `admit_maintenance` on a graph whose logical name carries punctuation
+/// failed closed with "idempotency key must use the canonical ASCII identifier
+/// alphabet", and such a graph could not be drained, purged or checkpointed at
+/// all.
+///
+/// An escaped part therefore travels hex-spelled, the same device the
+/// maintenance envelope's SUBJECT already uses for exactly this reason
+/// (`ResourceId::from_physical_graph_key`). `~` is the ONLY character
+/// `sanitize` can emit that the canonical alphabet rejects, so a part without
+/// one is already canonical and keeps its readable spelling -- no existing
+/// drain id changes.
+fn canonical_claim_part(value: &str) -> std::borrow::Cow<'_, str> {
+    if !value.contains('~') {
+        return std::borrow::Cow::Borrowed(value);
+    }
+    let mut spelled = String::with_capacity("hex:".len() + value.len() * 2);
+    spelled.push_str("hex:");
+    for byte in value.bytes() {
+        use std::fmt::Write as _;
+        write!(&mut spelled, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    std::borrow::Cow::Owned(spelled)
+}
+
 /// The shard's own batch for one scope of one drain, at that scope's in-lock
 /// version.
 ///
@@ -1070,7 +1124,11 @@ fn drain_batch(
     scope_name: &str,
     version: u64,
 ) -> Result<MutationBatch, String> {
-    let batch_id = format!("shard_drain/{scope_name}:{drain_id}");
+    let batch_id = format!(
+        "shard_drain/{}:{}",
+        canonical_claim_part(scope_name),
+        canonical_claim_part(drain_id)
+    );
     let identity = owner.identity().clone();
     let batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
@@ -1837,7 +1895,7 @@ mod tests {
             .mutations()
             .graft_begin(source_handle.as_ref(), &winner_target)
             .unwrap();
-        FAIL_AFTER_GRAFT_CATALOG_CLEANUP.store(true, std::sync::atomic::Ordering::SeqCst);
+        *FAIL_AFTER_GRAFT_CATALOG_CLEANUP.lock().unwrap() = Some("graph-a".to_string());
         let retry_error = loser.graft_graph_from(&source, "graph-a").unwrap_err();
         assert!(
             retry_error.contains("injected failure after durable graft catalog cleanup"),
@@ -1969,10 +2027,19 @@ mod tests {
             crate::protocol::GraphType::Global,
         )
         .unwrap();
+        // The catalog NAME must sanitize back to the physical key: an exported
+        // raw image is refused by `RawGraphRows::durable_identity` ("raw graph
+        // rows durable identity does not match its key") when it does not, so
+        // the old "staged-graph-protocol" spelling made `import_graph_raw`
+        // fail on its FIRST statement -- before the staged-payload hook that
+        // this test's rendezvous waits on, which then timed out after 120s and
+        // reported a fixture error as a concurrency hang. The staging this test
+        // is about is the reserved owner payload written above, not the display
+        // name. Corrected 2026-09-11 by the redb_store absolute-green lane (F1).
         crate::redb_store::write_graph_meta(
             loser.as_ref(),
             "graph-protocol",
-            "staged-graph-protocol",
+            "graph-protocol",
             crate::protocol::GraphType::Global,
         )
         .unwrap();

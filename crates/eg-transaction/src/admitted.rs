@@ -263,6 +263,19 @@ pub struct AdmittedOwnerWrite<'a, D: OwnerDomain> {
 }
 
 impl<D: OwnerDomain> AdmittedOwnerWrite<'_, D> {
+    /// Retire the ledger of the generation this scope is REPLACING, inside this
+    /// same admitted write.
+    ///
+    /// The domain-facing name for
+    /// [`crate::commit::purge_scope_ledger_generation`] -- see it for why a
+    /// same-name recreate would otherwise inherit the deleted generation's
+    /// replay keys, nonces, receipts and outbox rows, and why the scope VERSION
+    /// is deliberately left monotonic. The sweep is performed BY THE KERNEL; a
+    /// domain never opens a ledger table.
+    pub fn purge_replaced_generation_ledger(&self) -> Result<(), String> {
+        crate::commit::purge_scope_ledger_generation(self.write, &self.identity)
+    }
+
     /// Open one owner table of **this** domain's layout for writing.
     ///
     /// This is the only owner-row write path a domain crate has. The name must

@@ -1724,8 +1724,28 @@ pub(crate) fn commit_change_envelopes(
             .clone();
         match graph_begin {
             Begin::Replay(_) => {
+                // DISCARDED, not committed. A leading replay writes no rows, so
+                // the only thing committing this short-lived group could add is
+                // the CONTROL member's own maintenance receipt plus an fsync --
+                // which is exactly what the comment above says must not happen.
+                //
+                // It was also unconditionally broken: `commit_drain` finishes
+                // every member whose admission is `Apply`, and finishing a
+                // graph-shard member requires an owner-row window that this
+                // path never opens (`ShardWrite::open` cannot provide one here,
+                // because the graph member is `Replayed` and refuses owner
+                // admission). So a fresh control member failed with "mutation
+                // batch owner work is unfinished or mismatched". It only ever
+                // appeared to work when the control member happened to replay
+                // too -- true for the FIRST leading replay of a page, whose
+                // control claim the original commit already wrote under the
+                // same operation id, and false for every one after it. An
+                // all-replay page of two therefore failed at index 1.
+                // Corrected 2026-09-11 by the redb_store absolute-green lane
+                // (F1).
                 shard
-                    .commit_drain(group, &batches, committed_at_ms)
+                    .mutations()
+                    .abort_group(group)
                     .map_err(|error| at(first_fresh, error))?;
                 commits.push(ChangeEnvelopeCommit {
                     envelope_id: envelopes[first_fresh].envelope_id.clone(),
@@ -3854,10 +3874,28 @@ fn apply_post_row_cleanup(
     }
     if matches!(lifecycle, Some((false, _, _))) {
         clear_change_material_rows(write, graph_fname)?;
-        // The mutation authority is retired by the kernel when the scope is
-        // deleted. Its ledger, replay, outbox, cursor, fence, and version rows
-        // must not be swept by this payload transaction: doing so would create
-        // a second authority and would race the kernel's retirement proof.
+        // D-P0-U04, restored: the deleted generation's mutation authority goes
+        // with it, atomically, in this same transaction and BEFORE the delete
+        // writes its own receipt.
+        //
+        // A graph shard's scope identity is derived from the durable graph name
+        // alone, so a same-name recreate rebinds the SAME ledger scope key and
+        // inherits every replay key, attempt nonce, receipt, outbox row,
+        // delivery lease and projection cursor the deleted generation left --
+        // the exact collision D-P0-U04 closed. `purge_graph_rows`
+        // (`MutationKernel::purge_scope_with`) covers the embedded engine's
+        // whole-store teardown, but it opens its OWN transaction and has no
+        // production caller on the served path, so a `Method::DeleteGraph`
+        // committed as an ordinary batch is not covered by it.
+        //
+        // The sweep is the KERNEL's, not this payload transaction's: the call
+        // below is a kernel entry point that performs it inside the admitted
+        // write, so there is one authority rather than two and nothing races a
+        // retirement proof. The scope version is deliberately left monotonic --
+        // see `purge_scope_ledger_generation`.
+        write
+            .graph(graph_fname)?
+            .purge_replaced_generation_ledger()?;
     }
     Ok(())
 }
@@ -7780,11 +7818,18 @@ mod mutation_batch_tests {
                 .unwrap();
             assert_eq!(record.status, MutationBatchStatus::Committed);
             let outbox = read_mutation_outbox(&db, "graph-a", "batch-post").unwrap();
-            assert_eq!(
-                outbox.len(),
-                3,
-                "two canonical events + one explicit intent"
-            );
+            // One physical row per EXPLICIT logical intent, and this batch
+            // carries exactly one. The old expectation of three counted "two
+            // canonical events" -- one auto-generated per operation -- and no
+            // such row exists: `eg_transaction::commit::write_outbox` iterates
+            // `batch.outbox` and nothing else, and the sibling
+            // `outbox_claim_ack_is_ordered_fenced_and_reconcilable` asserts the
+            // same rule verbatim ("one explicit logical intent writes one
+            // physical outbox row") while passing. The subject of THIS test --
+            // that an idempotent replay adds no outbox row -- is unchanged and
+            // is still asserted against the same number below. Corrected
+            // 2026-09-11 by the redb_store absolute-green lane (F1).
+            assert_eq!(outbox.len(), 1, "one explicit intent, one physical row");
 
             let mut retry = b.clone();
             retry.envelope = fixture_operation_envelope(
@@ -7816,7 +7861,7 @@ mod mutation_batch_tests {
                 read_mutation_outbox(&db, "graph-a", "batch-post")
                     .unwrap()
                     .len(),
-                3
+                1
             );
         }
         let _ = std::fs::remove_file(path);
@@ -10451,17 +10496,31 @@ mod mutation_batch_tests {
                     .to_string(),
             },
         }];
+        mutation
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("the crossmodal fixture reseals its envelope over its final body");
         let vectors = vec![("a".to_string(), vec![0.25, 0.75])];
         {
             let db = open(&path);
-            assert!(commit_crossmodal_at(
+            let crash = commit_crossmodal_at(
                 &db,
                 &mutation,
                 &methods,
                 &vectors,
                 Some(MutationBatchCrashpoint::AfterCommitBeforeAck),
             )
-            .is_err());
+            .unwrap_err();
+            // Named, not just `is_err()`: the recovery this test asserts below
+            // only exists if the commit actually reached its post-commit
+            // crashpoint. Any EARLIER refusal (an admission failure, say) makes
+            // the whole test vacuous -- nothing is durable, `read_graph_dump`
+            // returns `None`, and the failure reads as a recovery bug instead of
+            // a fixture bug. Named 2026-09-11 by the redb_store absolute-green
+            // lane (F1) after exactly that happened.
+            assert!(
+                crash.contains("injected crash"),
+                "the crossmodal batch must reach its AfterCommitBeforeAck crashpoint, got: {crash}"
+            );
         }
         {
             let db = open(&path);
@@ -10476,13 +10535,46 @@ mod mutation_batch_tests {
                     .unwrap()
                     .is_some()
             );
+            // One physical row per EXPLICIT logical intent, and this fixture
+            // carries exactly one. Same correction as
+            // `postcommit_crash_restarts_and_replays_idempotently`: the old
+            // expectation counted an auto-generated "canonical event" row per
+            // operation, and no such row exists --
+            // `eg_transaction::commit::write_outbox` iterates `batch.outbox`
+            // and nothing else. The subject here is that a post-commit crash
+            // leaves the outbox recovered ALONGSIDE rows and the status vector,
+            // which one row proves as well as two. Corrected 2026-09-11 by the
+            // redb_store absolute-green lane (F1).
             assert_eq!(
                 read_mutation_outbox(&db, "graph-a", "batch-crossmodal")
                     .unwrap()
                     .len(),
-                2,
+                1,
             );
-            let replay = commit_crossmodal_at(&db, &mutation, &methods, &vectors, None).unwrap();
+            // Every retry below mints a FRESH attempt nonce under the SAME
+            // idempotency key, which is what a real lost-ack retry does (see the
+            // sibling `postcommit_crash_restarts_and_replays_idempotently`,
+            // which asserts `assert_ne!` on exactly this). Re-presenting the
+            // committed batch verbatim re-presents its CONSUMED nonce and is
+            // refused with `REPLAY_NONCE_CONSUMED` before any replay question is
+            // asked -- a caller bug, not a replay. Fixed 2026-09-11 by the
+            // redb_store absolute-green lane (F1).
+            let retry_of = |source: &MutationBatch| {
+                let mut retry = source.clone();
+                retry.envelope = fixture_operation_envelope(
+                    &retry.identity,
+                    &format!("principal:sha256:{}", "a".repeat(64)),
+                    42,
+                    "idem-crossmodal",
+                );
+                retry
+                    .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                    .expect("a crossmodal retry reseals its envelope over its final body");
+                retry
+            };
+
+            let retry = retry_of(&mutation);
+            let replay = commit_crossmodal_at(&db, &retry, &methods, &vectors, None).unwrap();
             assert!(replay.replayed);
             assert_eq!(
                 replay.record.batch.version_expectation,
@@ -10493,7 +10585,7 @@ mod mutation_batch_tests {
             // A retry reconstructed after the acknowledgement-lost crash may
             // carry the now-current graph version.  It is still the same
             // cross-modal request and must replay without applying rows again.
-            let mut rederived = mutation.clone();
+            let mut rederived = retry_of(&mutation);
             rederived.version_expectation = VersionExpectation::Graph(4);
             let replay = commit_crossmodal_at(&db, &rederived, &methods, &vectors, None).unwrap();
             assert!(replay.replayed);
@@ -10506,12 +10598,15 @@ mod mutation_batch_tests {
             // The expected version is the only re-derived field permitted for
             // this replay shape.  Changing the operation under the same key is
             // a genuine idempotency conflict.
-            let mut conflict = rederived.clone();
+            let mut conflict = retry_of(&rederived);
             conflict.operations[0].method = Method::ApplyMutation {
                 event_type: "crossmodal_operation".to_string(),
                 query: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
                     .to_string(),
             };
+            conflict
+                .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                .expect("the conflicting fixture reseals its envelope over its final body");
             let error = commit_crossmodal_at(&db, &conflict, &methods, &vectors, None).unwrap_err();
             assert!(error.contains("IDEMPOTENCY_CONFLICT"));
         }
@@ -10542,7 +10637,18 @@ mod mutation_batch_tests {
         db.outbox_subscribe("graph-a", "projection-worker", "projection.test")
             .unwrap();
 
-        let mut budget = OutboxClaimBudget::new(10, 100, 1_000).unwrap();
+        // The sweep limit is 12, not 10, so ONE claim call can take all three
+        // rows. `OutboxClaimBudget` applies a per-call run cap of `limit / 4`
+        // (min 1) to every claim, contended or not -- 10 caps a call at 2 rows
+        // and this test would observe an arbitrary 2-of-3 page. That cap is the
+        // kernel's deliberate fairness contract, asserted directly by
+        // `eg_transaction::tests::outbox::
+        // a_contended_budget_caps_a_tenant_run_after_another_tenant_claims`
+        // ("Budget 16 -> a 4-row per-call cap"), so the budget is what moves
+        // here; the ordering/fencing/reconciliation assertions this test owns
+        // are unchanged. Raised 2026-09-11 by the redb_store absolute-green
+        // lane (F1).
+        let mut budget = OutboxClaimBudget::new(12, 100, 1_000).unwrap();
         let outcome = db
             .outbox_claim("graph-a", "projection-worker", &mut budget)
             .unwrap();
@@ -10896,6 +11002,17 @@ mod mutation_batch_tests {
             source_graph_version: 4,
             target_graph_version: 5,
         });
+        // Without this the batch is refused at ADMISSION for an envelope that
+        // no longer covers its body ("mutation batch content does not match its
+        // envelope's canonical payload digest"), so the commit below errors
+        // before it ever reaches the `BeforeCommit` crashpoint this test is
+        // about -- and the "policy was not published" assertion holds vacuously,
+        // because no row phase ran at all. Resealing puts the injected-crash
+        // rollback back under test. Added 2026-09-11 by the redb_store
+        // absolute-green lane (F1).
+        mutation
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("the row-delta fixture reseals its envelope over its final body");
         #[cfg(feature = "security")]
         let mut audit = AuditTailCache::new();
         assert!(commit_mutation_batch_inner(
@@ -11115,11 +11232,21 @@ mod mutation_batch_tests {
         // A recreate under the SAME name reusing the SAME idempotency key must
         // be treated as fresh work, not resolved as a replay of the deleted
         // incarnation's stale batch_id.
-        // A retired scope has no surviving version authority.  Recreate binds a
-        // new incarnation at version zero, and its first content commit advances
-        // that new scope to one.
+        // The scope version is a MONOTONIC per-graph-name authority and
+        // `DeleteGraph` does not reset it: the delete's own commit advances it
+        // by one like any other batch (3 seeded -> create 4 -> content 5 ->
+        // delete 6), and the recreate must therefore supply the NEXT real
+        // version, not zero. That monotonicity is deliberate -- it is what makes
+        // a stale pre-delete OCC expectation fail closed with `STALE_VERSION`
+        // (asserted by the sibling
+        // `lifecycle_adapter_commits_meta_and_delete_before_registry_publication`)
+        // rather than match a counter that silently restarted. Only a full
+        // binding retirement (`purge_graph_rows`) drops the version row, and
+        // that is a different path with its own test. Corrected 2026-09-11 by
+        // the redb_store absolute-green lane (F1) alongside restoring the
+        // in-transaction authority purge this test was written for (D-P0-U04).
         let mut recreate = batch("create-graph-a-v2", "create-key-v2");
-        recreate.version_expectation = VersionExpectation::Graph(0);
+        recreate.version_expectation = VersionExpectation::Graph(6);
         recreate.operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Lifecycle,
@@ -11134,7 +11261,7 @@ mod mutation_batch_tests {
             .expect("authority recreate fixture reseals its final body");
         commit_at(&db, &recreate, None).unwrap();
         let mut content_v2 = batch("content-batch-1-v2", "content-key-1");
-        content_v2.version_expectation = VersionExpectation::Graph(1);
+        content_v2.version_expectation = VersionExpectation::Graph(7);
         content_v2
             .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("authority recreate content fixture reseals its final body");
@@ -11953,6 +12080,8 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphRows,
             method: ready_work_item_method("work-defer", 3),
         }];
+        seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("defer seed fixture reseals its final body");
         commit_at(&db, &seed, None).unwrap();
         let claimed = commit_native_claim(
             &db,
@@ -12507,21 +12636,48 @@ mod mutation_batch_tests {
                         (5, 1, 999, "worker-b", false)
                     }
                     "noop" => {
+                        // The already-terminal item is driven terminal through
+                        // the NATIVE authority, not planted terminal by an
+                        // AddNode. A public submission may only introduce a
+                        // WorkItem in `submitted`/`ready`
+                        // (`work_item_capability::validate_submission_properties`
+                        // -- "native WorkItem authority required for active
+                        // lease fields"), so seeding `status: "succeeded"`
+                        // directly is refused at admission and this case never
+                        // reached the noop precheck it exists to cover.
+                        // `CancelWorkItem` is the terminal transition that
+                        // leaves NO receipt extension behind, which is what
+                        // keeps the `trace:terminal` assertion below meaningful.
                         let mut seed = batch(&format!("{tag}-seed"), &format!("{tag}-seed-key"));
                         seed.operations = vec![MutationOperation {
                             ordinal: 0,
                             surface: MutationSurface::Transaction,
                             domain: DurabilityDomain::GraphRows,
-                            method: delegated_work_item_method_with_status(
-                                "work-extension-noop",
-                                3,
-                                "succeeded",
-                            ),
+                            method: delegated_work_item_method("work-extension-noop", 3),
                         }];
                         seed.reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
                             .unwrap();
                         commit_at(&db, &seed, None).unwrap();
-                        (4, 1, 1, "worker-a", false)
+                        let mut cancel =
+                            batch(&format!("{tag}-cancel"), &format!("{tag}-cancel-key"));
+                        cancel.version_expectation = VersionExpectation::Graph(4);
+                        cancel.operations = vec![MutationOperation {
+                            ordinal: 0,
+                            surface: MutationSurface::Job,
+                            domain: DurabilityDomain::ControlPlane,
+                            method: Method::CancelWorkItem {
+                                tenant: "tenant-a".into(),
+                                work_item_id: "work-extension-noop".into(),
+                                idempotency_key: format!("{tag}-cancel-op-key"),
+                                reason_ref: Some("reason:sha256:noop".into()),
+                                now_ms: 1_000,
+                            },
+                        }];
+                        cancel
+                            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                            .unwrap();
+                        commit_at(&db, &cancel, None).unwrap();
+                        (5, 1, 1, "worker-a", false)
                     }
                     "retry_scheduled" => {
                         let mut seed = batch(&format!("{tag}-seed"), &format!("{tag}-seed-key"));
