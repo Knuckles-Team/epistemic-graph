@@ -1023,20 +1023,54 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
             other => panic!("a graph-scoped fixture batch cannot expect {other:?}"),
         },
     );
+    // Asserted on the BOUND identities, not on the fixtures. `resource_batch`
+    // deliberately carries a real CALLER identity (see its doc comment) so these
+    // fixtures exercise `bind_caller_batch`, the production step that performs
+    // the rewrite -- so the two fixtures legitimately differ by caller tenant
+    // here, and the scope-collapse invariant only exists on the far side of the
+    // binder. Comparing the pre-binding fixtures asserted the opposite of what
+    // the message claims.
+    let bound_handle = shard.graph("graph-a").expect("graph-a is bound");
+    let bind = |batch: &MutationBatch| {
+        crate::redb_store::shard::bind_caller_batch(bound_handle.as_ref(), "graph-a", batch)
+            .expect("a caller batch binds onto the graph shard scope")
+            .identity
+    };
     assert_eq!(
-        other_tenant_batch.identity, batch_a.identity,
+        bind(&other_tenant_batch),
+        bind(batch_a),
         "the caller's tenant is not part of a graph-shard mutation scope"
     );
-    let collapsed = commit_resource_batch(&shard, &other_tenant_batch)
-        .expect("second tenant replays the first");
+    // ... and the second tenant is REFUSED, not served the first tenant's
+    // receipt.
+    //
+    // The shard SCOPE collapses (asserted just above) but the operation replay
+    // identity does not: `bind_caller_batch` rebinds the scope identity and the
+    // serving principal while the VERIFIED CALLER deliberately survives in the
+    // envelope's authority context (RF-RULING-004 application note 1), and that
+    // authority is part of the digest the replay ledger compares. Two different
+    // callers presenting one key on one graph are therefore two different
+    // operations under one key, and the ledger fails closed.
+    //
+    // The comment that used to stand here predicted the opposite -- that the
+    // scope collapse would make the second tenant REPLAY the first -- and
+    // asserted it. That prediction was wrong, and had it been right it would
+    // have been a cross-tenant information leak: tenant-b would receive the
+    // reservation receipt tenant-a committed, for capacity tenant-a holds.
+    // Fail-closed is both the actual and the correct behaviour. Corrected
+    // 2026-09-11 by the redb_store absolute-green lane (F1).
+    let refused = commit_resource_batch(&shard, &other_tenant_batch)
+        .expect_err("a second tenant may not reuse another caller's idempotency key");
     assert!(
-        collapsed.replayed,
-        "two tenants sharing one idempotency key on one graph now resolve to one batch"
+        refused.contains("IDEMPOTENCY_CONFLICT"),
+        "a cross-caller key collision must fail closed, got: {refused}"
     );
-    assert_eq!(
-        batch_resource_result(&collapsed).decision,
-        batch_a_decision.decision
-    );
+    if let Some(reservation_id) = batch_a_decision.reservation_id.as_deref() {
+        assert!(
+            !refused.contains(reservation_id),
+            "the refusal must not disclose the first tenant's receipt: {refused}"
+        );
+    }
 
     drop(shard);
     let shard = Shard::open(&path).expect("reopen race shard");

@@ -1,6 +1,9 @@
 //! The shard file's fixed durable shape: its reserved control scope and the
 //! kernel-owned GraphShard table census.
 
+use super::control::{clear_xshard_decision, put_xshard_decision};
+#[cfg(feature = "compute-dist")]
+use super::control::{put_matview, scan_matviews};
 use super::{
     commit_ops, purge_graph_rows, reject_reserved_graph, sanitize,
     write_graph_meta_with_incarnation, DurableCrypto, SHARD_CONTROL_GRAPH,
@@ -137,6 +140,59 @@ fn the_canonical_bootstrap_matches_the_declared_shard_census() {
         .unwrap();
     write.finish().unwrap();
     shard.commit_drain(group, &batches, 0).unwrap();
+
+    drop(shard);
+    let _ = std::fs::remove_file(&path);
+}
+
+/// A control-row write is REPEATABLE, not first-wins.
+///
+/// `control_write!` admits the control member as a ledgered maintenance write
+/// keyed by its operation id, and the kernel's maintenance claim is first-wins
+/// by design: the SECOND write presenting the same claim key resolves as a
+/// replay, and a replayed member refuses owner rows
+/// ("owner write requires an admitted mutation batch"). Every control operation
+/// id used to be derived from its SUBJECT alone -- `matview/put/{name}`,
+/// `xshard/decision-clear/{txn_id}` -- so each of these tables could be written
+/// exactly ONCE per subject for the life of the store, and every later write
+/// failed closed:
+///
+/// * a materialized view could never be refreshed after its first
+///   materialization, and
+/// * cross-shard decision cleanup could never run twice for one transaction,
+///   which is precisely what crash recovery does when it re-reconciles an
+///   in-doubt transaction.
+///
+/// These writes carry no replay requirement -- their durability is the caller's
+/// own 2PC record or refresh protocol, not a first-wins claim -- so their claim
+/// key is per ATTEMPT, the same rule `shard::drain_batch` states for the drain
+/// id. Note what the assertion below is: the second `put_matview` must WIN, not
+/// merely not-error. A replay treated as a silent no-op would look like a fix
+/// and would durably drop every refresh after the first.
+#[test]
+fn control_rows_are_repeatable_writes_not_first_wins_claims() {
+    let path = temp_path("control-repeat");
+    let shard = bootstrap(&path);
+
+    #[cfg(feature = "compute-dist")]
+    {
+        put_matview(&shard, "view-1", b"first").unwrap();
+        put_matview(&shard, "view-1", b"second").unwrap();
+        let stored = scan_matviews(&shard).unwrap();
+        assert_eq!(
+            stored
+                .iter()
+                .find(|(name, _)| name == "view-1")
+                .map(|(_, blob)| blob.as_slice()),
+            Some(&b"second"[..]),
+            "a matview refresh must replace the materialization, not be swallowed"
+        );
+    }
+
+    put_xshard_decision(&shard, "txn-1", true, false).unwrap();
+    clear_xshard_decision(&shard, "txn-1").unwrap();
+    // Recovery re-reconciling the same in-doubt transaction repeats this step.
+    clear_xshard_decision(&shard, "txn-1").unwrap();
 
     drop(shard);
     let _ = std::fs::remove_file(&path);

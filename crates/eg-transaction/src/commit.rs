@@ -257,6 +257,24 @@ fn admit_fresh<D: OwnerDomain>(
     batch: &MutationBatch,
 ) -> Result<Begin, String> {
     if let Some(record) = read_record_in_write(write, &batch.identity, &batch.batch_id)? {
+        // Two different causes reach here and they are not the same defect.
+        //
+        // A batch id is the scope's durable RECEIPT key, so a second operation
+        // claiming an id that is already bound to a different idempotency key
+        // is an ordinary caller conflict -- the proposal is refused, nothing is
+        // corrupt, and the caller must retry under its own id. Reporting that
+        // as `CORRUPT_MUTATION_LEDGER` both mislabels a caller error as store
+        // damage and hides the real corruption signal, which is the OTHER case:
+        // the SAME key resolved as fresh while its receipt is already durable,
+        // meaning the replay row that should point at this receipt is missing.
+        let recorded_key = record.batch.idempotency_key();
+        if recorded_key != batch.idempotency_key() {
+            return Err(format!(
+                "IDEMPOTENCY_CONFLICT: batch id '{}' is already bound to idempotency key                  '{recorded_key}' (proposed '{}')",
+                batch.batch_id,
+                batch.idempotency_key()
+            ));
+        }
         return Err(format!(
             "CORRUPT_MUTATION_LEDGER: batch '{}' exists without its replay row (status {:?})",
             batch.batch_id, record.status
@@ -317,6 +335,21 @@ fn reject_stale_fence<D: OwnerDomain>(
         && current.fencing_token == crate::graft::GRAFT_FENCE
     {
         return Err("STALE_FENCE: scope is under graft".to_string());
+    }
+    // A maintenance batch carries no route. It is minted by the owner of the
+    // store it writes (a shard drain, a catalog sweep, a checkpoint apply), so
+    // its `placement_epoch`/`fencing_token` are structurally absent -- every
+    // maintenance constructor leaves them at `0`/`None` -- rather than a route
+    // it is asserting. Comparing that absence against a real route makes the
+    // route fence refuse the store's own bookkeeping: once ANY caller batch
+    // commits with a placement route (which every compiled batch carries in a
+    // placed deployment, see `server::mutation_batch::compile`), the (0,0)
+    // maintenance proposal is "older" and every later `admit_maintenance` /
+    // `admit_drain` on that scope fails closed with `STALE_FENCE`. The graft
+    // barrier above still applies: a scope under graft cannot move, maintenance
+    // included.
+    if batch.is_maintenance() {
+        return Ok(());
     }
     let proposed_token = batch.fencing_token.unwrap_or(0);
     if batch.placement_epoch < current.placement_epoch
@@ -529,6 +562,11 @@ fn write_fence<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
 ) -> Result<(), String> {
+    // A maintenance batch stamps its own structural (0,0): the graft protocol
+    // reads that baseline back as proof that a reservation is fenced at its
+    // baseline (`graft::reservation`), so this is load-bearing rather than
+    // incidental. The route CHECK is where maintenance is exempt; see
+    // `reject_stale_fence`.
     let fence = ScopeFence {
         identity: batch.identity.clone(),
         placement_epoch: batch.placement_epoch,
@@ -712,6 +750,52 @@ pub(crate) fn purge_scope<D: OwnerDomain>(
     owner_payload: Option<&dyn OwnerPayloadRetirement<D>>,
 ) -> Result<(), String> {
     purge_scope_inner(write, identity, owner_payload, false)
+}
+
+/// Retire the ledger of the generation a same-name scope is REPLACING, from
+/// inside the write that records the replacement.
+///
+/// A graph shard's scope identity is derived from the durable graph name ALONE
+/// (RF-RULING-004 application note 2), so a delete followed by a same-name
+/// create binds the SAME `ledger_scope_key`. Every replay key, attempt nonce,
+/// receipt, outbox row, delivery lease and projection cursor the deleted
+/// generation left behind is therefore visible to -- and collides with -- the
+/// next one: D-P0-U04, where a recreate could resolve a prior incarnation's
+/// idempotency key, replay its batch id, or attempt to decrypt its rows after a
+/// key rotation. `MutationKernel::purge_scope_with` answers this for the
+/// whole-store teardown path, but a `Method::DeleteGraph` committed as an
+/// ordinary batch cannot use it: that call opens its own transaction, and the
+/// delete's atomicity is the whole point.
+///
+/// So the KERNEL performs the sweep, in the caller's already-admitted write,
+/// before the delete's own receipt is written. The domain never touches a
+/// ledger table, so this is one authority, not two.
+///
+/// `VERSIONS` is deliberately NOT swept. The scope version is a MONOTONIC
+/// per-name authority and the binding survives this write: the delete's own
+/// `finish` advances it by one like any other commit, which is what makes a
+/// stale pre-delete OCC expectation fail closed with `STALE_VERSION` instead of
+/// matching a counter that silently restarted at zero. Retiring the binding and
+/// its version row together is [`purge_scope`]'s job, not this one's.
+pub(crate) fn purge_scope_ledger_generation<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    identity: &MutationScopeIdentity,
+) -> Result<(), String> {
+    write.verify_scope(identity)?;
+    if is_graft_fenced(write, identity)? {
+        return Err("STALE_FENCE: scope is under graft".to_string());
+    }
+    let identity_key = ledger_scope_key(identity);
+    validate_batch_keys(write, identity, &identity_key)?;
+    macro_rules! purge {
+        ($table:expr) => {{
+            if redb::TableHandle::name(&$table) != redb::TableHandle::name(&VERSIONS) {
+                write.purge_scoped_rows($table)?;
+            }
+        }};
+    }
+    visit_ledger_tables!(purge);
+    Ok(())
 }
 
 /// Retire a source after the graft phases have proved its marker and version.
