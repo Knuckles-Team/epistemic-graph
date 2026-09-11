@@ -1323,18 +1323,28 @@ mod tests {
         }
     }
 
+    /// Seed the schema component a graph fixture pins and return the pin that
+    /// resolves it.
+    ///
+    /// A graph publish RESOLVES every component its shape pins, so the record
+    /// has to exist in this tenant at exactly this revision.
     #[cfg(feature = "redb")]
-    fn graph_component(id: &str, seed: char) -> eg_types::agent_component::ComponentDependency {
-        eg_types::agent_component::ComponentDependency {
-            component_id: id.into(),
-            kind: eg_types::agent_component::AgentComponentKind::Schema,
-            definition_digest: prefixed_digest(seed),
-        }
+    fn graph_component(
+        store: &AgentLibraryStore,
+        id: &str,
+    ) -> eg_types::agent_component::ComponentDependency {
+        crate::server::persistence::agent_component::seed_component_for_test(
+            store,
+            "tenant-a",
+            id,
+            eg_types::agent_component::AgentComponentKind::Schema,
+            1,
+        )
     }
 
     /// The child: one agent, then end, producing `contract:report`.
     #[cfg(feature = "redb")]
-    fn child_graph_shape() -> eg_types::agent_graph::AgentGraphShape {
+    fn child_graph_shape(store: &AgentLibraryStore) -> eg_types::agent_graph::AgentGraphShape {
         use eg_types::agent_graph::{AgentGraphEdge, AgentGraphNode, AgentGraphNodeKind};
         eg_types::agent_graph::AgentGraphShape {
             entry_node: "work".into(),
@@ -1343,10 +1353,19 @@ mod tests {
                     node_id: "work".into(),
                     kind: AgentGraphNodeKind::Agent {
                         agent_id: "agent:work".into(),
-                        definition_digest: prefixed_digest('3'),
+                        // Seeding an agent also seeds the five components it is
+                        // assembled from, starting at this index -- so it is
+                        // spaced clear of the schema seed above.
+                        definition_digest:
+                            crate::server::persistence::agent_library::seed_agent_for_test(
+                                store,
+                                "tenant-a",
+                                "agent:work",
+                                10,
+                            ),
                     },
                     deps_contract: None,
-                    output_contract: Some(graph_component("contract:report", 'b')),
+                    output_contract: Some(graph_component(store, "contract:report")),
                 },
                 AgentGraphNode {
                     node_id: "done".into(),
@@ -1366,7 +1385,10 @@ mod tests {
 
     /// The parent: one step that RUNS the child graph, pinned by shape digest.
     #[cfg(feature = "redb")]
-    fn parent_graph_shape(child_shape_digest: &str) -> eg_types::agent_graph::AgentGraphShape {
+    fn parent_graph_shape(
+        store: &AgentLibraryStore,
+        child_shape_digest: &str,
+    ) -> eg_types::agent_graph::AgentGraphShape {
         use eg_types::agent_graph::{AgentGraphEdge, AgentGraphNode, AgentGraphNodeKind};
         eg_types::agent_graph::AgentGraphShape {
             entry_node: "team".into(),
@@ -1378,7 +1400,7 @@ mod tests {
                         shape_digest: child_shape_digest.into(),
                     },
                     deps_contract: None,
-                    output_contract: Some(graph_component("contract:report", 'b')),
+                    output_contract: Some(graph_component(store, "contract:report")),
                 },
                 AgentGraphNode {
                     node_id: "done".into(),
@@ -1429,11 +1451,12 @@ mod tests {
     /// admission resolves it.
     #[cfg(feature = "redb")]
     fn nested_graph(store: &AgentLibraryStore) -> eg_types::agent_graph::AgentGraphEntry {
-        let child = publish_graph_shape(store, "graph:child", child_graph_shape(), "key-child", 1);
+        let child =
+            publish_graph_shape(store, "graph:child", child_graph_shape(store), "key-child", 1);
         let parent = publish_graph_shape(
             store,
             "graph:parent",
-            parent_graph_shape(&child.shape_digest),
+            parent_graph_shape(store, &child.shape_digest),
             "key-parent",
             2,
         );

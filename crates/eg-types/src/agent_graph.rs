@@ -132,6 +132,49 @@ impl AgentGraphNodeKind {
         }
     }
 
+    /// The L1 components this node kind pins, in declaration order.
+    ///
+    /// A `Template` node's `bindings` are pinned components too -- they are the
+    /// values substituted into the template's parameters -- so they resolve
+    /// alongside a decision node's predicate rather than being a second,
+    /// separately-remembered pin set.
+    fn pinned_components(&self) -> Vec<&ComponentDependency> {
+        match self {
+            Self::Template { bindings, .. } => bindings.values().collect(),
+            Self::Decision { decision } => vec![decision],
+            Self::Agent { .. }
+            | Self::Graph { .. }
+            | Self::Fanout
+            | Self::Join
+            | Self::End => Vec::new(),
+        }
+    }
+
+    /// The Agent Library entry this node runs, as `(agent_id, definition
+    /// digest)`.
+    pub fn agent_pin(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Agent {
+                agent_id,
+                definition_digest,
+            } => Some((agent_id.as_str(), definition_digest.as_str())),
+            _ => None,
+        }
+    }
+
+    /// The template this node instantiates, as `(template_id, definition
+    /// digest)`.
+    pub fn template_pin(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Template {
+                template_id,
+                definition_digest,
+                ..
+            } => Some((template_id.as_str(), definition_digest.as_str())),
+            _ => None,
+        }
+    }
+
     /// Whether this node can carry typed input/output contracts.
     ///
     /// A `Graph` node does: its contracts are the child's entry deps and the
@@ -196,6 +239,38 @@ pub struct AgentGraphShape {
 }
 
 impl AgentGraphShape {
+    /// Every L1 component this shape pins, in one list.
+    ///
+    /// The traversal side of the hierarchy, and the list admission resolves:
+    /// node data contracts, decision predicates, template bindings and edge
+    /// conditions are all `ComponentDependency`, and gathering them here is
+    /// what stops one slot being resolved while another is forgotten.
+    pub fn pinned_components(&self) -> Vec<&ComponentDependency> {
+        let mut all: Vec<&ComponentDependency> = Vec::new();
+        for node in &self.nodes {
+            all.extend(node.kind.pinned_components());
+            all.extend(node.deps_contract.iter());
+            all.extend(node.output_contract.iter());
+        }
+        for edge in &self.edges {
+            all.extend(edge.condition.iter());
+        }
+        all
+    }
+
+    /// Every Agent Library entry this shape pins: `(agent_id, digest)`.
+    pub fn pinned_agents(&self) -> Vec<(&str, &str)> {
+        self.nodes.iter().filter_map(|node| node.kind.agent_pin()).collect()
+    }
+
+    /// Every template this shape pins: `(template_id, digest)`.
+    pub fn pinned_templates(&self) -> Vec<(&str, &str)> {
+        self.nodes
+            .iter()
+            .filter_map(|node| node.kind.template_pin())
+            .collect()
+    }
+
     /// Every structural rule, in one place.
     pub fn validate(&self) -> Result<(), String> {
         if self.nodes.is_empty() || self.nodes.len() > MAX_NODES {
@@ -516,6 +591,20 @@ pub struct AgentGraphDraft {
     /// premise of a context engine is that the context is the justification.
     #[serde(default)]
     pub synthesis_evidence: Option<ComponentDependency>,
+}
+
+impl AgentGraphDraft {
+    /// Every L1 component this draft pins: the shape's, plus the synthesis
+    /// evidence that justifies it.
+    ///
+    /// The evidence is a component reference like any other, and RF-ADR-008
+    /// says it is what makes a synthesized shape auditable -- which it only is
+    /// if the evidence record it names actually exists at the pinned revision.
+    pub fn pinned_components(&self) -> Vec<&ComponentDependency> {
+        let mut all = self.shape.pinned_components();
+        all.extend(self.synthesis_evidence.iter());
+        all
+    }
 }
 
 /// One durable, published graph revision.

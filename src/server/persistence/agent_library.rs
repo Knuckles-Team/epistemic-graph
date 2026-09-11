@@ -48,7 +48,13 @@ const MAX_AGENT_LIBRARY_ROW_BYTES: usize = 16 * 1024 * 1024;
 const MAX_AGENT_LIBRARY_ROW_ITEMS: usize = 200_000;
 const MAX_AGENT_LIBRARY_REVISIONS: usize = 16_384;
 const MAX_AGENT_LIBRARY_HISTORY_BYTES: usize = 256 * 1024 * 1024;
-
+/// Most DISTINCT Agent Library entries one publish may resolve.
+///
+/// The L3 -> L2 fan-out: a graph shape pins one agent per `Agent` node, and
+/// `MAX_NODES` is 256. Set above that largest legal count so it refuses abuse,
+/// never a shape that validates -- the same shape of bound
+/// `MAX_RESOLVED_COMPONENT_PINS` is for L1.
+const MAX_RESOLVED_AGENT_PINS: usize = 1_024;
 /// One durable Agent Library owner file. It binds one native ControlPlane
 /// serving scope per tenant while sharing the physical tables and mutation
 /// kernel, so replay, fencing, and outbox evidence stay tenant-scoped.
@@ -271,6 +277,89 @@ impl AgentLibraryStore {
         Ok(Some(entry))
     }
 
+    /// Resolve every cross-record reference one AGENT LIBRARY publish makes.
+    ///
+    /// L2 -> L1: every component the agent is assembled from, plus the values a
+    /// template instantiation bound into it. Both are pins, and a pin nothing
+    /// resolves is a claim nothing checks whichever list it sits in -- but they
+    /// are gathered here rather than folded into `dependencies()`, which
+    /// answers "what is this agent ASSEMBLED from" and must not start answering
+    /// a different question.
+    ///
+    /// L2 -> TEMPLATE: `instantiated_from` is what makes "which agents came
+    /// from this template?" a traversal rather than a guess. Unresolved it was
+    /// a free-text provenance claim that `definition_digest` then attested to.
+    pub(super) fn admit_entry_references_in_write(
+        &self,
+        write: &super::agent_pin_resolution::Write<'_>,
+        tenant_id: &str,
+        entry: &AgentLibraryEntryDraft,
+    ) -> Result<(), String> {
+        let mut components = entry.dependencies();
+        components.extend(
+            entry
+                .instantiated_from
+                .iter()
+                .flat_map(|instance| instance.bindings.values()),
+        );
+        self.resolve_component_pins_in_write(write, tenant_id, "agent library entry", &components)?;
+        let templates: Vec<super::agent_pin_resolution::TemplatePin<'_>> = entry
+            .instantiated_from
+            .iter()
+            .map(|instance| super::agent_pin_resolution::TemplatePin {
+                template_id: &instance.template_id,
+                definition_digest: &instance.definition_digest,
+                entry_revision: Some(instance.entry_revision),
+            })
+            .collect();
+        self.resolve_template_pins_in_write(write, tenant_id, "agent library entry", &templates)
+    }
+
+    /// Resolve pinned references to L2 AGENT records, inside an admitted
+    /// write.
+    ///
+    /// A graph's `Agent` node names an entry by `(agent_id, definition_digest)`
+    /// and nothing checked that the entry existed. Local validation checks only
+    /// that the id is well-formed text and the digest a well-formed
+    /// `sha256:<hex>`, so 64 invented hex characters published a graph claiming
+    /// -- and, once admitted, executing -- an agent it was never composed
+    /// against, and the shape's own `shape_digest` attested to the claim.
+    ///
+    /// There is no kind to match here: the slot is "an agent", and the Agent
+    /// Library tables are what discriminate it from a component or a template.
+    /// The mechanics and the per-pin checks are
+    /// [`super::agent_pin_resolution::resolve_pins`]'s; this module is where
+    /// `decode_entry` is in scope.
+    pub(super) fn resolve_agent_pins_in_write(
+        &self,
+        write: &super::agent_pin_resolution::Write<'_>,
+        tenant_id: &str,
+        subject: &str,
+        pins: &[(&str, &str)],
+    ) -> Result<(), String> {
+        // An `Agent` node records no revision number, only the digest.
+        let pins: Vec<(&str, &str, Option<u64>)> = pins
+            .iter()
+            .map(|(agent_id, digest)| (*agent_id, *digest, None))
+            .collect();
+        super::agent_pin_resolution::resolve_pins(
+            super::agent_pin_resolution::PinLayer {
+                record_kind: "agent",
+                heads: eg_storage::AGENT_LIBRARY_HEADS,
+                revisions: eg_storage::AGENT_LIBRARY_REVISIONS,
+                max_pins: MAX_RESOLVED_AGENT_PINS,
+                retained_revision_bound: MAX_AGENT_LIBRARY_REVISIONS,
+                decode: |bytes: &[u8]| {
+                    decode_entry(bytes).map(|entry| (entry.definition_digest, entry.lifecycle))
+                },
+            },
+            write,
+            tenant_id,
+            subject,
+            &pins,
+        )
+    }
+
     /// Publish a new immutable Agent Library definition revision.
     pub fn publish(
         &self,
@@ -354,12 +443,12 @@ impl AgentLibraryStore {
         // could admit an agent whose component was retired between the two.
         // After the replay check, so a retry of a committed publish is not
         // re-resolved against a tree that may have changed since.
-        if let Err(error) = self.resolve_component_pins_in_write(
-            &txn,
-            &request.context.tenant_id,
-            "agent library entry",
-            &request.entry.dependencies(),
-        ) {
+        // L2 -> TEMPLATE travels with it: an instantiated agent records WHICH
+        // template, at which revision, with which bindings. See
+        // `admit_entry_references_in_write`.
+        if let Err(error) =
+            self.admit_entry_references_in_write(&txn, &request.context.tenant_id, &request.entry)
+        {
             txn.abort()?;
             return Err(error);
         }
@@ -1793,6 +1882,102 @@ impl BundledStoreSource for AgentLibraryStore {
 
     fn is_durable(&self) -> bool {
         true
+    }
+}
+
+/// Publish one L2 agent and return the `definition_digest` that resolves it.
+///
+/// Shared by the graph and template test modules: publishing a graph now
+/// RESOLVES every `Agent` node's pin, so a fixture can no longer invent a
+/// digest -- it has to be the entry's real one. One definition, so the modules
+/// cannot drift.
+///
+/// Idempotent per store, and deterministic: an entry's definition digest is a
+/// hash over its content alone -- no revision, no timestamp -- so seeding the
+/// same agent into several stores yields byte-identical pins. The components it
+/// is assembled from are seeded first, because L2 -> L1 resolution requires
+/// them to exist.
+#[cfg(test)]
+pub(crate) fn seed_agent_for_test(
+    store: &AgentLibraryStore,
+    tenant_id: &str,
+    agent_id: &str,
+    nonce_index: u8,
+) -> String {
+    if let Some(existing) = store.current(tenant_id, agent_id).expect("read a seeded agent") {
+        return existing.definition_digest;
+    }
+    let mut entry = seed_agent_draft_for_test(store, tenant_id, agent_id, nonce_index);
+    super::agent_component::seed_draft_components_for_test(store, &mut entry, nonce_index);
+    // A seeding nonce can never collide with a test's own: every test module
+    // builds its nonces as `[n; 32]` for a small `n`.
+    let mut nonce_bytes = [0xEEu8; 32];
+    nonce_bytes[0] = 0xC0u8.wrapping_add(nonce_index);
+    let policy_digest = current_agent_library_policy_digest().unwrap();
+    store
+        .publish(AgentLibraryPublishRequest {
+            context: AgentLibraryMutationContext {
+                request_id: 90_000 + u64::from(nonce_index),
+                principal: store.owner_principal().to_string(),
+                caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
+                attempt_nonce: eg_types::contract::Nonce::from_bytes(nonce_bytes),
+                tenant_id: tenant_id.to_string(),
+                actor_scope: "action-scope:agent-seed".to_string(),
+                purpose_id: "agent-library:publish".to_string(),
+                policy_revision: "policy-v1".to_string(),
+                policy_digest,
+                policy_decision_id: "agent-library:decision:policy-v1".to_string(),
+                idempotency_key: format!("agent-seed:{tenant_id}:{agent_id}"),
+                expected_revision: Some(0),
+                trace_id: None,
+                created_at_ms: 5,
+            },
+            entry,
+        })
+        .expect("the fixture's agent publishes")
+        .entry
+        .definition_digest
+}
+
+/// The agent draft [`seed_agent_for_test`] publishes, with its component pins
+/// still carrying placeholder digests for `seed_draft_components_for_test` to
+/// rewrite.
+#[cfg(test)]
+pub(crate) fn seed_agent_draft_for_test(
+    _store: &AgentLibraryStore,
+    tenant_id: &str,
+    agent_id: &str,
+    nonce_index: u8,
+) -> AgentLibraryEntryDraft {
+    use eg_types::agent_component::{AgentComponentKind, ComponentDependency};
+    let placeholder = format!("sha256:{}", "0".repeat(64));
+    let pin = |component_id: &str, kind: AgentComponentKind| ComponentDependency {
+        component_id: component_id.to_string(),
+        kind,
+        definition_digest: placeholder.clone(),
+    };
+    AgentLibraryEntryDraft {
+        agent_id: agent_id.to_string(),
+        package_id: "agent-package".to_string(),
+        version: "1.0.0".to_string(),
+        role: "researcher".to_string(),
+        role_digest: format!("sha256:{}", "1".repeat(64)),
+        system_prompt: pin("prompt:agent", AgentComponentKind::SystemPrompt),
+        tools: vec![pin("tool:search", AgentComponentKind::Tool)],
+        skills: vec![pin("skill:reason", AgentComponentKind::Skill)],
+        model_profile: pin("model-profile:default", AgentComponentKind::ModelProfile),
+        model_identity: "model:default".to_string(),
+        ontologies: vec![pin("ontology:agent", AgentComponentKind::Ontology)],
+        tenant_id: tenant_id.to_string(),
+        actor_scope: "definition:builder-a".to_string(),
+        purpose_id: "agent-library:definition".to_string(),
+        policy_digest: format!("sha256:{}", "7".repeat(64)),
+        // Distinct per agent, so two seeded agents are two different records
+        // rather than one definition published under two ids.
+        source_revision: format!("agent-seed:{nonce_index}"),
+        source_revision_digest: format!("sha256:{}", "8".repeat(64)),
+        runtime: Default::default(),
+        instantiated_from: None,
     }
 }
 

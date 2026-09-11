@@ -443,32 +443,23 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [pre-commit, pre-push, manual]
-  # STAGING NOTE (owner-stamped, 2026-09-11). `pinned-reference-resolution` is
-  # RED BY DESIGN on the current tree: 4 of 8 pinned reference edges have no
-  # production resolver (GRAPH->COMPONENT, GRAPH->LIBRARY, GRAPH->TEMPLATE,
-  # LIBRARY->TEMPLATE), plus 2 UNPINNED references
-  # (`ComponentProvenance{,::McpServer}.server_component_id`, which name a
-  # record by id with no digest, so no resolver can check identity even in
-  # principle). It is NOT allowlisted, suppressed or weakened, and it still
-  # FAILS — it runs at pre-push and in every explicit gate sweep.
-  #
-  # It is held off `pre-commit` for one reason: a permanently-failing
-  # pre-commit hook forces every commit to use --no-verify, which silently
-  # disables the OTHER 60 gates too. That is not hypothetical — it is exactly
-  # how a broken dupehound gate and four files of EOF debt reached main in this
-  # program. Blocking one class of debt at the cost of disabling all
-  # enforcement is a net loss.
-  #
-  # RETURN IT TO `pre-commit` the moment its findings reach zero. Whoever
-  # resolves the last edge owns that edit. `orphan-modules` was held here for
-  # the same reason and was returned on 2026-09-11 once it went green.
+  # RETURNED TO pre-commit 2026-09-11, once its findings reached zero: all 8
+  # pinned reference edges now have a production resolver, and the contract
+  # declares no unpinned cross-record reference. The last four edges
+  # (GRAPH->COMPONENT, GRAPH->LIBRARY, GRAPH->TEMPLATE, LIBRARY->TEMPLATE)
+  # resolve at publish admission inside the write transaction, and
+  # `ComponentProvenance::McpServer` stopped naming its server by bare id — it
+  # pins a `ComponentDependency` like every other cross-record reference here.
+  # It was held off `pre-commit` while it was red by design, because a
+  # permanently-failing pre-commit hook forces every commit to use --no-verify
+  # and silently disables the other 60 gates; that reason is gone.
   - id: pinned-reference-resolution
     name: Every pinned cross-record reference has a production resolver
     entry: python3 scripts/check_pinned_reference_resolution.py
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-push, manual]
+    stages: [pre-commit, pre-push, manual]
   # Anti-drift check for the ci-gate-replica hook (pre-push/manual, below) —
   # pure YAML parse, no cargo/build, <1s, so it runs on EVERY commit rather
   # than waiting for a push to discover a workflow grew a job
