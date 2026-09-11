@@ -236,7 +236,24 @@ mod tests {
     }
 
     fn extension(outbox_id: &str) -> TerminalOutcomeExtension {
-        let bundle = CommitOutcomeBundle {
+        extension_with(outbox_id, |_| {})
+    }
+
+    /// Build a terminal extension whose receipt nodes and run event are derived
+    /// from the bundle AFTER `shape` has mutated it.
+    ///
+    /// A receipt node carries the bundle's authority/currency fields inside its
+    /// own durable `properties_msgpack`, and the run event repeats them, so
+    /// `TerminalOutcomeExtension::validate` requires all three to agree. Mutating
+    /// the bundle of an already-built extension therefore leaves the receipts and
+    /// the event bound to the PREVIOUS bundle and is rejected before any
+    /// assertion about lowering can be reached -- so the shape has to be decided
+    /// here, before the derived rows are minted.
+    fn extension_with(
+        outbox_id: &str,
+        shape: impl FnOnce(&mut CommitOutcomeBundle),
+    ) -> TerminalOutcomeExtension {
+        let mut bundle = CommitOutcomeBundle {
             schema_version: OUTCOME_BUNDLE_VERSION,
             delegation_id: "delegation:test".into(),
             delegator_id: "agent:delegator-a".into(),
@@ -262,6 +279,8 @@ mod tests {
             outbox_id: outbox_id.into(),
             langfuse_observation_refs: Vec::new(),
         };
+        shape(&mut bundle);
+        let bundle = bundle;
         let receipt_nodes = vec![
             receipt_node(&bundle, ReceiptNodeKind::RunTrace, &bundle.trace_ref),
             receipt_node(
@@ -275,36 +294,47 @@ mod tests {
                 &bundle.outcome_ref,
             ),
         ];
+        let run_event = RunEvent {
+                schema_version: OUTCOME_BUNDLE_VERSION,
+                // Every identity/currency field below is READ OFF the shaped
+                // bundle, never restated: `RunEvent::validate_for_bundle`
+                // compares all of them, and a literal here would silently
+                // unbind the event the moment a test reshapes the bundle.
+                delegation_id: bundle.delegation_id.clone(),
+                delegator_id: bundle.delegator_id.clone(),
+                selected_agent_id: bundle.selected_agent_id.clone(),
+                executor_lease_actor: bundle.executor_lease_actor.clone(),
+                outcome: bundle.outcome.clone(),
+                work_item_id: bundle.work_item_id.clone(),
+                run_id: bundle.run_id.clone(),
+                fence_token: bundle.fence_token,
+                outbox_id: bundle.outbox_id.clone(),
+                result_ref: bundle.result_ref.clone(),
+                capability_digest: bundle.capability_digest.clone(),
+                catalog_digest: bundle.catalog_digest.clone(),
+                policy_digest: bundle.policy_digest.clone(),
+                model_digest: bundle.model_digest.clone(),
+                event_sequence: bundle.event_sequence,
+                completeness: bundle.completeness,
+                missing_refs: bundle.missing_refs.clone(),
+                // A degraded bundle completes through the `degraded` event kind;
+                // both kinds bind the same `outcome_ref` (see
+                // `validate_for_bundle`'s completion-reference match).
+                kind: match bundle.completeness {
+                    OutcomeCompleteness::Complete => "outcome".into(),
+                    _ => "degraded".to_string(),
+                },
+                tool_call_ref: None,
+                outcome_ref: Some(bundle.outcome_ref.clone()),
+                payload_digest: digest('f'),
+                timestamp_ms: 10,
+            cursor_token: "cursor:test:1".into(),
+            carrier_digest: digest('0'),
+        };
         TerminalOutcomeExtension {
             outcome_bundle: bundle,
             receipt_nodes,
-            run_event: RunEvent {
-                schema_version: OUTCOME_BUNDLE_VERSION,
-                delegation_id: "delegation:test".into(),
-                delegator_id: "agent:delegator-a".into(),
-                selected_agent_id: "agent:selected-b".into(),
-                executor_lease_actor: "worker:test".into(),
-                outcome: "succeeded".into(),
-                work_item_id: "work:test".into(),
-                run_id: "run:test".into(),
-                fence_token: 7,
-                outbox_id: outbox_id.into(),
-                result_ref: Some("cas:result:test".into()),
-                capability_digest: digest('b'),
-                catalog_digest: digest('c'),
-                policy_digest: digest('d'),
-                model_digest: digest('e'),
-                event_sequence: 1,
-                completeness: OutcomeCompleteness::Complete,
-                missing_refs: Vec::new(),
-                kind: "outcome".into(),
-                tool_call_ref: None,
-                outcome_ref: Some("outcome:test".into()),
-                payload_digest: digest('f'),
-                timestamp_ms: 10,
-                cursor_token: "cursor:test:1".into(),
-                carrier_digest: digest('0'),
-            },
+            run_event,
         }
     }
 
@@ -359,9 +389,7 @@ mod tests {
     #[test]
     fn terminal_extension_publishes_failed_cancelled_and_degraded_currency() {
         for outcome in ["failed", "cancelled"] {
-            let mut extension = extension("batch:test");
-            extension.outcome_bundle.outcome = outcome.into();
-            extension.run_event.outcome = outcome.into();
+            let extension = extension_with("batch:test", |bundle| bundle.outcome = outcome.into());
             let mut method = terminal(extension);
             if let Method::CommitWorkItemResult {
                 outcome: method_outcome,
@@ -375,12 +403,10 @@ mod tests {
             assert_eq!(outbox[0].headers["outcome"], outcome);
         }
 
-        let mut extension = extension("batch:test");
-        extension.outcome_bundle.completeness = OutcomeCompleteness::Degraded;
-        extension.outcome_bundle.missing_refs = vec!["tool_call:test:1".into()];
-        extension.run_event.completeness = OutcomeCompleteness::Degraded;
-        extension.run_event.missing_refs = extension.outcome_bundle.missing_refs.clone();
-        extension.run_event.kind = "degraded".into();
+        let extension = extension_with("batch:test", |bundle| {
+            bundle.completeness = OutcomeCompleteness::Degraded;
+            bundle.missing_refs = vec!["tool_call:test:1".into()];
+        });
         let (_, outbox) =
             lower_terminal_outcome_extensions("batch:test", vec![terminal(extension)]).unwrap();
         assert_eq!(outbox[0].headers["completeness"], "degraded");
@@ -389,11 +415,17 @@ mod tests {
 
     #[test]
     fn terminal_extension_rejects_method_outcome_mismatch() {
-        let mut extension = extension("batch:test");
-        extension.outcome_bundle.outcome = "failed".into();
-        extension.run_event.outcome = "failed".into();
+        // The bundle (and therefore its receipts and run event) says `failed`
+        // while `terminal` still builds a `succeeded` CommitWorkItemResult, so
+        // the ONLY disagreement left is the one this test names. Reshaping an
+        // already-built extension instead would unbind its receipts first and
+        // fail on that, never reaching the method-outcome check.
+        let extension = extension_with("batch:test", |bundle| bundle.outcome = "failed".into());
         let error =
             lower_terminal_outcome_extensions("batch:test", vec![terminal(extension)]).unwrap_err();
-        assert!(error.contains("does not match the terminal method"));
+        assert!(
+            error.contains("does not match the terminal method"),
+            "{error}"
+        );
     }
 }

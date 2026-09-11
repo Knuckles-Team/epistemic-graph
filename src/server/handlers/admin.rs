@@ -1614,8 +1614,13 @@ mod agent_library_security_tests {
         TableDefinition::new("ledger_batches");
     const LEDGER_OUTBOX: TableDefinition<'static, (&str, &str, u32), &[u8]> =
         TableDefinition::new("ledger_outbox");
+    // The durable table names are `eg_storage::tables`' own (they are
+    // `pub(crate)` there, so this owner-inspection test restates them). The
+    // typed replay receipt lives in `mutation_replay_operations` -- the
+    // `mutation_` prefix is part of the name, not a namespace this test may
+    // drop, as `server::persistence::agent_library`'s own reader shows.
     const REPLAY_OPERATIONS: TableDefinition<'static, (&str, &str), &[u8]> =
-        TableDefinition::new("replay_operations");
+        TableDefinition::new("mutation_replay_operations");
 
     fn digest(byte: char) -> String {
         format!("sha256:{}", byte.to_string().repeat(64))

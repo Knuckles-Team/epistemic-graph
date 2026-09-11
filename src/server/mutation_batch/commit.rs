@@ -1302,6 +1302,15 @@ pub(crate) async fn lifecycle_was_committed(
 mod internal_replay_tests {
     use super::*;
 
+    /// The opaque serving principal this test's job store is opened as.
+    /// `eg_types::mutation_batch`'s `validate_serving_principal` requires the
+    /// `principal:sha256:<64 hex>` shape for every durable mutation authority,
+    /// exactly like `eg_jobs::dev_scope_grant::DEV_PRINCIPAL`; a human-readable
+    /// label is refused by the jobs codec before the store ever opens.
+    #[cfg(all(feature = "redb", feature = "program-optimization"))]
+    const PROMOTION_TEST_PRINCIPAL: &str =
+        "principal:sha256:9f2c1d0e4b7a836512cd94ef0a7b61d3428f5c9e0b13a6d748ff205ce9b374a1";
+
     #[cfg(all(feature = "redb", feature = "program-optimization"))]
     struct PromotionJobScopeVerifier;
 
@@ -1316,7 +1325,7 @@ mod internal_replay_tests {
             proof: &[u8],
         ) -> Result<(), String> {
             if layout == eg_storage::OwnerLayout::Jobs
-                && principal == "promotion-test-principal"
+                && principal == PROMOTION_TEST_PRINCIPAL
                 && proof == b"promotion-test-proof"
             {
                 Ok(())
@@ -1880,7 +1889,7 @@ mod internal_replay_tests {
         let job_store = eg_jobs::JobStore::open(
             &job_path,
             &PromotionJobScopeVerifier,
-            "promotion-test-principal",
+            PROMOTION_TEST_PRINCIPAL,
             b"promotion-test-proof",
         )
         .expect("open physically separate job store");
@@ -2315,7 +2324,7 @@ mod internal_replay_tests {
         let fresh_job_store = eg_jobs::JobStore::open(
             &job_path,
             &PromotionJobScopeVerifier,
-            "promotion-test-principal",
+            PROMOTION_TEST_PRINCIPAL,
             b"promotion-test-proof",
         )
         .expect("reopen a fresh job store after file removal");
