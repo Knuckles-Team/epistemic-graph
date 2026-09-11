@@ -35,6 +35,10 @@ bash scripts/check_no_pyo3.sh               # the no-PyO3 gate
 pre-commit run --all-files
 ```
 
+The complexity (cccc) and KISS gates have written, measured terms of acceptance
+in [`docs/quality-gate-terms.md`](docs/quality-gate-terms.md) — what they accept,
+why, and what the remaining backlog is. Read it before changing a threshold.
+
 ## Adding an engine capability
 
 Implement it in the relevant Rust module, then expose it across **three layers** —

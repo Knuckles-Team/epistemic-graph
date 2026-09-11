@@ -134,4 +134,5 @@ nav:
       - Transport Benchmarks: benchmarks.md
       - Soak / Chaos Benchmarks: benchmarks-soak.md
       - Exact-binary Certification: performance_certification.md
+      - Quality Gate Terms of Acceptance: quality-gate-terms.md
   - For AI Agents: https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md

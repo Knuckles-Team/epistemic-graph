@@ -6,9 +6,20 @@
 # reported by `kiss stats` every run) or ON at its target. (CX MR-11.)
 #
 # ⚠ NEVER run bare `kiss check` here -- it writes a self-calibrating
-#   .kissconfig that also disables four global rules. Use scripts/run_kiss.sh.
+#   .kissconfig that also disables four global rules. ALWAYS pass
+#   `--config .kiss/kiss.toml` and ONE path per invocation (KISS 0.4.10 reports
+#   a false clean for a multi-path `check`). The two callers that do this
+#   correctly are scripts/check_kiss_staged.sh (the pre-commit hook) and the
+#   `kiss-census` hook in .pre-commit-config.yaml; go through one of them.
+#   (Corrected 2026-09-11: this header used to point at scripts/run_kiss.sh,
+#   which does not exist in this repository.)
 #
 # Measured 2026-08-27, src/ + crates/ (811 files, 20,149 units).
+# Re-measured 2026-09-11, src/ + crates/ (1,279 tracked files, 20,011 units:
+# 1,088 file, 2,040 impl, 16,883 function/method rows). Every percentile below
+# that carries a 2026-09-11 note was recomputed by running KISS over the whole
+# tracked tree with the rule under study set to 1, so KISS reports its OWN exact
+# count for every unit rather than only the ones over today's threshold.
 
 [global]
 min_similarity          = 0.9      # ON. 50 duplicate violations measured.
@@ -26,17 +37,99 @@ orphan_allowed          = []
 max_indentation           = 5      # measured p95=3,  max=19
 nested_function_depth     = 2      # measured p99=2,  max=5
 boolean_parameters        = 1      # measured p99=1,  max=4
-returns_per_function      = 5      # measured p95=3,  max=77
+returns_per_function      = 8      # 2026-09-11: p90=2, p95=3, p99=5, max=29
+                                   # over 16,883 fns. RAISED from 5, and NOT to
+                                   # fit what passes -- 51 functions still fail.
+                                   # Calibrated against an INDEPENDENT measure.
+                                   # KISS counts only explicit `return`; `?` and
+                                   # the tail expression are free (verified on a
+                                   # probe), so this is a count of deliberate
+                                   # exits. Cross-joining every finding with its
+                                   # cccc cognitive complexity, the share of
+                                   # findings that a second metric also calls
+                                   # complex (cognitive > 15) is:
+                                   #   cap 5 -> 144 findings, 33% corroborated
+                                   #   cap 6 ->  93 findings, 41%
+                                   #   cap 7 ->  66 findings, 48%
+                                   #   cap 8 ->  51 findings, 53%
+                                   #   cap 10 -> 22 findings, 77%
+                                   # 8 is the SMALLEST cap at which the rule is
+                                   # right more often than it is wrong. Below it
+                                   # the rule fires mostly on flat guard-clause
+                                   # validators -- the exact shape its own advice
+                                   # string tells you to write ("early guard
+                                   # returns at the top, then a single main
+                                   # return path"). eg-audio ingress.rs
+                                   # ::validate_frame, 6 returns, all of them
+                                   # `return Err(..)` refusals, is that case.
+                                   # JUDGEMENT, labelled: the measurement fixes
+                                   # the curve, but "majority corroboration" is
+                                   # the acceptance criterion I chose for it.
 arguments                 = 8      # measured p99=7,  max=18
 statements_per_function   = 35     # measured p99=55, max=603
 local_variables           = 20     # measured p99=24, max=479
 calls_per_function        = 45     # measured p99=86, max=829
-methods_per_class         = 10     # measured p90=8,  max=190
+methods_per_class         = 13     # 2026-09-11: p90=8, p95=11, p99=31,
+                                   # max=222 over 2,040 impl units. RAISED from
+                                   # 10 for ONE reason that is not about size:
+                                   # KISS aggregates every impl block for a type
+                                   # within a file, TRAIT IMPLS INCLUDED
+                                   # (verified on a probe: two `impl A` blocks of
+                                   # 2 methods report as one type with 4), and
+                                   # its advice -- "extract related methods into
+                                   # a separate type with its own impl" -- is
+                                   # IMPOSSIBLE for a trait impl. The trait
+                                   # defines the method set; the implementing
+                                   # type cannot shed one and still implement it.
+                                   # Measured obligation of this workspace's own
+                                   # standard contract: `ModalityContract` has 22
+                                   # implementations, 8 of them at exactly 12
+                                   # methods and the largest at 13. A cap below
+                                   # 13 demands a refactor that does not exist.
+                                   # 13 still flags 68 impls, ChunkStore (21) and
+                                   # PersistenceBackend (44) among them -- both
+                                   # genuinely over-broad interfaces, and both
+                                   # still reported. COST, stated: 88 of the 107
+                                   # impls over 10 are INHERENT, where p95 is
+                                   # exactly 10, so this also relaxes inherent
+                                   # APIs from p95 to ~p97. KISS has one global
+                                   # number per language and cannot separate the
+                                   # two populations; the inherent god-objects
+                                   # (222, 58, 34, 32, 26, 22 methods) stay over.
 imported_names_per_file   = 50     # measured p99=51, max=99
 statements_per_file       = 250    # measured p90=282, max=3040
 lines_per_file            = 900    # measured p50=255, max=11280
 functions_per_file        = 40     # measured p90=38, max=269
-concrete_types_per_file   = 8      # measured p90=8,  max=140
+concrete_types_per_file   = 20     # 2026-09-11: p90=7, p95=9, p99=18, max=140
+                                   # over 1,279 files. RAISED from 8 because at
+                                   # 8 the rule has almost no unique signal and a
+                                   # systematic bias. Of the 70 files over 8, 40
+                                   # are ALREADY flagged oversized by the size
+                                   # family below (lines_per_file 900 /
+                                   # statements_per_file 250 / functions_per_file
+                                   # 40) -- for those the type count says nothing
+                                   # new. The 30 it flags ALONE are uniformly the
+                                   # Rust contract-module pattern: small, type-
+                                   # dense modules whose types share one
+                                   # vocabulary. eg-types/native_control.rs is
+                                   # 276 lines and 19 types -- a Capacity* /
+                                   # SubmitWorkItem* request+result vocabulary
+                                   # that is reviewable precisely because it is
+                                   # in one module. Its advice, "Move types to
+                                   # separate files", would produce 19 files and
+                                   # destroy that. 20 clears the largest measured
+                                   # coherent contract module (19) and still
+                                   # flags 9 files -- epistemic_operations (140),
+                                   # protocol (77), wire (39), cypher/gds (32),
+                                   # sql/classify (31), cypher/plan (27),
+                                   # redb_store (25), promql (22), audio ingress
+                                   # (22) -- which are grab-bags, not one
+                                   # vocabulary. Same idiom as
+                                   # interface_types_per_file below: set just
+                                   # above the largest instance of the described
+                                   # class, so the rule still names the outliers.
+                                   # A genuinely oversized file remains caught by
+                                   # the size family regardless of its types.
 
 # ---- RE-TUNED off the upstream default, deliberately ------------------
 interface_types_per_file  = 3      # ⚠ upstream default is 0 -- ZERO traits per

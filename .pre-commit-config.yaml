@@ -217,7 +217,7 @@ repos:
   # The explicit git ls-files universe keeps ignored/untracked build output out
   # while ensuring a census does not accidentally scan only a convenient dir.
   - id: cccc-census
-    name: CCCC — tracked source census (advisory; no baseline)
+    name: CCCC — tracked source census, split accepted-by-rule vs backlog (advisory; no baseline)
     entry: |-
       bash -c '
       set -euo pipefail
@@ -233,6 +233,7 @@ repos:
       languages="$(PYTHONPATH=scripts python3 -c "from scanner_contract import cccc_languages_arg; print(cccc_languages_arg())")" || { echo "cccc census: invalid language registry" >&2; exit 2; }
       "$cccc_bin" --no-config --min 0 --lang "$languages" "${files[@]}" > "$report"
       python3 scripts/validate_cccc_census.py "$report"
+      python3 scripts/report_complexity_terms.py "$report"
       '
     language: system
     pass_filenames: false
