@@ -676,8 +676,8 @@ fn graph_operations(
     entry: &AgentGraphEntry,
 ) -> Vec<MutationOperation> {
     let event_type = match kind {
-        AgentGraphMutationKind::Publish => "agent_graph_publish_v1",
-        AgentGraphMutationKind::Retire => "agent_graph_retire_v1",
+        AgentGraphMutationKind::Publish => "agent_graph_publish",
+        AgentGraphMutationKind::Retire => "agent_graph_retire",
     };
     vec![MutationOperation {
         ordinal: 0,

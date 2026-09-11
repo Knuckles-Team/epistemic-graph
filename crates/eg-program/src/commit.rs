@@ -64,24 +64,56 @@ pub struct ProgramCandidateRecord {
     pub authority_digest: String,
 }
 
+/// The job-result lineage retained beside a promoted candidate.
+///
+/// Groups the job result's own ref, its source dataset ref, that dataset's
+/// content digest, and the dataset snapshot version. The four always travel
+/// together -- they are one immutable statement of *which* analytics result
+/// produced the candidate -- so the group is named rather than restated as
+/// four flat parameters on every promotion constructor (RF-ADR-008, "grouped,
+/// not flattened").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramResultInput {
+    /// The durable job-result row that carried the selected candidate.
+    pub result_ref: OpaqueRef,
+    /// The job input dataset the result was computed over.
+    pub dataset_ref: OpaqueRef,
+    /// Content digest of that dataset at the observed snapshot.
+    pub content_digest: String,
+    /// Snapshot version of that dataset.
+    pub snapshot_version: u64,
+}
+
+/// The training-corpus binding retained beside a promoted candidate.
+///
+/// Groups the corpus ref with the snapshot version it was read at; neither
+/// half identifies the training input on its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramCorpusBinding {
+    /// The training corpus the optimizer drew demonstrations from.
+    pub corpus_ref: OpaqueRef,
+    /// Snapshot version of that corpus.
+    pub snapshot_version: u64,
+}
+
 impl ProgramCandidateRecord {
     pub fn from_candidate(
         program: &ProgramRevision,
         candidate: &ProgramCandidate,
-        // `result_input` groups the job result's own ref, its source dataset
-        // ref, the dataset's content digest, and the dataset snapshot version.
-        result_input: (OpaqueRef, OpaqueRef, String, u64),
-        // `corpus` groups the training corpus ref and its snapshot version.
-        corpus: (OpaqueRef, u64),
+        result_input: ProgramResultInput,
+        corpus: ProgramCorpusBinding,
         seed: u64,
     ) -> Result<Self, ProgramError> {
-        let (
+        let ProgramResultInput {
             result_ref,
-            result_input_dataset_ref,
-            result_input_content_digest,
-            result_input_snapshot_version,
-        ) = result_input;
-        let (corpus_ref, corpus_snapshot_version) = corpus;
+            dataset_ref: result_input_dataset_ref,
+            content_digest: result_input_content_digest,
+            snapshot_version: result_input_snapshot_version,
+        } = result_input;
+        let ProgramCorpusBinding {
+            corpus_ref,
+            snapshot_version: corpus_snapshot_version,
+        } = corpus;
         let candidate_claim_ref = format!(
             "jobclaim:{}:{}",
             result_ref.as_str(),
@@ -379,26 +411,12 @@ impl ProgramRevisionIdentity {
         program: &ProgramRevision,
         candidate: &ProgramCandidate,
         active_revision_ref: Option<OpaqueRef>,
-        result_ref: OpaqueRef,
-        result_input_dataset_ref: OpaqueRef,
-        result_input_content_digest: String,
-        result_input_snapshot_version: u64,
-        corpus_ref: OpaqueRef,
-        corpus_snapshot_version: u64,
+        result_input: ProgramResultInput,
+        corpus: ProgramCorpusBinding,
         seed: u64,
     ) -> Result<Self, ProgramError> {
-        let record = ProgramCandidateRecord::from_candidate(
-            program,
-            candidate,
-            (
-                result_ref,
-                result_input_dataset_ref,
-                result_input_content_digest,
-                result_input_snapshot_version,
-            ),
-            (corpus_ref, corpus_snapshot_version),
-            seed,
-        )?;
+        let record =
+            ProgramCandidateRecord::from_candidate(program, candidate, result_input, corpus, seed)?;
         Self::from_candidate_parts(program, candidate, active_revision_ref, Some(record))
     }
 

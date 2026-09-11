@@ -2372,15 +2372,19 @@ async fn execute_program_claim(
                 &promotion_program,
                 candidate,
                 active_revision_ref.clone(),
-                promotion_result_ref
-                    .clone()
-                    .ok_or(eg_program::ProgramError::InvalidCommit)?,
-                OpaqueRef::new(job.input_snapshot.dataset_ref.clone())
-                    .map_err(|_| eg_program::ProgramError::InvalidCommit)?,
-                job.input_snapshot.content_digest.clone(),
-                job.input_snapshot.version,
-                promotion_corpus.corpus_ref.clone(),
-                promotion_corpus.snapshot_version,
+                eg_program::ProgramResultInput {
+                    result_ref: promotion_result_ref
+                        .clone()
+                        .ok_or(eg_program::ProgramError::InvalidCommit)?,
+                    dataset_ref: OpaqueRef::new(job.input_snapshot.dataset_ref.clone())
+                        .map_err(|_| eg_program::ProgramError::InvalidCommit)?,
+                    content_digest: job.input_snapshot.content_digest.clone(),
+                    snapshot_version: job.input_snapshot.version,
+                },
+                eg_program::ProgramCorpusBinding {
+                    corpus_ref: promotion_corpus.corpus_ref.clone(),
+                    snapshot_version: promotion_corpus.snapshot_version,
+                },
                 promotion_seed,
             )
         })
