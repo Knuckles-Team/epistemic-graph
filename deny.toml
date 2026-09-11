@@ -1,14 +1,28 @@
 # cargo-deny configuration (CONCEPT:EG-KG.storage.cargo-dependency-cve-gate — W0.12).
 #
-# Mirrors, on the Rust side, the fail-closed OSV gate the Python side already runs
-# (`scripts/audit_dependencies.py` + `.security-audit-allow.txt`): every dependency
-# advisory is a hard failure unless it has a justified, expiring risk acceptance.
+# Every dependency advisory is a hard failure unless it has a justified, expiring
+# risk acceptance.
+#
+# SCOPE — read this before assuming Python is covered here. This gate audits the
+# RUST dependency graph only. An earlier version of this comment said it mirrored
+# "the fail-closed OSV gate the Python side already runs
+# (`scripts/audit_dependencies.py` + `.security-audit-allow.txt`)". Neither file
+# exists in THIS repository — they live in agent-utilities. So epistemic-graph
+# currently has NO dependency-CVE scanner for its Python surface; `bandit` is SAST
+# over our own source, not an advisory check against installed packages. That
+# matters because this repo ships a Python client and a wheel.
+#
+# Either wire the agent-utilities script in here, or accept that EG's Python deps
+# are audited at the AU layer -- but do not let this file keep asserting a gate
+# that is not present. A comment claiming coverage that does not exist is worse
+# than no comment: it is the reason nobody noticed.
 #
 #   * [advisories] — FAIL-CLOSED. cargo-deny denies on ANY matched RUSTSEC advisory
 #     by default; the `ignore` list below is the ONLY escape hatch, and it must stay
 #     empty in normal operation. A new entry here requires a matching, justified,
 #     <=90-day-expiring line in `.cargo-audit-allow.txt` at the repo root (the exact
-#     convention `scripts/audit_dependencies.py` uses for `.security-audit-allow.txt`)
+#     convention agent-utilities' `scripts/audit_dependencies.py` uses for its own
+#     `.security-audit-allow.txt`)
 #     — `scripts/check_cargo_advisories.sh` cross-validates the two files so an
 #     ignore can never exist without a live, dated justification, and a justification
 #     can never go stale without failing the gate. See that script + file for the
