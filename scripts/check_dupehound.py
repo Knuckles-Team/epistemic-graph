@@ -279,11 +279,50 @@ def _validate_path_field(index: int, field: str, value: object) -> None:
         fail(f"dupehound finding {index} has an empty {field}")
 
 
-def finding_document(output: str) -> list[dict[str, Any]]:
+# dupehound 0.1.2 does NOT honour `--json` on one path: when its own change
+# detection finds nothing to check it writes this plain-text line to STDOUT and
+# exits 0.  Reproduce with `dupehound check --json .` in a clean tree.
+NO_CHANGES_SENTINEL = "dupehound check: no changes to check"
+
+
+def _reject_scanned_nothing(stripped: str, context: str) -> None:
+    """Name the "dupehound checked nothing" case instead of mislabelling it.
+
+    This is NOT "no findings".  The gate selected paths to check and dupehound
+    then scanned nothing, so nothing was enforced for this commit.  Reporting
+    it as a JSON parse failure -- which is what a bare `json.loads` does --
+    named the symptom and hid the cause: `CANNOT RUN: invalid JSON: Expecting
+    value: line 1 column 1` is what an operator saw, with no way to tell it
+    from schema drift or a crashed scanner.
+    """
+
+    if stripped != NO_CHANGES_SENTINEL:
+        return
+    fail(
+        "dupehound scanned nothing while this gate selected changed source "
+        f"to check{context}. Its own change detection (staged index, else "
+        "worktree vs HEAD, else untracked) disagreed with this gate's. "
+        "Nothing was enforced for this commit"
+    )
+
+
+def _parsed_document(stripped: str, output: str, context: str) -> Any:
+    """Parse dupehound's JSON, naming the exit code and stdout on failure."""
+
     try:
-        document = json.loads(output)
+        return json.loads(output)
     except (TypeError, UnicodeError, json.JSONDecodeError) as exc:
-        fail(f"dupehound returned invalid JSON: {exc}")
+        preview = stripped[:200].replace("\n", " ")
+        fail(
+            f"dupehound returned invalid JSON: {exc}{context}; "
+            f"stdout began {preview!r}"
+        )
+
+
+def finding_document(output: str, *, context: str = "") -> list[dict[str, Any]]:
+    stripped = (output or "").strip()
+    _reject_scanned_nothing(stripped, context)
+    document = _parsed_document(stripped, output, context)
     if not isinstance(document, dict):
         fail("dupehound JSON result is not an object")
     schema_version = document.get("schema_version")
@@ -361,6 +400,14 @@ def _validate_finding(index: int, finding: object) -> None:
 parse_result = finding_document
 
 
+def _process_context(result: subprocess.CompletedProcess[str]) -> str:
+    """Exit code and stderr, so a parse failure names its cause not its symptom."""
+
+    stderr = (result.stderr or "").strip()
+    detail = f"; stderr: {stderr[:300]}" if stderr else ""
+    return f" (dupehound exited {result.returncode}{detail})"
+
+
 def _validated_findings(
     result: subprocess.CompletedProcess[str],
 ) -> list[dict[str, Any]]:
@@ -369,7 +416,9 @@ def _validated_findings(
             f"dupehound exited {result.returncode}: "
             f"{(result.stderr or '').strip()[:500]}"
         )
-    findings = finding_document(result.stdout or "")
+    findings = finding_document(
+        result.stdout or "", context=_process_context(result)
+    )
     if result.returncode == 0 and findings:
         fail("dupehound returned findings with exit 0")
     if result.returncode == 1 and not findings:

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from rust_lexer import (
     _balanced_span_from,
+    macro_rule_body_spans,
     _delimiter_depths,
     _evaluate_cfg,
     _item_end,
@@ -151,6 +152,35 @@ def _conditional_cfg_trees(
     return trees
 
 
+def _validate_conditional_path_list(
+    mask: str, name: str, cursor: int, end: int, failure: str
+) -> None:
+    """Shape-check `allow`/`deny`/`derive`/`forbid`/`warn` inside a `cfg_attr`.
+
+    A derive is the one of these that can emit items, so its paths must all be
+    audited: an unknown proc-macro derive could add a `mod` or an `include!`
+    this walk cannot see.
+    """
+
+    require(cursor < end and mask[cursor] == "(", failure)
+    closer = _balanced_span_from(mask, cursor, "(", ")")
+    require(not mask[closer + 1 : end].strip(), failure)
+    item = r"[A-Za-z_][A-Za-z0-9_]*(?:\s*::\s*[A-Za-z_][A-Za-z0-9_]*)*"
+    require(
+        re.fullmatch(
+            rf"\s*{item}(?:\s*,\s*{item})*\s*,?\s*", mask[cursor + 1 : closer]
+        )
+        is not None,
+        failure,
+    )
+    if name != "derive":
+        return
+    for candidate in mask[cursor + 1 : closer].split(","):
+        if candidate.strip():
+            canonical = re.sub(r"\s*::\s*", "::", candidate.strip())
+            require(canonical in _CFG_ATTR_KNOWN_DERIVES, failure)
+
+
 def _validate_inert_conditional_attribute(
     attribute_source: str,
     mask: str,
@@ -160,23 +190,17 @@ def _validate_inert_conditional_attribute(
 ) -> None:
     failure = f"unsupported conditional Rust attribute shape: {name}"
     if name in {"allow", "deny", "derive", "forbid", "warn"}:
+        _validate_conditional_path_list(mask, name, cursor, end, failure)
+        return
+    if name in {"schemars", "serde"}:
+        # A derive HELPER attribute: it is consumed by the derive it belongs
+        # to and expands to nothing on its own, so it can introduce neither a
+        # `mod` nor an `include!`.  Only its shape is validated -- a form this
+        # walker cannot delimit would leave the following item's attribute run
+        # mis-associated.
         require(cursor < end and mask[cursor] == "(", failure)
         closer = _balanced_span_from(mask, cursor, "(", ")")
         require(not mask[closer + 1 : end].strip(), failure)
-        item = r"[A-Za-z_][A-Za-z0-9_]*(?:\s*::\s*[A-Za-z_][A-Za-z0-9_]*)*"
-        require(
-            re.fullmatch(
-                rf"\s*{item}(?:\s*,\s*{item})*\s*,?\s*", mask[cursor + 1 : closer]
-            )
-            is not None,
-            failure,
-        )
-        if name == "derive":
-            for candidate in mask[cursor + 1 : closer].split(","):
-                candidate = candidate.strip()
-                if candidate:
-                    canonical = re.sub(r"\s*::\s*", "::", candidate)
-                    require(canonical in _CFG_ATTR_KNOWN_DERIVES, failure)
         return
     if name == "doc":
         tail = mask[cursor:end]
@@ -307,7 +331,14 @@ def _resolve_module_child(
     explicit = _path_override(comments_mask, attrs)
     child_module_dir = module_dir / name
     if explicit is not None:
-        return _RustSourceInput(path_base / explicit, child_module_dir, predicates)
+        # A file loaded through `#[path]` is a "mod-rs" file (Rust Reference,
+        # "Module source filenames"): it OWNS its own directory, exactly like
+        # `mod.rs`/`lib.rs`/`main.rs`, rather than the `<dir>/<name>/` a plain
+        # `mod name;` file owns.  Resolving its children under `<dir>/<name>/`
+        # instead made every child of a path'd module look absent and failed
+        # the walk closed on source rustc compiles without complaint.
+        resolved = path_base / explicit
+        return _RustSourceInput(resolved, resolved.parent, predicates)
     candidates = (
         module_dir / f"{name}.rs",
         child_module_dir / "mod.rs",
@@ -551,6 +582,60 @@ class _ProductionScopeWalker:
                 )
 
 
+def _require_declarations_consumed(
+    path: Path, active_mask: str, walker: "_ProductionScopeWalker"
+) -> None:
+    """Fail closed on a compiler-active declaration the traversal did not own.
+
+    Rust permits item-producing macros and module items in block scope. This
+    deliberately small interpreter only follows declarations at a module's item
+    scope, and silently ignoring an active one would let contract-bearing
+    source evade every scan built on this walk.
+
+    The one exception is an INLINE `mod name { .. }` inside a `macro_rules!`
+    TEMPLATE: it is not a declaration of this file -- the compiler creates it
+    once per expansion, at the call site -- and it names no file, so the walk
+    owes it nothing. An OUT-OF-LINE `mod name;` or an `include!` in a template
+    WOULD name a file, relative to a call site this lexical walk cannot
+    resolve, so those still fail closed.
+    """
+
+    macro_bodies = macro_rule_body_spans(active_mask)
+
+    def in_macro_template(position: int) -> bool:
+        return any(start <= position < end for start, end in macro_bodies)
+
+    modules = [
+        declaration
+        for declaration in _MODULE_ITEM.finditer(active_mask)
+        if not (
+            declaration.group("term") == "{" and in_macro_template(declaration.start())
+        )
+    ]
+    failure = (
+        "compiler-active Rust module declaration was not consumed by the "
+        f"module-tree traversal: {path}"
+    )
+    for declaration in modules:
+        require(declaration.start() in walker.consumed_modules, failure)
+    for keyword in _MODULE_KEYWORD.finditer(active_mask):
+        require(
+            in_macro_template(keyword.start())
+            or any(
+                declaration.start() in walker.consumed_modules
+                and declaration.start() <= keyword.start() < declaration.end()
+                for declaration in modules
+            ),
+            failure,
+        )
+    for inclusion in _INCLUDE_ITEM.finditer(active_mask):
+        require(
+            inclusion.start() in walker.consumed_includes,
+            "compiler-active Rust include was not consumed by the module-tree "
+            f"traversal: {path}",
+        )
+
+
 def _production_source_and_children(
     source_input: _RustSourceInput, source: str, include_tests: bool
 ) -> tuple[str, list[_RustSourceInput]]:
@@ -586,29 +671,7 @@ def _production_source_and_children(
     # function/const/block would let contract-bearing source evade the scan, so
     # every active-looking declaration must have been consumed by visit_scope.
     # We fail closed rather than attempting to expand arbitrary Rust macros.
-    active_modules = list(_MODULE_ITEM.finditer(active_mask))
-    for declaration in active_modules:
-        require(
-            declaration.start() in walker.consumed_modules,
-            "compiler-active Rust module declaration was not consumed by the "
-            f"module-tree traversal: {path}",
-        )
-    for keyword in _MODULE_KEYWORD.finditer(active_mask):
-        require(
-            any(
-                declaration.start() in walker.consumed_modules
-                and declaration.start() <= keyword.start() < declaration.end()
-                for declaration in active_modules
-            ),
-            "compiler-active Rust module declaration was not consumed by the "
-            f"module-tree traversal: {path}",
-        )
-    for inclusion in _INCLUDE_ITEM.finditer(active_mask):
-        require(
-            inclusion.start() in walker.consumed_includes,
-            "compiler-active Rust include was not consumed by the module-tree "
-            f"traversal: {path}",
-        )
+    _require_declarations_consumed(path, active_mask, walker)
     return sanitized_source, walker.children
 
 
@@ -655,19 +718,42 @@ def _visit_module_tree(
     visiting.remove(path)
 
 
+_MOD_RS_NAMES = frozenset({"mod.rs", "lib.rs", "main.rs"})
+
+
+def _root_module_dir(root: Path, crate_root: bool) -> Path:
+    """The directory a walk's root file owns its children in.
+
+    A cargo TARGET root and the three "mod-rs" filenames own their containing
+    directory; any other module file `a/b.rs` owns `a/b/`.
+    """
+
+    if crate_root or root.name in _MOD_RS_NAMES:
+        return root.parent
+    return root.with_suffix("")
+
+
 def _load_module_tree(
-    relative: str, *, root_dir: Path, include_tests: bool = False
+    relative: str,
+    *,
+    root_dir: Path,
+    include_tests: bool = False,
+    crate_root: bool = False,
 ) -> tuple[str, set[Path], Path]:
-    """Load a Rust module tree and return its source, files, and module directory."""
+    """Load a Rust module tree and return its source, files, and module directory.
+
+    ``crate_root`` marks the file as a cargo TARGET root rather than a module
+    file.  A target root owns its containing directory whatever it is called --
+    ``tests/foo.rs`` resolves ``mod common;`` to ``tests/common/mod.rs``,
+    exactly as rustc does -- whereas a module file ``a/b.rs`` owns ``a/b/``.
+    Callers that point at ``lib.rs``/``main.rs``/``mod.rs`` need not set it;
+    those names already imply the containing directory.
+    """
 
     allowed_root = root_dir.resolve()
     root = (allowed_root / relative).resolve()
     require(root.is_file(), f"missing Rust facade or module tree: {relative}")
-    root_module_dir = (
-        root.parent
-        if root.name in {"mod.rs", "lib.rs", "main.rs"}
-        else root.with_suffix("")
-    )
+    root_module_dir = _root_module_dir(root, crate_root)
     loaded: set[tuple[Path, Path, tuple[tuple, ...]]] = set()
     visiting: set[Path] = set()
     sources: list[str] = []
@@ -703,7 +789,11 @@ def read_module_tree(
 
 
 def read_module_paths(
-    relative: str, root_dir: Path, *, include_tests: bool = True
+    relative: str,
+    root_dir: Path,
+    *,
+    include_tests: bool = True,
+    crate_root: bool = False,
 ) -> set[Path]:
     """Return the compiler-declared source closure without sibling orphan checks.
 
@@ -713,7 +803,10 @@ def read_module_paths(
     """
 
     _, paths, _ = _load_module_tree(
-        relative, root_dir=root_dir, include_tests=include_tests
+        relative,
+        root_dir=root_dir,
+        include_tests=include_tests,
+        crate_root=crate_root,
     )
     return paths
 

@@ -308,6 +308,21 @@ def _macro_rule_bodies(mask: str):
         yield body_start, body, _delimiter_depths(body)
 
 
+def macro_rule_body_spans(mask: str) -> list[tuple[int, int]]:
+    """Absolute ``[start, end)`` spans of every ``macro_rules!`` body.
+
+    Items written inside a macro TEMPLATE are not items of the defining file:
+    the compiler creates them once per expansion, at the call site. The
+    module-tree walker therefore cannot own them, and needs to tell them apart
+    from real declarations rather than fail on source rustc accepts.
+    """
+
+    return [
+        (body_start, body_start + len(body))
+        for body_start, body, _depths in _macro_rule_bodies(mask)
+    ]
+
+
 def _macro_rule_arrows(body: str, depths: list[tuple[int, int, int]]) -> list[int]:
     return [
         position
