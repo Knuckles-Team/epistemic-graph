@@ -24,7 +24,7 @@
 //! at scale it is a high-recall ANN whose recall is tunable via the pool/probe
 //! parameters (a documented perf follow-up).
 
-use arrow::array::{Array, FixedSizeListArray, Float32Array, ListArray, UInt32Array};
+use arrow::array::{Array, ArrayRef, FixedSizeListArray, Float32Array, ListArray, UInt32Array};
 use arrow::datatypes::{DataType, SchemaRef};
 use arrow::record_batch::RecordBatch;
 
@@ -189,33 +189,28 @@ pub(crate) fn ann_topk_rows(
 fn column_vectors(batch: &RecordBatch, col_idx: usize, dim: usize) -> Vec<(usize, Vec<f32>)> {
     let col = batch.column(col_idx);
     let mut out = Vec::with_capacity(batch.num_rows());
-    let mut push_row = |row: usize, floats: &Float32Array| {
+    for row in 0..col.len() {
+        let Some(child) = list_row_child(col, row) else {
+            continue;
+        };
+        let Some(floats) = child.as_any().downcast_ref::<Float32Array>() else {
+            continue;
+        };
         if floats.len() == dim && (0..floats.len()).all(|i| !floats.is_null(i)) {
             out.push((row, (0..dim).map(|i| floats.value(i)).collect::<Vec<f32>>()));
         }
-    };
-    if let Some(la) = col.as_any().downcast_ref::<ListArray>() {
-        for row in 0..la.len() {
-            if la.is_null(row) {
-                continue;
-            }
-            let child = la.value(row);
-            if let Some(f) = child.as_any().downcast_ref::<Float32Array>() {
-                push_row(row, f);
-            }
-        }
-    } else if let Some(fsl) = col.as_any().downcast_ref::<FixedSizeListArray>() {
-        for row in 0..fsl.len() {
-            if fsl.is_null(row) {
-                continue;
-            }
-            let child = fsl.value(row);
-            if let Some(f) = child.as_any().downcast_ref::<Float32Array>() {
-                push_row(row, f);
-            }
-        }
     }
     out
+}
+
+/// The child array of one non-null row of a `List` / `FixedSizeList` column. `None` for a
+/// null row and for a column that is neither list shape.
+fn list_row_child(col: &ArrayRef, row: usize) -> Option<ArrayRef> {
+    if let Some(la) = col.as_any().downcast_ref::<ListArray>() {
+        return (!la.is_null(row)).then(|| la.value(row));
+    }
+    let fsl = col.as_any().downcast_ref::<FixedSizeListArray>()?;
+    (!fsl.is_null(row)).then(|| fsl.value(row))
 }
 
 /// Whether an Arrow field is a pgvector `vector` column — a `List`/`FixedSizeList`

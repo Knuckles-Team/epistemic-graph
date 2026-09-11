@@ -28,7 +28,6 @@ use super::config::RaftClusterConfig;
 use super::harness::cluster::fixture;
 use super::node::{self, StartedNode};
 use super::{NodeId, RaftRequest};
-use crate::durability::DurabilityPolicy;
 use crate::protocol::{GraphType, Method};
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
@@ -643,8 +642,7 @@ where
 async fn multi_group_startup_creates_n_groups_from_config() {
     let dir = fresh_dir("multigroup-startup");
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, 4)
-            .expect("open fresh K=4 layout"),
+        RedbBackend::open_with_shards(dir.clone(), 4096, 4).expect("open fresh K=4 layout"),
     );
     let state = make_state_with_backend(&dir, backend).await;
     let ports = free_ports(1);
@@ -675,8 +673,7 @@ async fn multi_group_startup_creates_n_groups_from_config() {
 async fn graph_routes_to_its_ring_assigned_group_after_multi_group_startup() {
     let dir = fresh_dir("multigroup-routing");
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, 3)
-            .expect("open fresh K=3 layout"),
+        RedbBackend::open_with_shards(dir.clone(), 4096, 3).expect("open fresh K=3 layout"),
     );
     let state = make_state_with_backend(&dir, backend).await;
     let ports = free_ports(1);
@@ -962,8 +959,7 @@ mod placement_admin_wire_rpc {
         for i in 1..=3u64 {
             let dir = dirs[(i - 1) as usize].clone();
             let backend: Arc<dyn PersistenceBackend> = Arc::new(
-                RedbBackend::open_with_shards(dir.clone(), DurabilityPolicy::Each, 4096, 2)
-                    .expect("open fresh K=2 layout"),
+                RedbBackend::open_with_shards(dir.clone(), 4096, 2).expect("open fresh K=2 layout"),
             );
             let state = make_state_with_backend(&dir, backend).await;
             register_admin_agent(&state).await;
@@ -1338,7 +1334,7 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
     let dir = fresh_dir("faultlog");
-    // DurabilityPolicy::Each = a committed (awaited) append is fsynced before the await
+    // The authoritative backend fsyncs each committed (awaited) append before the await
     // returns, so anything we observe as Ok IS on disk.
     let backend = fixture::open_backend(&dir).expect("open redb");
     let state = make_state_with_backend(&dir, backend.clone()).await;
@@ -1372,9 +1368,8 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
 
     // Restart: brand-new backend + store over the SAME files. Every fsynced entry
     // must still be present — no lost committed entry.
-    let backend2: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("reopen redb"),
-    );
+    let backend2: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), 4096).expect("reopen redb"));
     let mut store2 = EgStore::open(super::DEFAULT_GROUP, backend2.clone(), ctx).unwrap();
     let entries = store2
         .try_get_log_entries(1..=8)
@@ -1402,7 +1397,7 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
 async fn multi_group_logs_isolate_on_shared_redb() {
     let dir = fresh_dir("multigroup");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = AppCtx {
         state,
@@ -1697,7 +1692,7 @@ async fn group_snapshot_is_scoped_to_its_tenant_range() {
 
     let dir = fresh_dir("scopedsnap");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
 
     // Two graphs, pinned to two DIFFERENT non-default groups via the router. Neither
@@ -1897,7 +1892,7 @@ async fn coalesced_batch_round_trips_on_one_connection() {
 
     let dir = fresh_dir("hbbatch");
     let backend: Arc<dyn PersistenceBackend> =
-        Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"));
+        Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
     let state = make_state_with_backend(&dir, backend.clone()).await;
     let ctx = unscoped_context(state);
     let port = free_ports(1)[0];
@@ -1984,9 +1979,8 @@ async fn multi_node_group_join_then_leader_rebalance() {
         let dir = root.join(format!("node{i}"));
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.to_string_lossy().to_string();
-        let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"),
-        );
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
         let state = make_state_with_backend(&dir, backend.clone()).await;
         let ctx = AppCtx {
             state: state.clone(),
@@ -2202,9 +2196,8 @@ async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
         let dir = root.join(format!("node{i}"));
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.to_string_lossy().to_string();
-        let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"),
-        );
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
         let state = make_state_with_backend(&dir, backend.clone()).await;
         let ctx = super::AppCtx {
             state,
@@ -2343,10 +2336,12 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
             "__commons__",
             method,
             SECRET,
-            TEST_AGENT,
-            "raft-admin",
-            "raft-admin-request",
-            "eg-raft-admin-wire-auth",
+            super::harness_support::HarnessLabels {
+                agent_id: TEST_AGENT,
+                nonce: "raft-admin",
+                idempotency: "raft-admin-request",
+                security_state: "eg-raft-admin-wire-auth",
+            },
         )
     }
 
@@ -2361,9 +2356,8 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
         let dir = root.join(format!("node{i}"));
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.to_string_lossy().to_string();
-        let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 4096).expect("open redb"),
-        );
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
         let state = make_state_with_backend(&dir, backend.clone()).await;
         state.write().await.isolation.register_agent(AgentIdentity {
             agent_id: TEST_AGENT.to_string(),
@@ -2501,12 +2495,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     let unclustered_dir = root.join("unclustered");
     std::fs::create_dir_all(&unclustered_dir).unwrap();
     let unclustered_backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(
-            unclustered_dir.to_string_lossy().to_string(),
-            DurabilityPolicy::Each,
-            4096,
-        )
-        .expect("open redb"),
+        RedbBackend::open(unclustered_dir.to_string_lossy().to_string(), 4096).expect("open redb"),
     );
     let unclustered_state = make_state_with_backend(
         &unclustered_dir.to_string_lossy(),
@@ -2586,14 +2575,8 @@ mod dist_compute {
             uuid::Uuid::new_v4()
         ));
         let _ = std::fs::create_dir_all(&dir);
-        let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open(
-                dir.to_string_lossy().to_string(),
-                DurabilityPolicy::Each,
-                256,
-            )
-            .expect("open redb"),
-        );
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.to_string_lossy().to_string(), 256).expect("open redb"));
         let state = make_state_with_backend(&dir.to_string_lossy(), backend).await;
         {
             let mut s = state.write().await;
@@ -2798,6 +2781,9 @@ mod dist_compute {
             }
             core.add_edge("b".to_string(), "c".to_string(), props("b"))
                 .unwrap();
+            // Direct GraphCore mutations bypass the dispatch write boundary. Advance
+            // the version so the distributed read cannot reuse the pre-delta RLS view.
+            core.mark_dirty();
         }
 
         // Incremental: only b and c are affected by the new edge.
@@ -2865,12 +2851,7 @@ mod matview {
             uuid::Uuid::new_v4()
         ));
         let _ = std::fs::create_dir_all(&dir);
-        let backend = RedbBackend::open(
-            dir.to_string_lossy().to_string(),
-            DurabilityPolicy::Each,
-            256,
-        )
-        .unwrap();
+        let backend = RedbBackend::open(dir.to_string_lossy().to_string(), 256).unwrap();
 
         let view = MatView {
             name: "ranks".into(),
@@ -3100,13 +3081,8 @@ async fn run_group_write_workload(
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.to_string_lossy().to_string();
         let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open_with_shards(
-                dir.clone(),
-                DurabilityPolicy::Each,
-                4096,
-                n_groups as usize,
-            )
-            .expect("open K==N sharded redb"),
+            RedbBackend::open_with_shards(dir.clone(), 4096, n_groups as usize)
+                .expect("open K==N sharded redb"),
         );
         assert_eq!(backend.as_redb().unwrap().shard_count(), n_groups as usize);
         let state = make_state_with_backend(&dir, backend).await;
@@ -3336,13 +3312,8 @@ async fn per_group_leader_failover_is_independent() {
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.to_string_lossy().to_string();
         let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open_with_shards(
-                dir.clone(),
-                DurabilityPolicy::Each,
-                4096,
-                n_groups as usize,
-            )
-            .expect("open K==N sharded redb"),
+            RedbBackend::open_with_shards(dir.clone(), 4096, n_groups as usize)
+                .expect("open K==N sharded redb"),
         );
         let state = make_state_with_backend(&dir, backend).await;
         let started = node::start(cluster_cfg_with_groups(i, &ports, n_groups), state.clone())

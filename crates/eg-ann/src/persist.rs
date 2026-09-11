@@ -44,6 +44,7 @@ pub(crate) struct Meta {
     deleted: Vec<u8>,
 }
 
+#[derive(Clone, Copy)]
 struct MetadataView<'a> {
     dim: usize,
     nlist: usize,
@@ -229,88 +230,109 @@ pub(crate) fn validate_index(idx: &IvfPq) -> std::io::Result<()> {
 }
 
 fn validate_components(metadata: MetadataView<'_>) -> std::io::Result<(usize, usize)> {
-    let MetadataView {
-        dim,
-        nlist,
-        m,
-        dsub,
-        rotation,
-        coarse_centroids,
-        pq_centroids,
-        sq_min,
-        sq_scale,
-        ids,
-        list_of,
-        deleted,
-    } = metadata;
-    if dim == 0
-        || dim > MAX_DIMENSION
-        || nlist == 0
-        || nlist > MAX_LISTS
-        || m == 0
-        || m > MAX_SUBQUANTIZERS
-        || !dim.is_multiple_of(m)
-        || dsub != dim / m
-    {
-        return Err(invalid_data("ANN dimensions are inconsistent"));
-    }
-    if ids.len() > MAX_ROWS {
+    validate_dimensions(&metadata)?;
+    if metadata.ids.len() > MAX_ROWS {
         return Err(invalid_data(
             "ANN index exceeds its addressable row or list range",
         ));
     }
+    let model_lengths = model_lengths(&metadata)?;
+    validate_model_buffers(&metadata, model_lengths)?;
+    validate_rows(&metadata)?;
+    validate_finite(&metadata)?;
 
-    let rotation_len = dim
-        .checked_mul(dim)
+    let rows = metadata.ids.len();
+    let codes_len = rows
+        .checked_mul(metadata.m)
+        .ok_or_else(|| invalid_data("ANN PQ-code shape overflow"))?;
+    let refine_len = rows
+        .checked_mul(metadata.dim)
+        .ok_or_else(|| invalid_data("ANN refine-code shape overflow"))?;
+    Ok((codes_len, refine_len))
+}
+
+fn validate_dimensions(metadata: &MetadataView<'_>) -> std::io::Result<()> {
+    if metadata.dim == 0
+        || metadata.dim > MAX_DIMENSION
+        || metadata.nlist == 0
+        || metadata.nlist > MAX_LISTS
+        || metadata.m == 0
+        || metadata.m > MAX_SUBQUANTIZERS
+        || !metadata.dim.is_multiple_of(metadata.m)
+        || metadata.dsub != metadata.dim / metadata.m
+    {
+        return Err(invalid_data("ANN dimensions are inconsistent"));
+    }
+    Ok(())
+}
+
+fn model_lengths(metadata: &MetadataView<'_>) -> std::io::Result<(usize, usize, usize)> {
+    let rotation_len = metadata
+        .dim
+        .checked_mul(metadata.dim)
         .ok_or_else(|| invalid_data("ANN rotation shape overflow"))?;
-    let coarse_len = nlist
-        .checked_mul(dim)
+    let coarse_len = metadata
+        .nlist
+        .checked_mul(metadata.dim)
         .ok_or_else(|| invalid_data("ANN coarse-centroid shape overflow"))?;
-    let pq_len = m
+    let pq_len = metadata
+        .m
         .checked_mul(PQ_KSUB)
-        .and_then(|value| value.checked_mul(dsub))
+        .and_then(|value| value.checked_mul(metadata.dsub))
         .ok_or_else(|| invalid_data("ANN PQ-centroid shape overflow"))?;
-    if rotation.len() != rotation_len
-        || coarse_centroids.len() != coarse_len
-        || pq_centroids.len() != pq_len
+    Ok((rotation_len, coarse_len, pq_len))
+}
+
+fn validate_model_buffers(
+    metadata: &MetadataView<'_>,
+    (rotation_len, coarse_len, pq_len): (usize, usize, usize),
+) -> std::io::Result<()> {
+    if metadata.rotation.len() != rotation_len
+        || metadata.coarse_centroids.len() != coarse_len
+        || metadata.pq_centroids.len() != pq_len
     {
         return Err(invalid_data(
             "ANN model-buffer shape does not match dimensions",
         ));
     }
+    Ok(())
+}
 
-    let rows = ids.len();
-    if sq_min.len() != rows
-        || sq_scale.len() != rows
-        || list_of.len() != rows
-        || deleted.len() != rows
+fn validate_rows(metadata: &MetadataView<'_>) -> std::io::Result<()> {
+    let rows = metadata.ids.len();
+    if metadata.sq_min.len() != rows
+        || metadata.sq_scale.len() != rows
+        || metadata.list_of.len() != rows
+        || metadata.deleted.len() != rows
     {
         return Err(invalid_data("ANN row metadata is not parallel"));
     }
-    if list_of.iter().any(|&cell| cell as usize >= nlist) {
+    if metadata
+        .list_of
+        .iter()
+        .any(|&cell| cell as usize >= metadata.nlist)
+    {
         return Err(invalid_data("ANN row references an unknown posting list"));
     }
-    if deleted.iter().any(|&value| value > 1) {
+    if metadata.deleted.iter().any(|&value| value > 1) {
         return Err(invalid_data("ANN tombstone contains an invalid value"));
     }
-    if rotation
+    Ok(())
+}
+
+fn validate_finite(metadata: &MetadataView<'_>) -> std::io::Result<()> {
+    if metadata
+        .rotation
         .iter()
-        .chain(coarse_centroids)
-        .chain(pq_centroids)
-        .chain(sq_min)
-        .chain(sq_scale)
+        .chain(metadata.coarse_centroids)
+        .chain(metadata.pq_centroids)
+        .chain(metadata.sq_min)
+        .chain(metadata.sq_scale)
         .any(|value| !value.is_finite())
     {
         return Err(invalid_data("ANN metadata contains a non-finite value"));
     }
-
-    let codes_len = rows
-        .checked_mul(m)
-        .ok_or_else(|| invalid_data("ANN PQ-code shape overflow"))?;
-    let refine_len = rows
-        .checked_mul(dim)
-        .ok_or_else(|| invalid_data("ANN refine-code shape overflow"))?;
-    Ok((codes_len, refine_len))
+    Ok(())
 }
 
 pub(crate) fn invalid_data(error: impl std::fmt::Display) -> std::io::Error {

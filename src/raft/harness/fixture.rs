@@ -8,7 +8,6 @@ use std::time::Duration;
 use openraft::BasicNode;
 use tokio::sync::RwLock;
 
-use crate::durability::DurabilityPolicy;
 use crate::isolation::IsolationLayer;
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
@@ -19,7 +18,7 @@ pub(crate) type Backend = Arc<dyn PersistenceBackend>;
 
 /// Open the authoritative test backend used by the Raft harnesses.
 pub(crate) fn open_backend(dir: &str) -> Result<Backend, String> {
-    RedbBackend::open(dir.to_string(), DurabilityPolicy::Each, 4096)
+    RedbBackend::open(dir.to_string(), 4096)
         .map(|backend| Arc::new(backend) as Backend)
         .map_err(|error| format!("open redb {dir}: {error}"))
 }
@@ -31,11 +30,54 @@ pub(crate) fn fresh_backend(prefix: &str, tag: &str) -> (String, Backend) {
     (dir, backend)
 }
 
+/// How long a reopen waits for the last live reference to the old backend.
+///
+/// Generous: these harnesses run on shared build hosts under parallel load, so
+/// the bound is here to catch a task that is never going to finish, not to
+/// police latency.
+const BACKEND_RELEASE_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// Close an authoritative backend before reopening the same durable store.
+///
+/// `Backend` is an `Arc`, and every caller hands CLONES of it to the nodes it
+/// brings up. Dropping this function's own reference therefore does not
+/// necessarily close the redb file: if any clone is still alive -- a spawned
+/// node task that has been asked to stop but has not yet been polled to
+/// completion -- the file lock is still held, and `open_backend` fails with
+/// `Database already open. Cannot acquire lock.`
+///
+/// That made the reopen a race whose loser was whichever test happened to run
+/// on a busier host, reported as a confusing storage error rather than as the
+/// lifetime bug it is. So prove exclusivity rather than assume it: wait,
+/// bounded, for this to be the last reference, and if it never is, say exactly
+/// that.
 pub(crate) fn reopen_backend(backend: Backend, dir: &str) -> Result<Backend, String> {
     backend.shutdown();
-    drop(backend);
+    release_sole_reference(backend, dir)?;
     open_backend(dir)
+}
+
+/// Drop `backend` once it is the only reference left, or fail naming the leak.
+///
+/// `Arc::try_unwrap` is unavailable here because `Backend` is
+/// `Arc<dyn PersistenceBackend>` -- an unsized `T` cannot be returned by value
+/// -- so the reference count is the available signal.
+fn release_sole_reference(backend: Backend, dir: &str) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + BACKEND_RELEASE_TIMEOUT;
+    while Arc::strong_count(&backend) > 1 {
+        if std::time::Instant::now() >= deadline {
+            return Err(format!(
+                "reopen {dir}: {} other reference(s) to the backend were still alive after \
+                 {}s, so its redb file lock is still held -- a node task outlived the group \
+                 that was closed",
+                Arc::strong_count(&backend) - 1,
+                BACKEND_RELEASE_TIMEOUT.as_secs()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drop(backend);
+    Ok(())
 }
 
 /// Open an authoritative test backend with an explicit shard count.
@@ -44,7 +86,7 @@ pub(crate) fn open_backend_with_shards(
     max_nodes: usize,
     shards: usize,
 ) -> Result<Backend, String> {
-    RedbBackend::open_with_shards(dir.to_string(), DurabilityPolicy::Each, max_nodes, shards)
+    RedbBackend::open_with_shards(dir.to_string(), max_nodes, shards)
         .map(|backend| Arc::new(backend) as Backend)
         .map_err(|error| format!("open redb {dir}: {error}"))
 }

@@ -5,9 +5,10 @@
 //! integration suites can layer on top without duplicating policy logic.
 
 use super::*;
-use crate::mutation_batch::{
-    IncarnationId, MutationRequestContext, MutationScopeIdentity, ScopeTenantId,
-};
+use crate::mutation_batch::{IncarnationId, MutationScopeIdentity, ScopeTenantId};
+use crate::redb_store::resource::*;
+use crate::redb_store::shard::{Shard, ShardWrite};
+use eg_storage::{GraphShardOwner, ScopedRead};
 
 fn host() -> DurableResourceHost {
     DurableResourceHost {
@@ -336,49 +337,156 @@ fn work_item_props_for_request(
     props
 }
 
+/// One admitted maintenance write over `graph-a` plus the shard file's own
+/// control member -- the five-step admitted write every fixture in this file
+/// plants rows through (`graph_members` -> `admit_maintenance` ->
+/// `ShardWrite::open` -> rows -> `finish` -> `commit_drain`).
+///
+/// The class is the honest label rather than a knob: a fixture row carries no
+/// caller operation identity, so it is the ledgered maintenance class. Being
+/// ledgered, it is also a real admitted batch, which is why it advances the
+/// graph's authoritative version by exactly one -- see
+/// [`current_resource_graph_version`].
+///
+/// `op_id` must be unique per ATTEMPT, so every caller passes a distinct one.
+fn resource_maintenance<T>(
+    shard: &Shard,
+    graph: &str,
+    op_id: &str,
+    rows: impl FnOnce(&ShardWrite<'_>) -> T,
+) -> T {
+    let members = shard
+        .graph_members(&[graph])
+        .expect("bind the fixture graph on the resource fixture shard");
+    let (group, batches) = shard
+        .admit_maintenance(&members, op_id)
+        .expect("admit resource fixture maintenance");
+    let write =
+        ShardWrite::open(shard, &group, &members, &batches).expect("open resource fixture write");
+    let value = rows(&write);
+    write.finish().expect("finish resource fixture write");
+    shard
+        .commit_drain(group, &batches, 1_000)
+        .expect("commit resource fixture write");
+    value
+}
+
+/// One kernel-issued scoped read bounded to one graph's rows, which is how
+/// every assertion in this file reaches a shard row after the cut.
+fn resource_read<'s>(shard: &'s Shard, graph: &str) -> ScopedRead<'s, GraphShardOwner> {
+    let handle = shard
+        .graph(graph)
+        .expect("bind the fixture graph on the resource fixture shard");
+    shard
+        .read(&handle)
+        .expect("scoped read of the fixture graph's resource rows")
+}
+
+/// One host row, read through the graph's own scope rather than through a
+/// write transaction opened solely to inspect it.
+fn read_host(shard: &Shard, host_ref: &str) -> Option<DurableResourceHost> {
+    let read = resource_read(shard, "graph-a");
+    let hosts = read
+        .scoped_owner_table(RESOURCE_HOSTS)
+        .expect("open resource_hosts on graph-a");
+    hosts
+        .get(("graph-a", host_ref))
+        .expect("read resource host row")
+        .map(|row| resource_decode(row.value(), DurableCrypto::none()).expect("decode host row"))
+}
+
+/// One reservation row, read through the graph's own scope.
+fn read_reservation(shard: &Shard, reservation_id: &str) -> Option<DurableResourceReservation> {
+    let read = resource_read(shard, "graph-a");
+    let reservations = read
+        .scoped_owner_table(RESOURCE_RESERVATIONS)
+        .expect("open resource_reservations on graph-a");
+    reservations
+        .get(("graph-a", reservation_id))
+        .expect("read resource reservation row")
+        .map(|row| {
+            resource_decode(row.value(), DurableCrypto::none()).expect("decode reservation row")
+        })
+}
+
+/// One persisted batch receipt of `graph-a`'s scope, from the kernel ledger
+/// that replaced the shard's private `mutation_batches` table.
+fn ledger_receipt(shard: &Shard, batch_id: &str) -> Option<eg_types::MutationBatchRecord> {
+    let read = resource_read(shard, "graph-a");
+    eg_transaction::read_ledger(&read, batch_id).expect("read kernel ledger receipt")
+}
+
+/// Every outbox row of one batch of `graph-a`'s scope, from the kernel ledger
+/// that replaced the shard's private `mutation_outbox` table.
+fn ledger_outbox(shard: &Shard, batch_id: &str) -> Vec<eg_types::MutationOutboxRecord> {
+    let read = resource_read(shard, "graph-a");
+    eg_transaction::read_outbox(&read, batch_id).expect("read kernel ledger outbox")
+}
+
+/// Open (creating if absent) one shard file and plant this file's standard
+/// fixture rows on `graph-a` through one admitted maintenance write.
+///
+/// `Shard::open` materializes the whole declared `OwnerLayout::GraphShard`
+/// census, so the hand-written `initialize_canonical_tables` bootstrap the raw
+/// path needed has no counterpart here.
 fn seed_resource_database(
     path: &std::path::Path,
     work_items: Vec<(String, serde_json::Map<String, serde_json::Value>)>,
     hosts: Vec<DurableResourceHost>,
-) -> Database {
-    let db = Database::create(path).expect("create resource race database");
-    let wtx = db.begin_write().expect("begin resource race seed");
-    initialize_canonical_tables(&wtx).expect("initialize resource tables");
-    {
-        let mut nodes = wtx.open_table(NODES).unwrap();
+) -> Shard {
+    let shard = Shard::open(path).expect("open resource race shard");
+    resource_maintenance(&shard, "graph-a", "resource-fixture-seed", |write| {
+        let graph = write.graph("graph-a").expect("graph-a is a group member");
+        let mut nodes = graph.open_scoped_table(NODES).unwrap();
         for (id, props) in work_items {
             let bytes = rmp_serde::to_vec_named(&props).unwrap();
             nodes
                 .insert(("graph-a", id.as_str()), bytes.as_slice())
                 .unwrap();
         }
-        let mut host_table = wtx.open_table(RESOURCE_HOSTS).unwrap();
+        drop(nodes);
+        let mut host_table = graph.open_scoped_table(RESOURCE_HOSTS).unwrap();
         for host in &hosts {
             resource_put_host(&mut host_table, "graph-a", host, DurableCrypto::none()).unwrap();
         }
-    }
-    wtx.commit().expect("commit resource race seed");
-    db
+    });
+    shard
 }
 
 fn resource_batch(
-    tenant: &str,
+    caller_tenant: &str,
     method: Method,
     batch_id: &str,
     idempotency_key: &str,
     expected_version: u64,
 ) -> MutationBatch {
-    MutationBatch {
+    // A CALLER identity, not `graph_scope_identity`. The latter builds
+    // `(GRAPH_SHARD_TENANT, graph, incarnation)` -- the scope a batch has AFTER
+    // `shard::bind_caller_batch` rewrites it. Handing that back to the binder,
+    // whose whole contract is to bind a caller batch onto the shard scope, is
+    // refused on its first line: `'__shard__' is the graph shard's reserved
+    // scope tenant and cannot be a caller tenant`.
+    //
+    // The parameter was neutered to `_caller_tenant` during the RF-RULING-004
+    // migration -- correctly, since the caller tenant no longer separates two
+    // racers -- but the identity was switched to the SHARD identity at the same
+    // time, which also meant these fixtures stopped exercising the production
+    // binding step at all. Restoring a real caller tenant fixes the refusal and
+    // puts `bind_caller_batch` back on the path under test.
+    let identity = MutationScopeIdentity::graph(
+        ScopeTenantId::new(caller_tenant).expect("valid caller tenant"),
+        LogicalName::new("graph-a").expect("valid resource-reservation graph name"),
+        IncarnationId::new("incarnation:test:resource-reservation").expect("valid incarnation"),
+    );
+    let mut batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch_id.to_string(),
-        context: MutationRequestContext {
-            request_id: 77,
-            principal: format!("principal:sha256:{}", "b".repeat(64)),
-            purpose: Some("resource-transaction-test".to_string()),
-            policy_fingerprint: None,
-            trace_id: None,
-            verified_capabilities: Default::default(),
-        },
+        envelope: super::fixture_operation_envelope(
+            &identity,
+            &format!("principal:sha256:{}", "b".repeat(64)),
+            77,
+            &idempotency_key.to_string(),
+        ),
         // Graph scope, not native: `commit_mutation_batch_inner` (via
         // `mutation_batch_graph_name`) fails closed on any batch that is not
         // graph-scoped, so this is the only route these fixtures actually
@@ -388,14 +496,8 @@ fn resource_batch(
         // take the graph route here. `"graph-a"` is reused verbatim as the
         // graph name -- the exact literal the old flat `graph` field carried
         // -- rather than inventing a new sentinel.
-        identity: MutationScopeIdentity::graph(
-            ScopeTenantId::new(tenant).expect("valid resource-reservation tenant id"),
-            LogicalName::new("graph-a").expect("valid resource-reservation graph name"),
-            IncarnationId::new("incarnation:test:resource-reservation")
-                .expect("valid resource-reservation incarnation id"),
-        ),
+        identity,
         placement_epoch: 0,
-        idempotency_key: idempotency_key.to_string(),
         // A graph-scoped batch is OCC-checked for real:
         // `check_occ_version_and_fence` (in `commit_mutation_batch_inner`)
         // requires `expected_version` to equal the live
@@ -417,60 +519,83 @@ fn resource_batch(
         }],
         outbox: Vec::new(),
         created_at_ms: 1_000,
-    }
+    };
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .expect("a fixture batch reseals its envelope over its final body");
+    batch
+}
+
+/// Rebuild a committed fixture as a fresh invocation over the same stable
+/// operation. The exact batch carries a consumed nonce and must be refused;
+/// transport retries mint a new nonce while retaining the idempotency key.
+fn fresh_resource_attempt(batch: &MutationBatch, request_id: u64) -> MutationBatch {
+    let mut retry = batch.clone();
+    retry.envelope = super::fixture_operation_envelope(
+        &retry.identity,
+        &format!("principal:sha256:{}", "b".repeat(64)),
+        request_id,
+        retry.idempotency_key(),
+    );
+    retry
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .expect("a resource retry reseals its final body");
+    retry
 }
 
 fn commit_resource_batch_at(
-    db: &Database,
+    shard: &Shard,
     batch: &MutationBatch,
     crashpoint: Option<MutationBatchCrashpoint>,
 ) -> Result<MutationBatchCommit, String> {
     #[cfg(feature = "security")]
     let mut audit = AuditTailCache::new();
     commit_mutation_batch_inner(
-        db,
-        "graph-a",
-        batch,
-        None,
-        None,
-        None,
-        None,
-        1_000,
+        shard,
+        BatchCommitInput {
+            graph_fname: "graph-a",
+            batch,
+            change: None,
+            authoritative_state_msgpack: None,
+            crossmodal: None,
+            result_msgpack: None,
+            committed_at_ms: 1_000,
+            audited: true,
+            crashpoint,
+        },
         DurableCrypto::none(),
         #[cfg(feature = "security")]
         &mut audit,
-        true,
-        crashpoint,
     )
 }
 
 fn commit_resource_batch(
-    db: &Database,
+    shard: &Shard,
     batch: &MutationBatch,
 ) -> Result<MutationBatchCommit, String> {
-    commit_resource_batch_at(db, batch, None)
+    commit_resource_batch_at(shard, batch, None)
 }
 
-/// The live `MUTATION_GRAPH_VERSION["graph-a"]` row, read fresh -- the same
-/// value `check_occ_version_and_fence` will compare a batch's
-/// `version_expectation` against. Used by [`commit_racing_resource_batch`]
-/// so a genuine multi-thread race can re-derive the real current version on
-/// each retry instead of a caller having to guess which thread's commit
-/// lands first.
-fn current_resource_graph_version(db: &Database) -> u64 {
-    let rtx = db.begin_read().expect("read resource graph version");
-    let versions = rtx
-        .open_table(MUTATION_GRAPH_VERSION)
-        .expect("open resource graph version table");
-    versions
-        .get("graph-a")
-        .expect("read resource graph version row")
-        .map(|value| value.value())
-        .unwrap_or(INITIAL_GRAPH_VERSION)
+/// The authoritative version of `graph-a`'s bound shard scope, read fresh
+/// through `eg_transaction::version` -- the same value `commit::begin` will
+/// compare a batch's `version_expectation` against, resolved inside the
+/// commit's own transaction.
+///
+/// Every admitted batch advances it by exactly one, and under this cut that
+/// includes the fixture's own maintenance seeds and every coalesced drain, not
+/// only caller batches: a coalesced apply IS an admitted batch. So no test may
+/// assume the counter starts a caller's chain at zero -- it starts wherever the
+/// seed left it, which is what every version input below is derived from.
+/// Used by [`commit_racing_resource_batch`] so a genuine multi-thread race can
+/// re-derive the real current version on each retry instead of a caller having
+/// to guess which thread's commit lands first.
+fn current_resource_graph_version(shard: &Shard) -> u64 {
+    let read = resource_read(shard, "graph-a");
+    eg_transaction::version(&read).expect("authoritative version of graph-a's shard scope")
 }
 
 /// Commit a resource batch that genuinely races another thread for the same
-/// `MUTATION_GRAPH_VERSION["graph-a"]` slot.
+/// authoritative version of `graph-a`'s shard scope.
 ///
 /// Two threads racing to commit pre-built, statically-versioned batches can
 /// no longer both succeed once the fixture is graph-scoped: only one commit
@@ -481,28 +606,36 @@ fn current_resource_graph_version(db: &Database) -> u64 {
 /// helper mirrors that: read the live version, build the batch against it,
 /// and on `STALE_VERSION` re-read and retry. The eventual business decision
 /// (Accepted vs. Idempotent/Capacity/Exclusivity/...) is unaffected -- it is
-/// still resolved by whichever attempt's redb write transaction lands
-/// first, exactly as before this migration; only the batch-level version
+/// still resolved by whichever attempt's write transaction lands first,
+/// exactly as before this migration; only the batch-level version
 /// bookkeeping is now real. Returns the exact `MutationBatch` that
 /// succeeded, since a caller may need it again (e.g. to prove a subsequent
 /// commit of the identical batch replays).
+///
+/// `caller_tenant` no longer separates two racers: RF-RULING-004 application
+/// note 2 makes the mutation scope `(GRAPH_SHARD_TENANT, graph, incarnation)`,
+/// so both racers resolve to the SAME scope and therefore to the same
+/// `(scope, idempotency_key)` durable idempotency key space. What keeps two
+/// racers two commits is now their distinct `idempotency_key`s alone, and a
+/// same-key pair from two tenants collapses to one batch -- asserted directly
+/// by [`mutation_batch_same_attempt_race_has_one_durable_winner_and_replay`].
 fn commit_racing_resource_batch(
-    db: &Database,
-    tenant: &str,
+    shard: &Shard,
+    caller_tenant: &str,
     method: Method,
     batch_id: &str,
     idempotency_key: &str,
 ) -> (MutationBatch, MutationBatchCommit) {
     loop {
-        let expected_version = current_resource_graph_version(db);
+        let expected_version = current_resource_graph_version(shard);
         let batch = resource_batch(
-            tenant,
+            caller_tenant,
             method.clone(),
             batch_id,
             idempotency_key,
             expected_version,
         );
-        match commit_resource_batch(db, &batch) {
+        match commit_resource_batch(shard, &batch) {
             Ok(commit) => return (batch, commit),
             Err(message) if message.starts_with("STALE_VERSION") => continue,
             Err(message) => panic!("resource batch race commit failed: {message}"),
@@ -564,29 +697,30 @@ fn single_reserve_decision(
             .expect("system clock")
             .as_nanos()
     ));
-    let db = seed_resource_database(
+    let shard = seed_resource_database(
         &path,
         vec![(request.work_item_id.clone(), props)],
         vec![host],
     );
     if concurrency_count.is_some() || anti_affinity_count.is_some() {
-        let wtx = db.begin_write().expect("begin policy counter seed");
-        if let Some(count) = concurrency_count {
-            let mut concurrency = wtx.open_table(RESOURCE_CONCURRENCY).unwrap();
-            let key = resource_concurrency_scope_key(&request.concurrency_key);
-            concurrency
-                .insert(("graph-a", key.as_str()), count)
-                .unwrap();
-            drop(concurrency);
-        }
-        if let Some((tag, count)) = anti_affinity_count {
-            let mut anti_affinity = wtx.open_table(RESOURCE_ANTI_AFFINITY).unwrap();
-            anti_affinity
-                .insert(("graph-a", request.host_ref.as_str(), tag), count)
-                .unwrap();
-            drop(anti_affinity);
-        }
-        wtx.commit().expect("commit policy counter seed");
+        resource_maintenance(&shard, "graph-a", "resource-policy-counter-seed", |write| {
+            let graph = write.graph("graph-a").expect("graph-a is a group member");
+            if let Some(count) = concurrency_count {
+                let mut concurrency = graph.open_scoped_table(RESOURCE_CONCURRENCY).unwrap();
+                let key = resource_concurrency_scope_key(&request.concurrency_key);
+                concurrency
+                    .insert(("graph-a", key.as_str()), count)
+                    .unwrap();
+                drop(concurrency);
+            }
+            if let Some((tag, count)) = anti_affinity_count {
+                let mut anti_affinity = graph.open_scoped_table(RESOURCE_ANTI_AFFINITY).unwrap();
+                anti_affinity
+                    .insert(("graph-a", request.host_ref.as_str(), tag), count)
+                    .unwrap();
+                drop(anti_affinity);
+            }
+        });
     }
     let tenant_ref = request.tenant_ref.clone();
     let batch = resource_batch(
@@ -594,13 +728,14 @@ fn single_reserve_decision(
         Method::ReserveWorkItemResources { request },
         &format!("batch-policy-{suffix}"),
         &format!("reserve-policy-{suffix}"),
-        // Fresh, single-use database seeded by `seed_resource_database` just
-        // above: the graph counter starts at `INITIAL_GRAPH_VERSION` and this
-        // is the only commit ever made against it.
-        0,
+        // Fresh, single-use shard file: this is the only caller commit ever
+        // made against it, but the seed (and the optional counter seed above)
+        // are admitted batches too, so the counter is wherever they left it.
+        current_resource_graph_version(&shard),
     );
-    let result = batch_resource_result(&commit_resource_batch(&db, &batch).expect("policy result"));
-    drop(db);
+    let result =
+        batch_resource_result(&commit_resource_batch(&shard, &batch).expect("policy result"));
+    drop(shard);
     let _ = std::fs::remove_file(path);
     result
 }
@@ -778,7 +913,7 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
             .as_nanos()
     ));
     let (request, props) = resolved_request();
-    let db = std::sync::Arc::new(seed_resource_database(
+    let shard = std::sync::Arc::new(seed_resource_database(
         &path,
         vec![(request.work_item_id.clone(), props)],
         vec![host()],
@@ -794,10 +929,19 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
     let method_b = Method::ReserveWorkItemResources {
         request: invocation_b,
     };
-    // Each thread races the other for the same live `MUTATION_GRAPH_VERSION`
-    // slot, so neither can carry a version_expectation fixed up front --
-    // `commit_racing_resource_batch` reads the live version and retries on
-    // `STALE_VERSION` exactly as a real caller would. See its doc comment.
+    // Each thread races the other for the same live authoritative version of
+    // `graph-a`'s shard scope, so neither can carry a version_expectation fixed
+    // up front -- `commit_racing_resource_batch` reads the live version through
+    // `eg_transaction::version` and retries on `STALE_VERSION` exactly as a
+    // real caller would. See its doc comment.
+    //
+    // RF-RULING-004 application note 2: the two racers' caller tenants are no
+    // longer part of the mutation scope, so what makes these two DISTINCT
+    // commits rather than one replay is their distinct `idempotency_key`s
+    // ("...-a" / "...-b") alone -- which is what this case needs, because its
+    // subject is one durable winner between two genuine same-attempt
+    // invocations. The same-key collapse the rule now implies is asserted at
+    // the end of this test rather than left to the comment.
     let mut handles = Vec::new();
     for (tenant, method, batch_id, idempotency_key) in [
         (
@@ -813,11 +957,11 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
             "reserve-same-attempt-b",
         ),
     ] {
-        let db = db.clone();
+        let shard = shard.clone();
         let barrier = barrier.clone();
         handles.push(std::thread::spawn(move || {
             barrier.wait();
-            commit_racing_resource_batch(&db, &tenant, method, batch_id, idempotency_key)
+            commit_racing_resource_batch(&shard, &tenant, method, batch_id, idempotency_key)
         }));
     }
     let results: Vec<(MutationBatch, MutationBatchCommit)> = handles
@@ -848,19 +992,55 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
         .find(|(batch, _)| batch.batch_id == "batch-same-attempt-a")
         .expect("batch A result");
     let batch_a_decision = batch_resource_result(commit_a);
-    let replay = commit_resource_batch(&db, batch_a).expect("transport replay after race");
+    let consumed = commit_resource_batch(&shard, batch_a).expect_err("same attempt is consumed");
+    assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
+    let retry_batch = fresh_resource_attempt(batch_a, 78);
+    let replay = commit_resource_batch(&shard, &retry_batch).expect("transport replay after race");
     assert!(replay.replayed);
     assert_eq!(
         batch_resource_result(&replay).decision,
         batch_a_decision.decision
     );
-    drop(db);
-    let reopened = Database::open(&path).expect("reopen race database");
-    let wtx = reopened.begin_write().expect("inspect race authority");
-    let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-    let stored_host = resource_load_host(&mut hosts, "graph-a", "host-1", DurableCrypto::none())
-        .unwrap()
-        .expect("host survives race");
+
+    // RF-RULING-004 application note 2, asserted rather than assumed: a second
+    // caller in a DIFFERENT tenant, sending the same invocation on the same
+    // graph under the same idempotency key, now resolves to the SAME mutation
+    // scope -- the durable idempotency key is `(scope, idempotency_key)`, not
+    // `(tenant, graph, idempotency_key)`. Before this cut the two tenants were
+    // two scopes and this would have committed separately; it now replays the
+    // batch the first tenant committed. That narrowing is the accepted
+    // consequence of deriving the shard scope from the durable graph name
+    // alone, and it is what the "-a"/"-b" key split above exists to sidestep.
+    let other_tenant_batch = resource_batch(
+        "tenant-b",
+        Method::ReserveWorkItemResources {
+            request: request.clone(),
+        },
+        &batch_a.batch_id,
+        batch_a.idempotency_key(),
+        match batch_a.version_expectation {
+            VersionExpectation::Graph(version) => version,
+            other => panic!("a graph-scoped fixture batch cannot expect {other:?}"),
+        },
+    );
+    assert_eq!(
+        other_tenant_batch.identity, batch_a.identity,
+        "the caller's tenant is not part of a graph-shard mutation scope"
+    );
+    let collapsed = commit_resource_batch(&shard, &other_tenant_batch)
+        .expect("second tenant replays the first");
+    assert!(
+        collapsed.replayed,
+        "two tenants sharing one idempotency key on one graph now resolve to one batch"
+    );
+    assert_eq!(
+        batch_resource_result(&collapsed).decision,
+        batch_a_decision.decision
+    );
+
+    drop(shard);
+    let shard = Shard::open(&path).expect("reopen race shard");
+    let stored_host = read_host(&shard, "host-1").expect("host survives race");
     assert_eq!(
         stored_host.held_cpu_weight,
         host().held_cpu_weight + request.requirement.cpu_weight
@@ -869,8 +1049,7 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
         stored_host.held_process_slots,
         host().held_process_slots + request.requirement.process_slots
     );
-    drop(hosts);
-    wtx.commit().expect("commit race inspection");
+    drop(shard);
     let _ = std::fs::remove_file(path);
 }
 
@@ -885,11 +1064,14 @@ fn mutation_batch_distinct_reservation_id_same_attempt_refuses_without_recharge(
             .as_nanos()
     ));
     let (request, props) = resolved_request();
-    let db = seed_resource_database(
+    let shard = seed_resource_database(
         &path,
         vec![(request.work_item_id.clone(), props)],
         vec![host()],
     );
+    // The seed is itself an admitted maintenance batch, so the chain starts at
+    // whatever version it produced, read through `eg_transaction::version`.
+    let seeded_version = current_resource_graph_version(&shard);
     let first = resource_batch(
         &request.tenant_ref,
         Method::ReserveWorkItemResources {
@@ -897,10 +1079,9 @@ fn mutation_batch_distinct_reservation_id_same_attempt_refuses_without_recharge(
         },
         "batch-distinct-reservation-first",
         "reserve-distinct-reservation-first",
-        // Fresh database: `MUTATION_GRAPH_VERSION["graph-a"]` starts at 0.
-        0,
+        seeded_version,
     );
-    let accepted = commit_resource_batch(&db, &first).expect("first same-attempt reserve");
+    let accepted = commit_resource_batch(&shard, &first).expect("first same-attempt reserve");
     assert_eq!(
         batch_resource_result(&accepted).decision,
         ResourceReservationResultDecision::Accepted
@@ -923,29 +1104,23 @@ fn mutation_batch_distinct_reservation_id_same_attempt_refuses_without_recharge(
         },
         "batch-distinct-reservation-other",
         "reserve-distinct-reservation-other",
-        // `first` above committed one prior batch against this database,
-        // advancing the counter from 0 to 1.
-        1,
+        // `first` above committed one prior batch against this shard,
+        // advancing the counter by exactly one.
+        seeded_version + 1,
     );
-    let refused = commit_resource_batch(&db, &conflicting).expect("distinct reservation result");
+    assert_eq!(current_resource_graph_version(&shard), seeded_version + 1);
+    let refused = commit_resource_batch(&shard, &conflicting).expect("distinct reservation result");
     assert_eq!(
         batch_resource_result(&refused).decision,
         ResourceReservationResultDecision::Conflict
     );
-    let wtx = db
-        .begin_write()
-        .expect("inspect distinct reservation authority");
-    let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-    let stored_host = resource_load_host(&mut hosts, "graph-a", "host-1", DurableCrypto::none())
-        .unwrap()
-        .expect("host survives distinct reservation refusal");
+    let stored_host =
+        read_host(&shard, "host-1").expect("host survives distinct reservation refusal");
     assert_eq!(
         stored_host.held_cpu_weight,
         host().held_cpu_weight + expected_cpu_weight
     );
-    drop(hosts);
-    wtx.commit()
-        .expect("commit distinct reservation inspection");
+    drop(shard);
     let _ = std::fs::remove_file(path);
 }
 
@@ -979,7 +1154,7 @@ fn mutation_batch_distinct_work_items_race_for_last_slot() {
     let mut constrained_host = host();
     constrained_host.capacity.process_slots =
         constrained_host.observed.process_slots + constrained_host.held_process_slots + 1;
-    let db = std::sync::Arc::new(seed_resource_database(
+    let shard = std::sync::Arc::new(seed_resource_database(
         &path,
         vec![
             (request_a.work_item_id.clone(), props_a),
@@ -997,8 +1172,16 @@ fn mutation_batch_distinct_work_items_race_for_last_slot() {
         request: request_b.clone(),
     };
     // Both threads race for the same last capacity slot on the same live
-    // `MUTATION_GRAPH_VERSION` counter, so the version_expectation cannot be
-    // fixed up front -- see `commit_racing_resource_batch`'s doc comment.
+    // authoritative version of `graph-a`'s shard scope, so the
+    // version_expectation cannot be fixed up front -- see
+    // `commit_racing_resource_batch`'s doc comment.
+    //
+    // RF-RULING-004 application note 2: the two racers' caller tenants are no
+    // longer part of that scope, so they no longer separate the two
+    // invocations. This case needs both to commit (its subject is which of two
+    // genuine reservations wins the last slot), and what keeps them two
+    // commits is their distinct `idempotency_key`s -- "reserve-last-slot-a"
+    // and "-b", which `request_b` above already carries.
     let handles = [
         (
             tenant_a,
@@ -1015,12 +1198,12 @@ fn mutation_batch_distinct_work_items_race_for_last_slot() {
     ]
     .into_iter()
     .map(|(tenant, method, batch_id, idempotency_key)| {
-        let db = db.clone();
+        let shard = shard.clone();
         let barrier = barrier.clone();
         std::thread::spawn(move || {
             barrier.wait();
             let (_, commit) =
-                commit_racing_resource_batch(&db, &tenant, method, batch_id, idempotency_key);
+                commit_racing_resource_batch(&shard, &tenant, method, batch_id, idempotency_key);
             batch_resource_result(&commit).decision
         })
     })
@@ -1043,19 +1226,14 @@ fn mutation_batch_distinct_work_items_race_for_last_slot() {
             .count(),
         1
     );
-    drop(db);
-    let reopened = Database::open(&path).expect("reopen last-slot database");
-    let wtx = reopened.begin_write().expect("inspect last-slot authority");
-    let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-    let stored_host = resource_load_host(&mut hosts, "graph-a", "host-1", DurableCrypto::none())
-        .unwrap()
-        .expect("last-slot host survives");
+    drop(shard);
+    let shard = Shard::open(&path).expect("reopen last-slot shard");
+    let stored_host = read_host(&shard, "host-1").expect("last-slot host survives");
     assert_eq!(
         stored_host.held_process_slots,
         constrained_host.held_process_slots + 1
     );
-    drop(hosts);
-    wtx.commit().expect("commit last-slot inspection");
+    drop(shard);
     let _ = std::fs::remove_file(path);
 }
 
@@ -1072,11 +1250,14 @@ fn mutation_batch_transient_refusal_needs_fresh_invocation_but_acceptance_replay
     let (request, props) = resolved_request();
     let mut draining = host();
     draining.draining = true;
-    let db = seed_resource_database(
+    let shard = seed_resource_database(
         &path,
         vec![(request.work_item_id.clone(), props)],
         vec![draining.clone()],
     );
+    // The seed is itself an admitted maintenance batch: read the version it
+    // produced rather than assuming a caller's chain starts at zero.
+    let seeded_version = current_resource_graph_version(&shard);
     let refused_batch = resource_batch(
         &request.tenant_ref,
         Method::ReserveWorkItemResources {
@@ -1084,33 +1265,30 @@ fn mutation_batch_transient_refusal_needs_fresh_invocation_but_acceptance_replay
         },
         "batch-transient-refusal",
         "reserve-transient-refusal",
-        // Fresh database.
-        0,
+        seeded_version,
     );
-    let refused = commit_resource_batch(&db, &refused_batch).expect("persist transient refusal");
+    let refused = commit_resource_batch(&shard, &refused_batch).expect("persist transient refusal");
     assert!(!refused.replayed);
     assert_eq!(
         batch_resource_result(&refused).decision,
         ResourceReservationResultDecision::Drained
     );
     {
-        let wtx = db.begin_write().expect("inspect refused fairness state");
-        let mut fairness = wtx.open_table(RESOURCE_FAIRNESS).unwrap();
-        assert_eq!(
-            resource_load_fairness(
-                &mut fairness,
-                "graph-a",
-                &request.tenant_ref,
-                &request.fairness_group,
-                DurableCrypto::none(),
-            )
-            .unwrap()
-            .debt,
-            0,
-            "refused admission must not accrue fairness debt"
-        );
-        drop(fairness);
-        wtx.commit().expect("commit refused fairness inspection");
+        let read = resource_read(&shard, "graph-a");
+        let fairness = read
+            .scoped_owner_table(RESOURCE_FAIRNESS)
+            .expect("open resource_fairness on graph-a");
+        let key = resource_fairness_scope_key(&request.tenant_ref, &request.fairness_group);
+        let debt = fairness
+            .get(("graph-a", key.as_str()))
+            .expect("read fairness row")
+            .map(|row| {
+                resource_decode::<DurableResourceFairness>(row.value(), DurableCrypto::none())
+                    .expect("decode fairness row")
+            })
+            .unwrap_or_default()
+            .debt;
+        assert_eq!(debt, 0, "refused admission must not accrue fairness debt");
     }
 
     let host_update = ResourceHostUpdateRequest {
@@ -1138,23 +1316,21 @@ fn mutation_batch_transient_refusal_needs_fresh_invocation_but_acceptance_replay
         },
         "batch-clear-drain",
         "host-clear-drain",
-        // `refused_batch` above is the one prior commit against this
-        // database (its decision was a refusal, but the batch itself still
-        // committed and still advanced the counter): 0 -> 1.
-        1,
+        // `refused_batch` above is the one prior commit since the seed (its
+        // decision was a refusal, but the batch itself still committed and
+        // still advanced the counter by exactly one).
+        seeded_version + 1,
     );
-    let update = commit_resource_batch(&db, &update_batch).expect("clear host drain");
+    assert_eq!(current_resource_graph_version(&shard), seeded_version + 1);
+    let update = commit_resource_batch(&shard, &update_batch).expect("clear host drain");
     assert!(!update.replayed);
     assert_eq!(
         batch_host_result(&update).reason,
         ResourceHostUpdateResultReason::Accepted
     );
-    let refused_replay = commit_resource_batch(&db, &refused_batch).expect("replay refusal");
-    assert!(refused_replay.replayed);
-    assert_eq!(
-        batch_resource_result(&refused_replay).decision,
-        ResourceReservationResultDecision::Drained
-    );
+    let consumed = commit_resource_batch(&shard, &refused_batch)
+        .expect_err("same refusal attempt is consumed");
+    assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
 
     let mut fresh_request = request.clone();
     fresh_request.idempotency_key = "reserve-fresh-after-drain".to_string();
@@ -1167,24 +1343,39 @@ fn mutation_batch_transient_refusal_needs_fresh_invocation_but_acceptance_replay
         },
         "batch-fresh-after-drain",
         "reserve-fresh-after-drain",
-        // `refused_batch` (0 -> 1) then `update_batch` (1 -> 2) each
-        // committed once; the intervening `refused_replay` above is a
-        // replay of `refused_batch` and does not advance the counter.
-        2,
+        // `refused_batch` then `update_batch` each committed once; the
+        // intervening `refused_replay` above is a replay of `refused_batch`
+        // and does not advance the counter -- asserted, not assumed, by the
+        // equality below.
+        seeded_version + 2,
     );
-    let accepted = commit_resource_batch(&db, &fresh_batch).expect("fresh reserve invocation");
+    assert_eq!(
+        current_resource_graph_version(&shard),
+        seeded_version + 2,
+        "a replay must not advance the authoritative version"
+    );
+    let accepted = commit_resource_batch(&shard, &fresh_batch).expect("fresh reserve invocation");
     assert!(!accepted.replayed);
     assert_eq!(
         batch_resource_result(&accepted).decision,
         ResourceReservationResultDecision::Accepted
     );
-    let replay = commit_resource_batch(&db, &fresh_batch).expect("exact accepted replay");
+    let consumed =
+        commit_resource_batch(&shard, &fresh_batch).expect_err("same accepted attempt is consumed");
+    assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
+    let fresh_retry = fresh_resource_attempt(&fresh_batch, 79);
+    let replay = commit_resource_batch(&shard, &fresh_retry).expect("fresh accepted replay");
     assert!(replay.replayed);
     assert_eq!(
         batch_resource_result(&replay).decision,
         ResourceReservationResultDecision::Accepted
     );
-    drop(db);
+    assert_eq!(
+        current_resource_graph_version(&shard),
+        seeded_version + 3,
+        "only `fresh_batch` advanced the counter past `update_batch`"
+    );
+    drop(shard);
     let _ = std::fs::remove_file(path);
 }
 
@@ -1222,7 +1413,7 @@ fn mutation_batch_cross_host_repository_and_branch_exclusivity_is_atomic() {
         value.host_ref = "host-2".to_string();
         value
     };
-    let db = seed_resource_database(
+    let shard = seed_resource_database(
         &path,
         vec![
             (request_a.work_item_id.clone(), props_a),
@@ -1236,11 +1427,17 @@ fn mutation_batch_cross_host_repository_and_branch_exclusivity_is_atomic() {
     };
     let tenant_b = request_b.tenant_ref.clone();
     let method_b = Method::ReserveWorkItemResources { request: request_b };
-    let db = std::sync::Arc::new(db);
+    let shard = std::sync::Arc::new(shard);
     let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
     // Both threads race for the same exclusivity slot on the same live
-    // `MUTATION_GRAPH_VERSION` counter -- see
+    // authoritative version of `graph-a`'s shard scope -- see
     // `commit_racing_resource_batch`'s doc comment.
+    //
+    // RF-RULING-004 application note 2: the two racers' caller tenants are no
+    // longer part of that scope. This case needs both invocations to reach
+    // their own commit (its subject is that exactly one of two hosts is
+    // charged), so the two are kept distinct by their `idempotency_key`s --
+    // "reserve-exclusive-a" and "-b" -- and not by the tenant they arrive on.
     let handles = [
         (
             tenant_a,
@@ -1257,12 +1454,12 @@ fn mutation_batch_cross_host_repository_and_branch_exclusivity_is_atomic() {
     ]
     .into_iter()
     .map(|(tenant, method, batch_id, idempotency_key)| {
-        let db = db.clone();
+        let shard = shard.clone();
         let barrier = barrier.clone();
         std::thread::spawn(move || {
             barrier.wait();
             let (_, commit) =
-                commit_racing_resource_batch(&db, &tenant, method, batch_id, idempotency_key);
+                commit_racing_resource_batch(&shard, &tenant, method, batch_id, idempotency_key);
             batch_resource_result(&commit).decision
         })
     })
@@ -1285,14 +1482,8 @@ fn mutation_batch_cross_host_repository_and_branch_exclusivity_is_atomic() {
             .count(),
         1
     );
-    let wtx = db.begin_write().expect("inspect cross-host exclusivity");
-    let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-    let host_one = resource_load_host(&mut hosts, "graph-a", "host-1", DurableCrypto::none())
-        .unwrap()
-        .expect("first host remains present");
-    let host_two_after = resource_load_host(&mut hosts, "graph-a", "host-2", DurableCrypto::none())
-        .unwrap()
-        .expect("second host remains present");
+    let host_one = read_host(&shard, "host-1").expect("first host remains present");
+    let host_two_after = read_host(&shard, "host-2").expect("second host remains present");
     let first_delta = host_one.held_cpu_weight - host().held_cpu_weight;
     let second_delta = host_two_after.held_cpu_weight - host_two.held_cpu_weight;
     assert_eq!(
@@ -1308,9 +1499,7 @@ fn mutation_batch_cross_host_repository_and_branch_exclusivity_is_atomic() {
         request_a.requirement.cpu_weight,
         "exclusive refusal cannot charge both hosts"
     );
-    drop(hosts);
-    wtx.commit().expect("commit exclusivity inspection");
-    drop(db);
+    drop(shard);
     let _ = std::fs::remove_file(path);
 }
 
@@ -1325,11 +1514,14 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
             .as_nanos()
     ));
     let (request, props) = resolved_request();
-    let db = seed_resource_database(
+    let shard = seed_resource_database(
         &path,
         vec![(request.work_item_id.clone(), props)],
         vec![host()],
     );
+    // The seed is itself an admitted maintenance batch: the caller chain
+    // starts at the version it produced, read through `eg_transaction::version`.
+    let seeded_version = current_resource_graph_version(&shard);
     let reserve_batch = resource_batch(
         &request.tenant_ref,
         Method::ReserveWorkItemResources {
@@ -1337,10 +1529,9 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
         },
         "batch-lifecycle-reserve",
         "reserve-lifecycle",
-        // Fresh database.
-        0,
+        seeded_version,
     );
-    let reserved = commit_resource_batch(&db, &reserve_batch).expect("reserve lifecycle hold");
+    let reserved = commit_resource_batch(&shard, &reserve_batch).expect("reserve lifecycle hold");
     assert_eq!(
         batch_resource_result(&reserved).decision,
         ResourceReservationResultDecision::Accepted
@@ -1357,10 +1548,10 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
         },
         "batch-lifecycle-release",
         "release-lifecycle",
-        // `reserve_batch` above committed once: 0 -> 1.
-        1,
+        // `reserve_batch` above committed once.
+        seeded_version + 1,
     );
-    let released = commit_resource_batch(&db, &release_batch).expect("release lifecycle hold");
+    let released = commit_resource_batch(&shard, &release_batch).expect("release lifecycle hold");
     let released_result = batch_resource_result(&released);
     assert_eq!(
         released_result.decision,
@@ -1374,7 +1565,11 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
     assert_eq!(released_result.held_memory_mib, 0);
     assert_eq!(released_result.held_disk_mib, 0);
     assert_eq!(released_result.held_process_slots, 0);
-    let replay_release = commit_resource_batch(&db, &release_batch).expect("replay release");
+    let consumed = commit_resource_batch(&shard, &release_batch)
+        .expect_err("same release attempt is consumed");
+    assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
+    let release_retry = fresh_resource_attempt(&release_batch, 78);
+    let replay_release = commit_resource_batch(&shard, &release_retry).expect("replay release");
     assert!(replay_release.replayed);
     assert_eq!(
         batch_resource_result(&replay_release).decision,
@@ -1389,12 +1584,17 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
         },
         "batch-lifecycle-release-stale",
         "release-lifecycle-stale",
-        // `reserve_batch` (0 -> 1) then `release_batch` (1 -> 2) each
-        // committed once; the intervening `replay_release` above is a
-        // replay of `release_batch` and does not advance the counter.
-        2,
+        // `reserve_batch` then `release_batch` each committed once; the
+        // intervening `replay_release` above is a replay of `release_batch`
+        // and does not advance the counter.
+        seeded_version + 2,
     );
-    let stale = commit_resource_batch(&db, &stale_release_batch).expect("stale release result");
+    assert_eq!(
+        current_resource_graph_version(&shard),
+        seeded_version + 2,
+        "a replay must not advance the authoritative version"
+    );
+    let stale = commit_resource_batch(&shard, &stale_release_batch).expect("stale release result");
     assert_eq!(
         batch_resource_result(&stale).decision,
         ResourceReservationResultDecision::InputConflict
@@ -1419,63 +1619,79 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
         },
         "batch-reclaim-reserve",
         "reserve-reclaim",
-        // `reserve_batch` (0 -> 1), `release_batch` (1 -> 2), and
-        // `stale_release_batch` (2 -> 3, still a genuine commit despite its
-        // InputConflict decision) each committed once.
-        3,
+        // `reserve_batch`, `release_batch` and `stale_release_batch` (still a
+        // genuine commit despite its InputConflict decision) each committed
+        // once, and the second-WorkItem seed below is a fourth admitted batch:
+        // every drain bumps the graph version, so an out-of-band row seed is
+        // no longer free the way a raw table write was.
+        seeded_version + 4,
     );
     let reserve_two = {
         let props = work_item_props_for_request(&reclaim_request);
-        let wtx = db.begin_write().expect("begin second WorkItem seed");
-        let mut nodes = wtx.open_table(NODES).unwrap();
-        let bytes = rmp_serde::to_vec_named(&props).unwrap();
-        nodes
-            .insert(
-                ("graph-a", reclaim_request.work_item_id.as_str()),
-                bytes.as_slice(),
-            )
-            .unwrap();
-        drop(nodes);
-        wtx.commit().expect("commit second WorkItem seed");
-        commit_resource_batch(&db, &reclaim_reserve).expect("reserve reclaim hold")
+        resource_maintenance(
+            &shard,
+            "graph-a",
+            "lifecycle-second-work-item-seed",
+            |write| {
+                let mut nodes = write
+                    .graph("graph-a")
+                    .expect("graph-a is a group member")
+                    .open_scoped_table(NODES)
+                    .unwrap();
+                let bytes = rmp_serde::to_vec_named(&props).unwrap();
+                nodes
+                    .insert(
+                        ("graph-a", reclaim_request.work_item_id.as_str()),
+                        bytes.as_slice(),
+                    )
+                    .unwrap();
+            },
+        );
+        commit_resource_batch(&shard, &reclaim_reserve).expect("reserve reclaim hold")
     };
     assert_eq!(
         batch_resource_result(&reserve_two).decision,
         ResourceReservationResultDecision::Accepted
     );
-    {
-        let wtx = db.begin_write().expect("advance WorkItem attempt");
-        let mut nodes = wtx.open_table(NODES).unwrap();
-        let current = nodes
-            .get(("graph-a", reclaim_request.work_item_id.as_str()))
-            .unwrap()
-            .map(|value| {
-                decode_durable::<serde_json::Map<String, serde_json::Value>>(value.value())
-            })
-            .transpose()
-            .unwrap()
-            .expect("second WorkItem row");
-        let mut current = current;
-        current.insert("status".to_string(), serde_json::json!("ready"));
-        current.insert("lease_owner".to_string(), serde_json::json!(""));
-        current.insert(
-            "last_lease_owner".to_string(),
-            serde_json::json!("worker-b"),
-        );
-        current.insert("attempt".to_string(), serde_json::json!(2));
-        current.insert("lease_epoch".to_string(), serde_json::json!(3));
-        current.insert("fencing_token".to_string(), serde_json::json!(3));
-        current.insert("lease_expires_at".to_string(), serde_json::json!(0.0));
-        let bytes = rmp_serde::to_vec_named(&current).unwrap();
-        nodes
-            .insert(
-                ("graph-a", reclaim_request.work_item_id.as_str()),
-                bytes.as_slice(),
-            )
-            .unwrap();
-        drop(nodes);
-        wtx.commit().expect("commit superseded WorkItem attempt");
-    }
+    resource_maintenance(
+        &shard,
+        "graph-a",
+        "lifecycle-advance-work-item-attempt",
+        |write| {
+            let mut nodes = write
+                .graph("graph-a")
+                .expect("graph-a is a group member")
+                .open_scoped_table(NODES)
+                .unwrap();
+            let current = nodes
+                .get(("graph-a", reclaim_request.work_item_id.as_str()))
+                .unwrap()
+                .map(|value| {
+                    decode_durable::<serde_json::Map<String, serde_json::Value>>(value.value())
+                })
+                .transpose()
+                .unwrap()
+                .expect("second WorkItem row");
+            let mut current = current;
+            current.insert("status".to_string(), serde_json::json!("ready"));
+            current.insert("lease_owner".to_string(), serde_json::json!(""));
+            current.insert(
+                "last_lease_owner".to_string(),
+                serde_json::json!("worker-b"),
+            );
+            current.insert("attempt".to_string(), serde_json::json!(2));
+            current.insert("lease_epoch".to_string(), serde_json::json!(3));
+            current.insert("fencing_token".to_string(), serde_json::json!(3));
+            current.insert("lease_expires_at".to_string(), serde_json::json!(0.0));
+            let bytes = rmp_serde::to_vec_named(&current).unwrap();
+            nodes
+                .insert(
+                    ("graph-a", reclaim_request.work_item_id.as_str()),
+                    bytes.as_slice(),
+                )
+                .unwrap();
+        },
+    );
     let mut reclaim = reclaim_request.clone();
     reclaim.expected_lifecycle_revision = Some(1);
     reclaim.now_ms = reclaim.expires_at_ms;
@@ -1485,13 +1701,13 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
         Method::ReclaimWorkItemResources { request: reclaim },
         "batch-lifecycle-reclaim",
         "reclaim-lifecycle",
-        // `reclaim_reserve` above (via `reserve_two`) committed once more:
-        // 3 -> 4. The two raw `NODES` table writes bracketing it are direct
-        // table edits, not `MutationBatch` commits, so they never touch
-        // `MUTATION_GRAPH_VERSION`.
-        4,
+        // `reclaim_reserve` above (via `reserve_two`) committed once more, and
+        // the two `NODES` seeds bracketing it are admitted maintenance batches
+        // now rather than out-of-band table edits, so each of them advances
+        // the counter too: the live version is the only honest input here.
+        current_resource_graph_version(&shard),
     );
-    let reclaimed = commit_resource_batch(&db, &reclaim_batch).expect("reclaim superseded hold");
+    let reclaimed = commit_resource_batch(&shard, &reclaim_batch).expect("reclaim superseded hold");
     let reclaimed_result = batch_resource_result(&reclaimed);
     assert_eq!(
         reclaimed_result.decision,
@@ -1505,27 +1721,21 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
     assert_eq!(reclaimed_result.held_memory_mib, 0);
     assert_eq!(reclaimed_result.held_disk_mib, 0);
     assert_eq!(reclaimed_result.held_process_slots, 0);
-    let replay_reclaim = commit_resource_batch(&db, &reclaim_batch).expect("replay reclaim");
+    let consumed = commit_resource_batch(&shard, &reclaim_batch)
+        .expect_err("same reclaim attempt is consumed");
+    assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
+    let reclaim_retry = fresh_resource_attempt(&reclaim_batch, 79);
+    let replay_reclaim = commit_resource_batch(&shard, &reclaim_retry).expect("replay reclaim");
     assert!(replay_reclaim.replayed);
     assert_eq!(
         batch_resource_result(&replay_reclaim).state,
         ResourceReservationResultState::Superseded
     );
-    drop(db);
+    drop(shard);
 
-    let reopened = Database::open(&path).expect("reopen lifecycle database");
-    let wtx = reopened
-        .begin_write()
-        .expect("inspect lifecycle tombstones");
-    let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
-    let released = resource_load_reservation(
-        &mut reservations,
-        "graph-a",
-        "reservation-1",
-        DurableCrypto::none(),
-    )
-    .unwrap()
-    .expect("released tombstone survives restart");
+    let shard = Shard::open(&path).expect("reopen lifecycle shard");
+    let released =
+        read_reservation(&shard, "reservation-1").expect("released tombstone survives restart");
     assert_eq!(
         released.record.state,
         ResourceReservationRecordState::Released
@@ -1534,14 +1744,8 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
     assert_eq!(released.held_memory_mib, 0);
     assert_eq!(released.held_disk_mib, 0);
     assert_eq!(released.held_process_slots, 0);
-    let superseded = resource_load_reservation(
-        &mut reservations,
-        "graph-a",
-        "reservation-2",
-        DurableCrypto::none(),
-    )
-    .unwrap()
-    .expect("superseded tombstone survives restart");
+    let superseded =
+        read_reservation(&shard, "reservation-2").expect("superseded tombstone survives restart");
     assert_eq!(
         superseded.record.state,
         ResourceReservationRecordState::Superseded
@@ -1550,8 +1754,7 @@ fn mutation_batch_release_and_superseded_reclaim_replay_tombstones_after_reopen(
     assert_eq!(superseded.held_memory_mib, 0);
     assert_eq!(superseded.held_disk_mib, 0);
     assert_eq!(superseded.held_process_slots, 0);
-    drop(reservations);
-    wtx.commit().expect("commit lifecycle inspection");
+    drop(shard);
     let _ = std::fs::remove_file(path);
 }
 
@@ -1574,7 +1777,7 @@ fn mutation_batch_resource_crashpoints_reopen_all_or_nothing_and_replay() {
                 .as_nanos()
         ));
         let (request, props) = resolved_request();
-        let db = seed_resource_database(
+        let shard = seed_resource_database(
             &path,
             vec![(request.work_item_id.clone(), props)],
             vec![host()],
@@ -1586,52 +1789,33 @@ fn mutation_batch_resource_crashpoints_reopen_all_or_nothing_and_replay() {
             },
             &format!("batch-resource-crash-{index}"),
             &format!("reserve-resource-crash-{index}"),
-            // Fresh database each loop iteration.
-            0,
+            // Fresh shard file each loop iteration, seeded once.
+            current_resource_graph_version(&shard),
         );
-        assert!(commit_resource_batch_at(&db, &batch, Some(point)).is_err());
-        drop(db);
-        let reopened = Database::open(&path).expect("reopen precommit resource database");
+        assert!(commit_resource_batch_at(&shard, &batch, Some(point)).is_err());
+        drop(shard);
+        let shard = Shard::open(&path).expect("reopen precommit resource shard");
         assert!(
-            read_mutation_batch(&reopened, &batch.batch_id, DurableCrypto::none())
-                .unwrap()
-                .is_none()
+            ledger_receipt(&shard, &batch.batch_id).is_none(),
+            "a rolled-back resource mutation must not leave a ledger receipt"
         );
         assert!(
-            read_mutation_outbox(&reopened, &batch.batch_id, DurableCrypto::none())
-                .expect("read precommit outbox")
-                .is_empty(),
+            ledger_outbox(&shard, &batch.batch_id).is_empty(),
             "a rolled-back resource mutation must not leave an outbox row"
         );
-        let wtx = reopened
-            .begin_write()
-            .expect("inspect precommit resource state");
-        let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-        let current = resource_load_host(&mut hosts, "graph-a", "host-1", DurableCrypto::none())
-            .unwrap()
-            .expect("precommit host survives");
+        let current = read_host(&shard, "host-1").expect("precommit host survives");
         assert_eq!(current.held_cpu_weight, host().held_cpu_weight);
-        let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
-        assert!(resource_load_reservation(
-            &mut reservations,
-            "graph-a",
-            &request.reservation_id,
-            DurableCrypto::none(),
-        )
-        .unwrap()
-        .is_none());
-        drop(reservations);
-        drop(hosts);
-        wtx.commit().expect("commit precommit inspection");
+        assert!(read_reservation(&shard, &request.reservation_id).is_none());
         #[cfg(feature = "security")]
         {
-            let audit = verify_audit(&reopened, "graph-a").expect("verify rollback audit");
+            let audit = verify_audit(&shard, "graph-a").expect("verify rollback audit");
             assert!(audit.ok);
             assert_eq!(
                 audit.entries, 0,
                 "a rolled-back resource mutation must not leave an audit row"
             );
         }
+        drop(shard);
         let _ = std::fs::remove_file(path);
     }
 
@@ -1644,7 +1828,7 @@ fn mutation_batch_resource_crashpoints_reopen_all_or_nothing_and_replay() {
             .as_nanos()
     ));
     let (request, props) = resolved_request();
-    let db = seed_resource_database(
+    let shard = seed_resource_database(
         &path,
         vec![(request.work_item_id.clone(), props)],
         vec![host()],
@@ -1656,59 +1840,54 @@ fn mutation_batch_resource_crashpoints_reopen_all_or_nothing_and_replay() {
         },
         "batch-resource-postcommit",
         "reserve-resource-postcommit",
-        // Fresh database.
-        0,
+        // Fresh shard file, seeded once.
+        current_resource_graph_version(&shard),
     );
     assert!(commit_resource_batch_at(
-        &db,
+        &shard,
         &batch,
         Some(MutationBatchCrashpoint::AfterCommitBeforeAck),
     )
     .is_err());
-    drop(db);
-    let reopened = Database::open(&path).expect("reopen postcommit resource database");
-    let before_outbox = read_mutation_outbox(&reopened, &batch.batch_id, DurableCrypto::none())
-        .expect("read postcommit resource outbox");
-    assert_eq!(before_outbox.len(), 1, "one canonical resource outbox row");
-    assert_eq!(before_outbox[0].batch_id, batch.batch_id);
-    assert_eq!(before_outbox[0].intent.topic, "engine.mutation.committed");
-    assert_eq!(before_outbox[0].intent.key, batch.batch_id);
-    let outbox_operation: MutationOperation =
-        rmp_serde::from_slice(&before_outbox[0].intent.payload)
-            .expect("decode durable resource outbox operation");
-    assert!(matches!(
-        outbox_operation.method,
-        Method::ReserveWorkItemResources { .. }
-    ));
-    let replay = commit_resource_batch(&reopened, &batch).expect("postcommit resource replay");
-    assert!(replay.replayed);
+    drop(shard);
+    let shard = Shard::open(&path).expect("reopen postcommit resource shard");
+    let receipt = ledger_receipt(&shard, &batch.batch_id).expect("postcommit resource receipt");
     assert_eq!(
-        read_mutation_outbox(&reopened, &batch.batch_id, DurableCrypto::none())
-            .expect("read replayed resource outbox"),
-        before_outbox
+        receipt.batch.operations.len(),
+        1,
+        "one logical resource effect"
     );
-    let wtx = reopened
-        .begin_write()
-        .expect("inspect postcommit resource state");
-    let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-    let current = resource_load_host(&mut hosts, "graph-a", "host-1", DurableCrypto::none())
-        .unwrap()
-        .expect("postcommit host survives");
+    assert!(
+        receipt.batch.outbox.is_empty(),
+        "resource effect has no explicit outbox intent"
+    );
+    let before_outbox = ledger_outbox(&shard, &batch.batch_id);
+    assert!(
+        before_outbox.is_empty(),
+        "no physical outbox row without an explicit intent"
+    );
+    let consumed =
+        commit_resource_batch(&shard, &batch).expect_err("same postcommit attempt is consumed");
+    assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
+    let retry_batch = fresh_resource_attempt(&batch, 78);
+    let replay = commit_resource_batch(&shard, &retry_batch).expect("postcommit resource replay");
+    assert!(replay.replayed);
+    assert_eq!(ledger_outbox(&shard, &batch.batch_id), before_outbox);
+    let current = read_host(&shard, "host-1").expect("postcommit host survives");
     assert_eq!(
         current.held_cpu_weight,
         host().held_cpu_weight + request.requirement.cpu_weight
     );
-    drop(hosts);
-    wtx.commit().expect("commit postcommit inspection");
     #[cfg(feature = "security")]
     {
-        let audit = verify_audit(&reopened, "graph-a").expect("verify resource audit");
+        let audit = verify_audit(&shard, "graph-a").expect("verify resource audit");
         assert!(audit.ok);
         assert!(
             audit.entries > 0,
             "accepted resource mutation must be audited"
         );
     }
+    drop(shard);
     let _ = std::fs::remove_file(path);
 }
 
@@ -1759,75 +1938,83 @@ fn host_refresh_rejects_filesystem_shrink_under_existing_held_disk() {
             .as_nanos()
     ));
     {
-        let db = Database::create(&path).expect("create test database");
-        let wtx = db.begin_write().expect("begin test write");
-        initialize_canonical_tables(&wtx).expect("initialize tables");
-        let mut nodes = wtx.open_table(NODES).unwrap();
-        let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
-        let mut tenant_index = wtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX).unwrap();
-        let mut attempts = wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS).unwrap();
-        let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-        let mut exclusivity = wtx.open_table(RESOURCE_EXCLUSIVITY).unwrap();
-        let mut fairness = wtx.open_table(RESOURCE_FAIRNESS).unwrap();
-        let mut concurrency = wtx.open_table(RESOURCE_CONCURRENCY).unwrap();
-        let mut anti_affinity = wtx.open_table(RESOURCE_ANTI_AFFINITY).unwrap();
-        let mut disk_policies = wtx.open_table(RESOURCE_DISK_POLICIES).unwrap();
-        let crypto = DurableCrypto::none();
-        let current = host();
-        resource_put_host(&mut hosts, "graph-a", &current, crypto).unwrap();
-        let refreshed = ResourceHostUpdateRequest {
-            schema_version: crate::epistemic_operations::ResourceHostUpdateRequestSchemaVersion::V1,
-            tenant_ref: "tenant-a".to_string(),
-            host_ref: "host-1".to_string(),
-            revision: current.revision + 1,
-            capacity: current.capacity.clone(),
-            observed: current.observed.clone(),
-            heartbeat_at_ms: 1_000,
-            heartbeat_ttl_ms: current.heartbeat_ttl_ms,
-            now_ms: 2_000,
-            draining: false,
-            quarantined: false,
-            labels: current.labels.clone(),
-            target_kind: ResourceHostUpdateRequestTargetKind::Local,
-            target_alias: None,
-            disk_used_mib: 9_000,
-            disk_capacity_mib: 9_100,
-        };
-        let result = apply_resource_reservation_rows(
-            "graph-a",
-            &Method::UpdateResourceHost { request: refreshed },
-            &mut nodes,
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .unwrap()
-        .expect("host update returns a typed refusal");
-        assert!(matches!(result, crate::protocol::ResultPayload::Raw(_)));
-        let after = resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
+        // `Shard::open` materializes the whole declared GraphShard census, so
+        // no `initialize_canonical_tables` bootstrap is needed or possible.
+        let shard = Shard::open(&path).expect("create test shard");
+        resource_maintenance(&shard, "graph-a", "host-refresh-shrink", |write| {
+            let graph = write.graph("graph-a").expect("graph-a is a group member");
+            let mut nodes = graph.open_scoped_table(NODES).unwrap();
+            let mut reservations = graph.open_scoped_table(RESOURCE_RESERVATIONS).unwrap();
+            let mut tenant_index = graph
+                .open_scoped_table(RESOURCE_RESERVATION_TENANT_INDEX)
+                .unwrap();
+            let mut attempts = graph
+                .open_scoped_table(RESOURCE_RESERVATION_ATTEMPTS)
+                .unwrap();
+            let mut hosts = graph.open_scoped_table(RESOURCE_HOSTS).unwrap();
+            let mut exclusivity = graph.open_scoped_table(RESOURCE_EXCLUSIVITY).unwrap();
+            let mut fairness = graph.open_scoped_table(RESOURCE_FAIRNESS).unwrap();
+            let mut concurrency = graph.open_scoped_table(RESOURCE_CONCURRENCY).unwrap();
+            let mut anti_affinity = graph.open_scoped_table(RESOURCE_ANTI_AFFINITY).unwrap();
+            let mut disk_policies = graph.open_scoped_table(RESOURCE_DISK_POLICIES).unwrap();
+            let crypto = DurableCrypto::none();
+            let current = host();
+            resource_put_host(&mut hosts, "graph-a", &current, crypto).unwrap();
+            let refreshed = ResourceHostUpdateRequest {
+                schema_version:
+                    crate::epistemic_operations::ResourceHostUpdateRequestSchemaVersion::V1,
+                tenant_ref: "tenant-a".to_string(),
+                host_ref: "host-1".to_string(),
+                revision: current.revision + 1,
+                capacity: current.capacity.clone(),
+                observed: current.observed.clone(),
+                heartbeat_at_ms: 1_000,
+                heartbeat_ttl_ms: current.heartbeat_ttl_ms,
+                now_ms: 2_000,
+                draining: false,
+                quarantined: false,
+                labels: current.labels.clone(),
+                target_kind: ResourceHostUpdateRequestTargetKind::Local,
+                target_alias: None,
+                disk_used_mib: 9_000,
+                disk_capacity_mib: 9_100,
+            };
+            let result = apply_resource_reservation_rows(
+                "graph-a",
+                &Method::UpdateResourceHost { request: refreshed },
+                &mut nodes,
+                &mut reservations,
+                &mut tenant_index,
+                &mut attempts,
+                &mut hosts,
+                &mut exclusivity,
+                &mut fairness,
+                &mut concurrency,
+                &mut anti_affinity,
+                &mut disk_policies,
+                crypto,
+            )
             .unwrap()
-            .expect("host remains present");
-        assert_eq!(after.revision, current.revision);
-        assert_eq!(after.disk_used_mib, current.disk_used_mib);
-        assert_eq!(after.disk_capacity_mib, current.disk_capacity_mib);
-        drop(nodes);
-        drop(reservations);
-        drop(tenant_index);
-        drop(attempts);
-        drop(hosts);
-        drop(exclusivity);
-        drop(fairness);
-        drop(concurrency);
-        drop(anti_affinity);
-        drop(disk_policies);
-        wtx.commit().expect("commit unchanged host state");
+            .expect("host update returns a typed refusal");
+            assert!(matches!(result, crate::protocol::ResultPayload::Raw(_)));
+            let after = resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
+                .unwrap()
+                .expect("host remains present");
+            assert_eq!(after.revision, current.revision);
+            assert_eq!(after.disk_used_mib, current.disk_used_mib);
+            assert_eq!(after.disk_capacity_mib, current.disk_capacity_mib);
+            drop(nodes);
+            drop(reservations);
+            drop(tenant_index);
+            drop(attempts);
+            drop(hosts);
+            drop(exclusivity);
+            drop(fairness);
+            drop(concurrency);
+            drop(anti_affinity);
+            drop(disk_policies);
+        });
+        drop(shard);
     }
     let _ = std::fs::remove_file(path);
 }
@@ -1843,140 +2030,146 @@ fn host_disk_policy_projection_caps_at_schema_bound() {
             .as_nanos()
     ));
     {
-        let db = Database::create(&path).expect("create test database");
-        let wtx = db.begin_write().expect("begin test write");
-        initialize_canonical_tables(&wtx).expect("initialize tables");
-        let mut nodes = wtx.open_table(NODES).unwrap();
-        let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
-        let mut tenant_index = wtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX).unwrap();
-        let mut attempts = wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS).unwrap();
-        let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-        let mut exclusivity = wtx.open_table(RESOURCE_EXCLUSIVITY).unwrap();
-        let mut fairness = wtx.open_table(RESOURCE_FAIRNESS).unwrap();
-        let mut concurrency = wtx.open_table(RESOURCE_CONCURRENCY).unwrap();
-        let mut anti_affinity = wtx.open_table(RESOURCE_ANTI_AFFINITY).unwrap();
-        let mut disk_policies = wtx.open_table(RESOURCE_DISK_POLICIES).unwrap();
-        let crypto = DurableCrypto::none();
-        let current = host();
-        resource_put_host(&mut hosts, "graph-a", &current, crypto).unwrap();
-        let policy = DurableResourceDiskPolicy {
-            blocked: false,
-            low_watermark_mib: Some(500),
-            high_watermark_mib: Some(800),
-            revision: 1,
-        };
-        for index in 0..128 {
-            let key = format!("host-1\0policy-{index:03}");
+        // `Shard::open` materializes the whole declared GraphShard census.
+        let shard = Shard::open(&path).expect("create test shard");
+        resource_maintenance(&shard, "graph-a", "host-disk-policy-bound", |write| {
+            let graph = write.graph("graph-a").expect("graph-a is a group member");
+            let mut nodes = graph.open_scoped_table(NODES).unwrap();
+            let mut reservations = graph.open_scoped_table(RESOURCE_RESERVATIONS).unwrap();
+            let mut tenant_index = graph
+                .open_scoped_table(RESOURCE_RESERVATION_TENANT_INDEX)
+                .unwrap();
+            let mut attempts = graph
+                .open_scoped_table(RESOURCE_RESERVATION_ATTEMPTS)
+                .unwrap();
+            let mut hosts = graph.open_scoped_table(RESOURCE_HOSTS).unwrap();
+            let mut exclusivity = graph.open_scoped_table(RESOURCE_EXCLUSIVITY).unwrap();
+            let mut fairness = graph.open_scoped_table(RESOURCE_FAIRNESS).unwrap();
+            let mut concurrency = graph.open_scoped_table(RESOURCE_CONCURRENCY).unwrap();
+            let mut anti_affinity = graph.open_scoped_table(RESOURCE_ANTI_AFFINITY).unwrap();
+            let mut disk_policies = graph.open_scoped_table(RESOURCE_DISK_POLICIES).unwrap();
+            let crypto = DurableCrypto::none();
+            let current = host();
+            resource_put_host(&mut hosts, "graph-a", &current, crypto).unwrap();
+            let policy = DurableResourceDiskPolicy {
+                blocked: false,
+                low_watermark_mib: Some(500),
+                high_watermark_mib: Some(800),
+                revision: 1,
+            };
+            for index in 0..128 {
+                let key = format!("host-1\0policy-{index:03}");
+                let bytes = resource_encode(&policy, crypto).unwrap();
+                disk_policies
+                    .insert(("graph-a", key.as_str()), bytes.as_slice())
+                    .unwrap();
+            }
+            let update = |revision| ResourceHostUpdateRequest {
+                schema_version:
+                    crate::epistemic_operations::ResourceHostUpdateRequestSchemaVersion::V1,
+                tenant_ref: "tenant-a".to_string(),
+                host_ref: "host-1".to_string(),
+                revision,
+                capacity: current.capacity.clone(),
+                observed: current.observed.clone(),
+                heartbeat_at_ms: 1_000,
+                heartbeat_ttl_ms: current.heartbeat_ttl_ms,
+                now_ms: 2_000,
+                draining: false,
+                quarantined: false,
+                labels: current.labels.clone(),
+                target_kind: ResourceHostUpdateRequestTargetKind::Local,
+                target_alias: None,
+                disk_used_mib: current.disk_used_mib,
+                disk_capacity_mib: current.disk_capacity_mib,
+            };
+            let mut invalid_ttl = update(8);
+            invalid_ttl.heartbeat_ttl_ms = 999;
+            let error = apply_resource_reservation_rows(
+                "graph-a",
+                &Method::UpdateResourceHost {
+                    request: invalid_ttl,
+                },
+                &mut nodes,
+                &mut reservations,
+                &mut tenant_index,
+                &mut attempts,
+                &mut hosts,
+                &mut exclusivity,
+                &mut fairness,
+                &mut concurrency,
+                &mut anti_affinity,
+                &mut disk_policies,
+                crypto,
+            )
+            .expect_err("heartbeat TTL below the schema minimum must fail closed");
+            assert!(error.contains("telemetry bounds"));
+            apply_resource_reservation_rows(
+                "graph-a",
+                &Method::UpdateResourceHost { request: update(8) },
+                &mut nodes,
+                &mut reservations,
+                &mut tenant_index,
+                &mut attempts,
+                &mut hosts,
+                &mut exclusivity,
+                &mut fairness,
+                &mut concurrency,
+                &mut anti_affinity,
+                &mut disk_policies,
+                crypto,
+            )
+            .expect("128 policy rows remain representable")
+            .expect("host update result");
+            assert_eq!(
+                resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
+                    .unwrap()
+                    .unwrap()
+                    .revision,
+                8
+            );
+
+            let key = "host-1\0policy-overflow";
             let bytes = resource_encode(&policy, crypto).unwrap();
             disk_policies
-                .insert(("graph-a", key.as_str()), bytes.as_slice())
+                .insert(("graph-a", key), bytes.as_slice())
                 .unwrap();
-        }
-        let update = |revision| ResourceHostUpdateRequest {
-            schema_version: crate::epistemic_operations::ResourceHostUpdateRequestSchemaVersion::V1,
-            tenant_ref: "tenant-a".to_string(),
-            host_ref: "host-1".to_string(),
-            revision,
-            capacity: current.capacity.clone(),
-            observed: current.observed.clone(),
-            heartbeat_at_ms: 1_000,
-            heartbeat_ttl_ms: current.heartbeat_ttl_ms,
-            now_ms: 2_000,
-            draining: false,
-            quarantined: false,
-            labels: current.labels.clone(),
-            target_kind: ResourceHostUpdateRequestTargetKind::Local,
-            target_alias: None,
-            disk_used_mib: current.disk_used_mib,
-            disk_capacity_mib: current.disk_capacity_mib,
-        };
-        let mut invalid_ttl = update(8);
-        invalid_ttl.heartbeat_ttl_ms = 999;
-        let error = apply_resource_reservation_rows(
-            "graph-a",
-            &Method::UpdateResourceHost {
-                request: invalid_ttl,
-            },
-            &mut nodes,
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .expect_err("heartbeat TTL below the schema minimum must fail closed");
-        assert!(error.contains("telemetry bounds"));
-        apply_resource_reservation_rows(
-            "graph-a",
-            &Method::UpdateResourceHost { request: update(8) },
-            &mut nodes,
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .expect("128 policy rows remain representable")
-        .expect("host update result");
-        assert_eq!(
-            resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
-                .unwrap()
-                .unwrap()
-                .revision,
-            8
-        );
-
-        let key = "host-1\0policy-overflow";
-        let bytes = resource_encode(&policy, crypto).unwrap();
-        disk_policies
-            .insert(("graph-a", key), bytes.as_slice())
-            .unwrap();
-        let error = apply_resource_reservation_rows(
-            "graph-a",
-            &Method::UpdateResourceHost { request: update(9) },
-            &mut nodes,
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .expect_err("129 policy rows exceed the generated snapshot bound");
-        assert!(error.contains("disk-policy scan exceeds native bound"));
-        assert_eq!(
-            resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
-                .unwrap()
-                .unwrap()
-                .revision,
-            8
-        );
-        drop(nodes);
-        drop(reservations);
-        drop(tenant_index);
-        drop(attempts);
-        drop(hosts);
-        drop(exclusivity);
-        drop(fairness);
-        drop(concurrency);
-        drop(anti_affinity);
-        drop(disk_policies);
-        wtx.commit()
-            .expect("commit unchanged host after overflow refusal");
+            let error = apply_resource_reservation_rows(
+                "graph-a",
+                &Method::UpdateResourceHost { request: update(9) },
+                &mut nodes,
+                &mut reservations,
+                &mut tenant_index,
+                &mut attempts,
+                &mut hosts,
+                &mut exclusivity,
+                &mut fairness,
+                &mut concurrency,
+                &mut anti_affinity,
+                &mut disk_policies,
+                crypto,
+            )
+            .expect_err("129 policy rows exceed the generated snapshot bound");
+            assert!(error.contains("disk-policy scan exceeds native bound"));
+            assert_eq!(
+                resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
+                    .unwrap()
+                    .unwrap()
+                    .revision,
+                8
+            );
+            drop(nodes);
+            drop(reservations);
+            drop(tenant_index);
+            drop(attempts);
+            drop(hosts);
+            drop(exclusivity);
+            drop(fairness);
+            drop(concurrency);
+            drop(anti_affinity);
+            drop(disk_policies);
+        });
+        drop(shard);
     }
     let _ = std::fs::remove_file(path);
 }
@@ -1992,130 +2185,95 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
             .as_nanos()
     ));
     {
-        let db = Database::create(&path).expect("create test database");
-        let wtx = db.begin_write().expect("begin test write");
-        initialize_canonical_tables(&wtx).expect("initialize tables");
-        let mut nodes = wtx.open_table(NODES).unwrap();
-        let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
-        let mut tenant_index = wtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX).unwrap();
-        let mut attempts = wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS).unwrap();
-        let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-        let mut exclusivity = wtx.open_table(RESOURCE_EXCLUSIVITY).unwrap();
-        let mut fairness = wtx.open_table(RESOURCE_FAIRNESS).unwrap();
-        let mut concurrency = wtx.open_table(RESOURCE_CONCURRENCY).unwrap();
-        let mut anti_affinity = wtx.open_table(RESOURCE_ANTI_AFFINITY).unwrap();
-        let mut disk_policies = wtx.open_table(RESOURCE_DISK_POLICIES).unwrap();
-        let crypto = DurableCrypto::none();
-        let props = work_item_props();
-        let props_bytes = rmp_serde::to_vec_named(&props).unwrap();
-        nodes
-            .insert(("graph-a", "work-1"), props_bytes.as_slice())
-            .unwrap();
-        let current_host = host();
-        resource_put_host(&mut hosts, "graph-a", &current_host, crypto).unwrap();
+        // `Shard::open` materializes the whole declared GraphShard census.
+        let shard = Shard::open(&path).expect("create test shard");
+        resource_maintenance(&shard, "graph-a", "orphan-attempt-index", |write| {
+            let graph = write.graph("graph-a").expect("graph-a is a group member");
+            let mut nodes = graph.open_scoped_table(NODES).unwrap();
+            let mut reservations = graph.open_scoped_table(RESOURCE_RESERVATIONS).unwrap();
+            let mut tenant_index = graph
+                .open_scoped_table(RESOURCE_RESERVATION_TENANT_INDEX)
+                .unwrap();
+            let mut attempts = graph
+                .open_scoped_table(RESOURCE_RESERVATION_ATTEMPTS)
+                .unwrap();
+            let mut hosts = graph.open_scoped_table(RESOURCE_HOSTS).unwrap();
+            let mut exclusivity = graph.open_scoped_table(RESOURCE_EXCLUSIVITY).unwrap();
+            let mut fairness = graph.open_scoped_table(RESOURCE_FAIRNESS).unwrap();
+            let mut concurrency = graph.open_scoped_table(RESOURCE_CONCURRENCY).unwrap();
+            let mut anti_affinity = graph.open_scoped_table(RESOURCE_ANTI_AFFINITY).unwrap();
+            let mut disk_policies = graph.open_scoped_table(RESOURCE_DISK_POLICIES).unwrap();
+            let crypto = DurableCrypto::none();
+            let props = work_item_props();
+            let props_bytes = rmp_serde::to_vec_named(&props).unwrap();
+            nodes
+                .insert(("graph-a", "work-1"), props_bytes.as_slice())
+                .unwrap();
+            let current_host = host();
+            resource_put_host(&mut hosts, "graph-a", &current_host, crypto).unwrap();
 
-        let mut reserve_request = request();
-        reserve_request.reservation_id = "reservation-orphan".to_string();
-        reserve_request.expected_lifecycle_revision = Some(0);
-        reserve_request.input_fingerprint =
-            resource_recomputed_fingerprint(&props, &reserve_request)
-                .expect("test WorkItem has a complete resolved projection");
-        attempts
-            .insert(
-                (
+            let mut reserve_request = request();
+            reserve_request.reservation_id = "reservation-orphan".to_string();
+            reserve_request.expected_lifecycle_revision = Some(0);
+            reserve_request.input_fingerprint =
+                resource_recomputed_fingerprint(&props, &reserve_request)
+                    .expect("test WorkItem has a complete resolved projection");
+            attempts
+                .insert(
+                    (
+                        "graph-a",
+                        reserve_request.work_item_id.as_str(),
+                        reserve_request.attempt,
+                    ),
+                    reserve_request.reservation_id.as_str(),
+                )
+                .unwrap();
+
+            let error = apply_resource_reservation_rows(
+                "graph-a",
+                &Method::ReserveWorkItemResources {
+                    request: reserve_request.clone(),
+                },
+                &mut nodes,
+                &mut reservations,
+                &mut tenant_index,
+                &mut attempts,
+                &mut hosts,
+                &mut exclusivity,
+                &mut fairness,
+                &mut concurrency,
+                &mut anti_affinity,
+                &mut disk_policies,
+                crypto,
+            )
+            .expect_err("an orphan attempt index is corruption, not an idempotent win");
+            assert!(error.contains("attempt index references missing reservation"));
+            let after = resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
+                .unwrap()
+                .expect("host remains present");
+            assert_eq!(after.held_cpu_weight, current_host.held_cpu_weight);
+            assert_eq!(after.held_memory_mib, current_host.held_memory_mib);
+            assert_eq!(after.held_disk_mib, current_host.held_disk_mib);
+            assert_eq!(after.held_process_slots, current_host.held_process_slots);
+            assert!(reservations
+                .get(("graph-a", reserve_request.reservation_id.as_str()))
+                .unwrap()
+                .is_none());
+
+            // Repair the deliberately injected orphan in this isolated database,
+            // then exercise the real WTX reserve/release path.  The first reserve
+            // must be the only operation that charges host capacity and counters.
+            attempts
+                .remove((
                     "graph-a",
                     reserve_request.work_item_id.as_str(),
                     reserve_request.attempt,
-                ),
-                reserve_request.reservation_id.as_str(),
-            )
-            .unwrap();
-
-        let error = apply_resource_reservation_rows(
-            "graph-a",
-            &Method::ReserveWorkItemResources {
-                request: reserve_request.clone(),
-            },
-            &mut nodes,
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .expect_err("an orphan attempt index is corruption, not an idempotent win");
-        assert!(error.contains("attempt index references missing reservation"));
-        let after = resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
-            .unwrap()
-            .expect("host remains present");
-        assert_eq!(after.held_cpu_weight, current_host.held_cpu_weight);
-        assert_eq!(after.held_memory_mib, current_host.held_memory_mib);
-        assert_eq!(after.held_disk_mib, current_host.held_disk_mib);
-        assert_eq!(after.held_process_slots, current_host.held_process_slots);
-        assert!(reservations
-            .get(("graph-a", reserve_request.reservation_id.as_str()))
-            .unwrap()
-            .is_none());
-
-        // Repair the deliberately injected orphan in this isolated database,
-        // then exercise the real WTX reserve/release path.  The first reserve
-        // must be the only operation that charges host capacity and counters.
-        attempts
-            .remove((
+                ))
+                .unwrap();
+            let accepted = apply_resource_reservation_rows(
                 "graph-a",
-                reserve_request.work_item_id.as_str(),
-                reserve_request.attempt,
-            ))
-            .unwrap();
-        let accepted = apply_resource_reservation_rows(
-            "graph-a",
-            &Method::ReserveWorkItemResources {
-                request: reserve_request.clone(),
-            },
-            &mut nodes,
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .unwrap()
-        .expect("reserve result");
-        let accepted = resource_decode_result_payload(accepted).unwrap();
-        assert_eq!(
-            accepted.decision,
-            ResourceReservationResultDecision::Accepted
-        );
-        assert_eq!(
-            accepted.held_cpu_weight,
-            reserve_request.requirement.cpu_weight
-        );
-        let reserved_host = resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
-            .unwrap()
-            .expect("reserved host");
-        assert_eq!(
-            reserved_host.held_cpu_weight,
-            current_host.held_cpu_weight + 2
-        );
-
-        for expected in [Some(0), Some(2)] {
-            let mut stale_release = reserve_request.clone();
-            stale_release.expected_lifecycle_revision = expected;
-            stale_release.now_ms = 2_000;
-            let stale = apply_resource_reservation_rows(
-                "graph-a",
-                &Method::ReleaseWorkItemResources {
-                    request: stale_release,
+                &Method::ReserveWorkItemResources {
+                    request: reserve_request.clone(),
                 },
                 &mut nodes,
                 &mut reservations,
@@ -2130,151 +2288,191 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
                 crypto,
             )
             .unwrap()
-            .expect("stale lifecycle refusal result");
+            .expect("reserve result");
+            let accepted = resource_decode_result_payload(accepted).unwrap();
             assert_eq!(
-                resource_decode_result_payload(stale).unwrap().decision,
-                ResourceReservationResultDecision::Stale
+                accepted.decision,
+                ResourceReservationResultDecision::Accepted
             );
-        }
-
-        let mut release_request = reserve_request.clone();
-        release_request.now_ms = 2_000;
-        release_request.expected_lifecycle_revision = Some(1);
-        let released = apply_resource_reservation_rows(
-            "graph-a",
-            &Method::ReleaseWorkItemResources {
-                request: release_request.clone(),
-            },
-            &mut nodes,
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .unwrap()
-        .expect("release result");
-        let released = resource_decode_result_payload(released).unwrap();
-        assert_eq!(
-            released.decision,
-            ResourceReservationResultDecision::Accepted
-        );
-        assert_eq!(released.held_cpu_weight, 0);
-        assert_eq!(released.state, ResourceReservationResultState::Released);
-        let released_host = resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
-            .unwrap()
-            .expect("released host");
-        assert_eq!(released_host.held_cpu_weight, current_host.held_cpu_weight);
-
-        // The retained tombstone makes the exact release replay idempotent,
-        // while a new reservation identity for the same WorkItem attempt is a
-        // conflict with the durable attempt winner.
-        let replay = apply_resource_reservation_rows(
-            "graph-a",
-            &Method::ReleaseWorkItemResources {
-                request: release_request,
-            },
-            &mut nodes,
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .unwrap()
-        .expect("release replay result");
-        assert_eq!(
-            resource_decode_result_payload(replay).unwrap().decision,
-            ResourceReservationResultDecision::Idempotent
-        );
-        let mut changed_precondition = reserve_request.clone();
-        changed_precondition.now_ms = 3_000;
-        changed_precondition.expected_lifecycle_revision = Some(2);
-        let changed_precondition_result = apply_resource_reservation_rows(
-            "graph-a",
-            &Method::ReleaseWorkItemResources {
-                request: changed_precondition,
-            },
-            &mut nodes,
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .unwrap()
-        .expect("changed lifecycle refusal result");
-        assert_eq!(
-            resource_decode_result_payload(changed_precondition_result)
+            assert_eq!(
+                accepted.held_cpu_weight,
+                reserve_request.requirement.cpu_weight
+            );
+            let reserved_host = resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
                 .unwrap()
-                .decision,
-            ResourceReservationResultDecision::InputConflict
-        );
-        let mut changed_id = reserve_request.clone();
-        changed_id.reservation_id = "reservation-changed".to_string();
-        changed_id.idempotency_key = "reserve-invocation-changed".to_string();
-        changed_id.input_fingerprint =
-            resource_recomputed_fingerprint(&props, &changed_id).unwrap();
-        let conflict = apply_resource_reservation_rows(
-            "graph-a",
-            &Method::ReserveWorkItemResources {
-                request: changed_id,
-            },
-            &mut nodes,
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .unwrap()
-        .expect("changed-id refusal result");
-        assert_eq!(
-            resource_decode_result_payload(conflict).unwrap().decision,
-            ResourceReservationResultDecision::Conflict
-        );
-        let after_conflict = resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
+                .expect("reserved host");
+            assert_eq!(
+                reserved_host.held_cpu_weight,
+                current_host.held_cpu_weight + 2
+            );
+
+            for expected in [Some(0), Some(2)] {
+                let mut stale_release = reserve_request.clone();
+                stale_release.expected_lifecycle_revision = expected;
+                stale_release.now_ms = 2_000;
+                let stale = apply_resource_reservation_rows(
+                    "graph-a",
+                    &Method::ReleaseWorkItemResources {
+                        request: stale_release,
+                    },
+                    &mut nodes,
+                    &mut reservations,
+                    &mut tenant_index,
+                    &mut attempts,
+                    &mut hosts,
+                    &mut exclusivity,
+                    &mut fairness,
+                    &mut concurrency,
+                    &mut anti_affinity,
+                    &mut disk_policies,
+                    crypto,
+                )
+                .unwrap()
+                .expect("stale lifecycle refusal result");
+                assert_eq!(
+                    resource_decode_result_payload(stale).unwrap().decision,
+                    ResourceReservationResultDecision::Stale
+                );
+            }
+
+            let mut release_request = reserve_request.clone();
+            release_request.now_ms = 2_000;
+            release_request.expected_lifecycle_revision = Some(1);
+            let released = apply_resource_reservation_rows(
+                "graph-a",
+                &Method::ReleaseWorkItemResources {
+                    request: release_request.clone(),
+                },
+                &mut nodes,
+                &mut reservations,
+                &mut tenant_index,
+                &mut attempts,
+                &mut hosts,
+                &mut exclusivity,
+                &mut fairness,
+                &mut concurrency,
+                &mut anti_affinity,
+                &mut disk_policies,
+                crypto,
+            )
             .unwrap()
-            .expect("host remains after changed-id refusal");
-        assert_eq!(after_conflict.held_cpu_weight, current_host.held_cpu_weight);
-        drop(nodes);
-        drop(reservations);
-        drop(tenant_index);
-        drop(attempts);
-        drop(hosts);
-        drop(exclusivity);
-        drop(fairness);
-        drop(concurrency);
-        drop(anti_affinity);
-        drop(disk_policies);
-        wtx.commit()
-            .expect("commit reserve/release transaction after orphan refusal");
+            .expect("release result");
+            let released = resource_decode_result_payload(released).unwrap();
+            assert_eq!(
+                released.decision,
+                ResourceReservationResultDecision::Accepted
+            );
+            assert_eq!(released.held_cpu_weight, 0);
+            assert_eq!(released.state, ResourceReservationResultState::Released);
+            let released_host = resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
+                .unwrap()
+                .expect("released host");
+            assert_eq!(released_host.held_cpu_weight, current_host.held_cpu_weight);
+
+            // The retained tombstone makes the exact release replay idempotent,
+            // while a new reservation identity for the same WorkItem attempt is a
+            // conflict with the durable attempt winner.
+            let replay = apply_resource_reservation_rows(
+                "graph-a",
+                &Method::ReleaseWorkItemResources {
+                    request: release_request,
+                },
+                &mut nodes,
+                &mut reservations,
+                &mut tenant_index,
+                &mut attempts,
+                &mut hosts,
+                &mut exclusivity,
+                &mut fairness,
+                &mut concurrency,
+                &mut anti_affinity,
+                &mut disk_policies,
+                crypto,
+            )
+            .unwrap()
+            .expect("release replay result");
+            assert_eq!(
+                resource_decode_result_payload(replay).unwrap().decision,
+                ResourceReservationResultDecision::Idempotent
+            );
+            let mut changed_precondition = reserve_request.clone();
+            changed_precondition.now_ms = 3_000;
+            changed_precondition.expected_lifecycle_revision = Some(2);
+            let changed_precondition_result = apply_resource_reservation_rows(
+                "graph-a",
+                &Method::ReleaseWorkItemResources {
+                    request: changed_precondition,
+                },
+                &mut nodes,
+                &mut reservations,
+                &mut tenant_index,
+                &mut attempts,
+                &mut hosts,
+                &mut exclusivity,
+                &mut fairness,
+                &mut concurrency,
+                &mut anti_affinity,
+                &mut disk_policies,
+                crypto,
+            )
+            .unwrap()
+            .expect("changed lifecycle refusal result");
+            assert_eq!(
+                resource_decode_result_payload(changed_precondition_result)
+                    .unwrap()
+                    .decision,
+                ResourceReservationResultDecision::InputConflict
+            );
+            let mut changed_id = reserve_request.clone();
+            changed_id.reservation_id = "reservation-changed".to_string();
+            changed_id.idempotency_key = "reserve-invocation-changed".to_string();
+            changed_id.input_fingerprint =
+                resource_recomputed_fingerprint(&props, &changed_id).unwrap();
+            let conflict = apply_resource_reservation_rows(
+                "graph-a",
+                &Method::ReserveWorkItemResources {
+                    request: changed_id,
+                },
+                &mut nodes,
+                &mut reservations,
+                &mut tenant_index,
+                &mut attempts,
+                &mut hosts,
+                &mut exclusivity,
+                &mut fairness,
+                &mut concurrency,
+                &mut anti_affinity,
+                &mut disk_policies,
+                crypto,
+            )
+            .unwrap()
+            .expect("changed-id refusal result");
+            assert_eq!(
+                resource_decode_result_payload(conflict).unwrap().decision,
+                ResourceReservationResultDecision::Conflict
+            );
+            let after_conflict = resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
+                .unwrap()
+                .expect("host remains after changed-id refusal");
+            assert_eq!(after_conflict.held_cpu_weight, current_host.held_cpu_weight);
+            drop(nodes);
+            drop(reservations);
+            drop(tenant_index);
+            drop(attempts);
+            drop(hosts);
+            drop(exclusivity);
+            drop(fairness);
+            drop(concurrency);
+            drop(anti_affinity);
+            drop(disk_policies);
+        });
+        drop(shard);
     }
     // Reopen the durable store and rebuild the scheduler projection solely
     // from the native tombstone/status readers.  Held totals remain zero after
     // release, while exact lifecycle correlation still returns the record.
     {
-        let db = Database::open(&path).expect("reopen resource database");
+        let shard = Shard::open(&path).expect("reopen resource shard");
         let stored_request = request();
         let query = ResourceReservationStatusRequest {
             schema_version:
@@ -2294,7 +2492,7 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
             cursor: None,
             now_ms: 3_000,
         };
-        let exact = read_resource_reservation(&db, "graph-a", &query, DurableCrypto::none())
+        let exact = read_resource_reservation(&shard, "graph-a", &query, DurableCrypto::none())
             .expect("exact tombstone query");
         assert_eq!(
             exact.decision,
@@ -2305,12 +2503,12 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
         let mut wrong_host_query = query.clone();
         wrong_host_query.host_ref = Some("host-2".to_string());
         assert_eq!(
-            read_resource_reservation(&db, "graph-a", &wrong_host_query, DurableCrypto::none())
+            read_resource_reservation(&shard, "graph-a", &wrong_host_query, DurableCrypto::none())
                 .expect_err("wrong host correlation must fail closed"),
             "resource reservation correlation does not match"
         );
         let status =
-            read_resource_reservation_status(&db, "graph-a", &query, DurableCrypto::none())
+            read_resource_reservation_status(&shard, "graph-a", &query, DurableCrypto::none())
                 .expect("status projection after restart");
         assert!(status.complete);
         assert_eq!(status.reservations.len(), 1);
@@ -2319,6 +2517,7 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
             status.reservations[0].state,
             ResourceReservationSummaryState::Released
         );
+        drop(shard);
     }
     let _ = std::fs::remove_file(path);
 }
@@ -2399,7 +2598,7 @@ fn reclaim_proves_strictly_newer_attempt_and_current_query_requires_live_lease()
     props["fencing_token"] = serde_json::json!(2);
     let fence = resource_validate_work_item(&props, &request, true)
         .expect("strictly newer attempt is a reclaim supersession proof");
-    assert!(fence.superseded);
+    assert!(fence.is_superseded());
 
     let record = resource_build_record(&request, &host(), 7, 1).unwrap();
     props = work_item_props();
@@ -2449,10 +2648,9 @@ fn exact_query_missing_reservation_returns_typed_not_found() {
             .as_nanos()
     ));
     {
-        let db = Database::create(&path).expect("create query database");
-        let wtx = db.begin_write().expect("begin query write");
-        initialize_canonical_tables(&wtx).expect("initialize tables");
-        wtx.commit().expect("commit empty query database");
+        // `Shard::open` materializes the whole declared GraphShard census, so
+        // an empty shard file needs no bootstrap write at all.
+        let shard = Shard::open(&path).expect("create query shard");
 
         let expected = request();
         let query = ResourceReservationStatusRequest {
@@ -2473,12 +2671,13 @@ fn exact_query_missing_reservation_returns_typed_not_found() {
             cursor: None,
             now_ms: expected.now_ms,
         };
-        let result = read_resource_reservation(&db, "graph-a", &query, DurableCrypto::none())
+        let result = read_resource_reservation(&shard, "graph-a", &query, DurableCrypto::none())
             .expect("missing reservation is a typed result");
         assert_eq!(result.decision, ResourceReservationResultDecision::NotFound);
         assert_eq!(result.state, ResourceReservationResultState::Absent);
         assert!(result.record.is_none());
         assert_eq!(result.held_cpu_weight, 0);
+        drop(shard);
     }
     let _ = std::fs::remove_file(path);
 }
@@ -2559,19 +2758,22 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
     )
     .unwrap());
 
-    let stored_batch = MutationBatch {
+    let identity = MutationScopeIdentity::graph(
+        ScopeTenantId::new("tenant-a").expect("valid tenant id"),
+        LogicalName::new("graph-a").expect("valid graph name"),
+        IncarnationId::new("incarnation:test:resource-reservation").expect("valid incarnation id"),
+    );
+    let mut stored_batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: "batch-1".to_string(),
-        context: MutationRequestContext {
-            request_id: 1,
-            principal: "principal:sha256:".to_string() + &"a".repeat(64),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            verified_capabilities: Default::default(),
-        },
+        envelope: super::fixture_operation_envelope(
+            &identity,
+            &format!("principal:sha256:{}", "a".repeat(64)),
+            1,
+            &"idem-1".to_string(),
+        ),
         // This batch is never committed through `commit_mutation_batch_inner`
-        // (there is no `Database` anywhere in this test) -- it only feeds
+        // (there is no `Shard` anywhere in this test) -- it only feeds
         // `native_resource_placement_replay_match`, which reads only
         // `placement_epoch`/`fencing_token`/`operations`, never `identity` or
         // `version_expectation`. Both are therefore inert to this test's
@@ -2580,14 +2782,8 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
         // `commit_mutation_batch_inner` requires a graph scope; `"graph-a"`
         // is reused verbatim as the graph name, matching every other fixture
         // here.
-        identity: MutationScopeIdentity::graph(
-            ScopeTenantId::new("tenant-a").expect("valid tenant id"),
-            LogicalName::new("graph-a").expect("valid graph name"),
-            IncarnationId::new("incarnation:test:resource-reservation")
-                .expect("valid incarnation id"),
-        ),
+        identity,
         placement_epoch: 1,
-        idempotency_key: "idem-1".to_string(),
         // Inert (see above): no commit path ever reads this. `Graph(0)` is
         // the simplest value that satisfies `batch.validate()`'s structural
         // requirement that a graph-scoped batch carry a `Graph` expectation.
@@ -2598,6 +2794,9 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
         outbox: Vec::new(),
         created_at_ms: 1,
     };
+    stored_batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .expect("a fixture batch reseals its envelope over its final body");
     let mut failover_batch = stored_batch.clone();
     failover_batch.placement_epoch = 2;
     failover_batch.fencing_token = Some(1);
@@ -2825,163 +3024,165 @@ fn graph_clear_streams_terminal_history_past_bound_and_preserves_active_holds() 
             .as_nanos()
     ));
     {
-        let db = Database::create(&path).expect("create test database");
-        let wtx = db.begin_write().expect("begin test write");
-        initialize_canonical_tables(&wtx).expect("initialize tables");
-        let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
-        let mut tenant_index = wtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX).unwrap();
-        let mut attempts = wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS).unwrap();
-        let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-        let mut exclusivity = wtx.open_table(RESOURCE_EXCLUSIVITY).unwrap();
-        let mut fairness = wtx.open_table(RESOURCE_FAIRNESS).unwrap();
-        let mut concurrency = wtx.open_table(RESOURCE_CONCURRENCY).unwrap();
-        let mut anti_affinity = wtx.open_table(RESOURCE_ANTI_AFFINITY).unwrap();
-        let mut disk_policies = wtx.open_table(RESOURCE_DISK_POLICIES).unwrap();
-        let crypto = DurableCrypto::none();
-        let base_request = request();
-        let base_record = resource_build_record(&base_request, &host(), 7, 1).unwrap();
-
-        for index in 0..=MAX_RESOURCE_CLEAR_SCAN {
-            // A max-Unicode prefix followed by another byte sorts after the
-            // old `..=\u{10ffff}` sentinel.  The production clear/status
-            // ranges are open-ended and must still include this legal ID.
-            let reservation_id = if index == MAX_RESOURCE_CLEAR_SCAN {
-                "\u{10ffff}terminal-x".to_string()
-            } else {
-                format!("terminal-{index:06}")
-            };
-            let mut record = base_record.clone();
-            record.reservation_id = reservation_id.clone();
-            if index == 0 {
-                record.tenant_ref = "\u{10ffff}tenant-x".to_string();
-            }
-            record.state = ResourceReservationRecordState::Released;
-            record.tombstone = true;
-            record.revision = index as u64 + 1;
-            record.lifecycle_revision = index as u64 + 1;
-            let tenant = record.tenant_ref.clone();
-            let durable = DurableResourceReservation {
-                record,
-                held_cpu_weight: 0,
-                held_memory_mib: 0,
-                held_disk_mib: 0,
-                held_process_slots: 0,
-                fairness_debt: 1,
-            };
-            let bytes = resource_encode(&durable, crypto).unwrap();
-            reservations
-                .insert(("graph-a", reservation_id.as_str()), bytes.as_slice())
+        // `Shard::open` materializes the whole declared GraphShard census.
+        let shard = Shard::open(&path).expect("create test shard");
+        resource_maintenance(&shard, "graph-a", "graph-clear-terminal-history", |write| {
+            let graph = write.graph("graph-a").expect("graph-a is a group member");
+            let mut reservations = graph.open_scoped_table(RESOURCE_RESERVATIONS).unwrap();
+            let mut tenant_index = graph
+                .open_scoped_table(RESOURCE_RESERVATION_TENANT_INDEX)
                 .unwrap();
-            tenant_index
+            let mut attempts = graph
+                .open_scoped_table(RESOURCE_RESERVATION_ATTEMPTS)
+                .unwrap();
+            let mut hosts = graph.open_scoped_table(RESOURCE_HOSTS).unwrap();
+            let mut exclusivity = graph.open_scoped_table(RESOURCE_EXCLUSIVITY).unwrap();
+            let mut fairness = graph.open_scoped_table(RESOURCE_FAIRNESS).unwrap();
+            let mut concurrency = graph.open_scoped_table(RESOURCE_CONCURRENCY).unwrap();
+            let mut anti_affinity = graph.open_scoped_table(RESOURCE_ANTI_AFFINITY).unwrap();
+            let mut disk_policies = graph.open_scoped_table(RESOURCE_DISK_POLICIES).unwrap();
+            let crypto = DurableCrypto::none();
+            let base_request = request();
+            let base_record = resource_build_record(&base_request, &host(), 7, 1).unwrap();
+
+            for index in 0..=MAX_RESOURCE_CLEAR_SCAN {
+                // A max-Unicode prefix followed by another byte sorts after the
+                // old `..=\u{10ffff}` sentinel.  The production clear/status
+                // ranges are open-ended and must still include this legal ID.
+                let reservation_id = if index == MAX_RESOURCE_CLEAR_SCAN {
+                    "\u{10ffff}terminal-x".to_string()
+                } else {
+                    format!("terminal-{index:06}")
+                };
+                let mut record = base_record.clone();
+                record.reservation_id = reservation_id.clone();
+                if index == 0 {
+                    record.tenant_ref = "\u{10ffff}tenant-x".to_string();
+                }
+                record.state = ResourceReservationRecordState::Released;
+                record.tombstone = true;
+                record.revision = index as u64 + 1;
+                record.lifecycle_revision = index as u64 + 1;
+                let tenant = record.tenant_ref.clone();
+                let durable = DurableResourceReservation {
+                    record,
+                    held_cpu_weight: 0,
+                    held_memory_mib: 0,
+                    held_disk_mib: 0,
+                    held_process_slots: 0,
+                    fairness_debt: 1,
+                };
+                let bytes = resource_encode(&durable, crypto).unwrap();
+                reservations
+                    .insert(("graph-a", reservation_id.as_str()), bytes.as_slice())
+                    .unwrap();
+                tenant_index
+                    .insert(
+                        ("graph-a", tenant.as_str(), reservation_id.as_str()),
+                        reservation_id.as_str(),
+                    )
+                    .unwrap();
+            }
+
+            let mut max_host = host();
+            max_host.host_ref = "\u{10ffff}host-x".to_string();
+            hosts
                 .insert(
-                    ("graph-a", tenant.as_str(), reservation_id.as_str()),
-                    reservation_id.as_str(),
+                    ("graph-a", max_host.host_ref.as_str()),
+                    resource_encode(&max_host, crypto).unwrap().as_slice(),
                 )
                 .unwrap();
-        }
+            let max_policy_key = "\u{10ffff}policy-x";
+            let max_policy = DurableResourceDiskPolicy {
+                blocked: false,
+                low_watermark_mib: Some(1),
+                high_watermark_mib: Some(2),
+                revision: 1,
+            };
+            let max_policy_bytes = resource_encode(&max_policy, crypto).unwrap();
+            let max_policy_row = format!("host-a\0{max_policy_key}");
+            disk_policies
+                .insert(
+                    ("graph-a", max_policy_row.as_str()),
+                    max_policy_bytes.as_slice(),
+                )
+                .unwrap();
 
-        let mut max_host = host();
-        max_host.host_ref = "\u{10ffff}host-x".to_string();
-        hosts
-            .insert(
-                ("graph-a", max_host.host_ref.as_str()),
-                resource_encode(&max_host, crypto).unwrap().as_slice(),
+            let active_id = "active-hold";
+            let mut active_request = request();
+            active_request.reservation_id = active_id.to_string();
+            let active_record = resource_build_record(&active_request, &host(), 7, 1).unwrap();
+            let active = DurableResourceReservation {
+                record: active_record,
+                held_cpu_weight: active_request.requirement.cpu_weight,
+                held_memory_mib: active_request.requirement.memory_mib,
+                held_disk_mib: active_request.requirement.disk_mib,
+                held_process_slots: active_request.requirement.process_slots,
+                fairness_debt: active_request.fairness_cost,
+            };
+            let active_bytes = resource_encode(&active, crypto).unwrap();
+            reservations
+                .insert(("graph-a", active_id), active_bytes.as_slice())
+                .unwrap();
+            tenant_index
+                .insert(("graph-a", "tenant-a", active_id), active_id)
+                .unwrap();
+
+            assert!(clear_resource_rows(
+                "graph-a",
+                &mut reservations,
+                &mut tenant_index,
+                &mut attempts,
+                &mut hosts,
+                &mut exclusivity,
+                &mut fairness,
+                &mut concurrency,
+                &mut anti_affinity,
+                &mut disk_policies,
+                crypto,
             )
-            .unwrap();
-        let max_policy_key = "\u{10ffff}policy-x";
-        let max_policy = DurableResourceDiskPolicy {
-            blocked: false,
-            low_watermark_mib: Some(1),
-            high_watermark_mib: Some(2),
-            revision: 1,
-        };
-        let max_policy_bytes = resource_encode(&max_policy, crypto).unwrap();
-        let max_policy_row = format!("host-a\0{max_policy_key}");
-        disk_policies
-            .insert(
-                ("graph-a", max_policy_row.as_str()),
-                max_policy_bytes.as_slice(),
+            .is_err());
+            assert!(reservations.get(("graph-a", active_id)).unwrap().is_some());
+            assert!(tenant_index
+                .get(("graph-a", "tenant-a", active_id))
+                .unwrap()
+                .is_some());
+
+            reservations.remove(("graph-a", active_id)).unwrap();
+            tenant_index
+                .remove(("graph-a", "tenant-a", active_id))
+                .unwrap();
+            clear_resource_rows(
+                "graph-a",
+                &mut reservations,
+                &mut tenant_index,
+                &mut attempts,
+                &mut hosts,
+                &mut exclusivity,
+                &mut fairness,
+                &mut concurrency,
+                &mut anti_affinity,
+                &mut disk_policies,
+                crypto,
             )
-            .unwrap();
-
-        let active_id = "active-hold";
-        let mut active_request = request();
-        active_request.reservation_id = active_id.to_string();
-        let active_record = resource_build_record(&active_request, &host(), 7, 1).unwrap();
-        let active = DurableResourceReservation {
-            record: active_record,
-            held_cpu_weight: active_request.requirement.cpu_weight,
-            held_memory_mib: active_request.requirement.memory_mib,
-            held_disk_mib: active_request.requirement.disk_mib,
-            held_process_slots: active_request.requirement.process_slots,
-            fairness_debt: active_request.fairness_cost,
-        };
-        let active_bytes = resource_encode(&active, crypto).unwrap();
-        reservations
-            .insert(("graph-a", active_id), active_bytes.as_slice())
-            .unwrap();
-        tenant_index
-            .insert(("graph-a", "tenant-a", active_id), active_id)
-            .unwrap();
-
-        assert!(clear_resource_rows(
-            "graph-a",
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .is_err());
-        assert!(reservations.get(("graph-a", active_id)).unwrap().is_some());
-        assert!(tenant_index
-            .get(("graph-a", "tenant-a", active_id))
-            .unwrap()
-            .is_some());
-
-        reservations.remove(("graph-a", active_id)).unwrap();
-        tenant_index
-            .remove(("graph-a", "tenant-a", active_id))
-            .unwrap();
-        clear_resource_rows(
-            "graph-a",
-            &mut reservations,
-            &mut tenant_index,
-            &mut attempts,
-            &mut hosts,
-            &mut exclusivity,
-            &mut fairness,
-            &mut concurrency,
-            &mut anti_affinity,
-            &mut disk_policies,
-            crypto,
-        )
-        .expect("terminal history is cleared in bounded chunks");
-        assert!(reservations
-            .range(("graph-a", "")..)
-            .unwrap()
-            .next()
-            .is_none());
-        assert!(tenant_index
-            .range(("graph-a", "", "")..)
-            .unwrap()
-            .next()
-            .is_none());
-        drop(reservations);
-        drop(tenant_index);
-        drop(attempts);
-        drop(hosts);
-        drop(exclusivity);
-        drop(fairness);
-        drop(concurrency);
-        drop(anti_affinity);
-        drop(disk_policies);
-        wtx.commit().expect("commit clear");
+            .expect("terminal history is cleared in bounded chunks");
+            // A per-graph prefix scan is `scope_rows()`: it starts at the least
+            // key this scope can own and stops on the first key that leaves it, so
+            // the open-ended `range(("graph-a", "")..)` + `take_while` shape the
+            // raw table needed is now the capability's own bound.
+            assert!(reservations.scope_rows().unwrap().next().is_none());
+            assert!(tenant_index.scope_rows().unwrap().next().is_none());
+            drop(reservations);
+            drop(tenant_index);
+            drop(attempts);
+            drop(hosts);
+            drop(exclusivity);
+            drop(fairness);
+            drop(concurrency);
+            drop(anti_affinity);
+            drop(disk_policies);
+        });
+        drop(shard);
     }
     let _ = std::fs::remove_file(path);
 }
@@ -3003,18 +3204,31 @@ fn graph_clear_streams_terminal_history_past_bound_and_preserves_active_holds() 
 /// graph, without running the (now submission-only) node-authority guard -- the same bypass
 /// `redb_store::development_lane::tests::seed_lane_work_item` already uses for the identical
 /// reason.
+///
+/// The seeded snapshot version is no longer an argument: the graph's
+/// authoritative version belongs to the kernel ledger, and this seed is itself
+/// one admitted maintenance batch, so it advances that version by exactly one
+/// and the resulting value is RETURNED for the caller to compare against.
+/// `graph_meta` is file-wide, so it is written through the group's control
+/// member; the node/edge/ledger rows are scope-prefixed and go through the
+/// graph member.
 fn seed_checkpoint_image(
-    db: &Database,
+    shard: &Shard,
     graph: &str,
     incarnation_id: &str,
-    version: u64,
     nodes: &[(String, Vec<u8>)],
-) {
-    let wtx = db.begin_write().expect("begin checkpoint image seed");
-    {
-        let mut nodes_table = wtx.open_table(NODES).expect("open nodes for seed");
-        let mut edges_table = wtx.open_table(EDGES).expect("open edges for seed");
-        let mut ledger_table = wtx.open_table(LEDGER).expect("open ledger for seed");
+) -> u64 {
+    resource_maintenance(shard, graph, incarnation_id, |write| {
+        let member = write.graph(graph).expect("the seeded graph is a member");
+        let mut nodes_table = member
+            .open_scoped_table(NODES)
+            .expect("open nodes for seed");
+        let mut edges_table = member
+            .open_scoped_table(EDGES)
+            .expect("open edges for seed");
+        let mut ledger_table = member
+            .open_scoped_table(LEDGER)
+            .expect("open ledger for seed");
         clear_graph_rows(graph, &mut nodes_table, &mut edges_table, &mut ledger_table)
             .expect("clear prior graph rows before seed");
         for (id, bytes) in nodes {
@@ -3023,21 +3237,20 @@ fn seed_checkpoint_image(
                 .insert((graph, id.as_str()), sealed.as_ref())
                 .expect("insert seeded node");
         }
-        let mut meta = wtx
+        drop(nodes_table);
+        drop(edges_table);
+        drop(ledger_table);
+        let mut meta = write
+            .control()
             .open_table(GRAPH_META)
             .expect("open graph_meta for seed");
         let encoded = encode_meta_with_incarnation(graph, GraphType::Global, incarnation_id)
             .expect("encode seeded graph_meta");
         meta.insert(graph, encoded.as_slice())
             .expect("insert seeded graph_meta");
-        let mut versions = wtx
-            .open_table(MUTATION_GRAPH_VERSION)
-            .expect("open mutation_graph_version for seed");
-        versions
-            .insert(graph, version)
-            .expect("insert seeded graph version");
-    }
-    wtx.commit().expect("commit checkpoint image seed");
+    });
+    eg_transaction::version(&resource_read(shard, graph))
+        .expect("authoritative version of the seeded graph's shard scope")
 }
 
 #[test]
@@ -3051,55 +3264,59 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
             .as_nanos()
     ));
     {
-        let db = Database::create(&path).expect("create checkpoint database");
-        let wtx = db.begin_write().expect("begin checkpoint seed");
-        initialize_canonical_tables(&wtx).expect("initialize tables");
-        let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
+        // `Shard::open` materializes the whole declared GraphShard census.
+        let shard = Shard::open(&path).expect("create checkpoint shard");
         let current_host = host();
-        resource_put_host(&mut hosts, "graph-a", &current_host, DurableCrypto::none()).unwrap();
-        let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
         let mut request = request();
         request.input_fingerprint = format!("v1:{}", "0".repeat(64));
-        let record = resource_build_record(&request, &current_host, current_host.revision, 1)
-            .expect("build active checkpoint record");
-        let durable = DurableResourceReservation {
-            record,
-            held_cpu_weight: request.requirement.cpu_weight,
-            held_memory_mib: request.requirement.memory_mib,
-            held_disk_mib: request.requirement.disk_mib,
-            held_process_slots: request.requirement.process_slots,
-            fairness_debt: request.fairness_cost,
-        };
-        resource_put_reservation(
-            &mut reservations,
-            "graph-a",
-            &durable,
-            DurableCrypto::none(),
-        )
-        .unwrap();
-        let mut tenant_index = wtx.open_table(RESOURCE_RESERVATION_TENANT_INDEX).unwrap();
-        tenant_index
-            .insert(
-                (
-                    "graph-a",
-                    request.tenant_ref.as_str(),
+        resource_maintenance(&shard, "graph-a", "checkpoint-domain-seed", |write| {
+            let graph = write.graph("graph-a").expect("graph-a is a group member");
+            let mut hosts = graph.open_scoped_table(RESOURCE_HOSTS).unwrap();
+            resource_put_host(&mut hosts, "graph-a", &current_host, DurableCrypto::none()).unwrap();
+            drop(hosts);
+            let mut reservations = graph.open_scoped_table(RESOURCE_RESERVATIONS).unwrap();
+            let record = resource_build_record(&request, &current_host, current_host.revision, 1)
+                .expect("build active checkpoint record");
+            let durable = DurableResourceReservation {
+                record,
+                held_cpu_weight: request.requirement.cpu_weight,
+                held_memory_mib: request.requirement.memory_mib,
+                held_disk_mib: request.requirement.disk_mib,
+                held_process_slots: request.requirement.process_slots,
+                fairness_debt: request.fairness_cost,
+            };
+            resource_put_reservation(
+                &mut reservations,
+                "graph-a",
+                &durable,
+                DurableCrypto::none(),
+            )
+            .unwrap();
+            drop(reservations);
+            let mut tenant_index = graph
+                .open_scoped_table(RESOURCE_RESERVATION_TENANT_INDEX)
+                .unwrap();
+            tenant_index
+                .insert(
+                    (
+                        "graph-a",
+                        request.tenant_ref.as_str(),
+                        request.reservation_id.as_str(),
+                    ),
                     request.reservation_id.as_str(),
-                ),
-                request.reservation_id.as_str(),
-            )
-            .unwrap();
-        let mut attempts = wtx.open_table(RESOURCE_RESERVATION_ATTEMPTS).unwrap();
-        attempts
-            .insert(
-                ("graph-a", request.work_item_id.as_str(), request.attempt),
-                request.reservation_id.as_str(),
-            )
-            .unwrap();
-        drop(hosts);
-        drop(reservations);
-        drop(tenant_index);
-        drop(attempts);
-        wtx.commit().expect("commit checkpoint seed");
+                )
+                .unwrap();
+            drop(tenant_index);
+            let mut attempts = graph
+                .open_scoped_table(RESOURCE_RESERVATION_ATTEMPTS)
+                .unwrap();
+            attempts
+                .insert(
+                    ("graph-a", request.work_item_id.as_str(), request.attempt),
+                    request.reservation_id.as_str(),
+                )
+                .unwrap();
+        });
 
         let work_item_bytes = rmp_serde::to_vec_named(&work_item_props_for_request(&request))
             .expect("encode linked WorkItem");
@@ -3123,11 +3340,14 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
         // exact live WorkItem linked by the native hold. Installed directly
         // (see `seed_checkpoint_image`'s doc): `apply_checkpoint` itself can no
         // longer install an ACTIVE-status WorkItem row post-RMDD-29.
-        seed_checkpoint_image(
-            &db,
+        // The seeded snapshot version is whatever the kernel ledger's version
+        // for this scope became: it is the kernel's counter now, not a row a
+        // seed may set, and every admitted batch (this seed included) advances
+        // it by exactly one. Every dump below is versioned RELATIVE to it.
+        let initial_version = seed_checkpoint_image(
+            &shard,
             "graph-a",
             "incarnation:checkpoint-domain-initial",
-            10,
             &[
                 (
                     "old-node".to_string(),
@@ -3136,7 +3356,7 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
                 (request.work_item_id.clone(), work_item_bytes.clone()),
             ],
         );
-        let initial = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+        let initial = read_graph_dump(&shard, "graph-a", DurableCrypto::none())
             .unwrap()
             .expect("checkpoint graph identity");
         assert_eq!(
@@ -3147,16 +3367,17 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
                 .collect::<Vec<_>>(),
             vec!["old-node", "work-1"]
         );
+        assert_eq!(initial.source_snapshot_version, initial_version);
 
         // The incoming replacement omits the linked WorkItem.  It must refuse
         // before clear_graph_rows, leaving both the old graph image and native
         // held authority untouched.
         let error = apply_checkpoint(
-            &db,
+            &shard,
             &mut Vec::new(),
             vec![make_dump(
                 "incarnation:checkpoint-domain-invalid",
-                11,
+                initial_version + 1,
                 vec![(
                     "new-node".to_string(),
                     rmp_serde::to_vec_named(&serde_json::json!({"new": true})).unwrap(),
@@ -3168,7 +3389,7 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
         assert_eq!(error, "checkpoint resource domain validation failed");
         assert!(!error.contains("reservation-1"));
         assert!(!error.contains("work-1"));
-        let refused = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+        let refused = read_graph_dump(&shard, "graph-a", DurableCrypto::none())
             .unwrap()
             .expect("graph remains after refused checkpoint");
         assert_eq!(
@@ -3184,11 +3405,10 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
         // replace the ordinary graph rows while preserving the native domain.
         // Installed directly (see `seed_checkpoint_image`'s doc) for the same
         // post-RMDD-29 reason as the initial image above.
-        seed_checkpoint_image(
-            &db,
+        let restored_version = seed_checkpoint_image(
+            &shard,
             "graph-a",
             "incarnation:checkpoint-domain-valid",
-            12,
             &[
                 (
                     "new-node".to_string(),
@@ -3197,9 +3417,10 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
                 (request.work_item_id.clone(), work_item_bytes.clone()),
             ],
         );
-        let restored = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+        let restored = read_graph_dump(&shard, "graph-a", DurableCrypto::none())
             .unwrap()
             .expect("valid replacement graph identity");
+        assert_eq!(restored.source_snapshot_version, restored_version);
         assert_eq!(
             restored
                 .nodes
@@ -3212,11 +3433,11 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
         // A replacement image may not move the graph authority backwards,
         // even when it contains an otherwise valid live WorkItem.
         let stale_version = apply_checkpoint(
-            &db,
+            &shard,
             &mut Vec::new(),
             vec![make_dump(
                 "incarnation:checkpoint-domain-stale-version",
-                11,
+                restored_version - 1,
                 vec![(request.work_item_id.clone(), work_item_bytes.clone())],
             )],
             DurableCrypto::none(),
@@ -3230,11 +3451,11 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
         old_fence_props.insert("fencing_token".to_string(), serde_json::json!(0));
         old_fence_props.insert("lease_epoch".to_string(), serde_json::json!(0));
         let old_fence = apply_checkpoint(
-            &db,
+            &shard,
             &mut Vec::new(),
             vec![make_dump(
                 "incarnation:checkpoint-domain-old-fence",
-                13,
+                restored_version + 1,
                 vec![(
                     request.work_item_id.clone(),
                     rmp_serde::to_vec_named(&old_fence_props).unwrap(),
@@ -3258,11 +3479,11 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
         let mut expired_props = work_item_props_for_request(&request);
         expired_props.insert("lease_expires_at".to_string(), serde_json::json!(1.0));
         let expired = apply_checkpoint(
-            &db,
+            &shard,
             &mut Vec::new(),
             vec![make_dump(
                 "incarnation:checkpoint-domain-expired-at-reservation",
-                14,
+                restored_version + 2,
                 vec![(
                     request.work_item_id.clone(),
                     rmp_serde::to_vec_named(&expired_props).unwrap(),
@@ -3278,10 +3499,13 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
             expired,
             "native WorkItem authority required for active lease fields"
         );
-        let unchanged = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+        let unchanged = read_graph_dump(&shard, "graph-a", DurableCrypto::none())
             .unwrap()
             .expect("graph remains after stale resource checkpoint images");
-        assert_eq!(unchanged.source_snapshot_version, 12);
+        // Every `apply_checkpoint` above was REFUSED, and a refused checkpoint
+        // rolls its whole transaction back, so the authoritative version is
+        // still exactly the one the last successful seed produced.
+        assert_eq!(unchanged.source_snapshot_version, restored_version);
         assert_eq!(
             unchanged
                 .nodes
@@ -3299,46 +3523,32 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
         historically_valid_props.insert("lease_expires_at".to_string(), serde_json::json!(2.0));
         // Installed directly (see `seed_checkpoint_image`'s doc): `apply_checkpoint` can no
         // longer install this ACTIVE-status image post-RMDD-29, same as the two seeds above.
-        seed_checkpoint_image(
-            &db,
+        let historical_version = seed_checkpoint_image(
+            &shard,
             "graph-a",
             "incarnation:checkpoint-domain-historical-expiry",
-            15,
             &[(
                 request.work_item_id.clone(),
                 rmp_serde::to_vec_named(&historically_valid_props).unwrap(),
             )],
         );
-        let historically_installed = read_graph_dump(&db, "graph-a", DurableCrypto::none())
+        let historically_installed = read_graph_dump(&shard, "graph-a", DurableCrypto::none())
             .unwrap()
             .expect("historically valid checkpoint remains installed");
-        assert_eq!(historically_installed.source_snapshot_version, 15);
-
-        let wtx = db.begin_write().expect("inspect preserved resource domain");
-        let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-        assert!(
-            resource_load_host(&mut hosts, "graph-a", "host-1", DurableCrypto::none())
-                .unwrap()
-                .is_some()
+        assert_eq!(
+            historically_installed.source_snapshot_version,
+            historical_version
         );
-        let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
-        assert!(resource_load_reservation(
-            &mut reservations,
-            "graph-a",
-            "reservation-1",
-            DurableCrypto::none()
-        )
-        .unwrap()
-        .is_some());
-        drop(hosts);
-        drop(reservations);
-        wtx.commit().expect("commit resource inspection");
+        assert_eq!(historical_version, restored_version + 1);
+
+        assert!(read_host(&shard, "host-1").is_some());
+        assert!(read_reservation(&shard, "reservation-1").is_some());
 
         // A graph lifecycle clear cannot silently strand this held domain. The
         // pending clear is rejected atomically and leaves both graph/resource
         // rows untouched until release/reclaim drains the hold.
         let mut pending = vec![("graph-a".to_string(), Method::ClearGraph)];
-        let error = apply_checkpoint(&db, &mut pending, Vec::new(), DurableCrypto::none())
+        let error = apply_checkpoint(&shard, &mut pending, Vec::new(), DurableCrypto::none())
             .expect_err("active resource hold blocks checkpoint clear");
         assert!(error.contains("native reservation rows to be drained"));
         assert_eq!(
@@ -3347,18 +3557,8 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
             "failed checkpoint preserves caller pending work"
         );
         assert!(matches!(pending[0].1, Method::ClearGraph));
-        let wtx = db.begin_write().expect("inspect failed clear");
-        let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
-        assert!(resource_load_reservation(
-            &mut reservations,
-            "graph-a",
-            "reservation-1",
-            DurableCrypto::none()
-        )
-        .unwrap()
-        .is_some());
-        drop(reservations);
-        wtx.commit().expect("commit failed-clear inspection");
+        assert!(read_reservation(&shard, "reservation-1").is_some());
+        drop(shard);
     }
     let _ = std::fs::remove_file(path);
 }
@@ -3374,11 +3574,14 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
             .as_nanos()
     ));
     let (request, props) = resolved_request();
-    let db = seed_resource_database(
+    let shard = seed_resource_database(
         &path,
         vec![(request.work_item_id.clone(), props)],
         vec![host()],
     );
+    // The seed is itself an admitted maintenance batch: read the version it
+    // produced through `eg_transaction::version` rather than assuming zero.
+    let seeded_version = current_resource_graph_version(&shard);
 
     let reserve = resource_batch(
         &request.tenant_ref,
@@ -3387,10 +3590,9 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
         },
         "batch-delete-active-reserve",
         "delete-active-reserve",
-        // Fresh database.
-        0,
+        seeded_version,
     );
-    let reserved = commit_resource_batch(&db, &reserve).expect("reserve active hold");
+    let reserved = commit_resource_batch(&shard, &reserve).expect("reserve active hold");
     let reserved_result = batch_resource_result(&reserved);
     assert_eq!(
         reserved_result.decision,
@@ -3410,68 +3612,51 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
             batch.operations[0].surface = MutationSurface::Lifecycle;
             batch.operations[0].domain = DurabilityDomain::Lifecycle;
             batch
+                .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+                .expect("a lifecycle fixture reseals its final body");
+            batch
         };
 
     // DeleteGraph must fail before its graph/resource row changes become
     // durable while a native hold is still active.  No lifecycle status or
     // projection outbox row may survive the failed transaction either.
     //
-    // `reserve` above committed once against this fresh database: 0 -> 1.
+    // `reserve` above committed once since the seed.
     let delete_while_held = lifecycle_batch(
         Method::DeleteGraph {
             graph_name: "graph-a".to_string(),
         },
         "batch-delete-active-held",
         "delete-active-held",
-        1,
+        seeded_version + 1,
     );
-    let error = commit_resource_batch(&db, &delete_while_held)
+    let error = commit_resource_batch(&shard, &delete_while_held)
         .expect_err("active native hold blocks DeleteGraph atomically");
     assert_eq!(
         error,
         "resource graph clear requires native reservation rows to be drained"
     );
-    assert!(
-        read_mutation_batch(&db, &delete_while_held.batch_id, DurableCrypto::none())
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        read_mutation_outbox(&db, &delete_while_held.batch_id, DurableCrypto::none())
-            .unwrap()
-            .is_empty()
-    );
-    assert!(
-        read_one_node(&db, "graph-a", &request.work_item_id, DurableCrypto::none())
-            .unwrap()
-            .is_some()
-    );
+    assert!(ledger_receipt(&shard, &delete_while_held.batch_id).is_none());
+    assert!(ledger_outbox(&shard, &delete_while_held.batch_id).is_empty());
+    assert!(read_one_node(
+        &shard,
+        "graph-a",
+        &request.work_item_id,
+        DurableCrypto::none()
+    )
+    .unwrap()
+    .is_some());
     {
-        let wtx = db
-            .begin_write()
-            .expect("inspect held rows after failed delete");
-        let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
-        let held = resource_load_reservation(
-            &mut reservations,
-            "graph-a",
-            &request.reservation_id,
-            DurableCrypto::none(),
-        )
-        .unwrap()
-        .expect("active reservation survives failed DeleteGraph");
+        let held = read_reservation(&shard, &request.reservation_id)
+            .expect("active reservation survives failed DeleteGraph");
         assert_eq!(held.record.state, ResourceReservationRecordState::Reserved);
         assert!(held.held_cpu_weight > 0);
-        drop(reservations);
-        let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-        let held_host = resource_load_host(&mut hosts, "graph-a", "host-1", DurableCrypto::none())
-            .unwrap()
-            .expect("host accounting survives failed DeleteGraph");
+        let held_host =
+            read_host(&shard, "host-1").expect("host accounting survives failed DeleteGraph");
         assert_eq!(
             held_host.held_cpu_weight,
             host().held_cpu_weight + request.requirement.cpu_weight
         );
-        drop(hosts);
-        wtx.commit().expect("commit held-row inspection");
     }
 
     // Drain the hold through its explicit lifecycle operation, then the same
@@ -3488,62 +3673,53 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
         "batch-delete-active-release",
         "delete-active-release",
         // `delete_while_held` above FAILED (a business/route error returned
-        // before `wtx.commit()`), so its whole transaction rolled back and
-        // the counter never advanced past `reserve`'s commit: still 1.
-        1,
+        // before the group committed), so its whole transaction rolled back
+        // and the counter never advanced past `reserve`'s commit.
+        seeded_version + 1,
     );
-    let released = commit_resource_batch(&db, &release).expect("release active hold");
+    assert_eq!(
+        current_resource_graph_version(&shard),
+        seeded_version + 1,
+        "a refused commit must not advance the authoritative version"
+    );
+    let released = commit_resource_batch(&shard, &release).expect("release active hold");
     assert_eq!(
         batch_resource_result(&released).decision,
         ResourceReservationResultDecision::Accepted
     );
 
-    // `release` above committed successfully: 1 -> 2.
+    // `release` above committed successfully.
     let delete_after_release = lifecycle_batch(
         Method::DeleteGraph {
             graph_name: "graph-a".to_string(),
         },
         "batch-delete-after-release",
         "delete-after-release",
-        2,
+        seeded_version + 2,
     );
-    commit_resource_batch(&db, &delete_after_release)
+    commit_resource_batch(&shard, &delete_after_release)
         .expect("DeleteGraph succeeds after explicit hold drain");
-    assert!(
-        read_one_node(&db, "graph-a", &request.work_item_id, DurableCrypto::none())
-            .unwrap()
-            .is_none()
-    );
+    assert!(read_one_node(
+        &shard,
+        "graph-a",
+        &request.work_item_id,
+        DurableCrypto::none()
+    )
+    .unwrap()
+    .is_none());
     {
-        let wtx = db
-            .begin_write()
-            .expect("inspect rows after successful delete");
-        let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
-        assert!(resource_load_reservation(
-            &mut reservations,
-            "graph-a",
-            &request.reservation_id,
-            DurableCrypto::none(),
-        )
-        .unwrap()
-        .is_none());
-        drop(reservations);
-        let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-        assert!(
-            resource_load_host(&mut hosts, "graph-a", "host-1", DurableCrypto::none())
-                .unwrap()
-                .is_none()
-        );
-        drop(hosts);
-        wtx.commit().expect("commit deleted-row inspection");
+        assert!(read_reservation(&shard, &request.reservation_id).is_none());
+        assert!(read_host(&shard, "host-1").is_none());
     }
 
     // Recreate the same graph name.  The fresh lifecycle must not recover the
     // old WorkItem, reservation, or terminal tombstone from the deleted image.
-    // `delete_after_release` above committed successfully: 2 -> 3. Deleting
-    // the graph does not reset `MUTATION_GRAPH_VERSION["graph-a"]` -- the
-    // version row is not touched by graph deletion, only the graph/resource
-    // content rows are -- so the counter keeps counting through the delete.
+    // `delete_after_release` above committed successfully. Deleting the graph
+    // does not reset the scope's authoritative version -- the kernel's version
+    // row belongs to the SCOPE BINDING, not to the graph's content rows, and
+    // graph deletion clears only the content -- so the counter keeps counting
+    // through the delete, which the equality below asserts rather than assumes.
+    assert_eq!(current_resource_graph_version(&shard), seeded_version + 3);
     let recreate = lifecycle_batch(
         Method::CreateGraph {
             graph_name: "graph-a".to_string(),
@@ -3551,39 +3727,25 @@ fn delete_graph_with_active_native_hold_is_atomic_and_recreate_is_clean() {
         },
         "batch-recreate-after-delete",
         "recreate-after-delete",
-        3,
+        seeded_version + 3,
     );
-    commit_resource_batch(&db, &recreate).expect("recreate graph after drained delete");
-    assert!(
-        read_one_node(&db, "graph-a", &request.work_item_id, DurableCrypto::none())
-            .unwrap()
-            .is_none()
-    );
-    let meta = read_all_graph_meta(&db).unwrap();
-    assert!(meta.iter().any(|(graph, _, _, incarnation)| {
-        graph == "graph-a" && incarnation == &recreate.batch_id
-    }));
-    let wtx = db.begin_write().expect("inspect recreated resource domain");
-    let mut reservations = wtx.open_table(RESOURCE_RESERVATIONS).unwrap();
-    assert!(resource_load_reservation(
-        &mut reservations,
+    commit_resource_batch(&shard, &recreate).expect("recreate graph after drained delete");
+    assert!(read_one_node(
+        &shard,
         "graph-a",
-        &request.reservation_id,
-        DurableCrypto::none(),
+        &request.work_item_id,
+        DurableCrypto::none()
     )
     .unwrap()
     .is_none());
-    let mut hosts = wtx.open_table(RESOURCE_HOSTS).unwrap();
-    assert!(
-        resource_load_host(&mut hosts, "graph-a", "host-1", DurableCrypto::none())
-            .unwrap()
-            .is_none()
-    );
-    drop(hosts);
-    drop(reservations);
-    wtx.commit().expect("commit recreated-row inspection");
+    let meta = read_all_graph_meta(&shard).unwrap();
+    assert!(meta.iter().any(|(graph, _, _, incarnation)| {
+        graph == "graph-a" && incarnation == &recreate.batch_id
+    }));
+    assert!(read_reservation(&shard, &request.reservation_id).is_none());
+    assert!(read_host(&shard, "host-1").is_none());
 
-    drop(db);
+    drop(shard);
     let _ = std::fs::remove_file(path);
 }
 

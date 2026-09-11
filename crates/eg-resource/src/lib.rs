@@ -19,6 +19,12 @@
 //! single scheduler lane; they are still bounded by the quota's floor rather than
 //! rounded up to a second lane.
 
+mod cgroup;
+use cgroup::{
+    finite_cpu_limit, read_cgroup_file, read_cgroup_metadata, read_cpu_v1_pair,
+    resolve_cgroup_mount_paths,
+};
+
 const GIB: u64 = 1024 * 1024 * 1024;
 const MIB: u64 = 1024 * 1024;
 
@@ -88,56 +94,28 @@ pub struct Capacity {
 /// Parse a cgroup v2 `cpu.max` value (`<quota> <period>` or `max <period>`).
 pub fn parse_cgroup_v2_cpu_max(content: &str) -> CpuLimit {
     let mut fields = content.split_whitespace();
-    let Some(quota) = fields.next() else {
-        return CpuLimit::Malformed;
-    };
-    let Some(period) = fields.next() else {
-        return CpuLimit::Malformed;
-    };
-    if fields.next().is_some() {
-        return CpuLimit::Malformed;
-    }
-    if quota == "max" {
-        return match period.parse::<u64>() {
+    match (fields.next(), fields.next(), fields.next()) {
+        (Some("max"), Some(period), None) => match period.parse::<u64>() {
             Ok(period_us) if period_us > 0 => CpuLimit::Unlimited,
             _ => CpuLimit::Malformed,
-        };
-    }
-    let Ok(quota_us) = quota.parse::<u64>() else {
-        return CpuLimit::Malformed;
-    };
-    let Ok(period_us) = period.parse::<u64>() else {
-        return CpuLimit::Malformed;
-    };
-    if quota_us == 0 || period_us == 0 {
-        return CpuLimit::Malformed;
-    }
-    CpuLimit::Limited {
-        quota_us,
-        period_us,
+        },
+        (Some(quota), Some(period), None) => {
+            finite_cpu_limit(quota.parse().ok(), period.parse().ok())
+        }
+        _ => CpuLimit::Malformed,
     }
 }
 
 /// Parse cgroup v1's `cpu.cfs_quota_us` and `cpu.cfs_period_us` values.
 pub fn parse_cgroup_v1_cpu_quota(quota: &str, period: &str) -> CpuLimit {
-    let Ok(quota_us) = quota.trim().parse::<i64>() else {
-        return CpuLimit::Malformed;
-    };
-    let Ok(period_us) = period.trim().parse::<u64>() else {
-        return CpuLimit::Malformed;
-    };
-    if period_us == 0 {
-        return CpuLimit::Malformed;
-    }
-    if quota_us == -1 {
-        return CpuLimit::Unlimited;
-    }
-    if quota_us <= 0 {
-        return CpuLimit::Malformed;
-    }
-    CpuLimit::Limited {
-        quota_us: quota_us as u64,
-        period_us,
+    let period_us = period.trim().parse::<u64>().ok();
+    match quota.trim().parse::<i64>() {
+        Ok(-1) => match period_us {
+            Some(period_us) if period_us > 0 => CpuLimit::Unlimited,
+            _ => CpuLimit::Malformed,
+        },
+        Ok(quota_us) if quota_us > 0 => finite_cpu_limit(Some(quota_us as u64), period_us),
+        _ => CpuLimit::Malformed,
     }
 }
 
@@ -181,19 +159,10 @@ pub fn parse_mem_total(content: &str) -> Option<u64> {
 }
 
 fn read_cgroup_cpu_limit() -> CpuLimit {
-    let cgroup = match std::fs::read_to_string("/proc/self/cgroup") {
-        Ok(value) => value,
-        // An unreadable membership file is not evidence that the host capacity
-        // is safe to use.  Fail closed so a restricted container never widens
-        // an automatic CPU budget on a probe error.
-        Err(_) => return CpuLimit::Malformed,
-    };
-    if cgroup_metadata_is_malformed(&cgroup) {
+    let Some((cgroup, mountinfo)) = read_cgroup_metadata() else {
+        // Probe failures and malformed membership must never widen a constrained
+        // process back to host-wide capacity.
         return CpuLimit::Malformed;
-    }
-    let mountinfo = match std::fs::read_to_string("/proc/self/mountinfo") {
-        Ok(value) => value,
-        Err(_) => return CpuLimit::Malformed,
     };
     if let Some(paths) = resolve_cgroup_files(&cgroup, &mountinfo, "cpu", "cpu.max") {
         return read_cpu_v2_paths(&paths);
@@ -209,18 +178,8 @@ fn read_cgroup_cpu_limit() -> CpuLimit {
 }
 
 fn read_cgroup_memory_limit() -> MemoryLimit {
-    let cgroup = match std::fs::read_to_string("/proc/self/cgroup") {
-        Ok(value) => value,
-        // See the CPU probe above: probe failures must not restore an
-        // unbounded host-memory observation.
-        Err(_) => return MemoryLimit::Malformed,
-    };
-    if cgroup_metadata_is_malformed(&cgroup) {
+    let Some((cgroup, mountinfo)) = read_cgroup_metadata() else {
         return MemoryLimit::Malformed;
-    }
-    let mountinfo = match std::fs::read_to_string("/proc/self/mountinfo") {
-        Ok(value) => value,
-        Err(_) => return MemoryLimit::Malformed,
     };
     if let Some(paths) = resolve_cgroup_files(&cgroup, &mountinfo, "memory", "memory.max") {
         return read_memory_paths(&paths, parse_cgroup_v2_memory_max);
@@ -240,16 +199,15 @@ fn read_cgroup_memory_limit() -> MemoryLimit {
 fn read_cpu_v2_paths(paths: &[String]) -> CpuLimit {
     let mut limits = Vec::with_capacity(paths.len());
     for path in paths {
-        let value = match std::fs::read_to_string(path) {
-            Ok(value) => value,
+        match read_cgroup_file(path) {
+            Ok(Some(value)) => limits.push(parse_cgroup_v2_cpu_max(&value)),
             // The cgroup v2 root commonly omits controller files, and a
             // controller may be enabled only below an intermediate ancestor.
             // A missing file therefore means that this level contributes no
             // finite limit; other I/O failures are still fail-closed.
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(_) => return CpuLimit::Malformed,
-        };
-        limits.push(parse_cgroup_v2_cpu_max(&value));
+            Ok(None) => {}
+            Err(()) => return CpuLimit::Malformed,
+        }
     }
     aggregate_cpu_limits(&limits)
 }
@@ -260,29 +218,11 @@ fn read_cpu_v1_paths(quota_paths: &[String], period_paths: &[String]) -> CpuLimi
     }
     let mut limits = Vec::with_capacity(quota_paths.len());
     for (quota_path, period_path) in quota_paths.iter().zip(period_paths) {
-        let quota = match std::fs::read_to_string(quota_path) {
-            Ok(value) => value,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                // A missing pair is an unconfigured v1 level.  If only one
-                // member of the pair exists, the mismatch is malformed and
-                // must not widen the budget.
-                match std::fs::metadata(period_path) {
-                    Ok(_) => return CpuLimit::Malformed,
-                    Err(period_error) if period_error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(_) => return CpuLimit::Malformed,
-                }
-                continue;
-            }
-            Err(_) => return CpuLimit::Malformed,
-        };
-        let period = match std::fs::read_to_string(period_path) {
-            Ok(value) => value,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return CpuLimit::Malformed;
-            }
-            Err(_) => return CpuLimit::Malformed,
-        };
-        limits.push(parse_cgroup_v1_cpu_quota(&quota, &period));
+        match read_cpu_v1_pair(quota_path, period_path) {
+            Ok(Some(limit)) => limits.push(limit),
+            Ok(None) => {}
+            Err(()) => return CpuLimit::Malformed,
+        }
     }
     aggregate_cpu_limits(&limits)
 }
@@ -290,12 +230,11 @@ fn read_cpu_v1_paths(quota_paths: &[String], period_paths: &[String]) -> CpuLimi
 fn read_memory_paths(paths: &[String], parse: fn(&str) -> MemoryLimit) -> MemoryLimit {
     let mut limits = Vec::with_capacity(paths.len());
     for path in paths {
-        let value = match std::fs::read_to_string(path) {
-            Ok(value) => value,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(_) => return MemoryLimit::Malformed,
-        };
-        limits.push(parse(&value));
+        match read_cgroup_file(path) {
+            Ok(Some(value)) => limits.push(parse(&value)),
+            Ok(None) => {}
+            Err(()) => return MemoryLimit::Malformed,
+        }
     }
     aggregate_memory_limits(&limits)
 }
@@ -412,34 +351,13 @@ pub fn resolve_cgroup_files(
         return None;
     }
     let (hierarchy, member_path) = proc_cgroup_path(proc_cgroup, controller)?;
-    let want_v2 = hierarchy == "0";
-    for line in mountinfo.lines() {
-        let Some((before, after)) = line.split_once(" - ") else {
-            continue;
-        };
-        let before_fields: Vec<_> = before.split_whitespace().collect();
-        let after_fields: Vec<_> = after.split_whitespace().collect();
-        if before_fields.len() < 6 || after_fields.len() < 3 {
-            continue;
-        }
-        let filesystem = after_fields[0];
-        let options = before_fields[5]
-            .split(',')
-            .chain(after_fields[2].split(','));
-        let matches = if want_v2 {
-            filesystem == "cgroup2"
-        } else {
-            filesystem == "cgroup" && options.clone().any(|value| value == controller)
-        };
-        if matches {
-            if let Some(paths) =
-                join_cgroup_paths(before_fields[4], before_fields[3], member_path, filename)
-            {
-                return Some(paths);
-            }
-        }
-    }
-    None
+    resolve_cgroup_mount_paths(
+        mountinfo,
+        controller,
+        hierarchy == "0",
+        member_path,
+        filename,
+    )
 }
 
 fn proc_cgroup_path<'a>(content: &'a str, controller: &str) -> Option<(&'a str, &'a str)> {

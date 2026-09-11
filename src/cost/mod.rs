@@ -39,8 +39,6 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::graph::GraphCore;
-use crate::registry::GraphHandle;
 use crate::server::ServerState;
 
 /// Derive the tenant a graph belongs to (CONCEPT:EG-KG.compute.lane-v). The convention across the
@@ -179,51 +177,13 @@ impl CostConfig {
         let automatic_ceiling = system_memory_limit_bytes()
             .map(|total| (total / 10 * 4).max(1))
             .unwrap_or(512 * 1024 * 1024 / 10 * 4);
-        let global_ceiling_bytes = match std::env::var("EPISTEMIC_GRAPH_MEMORY_BUDGET") {
-            Ok(value) => {
-                let requested = parse_bytes(&value)
-                    .filter(|parsed| *parsed > 0)
-                    .ok_or_else(|| "EPISTEMIC_GRAPH_MEMORY_BUDGET must be positive".to_string())?;
-                let bounded = requested.min(automatic_ceiling);
-                if bounded != requested {
-                    tracing::warn!(
-                        requested,
-                        bounded,
-                        automatic = automatic_ceiling,
-                        "EPISTEMIC_GRAPH_MEMORY_BUDGET exceeds cgroup-aware automatic capacity; clamping"
-                    );
-                }
-                bounded
-            }
-            // A shared engine leaves most memory available to its host process,
-            // filesystem cache, and peer services. Operators of a dedicated node
-            // can explicitly raise this value.
-            Err(std::env::VarError::NotPresent) => automatic_ceiling,
-            Err(std::env::VarError::NotUnicode(_)) => {
-                return Err("EPISTEMIC_GRAPH_MEMORY_BUDGET is not valid Unicode".to_string())
-            }
-        };
-        let per_tenant_budget_bytes = match std::env::var("EPISTEMIC_GRAPH_TENANT_BUDGET") {
-            Ok(value) => {
-                let requested = parse_bytes(&value)
-                    .filter(|budget| *budget > 0)
-                    .ok_or_else(|| "EPISTEMIC_GRAPH_TENANT_BUDGET must be positive".to_string())?;
-                let bounded = requested.min(global_ceiling_bytes);
-                if bounded != requested {
-                    tracing::warn!(
-                        requested,
-                        bounded,
-                        automatic = global_ceiling_bytes,
-                        "EPISTEMIC_GRAPH_TENANT_BUDGET exceeds the global cgroup-aware capacity; clamping"
-                    );
-                }
-                bounded
-            }
-            Err(std::env::VarError::NotPresent) => global_ceiling_bytes,
-            Err(std::env::VarError::NotUnicode(_)) => {
-                return Err("EPISTEMIC_GRAPH_TENANT_BUDGET is not valid Unicode".to_string())
-            }
-        };
+        // A shared engine leaves most memory available to its host process,
+        // filesystem cache, and peer services. Operators of a dedicated node
+        // can explicitly raise these values, up to the cgroup-aware ceiling.
+        let global_ceiling_bytes =
+            bounded_bytes_env("EPISTEMIC_GRAPH_MEMORY_BUDGET", automatic_ceiling)?;
+        let per_tenant_budget_bytes =
+            bounded_bytes_env("EPISTEMIC_GRAPH_TENANT_BUDGET", global_ceiling_bytes)?;
         let interval_secs = match std::env::var("EPISTEMIC_GRAPH_BUDGET_INTERVAL") {
             Ok(value) => value
                 .trim()
@@ -244,6 +204,34 @@ impl CostConfig {
             interval_secs,
         })
     }
+}
+
+/// Read a byte-count budget from `name`, clamped to `ceiling`. Absent means the
+/// ceiling itself; a present-but-unparseable, zero or non-Unicode value is an
+/// error, never a silent default. Both configured budgets are this one rule —
+/// only their ceiling differs.
+fn bounded_bytes_env(name: &str, ceiling: u64) -> Result<u64, String> {
+    let value = match std::env::var(name) {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => return Ok(ceiling),
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(format!("{name} is not valid Unicode"))
+        }
+    };
+    let requested = parse_bytes(&value)
+        .filter(|parsed| *parsed > 0)
+        .ok_or_else(|| format!("{name} must be positive"))?;
+    let bounded = requested.min(ceiling);
+    if bounded != requested {
+        tracing::warn!(
+            budget = name,
+            requested,
+            bounded,
+            automatic = ceiling,
+            "configured memory budget exceeds the cgroup-aware capacity; clamping"
+        );
+    }
+    Ok(bounded)
 }
 
 /// Parse a byte count with an optional `k`/`m`/`g` (1024-based) suffix.
@@ -808,221 +796,10 @@ async fn collect_resource_stats_inner(
     })
 }
 
-// ── Budget enforcement ──────────────────────────────────────────────────────
-
-/// Enforce the per-tenant memory budgets ONCE (CONCEPT:EG-KG.compute.lane-v). For every tenant over
-/// its effective budget (the smaller of its configured budget and its fair share of the
-/// global ceiling), reclaim memory from its COLDEST graphs until it is back under budget:
-///
-/// 1. **Evict** the graph's LRU nodes (durability-gated, reusing the per-graph eviction
-///    path) down toward an empty resident set.
-/// 2. If the graph is still resident and the tenant is still over budget, **hibernate**
-///    the graph (drop all its in-RAM state; durable in redb, read-through serves reads).
-///
-/// "Coldest" = fewest nodes touched (the graph with the smallest node count is reclaimed
-/// first, preserving the hot working set). Returns `(nodes_evicted, graphs_hibernated)`.
-/// Pure-Rust; reuses the existing durability-gated evict + hibernate ops, so it never
-/// loses data. No-op when budgeting is disabled.
-pub async fn enforce_memory_budgets(
-    state: &Arc<RwLock<ServerState>>,
-    config: CostConfig,
-) -> (u64, u64) {
-    // Snapshot per-graph footprint + durable authority.
-    let (entries, backend) = {
-        let s = state.read().await;
-        let entries: Vec<GraphHandle> = s
-            .registry
-            .all_entries()
-            .iter()
-            .filter_map(|e| s.registry.handle(&e.name))
-            .collect();
-        (entries, s.persistence.clone())
-    };
-
-    // Roll up resident memory per tenant + count active tenants for the fair share.
-    let mut per_tenant: HashMap<String, Vec<(GraphHandle, u64)>> = HashMap::new();
-    let mut tenant_mem: HashMap<String, u64> = HashMap::new();
-    for handle in entries {
-        let mem = handle.core.memory_estimate();
-        let tenant = tenant_of(&handle.name).to_string();
-        *tenant_mem.entry(tenant.clone()).or_default() += mem;
-        per_tenant.entry(tenant).or_default().push((handle, mem));
-    }
-
-    // Fair per-tenant cap: the global ceiling split evenly across active tenants. A
-    // tenant's EFFECTIVE budget is the smaller of its configured budget and this share,
-    // so one hot tenant cannot consume the whole ceiling and starve others.
-    let active_tenants = per_tenant.len().max(1) as u64;
-    // `process_rss_bytes()` (real OS-observed RSS) used to scale this target: it is
-    // NOT commensurable with the tenants' modeled `memory_estimate()` sum. A
-    // process's RSS also carries the binary image, allocator arenas, thread
-    // stacks, and every other subsystem's heap — overhead entirely unrelated to
-    // graph data, and in any modest process (very much including a `cargo test`
-    // binary) far larger than a lightly-loaded tenant's modeled footprint.
-    // Scaling the modeled total by the raw `global_ceiling / rss` ratio crushed
-    // `pressure_target` toward zero whenever that fixed overhead dominated RSS —
-    // reclaiming a tenant already comfortably under budget by any measure of its
-    // OWN data (the `fair_cap_protects_small_tenant` regression this fixes: an
-    // 8KiB ceiling against a multi-hundred-MB test-process RSS zeroed the fair
-    // share and evicted a tenant holding a single tiny node). The fair share is
-    // therefore the plain, documented `ceiling / active_tenants` split — sound
-    // regardless of how much of real RSS the modeled graph data happens to be.
-    let fair_share = config.global_ceiling_bytes / active_tenants;
-    let effective_budget = config.per_tenant_budget_bytes.min(fair_share.max(1));
-
-    let mut total_evicted = 0u64;
-    let mut total_hibernated = 0u64;
-
-    for (tenant, mut graphs) in per_tenant {
-        let mut tenant_resident = *tenant_mem.get(&tenant).unwrap_or(&0);
-        if tenant_resident <= effective_budget {
-            continue;
-        }
-        // Reclaim coldest-first (fewest nodes ⇒ least active).
-        graphs.sort_by_key(|(handle, _)| handle.core.node_count());
-
-        for (handle, mem) in graphs {
-            let name = &handle.name;
-            if tenant_resident <= effective_budget {
-                break;
-            }
-            // The `__commons__` shared graph is never reclaimed for a budget — it is not
-            // a tenant's private working set and is needed by every agent.
-            if name.as_str() == "__commons__" {
-                continue;
-            }
-
-            // A budget sweep performs durable I/O outside the registry lock.
-            // Serialize it with lifecycle and graph writes, then reject a
-            // stale captured handle before touching either RAM or bookkeeping.
-            let _lifecycle_guard = crate::server::mutation_batch::lock_graph(name).await;
-            let current = {
-                let s = state.read().await;
-                s.registry.is_current_handle(&handle)
-            };
-            if !current {
-                continue;
-            }
-
-            // Step 1: durability-gated LRU eviction down to empty (max_nodes = 0 evicts
-            // every durable node; a node whose durability can't be confirmed stays).
-            let evicted = evict_graph_to(name, &handle.core, 0, &backend).await;
-            if evicted > 0 {
-                total_evicted += evicted as u64;
-                cost_state()
-                    .evicted_total
-                    .fetch_add(evicted as u64, std::sync::atomic::Ordering::Relaxed);
-                crate::metrics::budget_evicted(evicted as u64);
-            }
-
-            // Step 2: if still resident and the tenant is still over budget, hibernate
-            // only after confirming every remaining node in durable authority.
-            let still_resident = handle.core.node_count() > 0;
-            if still_resident && tenant_resident.saturating_sub(mem) < effective_budget {
-                let freed = hibernate_graph_if_durable(name, &handle.core, &backend);
-                if freed > 0 {
-                    // The lifecycle lane is held, but keep the registry fence
-                    // explicit before publishing hibernation state.
-                    let s = state.write().await;
-                    if s.registry.is_current_handle(&handle) {
-                        note_hibernated(name, &handle.incarnation_id, true);
-                        total_hibernated += 1;
-                        crate::metrics::budget_hibernated();
-                    }
-                }
-            }
-
-            // U-148 / BUG-130: Steps 1-2 above only ever drop this graph's RAM
-            // (`GraphCore::evict_resident_nodes`/`hibernate`) — they never touch the
-            // REGISTRY's residency bookkeeping. When they leave the durability-confirmed
-            // core fully empty, the registry still reports `is_resident(name) == true`
-            // with zero topology: the dispatch lazy-open path (`cold_offload::lazy_open`)
-            // short-circuits on that residency check and never rehydrates it, so every
-            // whole-graph read (Cypher, counts, traversal) observes a permanently empty
-            // snapshot while a point `get_node_properties` still finds data through the
-            // separate read-through seam. Mirror `admit_capacity`'s already-correct
-            // pattern: once fully durable-confirmed-empty, transition the registry entry
-            // to catalog-only so the NEXT access takes the existing bounded durable
-            // lazy-open instead of silently serving the stale empty resident image.
-            if handle.core.node_count() == 0 {
-                let mut s = state.write().await;
-                if s.registry.evict_resident_if_current(&handle) {
-                    // Eviction is a complete lifecycle transition for this
-                    // incarnation; its hibernation marker must not survive.
-                    forget_graph_incarnation(name, &handle.incarnation_id);
-                }
-            }
-
-            // Recompute this graph's residual footprint and update the tenant total.
-            let new_mem = handle.core.memory_estimate();
-            tenant_resident = tenant_resident.saturating_sub(mem).saturating_add(new_mem);
-
-            // A graph that came back resident (rehydrated by access between sweeps) is no
-            // longer hibernated.
-            if handle.core.node_count() > 0 && is_hibernated(name, &handle.incarnation_id) {
-                note_hibernated(name, &handle.incarnation_id, false);
-            }
-        }
-    }
-
-    (total_evicted, total_hibernated)
-}
-
-/// Evict one graph's LRU nodes down to `max_nodes` only after durable presence is
-/// confirmed (CONCEPT:EG-KG.storage.read-through-seam-exercised).
-async fn evict_graph_to(
-    fname_graph: &str,
-    core: &Arc<GraphCore>,
-    max_nodes: usize,
-    backend: &Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-) -> usize {
-    let backend = match backend {
-        Some(b) => b,
-        None => return 0, // nothing durable to confirm against ⇒ never drop
-    };
-    let candidates = core.lru_eviction_candidates(max_nodes);
-    if candidates.is_empty() {
-        return 0;
-    }
-    let fname = crate::persist::sanitize(fname_graph);
-    let presence = match backend.durable_node_presence(&fname, &candidates) {
-        Ok(value) if value.len() == candidates.len() => value,
-        Ok(_) | Err(_) => return 0,
-    };
-    let durable: Vec<String> = candidates
-        .into_iter()
-        .zip(presence)
-        .filter_map(|(node_id, present)| present.then_some(node_id))
-        .collect();
-    core.evict_resident_nodes(&durable)
-}
-
-fn hibernate_graph_if_durable(
-    graph_name: &str,
-    core: &GraphCore,
-    backend: &Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-) -> usize {
-    let Some(backend) = backend else {
-        return 0;
-    };
-    let node_ids: Vec<String> = core
-        .get_nodes()
-        .into_iter()
-        .map(|(node_id, _)| node_id)
-        .collect();
-    if node_ids.is_empty() {
-        return 0;
-    }
-    let fname = crate::persist::sanitize(graph_name);
-    match backend.durable_node_presence(&fname, &node_ids) {
-        Ok(presence)
-            if presence.len() == node_ids.len() && presence.iter().all(|present| *present) =>
-        {
-            core.hibernate()
-        }
-        Ok(_) | Err(_) => 0,
-    }
-}
+/// Per-tenant memory-budget enforcement — the only part of this model that
+/// mutates engine state.
+mod budget;
+pub use budget::enforce_memory_budgets;
 
 // ── Cost model / capacity planning (CONCEPT:EG-KG.compute.lane-v) ───────────────────────
 

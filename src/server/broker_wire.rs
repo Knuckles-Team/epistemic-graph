@@ -68,13 +68,11 @@ pub(crate) async fn test_state_with_broker_agents(
 
     #[cfg(feature = "redb")]
     let (persist_dir, persistence) = {
-        use crate::durability::DurabilityPolicy;
         use crate::server::persistence::redb_backend::RedbBackend;
 
         let dir = crate::server::unique_temp_dir(prefix);
         let dir_s = dir.to_string_lossy().into_owned();
-        let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
-            .expect("open broker-wire test backend");
+        let backend = RedbBackend::open(dir_s.clone(), 64).expect("open broker-wire test backend");
         let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> =
             Arc::new(backend);
         persistence

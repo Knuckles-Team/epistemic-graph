@@ -77,6 +77,7 @@ mod pgfamily;
 /// SQL:2023 SQL/PGQ property-graph definitions and bounded `GRAPH_TABLE`
 /// relational lowering. Execution stays on this module's sole DataFusion path.
 mod pgq;
+mod pgvector_ddl;
 /// PL/pgSQL procedural interpreter (CONCEPT:EG-KG.query.eg-validate-procedural-body/EG-341): parse + execute a
 /// `LANGUAGE plpgsql` body (DECLARE vars, BEGIN..END, `:=`, IF/ELSIF/ELSE, LOOP/WHILE/
 /// FOR, RETURN, RAISE, `SELECT … INTO`) against a variable environment, running embedded
@@ -121,16 +122,17 @@ pub use exec::{
 };
 pub use pgq::{
     lower_graph_table, lower_graph_table_to_datafusion, parse_graph_table, parse_graph_table_sql,
-    parse_property_graph_ddl, BinaryOp as GraphBinaryOp, EdgeDirection, EdgePattern,
-    ElementPattern, GraphExpr, GraphLiteral, GraphTableColumn, GraphTableQuery, LabelExpr,
-    PathPattern, RelationalGraphPlan, SqlNumber, MAX_PGQ_SQL_BYTES,
+    parse_property_graph_ddl, parse_property_graph_privilege, BinaryOp as GraphBinaryOp,
+    EdgeDirection, EdgePattern, ElementPattern, GraphExpr, GraphLiteral, GraphTableColumn,
+    GraphTableQuery, LabelExpr, PathPattern, RelationalGraphPlan, SqlNumber, MAX_PGQ_SQL_BYTES,
 };
 pub use spill::{default_spill_rows, CancellationToken, StreamOutcome};
 // Postgres-family extension parity plans + planners.
 pub use pgfamily::{
-    parse_create_ann_index, plan_ann_search, plan_bm25_search, AnnIndexPlan, AnnMethod,
-    AnnSearchPlan, Bm25SearchPlan, ContinuousAggPlan, HypertablePlan, VectorMetric,
+    plan_ann_search, plan_bm25_search, AnnIndexPlan, AnnMethod, AnnSearchPlan, Bm25SearchPlan,
+    ContinuousAggPlan, HypertablePlan, VectorMetric,
 };
+pub use pgvector_ddl::parse_create_ann_index;
 pub use providers::SqlCache;
 // CA-19 (GOC-77 W01-W05, BUG-224) — federated Iceberg read pushdown stats, exposed so a
 // test can assert real manifest-level file skipping (P1's proof shape) rather than

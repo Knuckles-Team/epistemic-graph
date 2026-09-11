@@ -16,92 +16,164 @@ pub struct WavInfo {
     pub duration_ms: u64,
 }
 
+const RIFF_HEADER_LEN: usize = 12;
+const CHUNK_HEADER_LEN: usize = 8;
+const PCM_FORMAT_LEN: usize = 16;
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WavPcm<'a> {
+    pub(crate) info: WavInfo,
+    pub(crate) payload: &'a [u8],
+}
+
+#[derive(Clone, Copy)]
+struct PcmFormat {
+    channels: u16,
+    sample_rate: u32,
+    byte_rate: u32,
+    block_align: u16,
+    bits_per_sample: u16,
+}
+
+#[derive(Clone, Copy)]
+struct RiffChunk<'a> {
+    id: &'a [u8],
+    body: &'a [u8],
+    next: usize,
+}
+
+#[derive(Default)]
+struct ParsedChunks<'a> {
+    format: Option<PcmFormat>,
+    payload: Option<&'a [u8]>,
+}
+
 /// Parse a WAV/RIFF header: walks the RIFF chunk list for `fmt ` (channels/sample
 /// rate/bit depth) and `data` (byte length), then computes `duration_ms` from the byte
 /// rate implied by `fmt `. Returns `None` if the bytes aren't a `RIFF....WAVE`
 /// container, `fmt ` is missing/malformed, or no `data` chunk was found.
 pub fn read_wav_header(bytes: &[u8]) -> Option<WavInfo> {
-    if bytes.len() < 12
-        || &bytes[0..4] != b"RIFF"
-        || &bytes[8..12] != b"WAVE"
-        || usize::try_from(u32::from_le_bytes(bytes[4..8].try_into().ok()?))
-            .ok()?
-            .checked_add(8)?
-            != bytes.len()
-    {
+    parse_wav(bytes).map(|wav| wav.info)
+}
+
+pub(crate) fn parse_wav(bytes: &[u8]) -> Option<WavPcm<'_>> {
+    let riff_end = riff_end(bytes)?;
+    let chunks = parse_chunks(bytes, riff_end)?;
+    let format = chunks.format?;
+    let payload = chunks.payload?;
+    Some(WavPcm {
+        info: format.info(payload.len())?,
+        payload,
+    })
+}
+
+fn riff_end(bytes: &[u8]) -> Option<usize> {
+    if bytes.get(..4)? != b"RIFF" || bytes.get(8..12)? != b"WAVE" {
         return None;
     }
-    let mut pos = 12usize;
-    let mut sample_rate = 0u32;
-    let mut channels = 0u16;
-    let mut bits_per_sample = 0u16;
-    let mut block_align = 0u16;
-    let mut byte_rate = 0u32;
-    let mut saw_format = false;
-    let mut data_len: Option<u64> = None;
+    usize::try_from(read_u32(bytes, 4)?)
+        .ok()?
+        .checked_add(8)
+        .filter(|end| *end == bytes.len())
+}
 
-    while pos + 8 <= bytes.len() {
-        let chunk_id = &bytes[pos..pos + 4];
-        let chunk_size = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().ok()?) as usize;
-        let body_start = pos + 8;
-        let body_end = match body_start.checked_add(chunk_size) {
-            Some(e) if e <= bytes.len() => e,
-            _ => return None,
-        };
-        match chunk_id {
-            b"fmt " => {
-                if saw_format || chunk_size < 16 {
-                    return None;
-                }
-                let body = &bytes[body_start..body_end];
-                if u16::from_le_bytes(body[0..2].try_into().ok()?) != 1 {
-                    return None;
-                }
-                channels = u16::from_le_bytes(body[2..4].try_into().ok()?);
-                sample_rate = u32::from_le_bytes(body[4..8].try_into().ok()?);
-                byte_rate = u32::from_le_bytes(body[8..12].try_into().ok()?);
-                block_align = u16::from_le_bytes(body[12..14].try_into().ok()?);
-                bits_per_sample = u16::from_le_bytes(body[14..16].try_into().ok()?);
-                saw_format = true;
+fn parse_chunks<'a>(bytes: &'a [u8], limit: usize) -> Option<ParsedChunks<'a>> {
+    let mut chunks = ParsedChunks::default();
+    let mut offset = RIFF_HEADER_LEN;
+    while offset < limit {
+        let chunk = next_chunk(bytes, offset, limit)?;
+        chunks.accept(chunk)?;
+        offset = chunk.next;
+    }
+    Some(chunks)
+}
+
+fn next_chunk<'a>(bytes: &'a [u8], offset: usize, limit: usize) -> Option<RiffChunk<'a>> {
+    let header_end = offset.checked_add(CHUNK_HEADER_LEN)?;
+    if header_end > limit {
+        return None;
+    }
+    let chunk_len = usize::try_from(read_u32(bytes, offset.checked_add(4)?)?).ok()?;
+    let body_end = header_end.checked_add(chunk_len)?;
+    let next = body_end.checked_add(chunk_len % 2)?;
+    if next > limit {
+        return None;
+    }
+    Some(RiffChunk {
+        id: bytes.get(offset..offset.checked_add(4)?)?,
+        body: bytes.get(header_end..body_end)?,
+        next,
+    })
+}
+
+impl<'a> ParsedChunks<'a> {
+    fn accept(&mut self, chunk: RiffChunk<'a>) -> Option<()> {
+        if chunk.id == b"fmt " {
+            if self.format.is_some() {
+                return None;
             }
-            b"data" => {
-                if data_len.is_some() {
-                    return None;
-                }
-                data_len = Some(chunk_size as u64);
+            self.format = Some(PcmFormat::parse(chunk.body)?);
+        } else if chunk.id == b"data" {
+            if self.payload.is_some() {
+                return None;
             }
-            _ => {}
+            self.payload = Some(chunk.body);
         }
-        // RIFF chunks are word-aligned: an odd chunk_size has one pad byte after it.
-        pos = body_end.checked_add(chunk_size % 2)?;
-        if pos > bytes.len() {
+        Some(())
+    }
+}
+
+impl PcmFormat {
+    fn parse(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < PCM_FORMAT_LEN || read_u16(bytes, 0)? != 1 {
             return None;
         }
+        Some(Self {
+            channels: read_u16(bytes, 2)?,
+            sample_rate: read_u32(bytes, 4)?,
+            byte_rate: read_u32(bytes, 8)?,
+            block_align: read_u16(bytes, 12)?,
+            bits_per_sample: read_u16(bytes, 14)?,
+        })
     }
 
-    if pos != bytes.len() {
-        return None;
+    fn info(self, data_len: usize) -> Option<WavInfo> {
+        if self.sample_rate == 0
+            || self.channels == 0
+            || self.block_align == 0
+            || !matches!(self.bits_per_sample, 8 | 16)
+        {
+            return None;
+        }
+        let expected_align =
+            u32::from(self.channels).checked_mul(u32::from(self.bits_per_sample / 8))?;
+        let expected_rate = self.sample_rate.checked_mul(expected_align)?;
+        let data_len = u64::try_from(data_len).ok()?;
+        if u32::from(self.block_align) != expected_align
+            || self.byte_rate != expected_rate
+            || data_len % u64::from(self.block_align) != 0
+        {
+            return None;
+        }
+        Some(WavInfo {
+            sample_rate: self.sample_rate,
+            channels: self.channels,
+            bits_per_sample: self.bits_per_sample,
+            duration_ms: data_len.checked_mul(1_000)? / u64::from(self.byte_rate),
+        })
     }
+}
 
-    let data_len = data_len?;
-    if sample_rate == 0 || channels == 0 || !matches!(bits_per_sample, 8 | 16) || block_align == 0 {
-        return None;
-    }
-    let expected_align = u32::from(channels).checked_mul(u32::from(bits_per_sample / 8))?;
-    let expected_rate = sample_rate.checked_mul(expected_align)?;
-    if u32::from(block_align) != expected_align
-        || byte_rate != expected_rate
-        || data_len % u64::from(block_align) != 0
-    {
-        return None;
-    }
-    let duration_ms = data_len.checked_mul(1_000)? / u64::from(byte_rate);
-    Some(WavInfo {
-        sample_rate,
-        channels,
-        bits_per_sample,
-        duration_ms,
-    })
+fn read_u16(bytes: &[u8], offset: usize) -> Option<u16> {
+    Some(u16::from_le_bytes(
+        bytes.get(offset..offset.checked_add(2)?)?.try_into().ok()?,
+    ))
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_le_bytes(
+        bytes.get(offset..offset.checked_add(4)?)?.try_into().ok()?,
+    ))
 }
 
 /// SHA-256 content address rendered as 64 lowercase hexadecimal characters.

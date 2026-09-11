@@ -350,7 +350,6 @@ class ExactEngine:
                     },
                     separators=(",", ":"),
                 ),
-                "EPISTEMIC_GRAPH_REDB_COMMIT_POLICY": "each",
                 "EPISTEMIC_GRAPH_REDB_SHARDS": str(redb_shards),
                 "EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE": str(lazy_page_size),
                 "EPISTEMIC_GRAPH_BACKUP_ROOT": str(self.backup_dir),

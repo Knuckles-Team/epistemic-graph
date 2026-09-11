@@ -24,9 +24,7 @@ pub(super) async fn dispatch_channel_methods(
             initial_members,
         } => {
             dispatch_boxed(async {
-    let state = state;
     let req_id = req.id;
-    let verified_context = verified_context;
     {
             let carrier = match CarrierAuthority::from_verified(verified_context) {
                 Ok(authority) => authority,
@@ -59,9 +57,7 @@ pub(super) async fn dispatch_channel_methods(
             agent_id,
         } => {
             dispatch_boxed(async {
-    let state = state;
     let req_id = req.id;
-    let verified_context = verified_context;
     {
             let carrier = match CarrierAuthority::from_verified(verified_context) {
                 Ok(authority) => authority,
@@ -91,9 +87,7 @@ pub(super) async fn dispatch_channel_methods(
             agent_id,
         } => {
             dispatch_boxed(async {
-    let state = state;
     let req_id = req.id;
-    let verified_context = verified_context;
     {
             let carrier = match CarrierAuthority::from_verified(verified_context) {
                 Ok(authority) => authority,
@@ -132,9 +126,7 @@ pub(super) async fn dispatch_channel_methods(
             topic_metadata,
         } => {
             dispatch_boxed(async {
-    let state = state;
     let req_id = req.id;
-    let verified_context = verified_context;
     {
             let carrier = match CarrierAuthority::from_verified(verified_context) {
                 Ok(authority) => authority,
@@ -174,9 +166,7 @@ pub(super) async fn dispatch_channel_methods(
             payload,
         } => {
             dispatch_boxed(async {
-    let state = state;
     let req_id = req.id;
-    let verified_context = verified_context;
     {
             let carrier = match CarrierAuthority::from_verified(verified_context) {
                 Ok(authority) => authority,
@@ -206,9 +196,7 @@ pub(super) async fn dispatch_channel_methods(
 
         Method::GetChannelMessages { channel_id, limit } => {
             dispatch_boxed(async {
-    let state = state;
     let req_id = req.id;
-    let verified_context = verified_context;
     {
             let carrier = match CarrierAuthority::from_verified(verified_context) {
                 Ok(authority) => authority,
@@ -237,9 +225,7 @@ pub(super) async fn dispatch_channel_methods(
 
         Method::ListChannels => {
             dispatch_boxed(async {
-    let state = state;
     let req_id = req.id;
-    let verified_context = verified_context;
     {
             let carrier = match CarrierAuthority::from_verified(verified_context) {
                 Ok(authority) => authority,
@@ -260,9 +246,7 @@ pub(super) async fn dispatch_channel_methods(
 
         Method::GetChannelMembers { channel_id } => {
             dispatch_boxed(async {
-    let state = state;
     let req_id = req.id;
-    let verified_context = verified_context;
     {
             let carrier = match CarrierAuthority::from_verified(verified_context) {
                 Ok(authority) => authority,

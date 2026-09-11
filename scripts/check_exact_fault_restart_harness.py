@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from rust_lexer import _balanced_span_from, _rust_code_mask  # noqa: E402
 from rust_module_tree import read_module_tree  # noqa: E402
 
 PHASES = {
@@ -103,6 +104,20 @@ def _require(source: str, tokens: set[str], label: str, errors: list[str]) -> No
     for token in sorted(tokens):
         if token not in source:
             errors.append(f"{label}: missing {token!r}")
+
+
+def _rust_function(source: str, name: str) -> str:
+    """Return one Rust function body with comments and literals out of scope."""
+
+    mask = _rust_code_mask(source)
+    match = re.search(rf"\bfn\s+{re.escape(name)}\s*\(", mask)
+    if match is None:
+        return ""
+    opening = mask.find("{", match.end())
+    if opening < 0:
+        return ""
+    closing = _balanced_span_from(mask, opening, "{", "}")
+    return source[match.start() : closing + 1]
 
 
 def _literal_string_set(tree: ast.AST, name: str) -> set[str]:
@@ -218,8 +233,9 @@ def _check_harness_contract(harness: str) -> list[str]:
 def _check_fault_seam_contract() -> list[str]:
     errors: list[str] = []
     types = _read_rust_module("crates/eg-types/src/mutation_batch.rs")
+    types_code = _rust_code_mask(types)
     _require(
-        types,
+        types_code,
         {
             "pub enum MutationCommitPhase",
             "BeforeRows",
@@ -228,15 +244,54 @@ def _check_fault_seam_contract() -> list[str]:
             "AfterCommitBeforeAck",
             "struct CertificationFaultSpec",
             "#[serde(deny_unknown_fields)]",
-            'const ENV: &str = "EPISTEMIC_GRAPH_CERTIFICATION_FAULT"',
-            "std::env::var_os(ENV)",
-            "std::process::abort()",
-            "spec.request_id != batch.context.request_id",
-            "operation.domain == spec.domain",
         },
         "fault seam",
         errors,
     )
+
+    apply_fault = _rust_function(types, "apply_certification_fault")
+    request_match = _rust_function(types, "batch_matches_request")
+    if not apply_fault:
+        errors.append(
+            "fault seam apply path: missing function 'apply_certification_fault'"
+        )
+    else:
+        apply_fault_code = _rust_code_mask(apply_fault)
+        _require(
+            apply_fault_code,
+            {
+                "const ENV: &str =",
+                "std::env::var_os(ENV)",
+                "std::process::abort()",
+                "batch_matches_request(batch, spec.request_id)",
+                "operation.domain == spec.domain",
+            },
+            "fault seam apply path",
+            errors,
+        )
+        _require(
+            apply_fault,
+            {'const ENV: &str = "EPISTEMIC_GRAPH_CERTIFICATION_FAULT"'},
+            "fault seam apply path",
+            errors,
+        )
+    if not request_match:
+        errors.append(
+            "fault seam request identity helper: missing function "
+            "'batch_matches_request'"
+        )
+    else:
+        request_match_code = _rust_code_mask(request_match)
+        _require(
+            request_match_code,
+            {
+                "batch.envelope.operation()",
+                "envelope.authority.request_id.as_str()",
+                "crate::mutation_batch::request_opaque_id(request_id)",
+            },
+            "fault seam request identity helper",
+            errors,
+        )
     return errors
 
 

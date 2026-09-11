@@ -159,17 +159,18 @@ fn cold_batch(
     let batch = eg_types::MutationBatch {
         schema_version: eg_types::MUTATION_BATCH_VERSION,
         batch_id: batch_id.clone(),
-        context: eg_types::MutationRequestContext {
-            request_id: 0,
-            principal: principal.to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
+        // See this function's own doc comment: a demoted KV page carries no
+        // caller identity, so the envelope is the maintenance one and carries
+        // no operation replay identity to consume a nonce with.
+        envelope: eg_types::mutation_batch::MutationEnvelope::maintenance_for_scope(
+            identity,
+            principal,
+            &format!("kvcache_cold_{kind}"),
+            &batch_id,
+        )
+        .map_err(io::Error::other)?,
         identity: identity.clone(),
         placement_epoch: 0,
-        idempotency_key: batch_id.clone(),
         version_expectation: eg_types::VersionExpectation::Native(expected_version),
         fencing_token: None,
         authoritative_state: None,
@@ -245,21 +246,20 @@ impl RedbColdStore {
     where
         F: FnOnce(&eg_transaction::AdmittedOwnerWrite<'_, eg_storage::KvOwner>) -> io::Result<()>,
     {
-        let read = self
-            .kernel
-            .read_scope(&self.owner)
-            .map_err(io::Error::other)?;
-        let expected_version = eg_transaction::version(&read).map_err(io::Error::other)?;
-        drop(read);
-        let batch = cold_batch(
-            kind,
-            self.owner.identity(),
-            self.owner.principal(),
-            expected_version,
-        )?;
-        let (write, begun) = self
+        // Keep the version lookup and maintenance-envelope mint inside one
+        // admitted write.  A snapshot read here would let concurrent demotions
+        // collide on one maintenance claim and replay one another.
+        let (write, batch, begun) = self
             .mutations
-            .admit_maintenance(&self.owner, &batch)
+            .admit_current(&self.owner, |version| {
+                cold_batch(
+                    kind,
+                    self.owner.identity(),
+                    self.owner.principal(),
+                    version,
+                )
+                .map_err(|error| error.to_string())
+            })
             .map_err(io::Error::other)?;
         let source_version = match begun {
             eg_transaction::Begin::Replay(_) => {
@@ -328,20 +328,20 @@ impl<K: ColdKey> ColdStore<K> for RedbColdStore {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// Test-only composition root. Production supplies the real scope-grant proof
     /// authority; this one still checks the layout, the principal and the proof,
     /// so a store opened for the wrong layout fails closed in tests too.
     #[cfg(feature = "durable")]
-    struct TestScopeVerifier;
+    pub(super) struct TestScopeVerifier;
 
     #[cfg(feature = "durable")]
-    const TEST_PRINCIPAL: &str =
+    pub(super) const TEST_PRINCIPAL: &str =
         "principal:sha256:1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90a";
     #[cfg(feature = "durable")]
-    const TEST_PROOF: &[u8] = b"eg-kvcache-test-scope-grant";
+    pub(super) const TEST_PROOF: &[u8] = b"eg-kvcache-test-scope-grant";
 
     #[cfg(feature = "durable")]
     impl eg_storage::ScopeGrantVerifier for TestScopeVerifier {
@@ -365,7 +365,7 @@ mod tests {
 
     /// Open the durable cold store the way the composition root would.
     #[cfg(feature = "durable")]
-    fn open_test_cold_store(path: &std::path::Path) -> io::Result<RedbColdStore> {
+    pub(super) fn open_test_cold_store(path: &std::path::Path) -> io::Result<RedbColdStore> {
         RedbColdStore::open(path, &TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF)
     }
 
@@ -404,3 +404,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, feature = "durable"))]
+#[path = "cold_cutover_tests.rs"]
+mod cutover_tests;

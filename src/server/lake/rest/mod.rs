@@ -47,17 +47,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
 
 use crate::server::access::CarrierAuthority;
 use crate::server::blob::store::ChunkStore;
+use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::oidc::{JwtValidator, VerifiedTokenClaims};
 use crate::server::ServerState;
 use eg_lake::schema::{LakeField, LakeSchema, LakeType};
 
-use super::{namespace_levels, CreateTableError, LakeManager, LakeVisibility, RenameTableError};
+use super::{LakeManager, LakeVisibility};
 
 /// Env var carrying the Iceberg-REST listener bind address (`host:port`). Unset ⇒ no
 /// listener (matches `--metrics-addr`/`--sparql-addr`/`--obs-addr`'s opt-in idiom).
@@ -66,8 +67,11 @@ pub const ICEBERG_ADDR_ENV: &str = "EPISTEMIC_GRAPH_ICEBERG_ADDR";
 /// GOC-75-W05). Positive integer ⇒ enabled; unset/invalid/non-positive ⇒ disabled —
 /// the same "0/unset = off" convention every interval knob in this codebase uses.
 pub const ICEBERG_RATE_LIMIT_ENV: &str = "EPISTEMIC_GRAPH_ICEBERG_RATE_LIMIT_PER_MIN";
-const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
-const MAX_HTTP_BODY_BYTES: usize = 1024 * 1024;
+/// The Iceberg REST surface carries JSON control payloads, never data files.
+const HTTP_LIMITS: RequestLimits = RequestLimits {
+    max_head_bytes: 64 * 1024,
+    max_body_bytes: 1024 * 1024,
+};
 const HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Serve the Iceberg-REST catalog surface on `listener`, backed by `lake` (the tables +
@@ -326,44 +330,48 @@ async fn serve_inner(
         let credential = credential.clone();
         let rate_limiter = rate_limiter.clone();
         tokio::spawn(async move {
-            let (status, body) =
-                match tokio::time::timeout(HTTP_READ_TIMEOUT, read_request(&mut stream)).await {
-                    Ok(Some(req)) => {
-                        if let Some(limiter) = rate_limiter.as_ref() {
-                            if !limiter.try_admit(&peer.ip().to_string()) {
-                                lake.record_audit(json!({
-                                    "ts_ms": crate::server::lake::lineage::now_ms(),
-                                    "op": "RateLimited",
-                                    "method": req.method,
-                                    "path": req.target,
-                                    "source_ip": peer.ip().to_string(),
-                                    "outcome": "deny",
-                                }));
-                                return respond(
-                                    &mut stream,
-                                    "429 Too Many Requests",
-                                    err_body(
-                                        "Iceberg-REST request rate exceeded",
-                                        "RateLimitedException",
-                                        429,
-                                    ),
-                                )
-                                .await;
-                            }
+            let (status, body) = match tokio::time::timeout(
+                HTTP_READ_TIMEOUT,
+                http1::read_request(&mut stream, HTTP_LIMITS),
+            )
+            .await
+            {
+                Ok(Some(req)) => {
+                    if let Some(limiter) = rate_limiter.as_ref() {
+                        if !limiter.try_admit(&peer.ip().to_string()) {
+                            lake.record_audit(json!({
+                                "ts_ms": crate::server::lake::lineage::now_ms(),
+                                "op": "RateLimited",
+                                "method": req.method,
+                                "path": req.target,
+                                "source_ip": peer.ip().to_string(),
+                                "outcome": "deny",
+                            }));
+                            return respond(
+                                &mut stream,
+                                "429 Too Many Requests",
+                                err_body(
+                                    "Iceberg-REST request rate exceeded",
+                                    "RateLimitedException",
+                                    429,
+                                ),
+                            )
+                            .await;
                         }
-                        route(
-                            &lake,
-                            store.as_ref(),
-                            &req,
-                            security_state.as_ref(),
-                            credential.as_deref(),
-                        )
                     }
-                    _ => (
-                        "400 Bad Request",
-                        err_body("malformed HTTP request", "BadRequestException", 400),
-                    ),
-                };
+                    route(
+                        &lake,
+                        store.as_ref(),
+                        &req,
+                        security_state.as_ref(),
+                        credential.as_deref(),
+                    )
+                }
+                _ => (
+                    "400 Bad Request",
+                    err_body("malformed HTTP request", "BadRequestException", 400),
+                ),
+            };
             respond(&mut stream, status, body).await;
         });
     }
@@ -391,7 +399,7 @@ async fn respond(stream: &mut TcpStream, status: &str, body: String) {
 fn route(
     lake: &LakeManager,
     store: &dyn ChunkStore,
-    req: &HttpRequest,
+    req: &HttpMessage,
     security_state: Option<&Arc<RwLock<ServerState>>>,
     credential: Option<&IcebergCredential>,
 ) -> (&'static str, String) {
@@ -432,102 +440,6 @@ fn route(
     }
 }
 
-/// A parsed HTTP/1.1 request: method, raw target (`/v1/…?…`), headers
-/// (lowercased keys — BUG-222 adds this so the OAuth2 bearer guard can read
-/// `authorization`), body.
-struct HttpRequest {
-    method: String,
-    target: String,
-    origin: String,
-    headers: HashMap<String, String>,
-    body: String,
-}
-
-/// Read one HTTP/1.1 request: headers up to the blank line, then the `Content-Length`
-/// body. Mirrors `crate::server::sparql_http`'s reader (the SAME dependency-free idiom).
-async fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 4096];
-    let header_end = loop {
-        if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
-            break pos;
-        }
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > MAX_HTTP_HEADER_BYTES {
-            return None;
-        }
-    };
-    let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
-    let mut lines = head.split("\r\n");
-    let request_line = lines.next()?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next()?.to_string();
-    let target = parts.next()?.to_string();
-    let version = parts.next()?;
-    if !version.starts_with("HTTP/1.") || parts.next().is_some() {
-        return None;
-    }
-
-    let mut content_length: Option<usize> = None;
-    let mut origin = String::new();
-    let mut origin_seen = false;
-    let mut headers: HashMap<String, String> = HashMap::new();
-    for line in lines {
-        let (k, v) = line.split_once(':')?;
-        let key = k.trim().to_ascii_lowercase();
-        let value = v.trim().to_string();
-        if key.is_empty() {
-            return None;
-        }
-        if key == "content-length" {
-            if content_length.is_some() {
-                return None;
-            }
-            content_length = Some(value.parse().ok()?);
-        } else if key == "transfer-encoding" {
-            return None;
-        } else if key == "origin" {
-            if origin_seen {
-                return None;
-            }
-            origin_seen = true;
-            origin = value.clone();
-        }
-        // BUG-222: capture every header (lowercased) so the OAuth2 bearer
-        // guard can read `authorization` — mirrors `kvcache_http`'s reader.
-        headers.insert(key, value);
-    }
-    let content_length = content_length.unwrap_or(0);
-    if content_length > MAX_HTTP_BODY_BYTES {
-        return None;
-    }
-    let mut body = buf[header_end + 4..].to_vec();
-    if body.len() > content_length || body.len() > MAX_HTTP_BODY_BYTES {
-        return None;
-    }
-    while body.len() < content_length {
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            break;
-        }
-        body.extend_from_slice(&tmp[..n]);
-    }
-    if body.len() != content_length {
-        return None;
-    }
-    Some(HttpRequest {
-        method,
-        target,
-        origin,
-        headers,
-        body: String::from_utf8_lossy(&body).to_string(),
-    })
-}
-
 fn err_body(message: &str, kind: &str, code: u16) -> String {
     json!({ "error": { "message": message, "type": kind, "code": code } }).to_string()
 }
@@ -553,10 +465,6 @@ fn not_found(kind: &str) -> String {
 /// `error` field is a bare token string, not a nested object.
 fn oauth_error_body(error: &str, description: &str) -> String {
     json!({ "error": error, "error_description": description }).to_string()
-}
-
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 fn hex_val(b: u8) -> Option<u8> {
@@ -659,7 +567,7 @@ fn parse_as_of_lsn(target: &str) -> Result<Option<u64>, ()> {
 
 /// Join a `TableIdentifier.namespace` JSON array (`["a","b"]`) back into this
 /// tier's internal `\x1f`-joined flat namespace string — the inverse of
-/// [`namespace_levels`]. `None` if the field is missing or not an array of strings.
+/// [`super::namespace_levels`]. `None` if the field is missing or not an array of strings.
 fn table_ident_namespace(v: &Value) -> Option<String> {
     let levels = v.get("namespace")?.as_array()?;
     let parts: Option<Vec<&str>> = levels.iter().map(|l| l.as_str()).collect();
@@ -726,7 +634,7 @@ fn schema_from_create_request(body: &Value) -> Result<LakeSchema, String> {
 /// convention — as the form's `client_secret`/`subject_token`/`assertion` field.
 fn handle_oauth_token(
     credential: Option<&IcebergCredential>,
-    req: &HttpRequest,
+    req: &HttpMessage,
 ) -> (&'static str, String) {
     let Some(credential) = credential else {
         return (
@@ -737,7 +645,7 @@ fn handle_oauth_token(
             ),
         );
     };
-    let form = parse_form(&req.body);
+    let form = parse_form(&req.text());
     let grant_type = form.get("grant_type").cloned().unwrap_or_default();
     if grant_type.trim().is_empty() {
         return (
@@ -789,282 +697,8 @@ fn handle_oauth_token(
 /// specific operation needs (NE-048, P0) — [`operation_scope`] maps each route to
 /// its minimum `kg:read`/`kg:write` requirement and [`scope_authorized`] gates on
 /// it before any of the routing below runs.
-fn handle(
-    lake: &LakeManager,
-    store: &dyn ChunkStore,
-    req: &HttpRequest,
-    carrier: Option<&CarrierAuthority>,
-) -> (&'static str, String) {
-    if !req.origin.is_empty() {
-        return (
-            "403 Forbidden",
-            err_body("browser origin denied", "ForbiddenException", 403),
-        );
-    }
-    let path = req.target.split('?').next().unwrap_or(&req.target);
-    let segs: Vec<String> = path
-        .trim_matches('/')
-        .split('/')
-        .filter(|s| !s.is_empty())
-        .map(percent_decode)
-        .collect();
-    let seg_refs: Vec<&str> = segs.iter().map(String::as_str).collect();
-
-    // NE-048 (P0): a verified, correctly-tenanted carrier is still only
-    // entitled to what its OWN scope claim actually grants — reject a
-    // kg:read-only carrier attempting a mutating operation (and, for
-    // completeness of the same mapping, a kg:write-only carrier attempting a
-    // read) before touching `lake` at all. Checked ahead of body parsing and
-    // existence lookups deliberately: an unauthorized caller learns nothing
-    // about whether the target namespace/table even exists.
-    if !scope_authorized(carrier, operation_scope(req.method.as_str(), &seg_refs)) {
-        lake.record_audit(json!({
-            "ts_ms": crate::server::lake::lineage::now_ms(),
-            "op": "InsufficientScope",
-            "method": req.method,
-            "path": req.target,
-            "owner": carrier
-                .map(|c| c.owner_scope().to_string())
-                .unwrap_or_else(|| "system".to_string()),
-            "outcome": "deny",
-        }));
-        return carrier_denied_response();
-    }
-
-    let visibility = visibility_for(carrier);
-    let owner = carrier.map(|c| c.owner_scope().to_string());
-
-    match (req.method.as_str(), seg_refs.as_slice()) {
-        ("GET", ["v1", "config"]) => (
-            "200 OK",
-            json!({ "defaults": {}, "overrides": {} }).to_string(),
-        ),
-        ("GET", ["v1", "namespaces"]) => {
-            let (page_token, page_size) = parse_pagination(&req.target);
-            (
-                "200 OK",
-                lake.list_namespaces_visible(&visibility, page_token.as_deref(), page_size)
-                    .to_string(),
-            )
-        }
-        ("GET", ["v1", "namespaces", ns]) => {
-            if lake.namespace_exists_visible(ns, &visibility) {
-                (
-                    "200 OK",
-                    json!({ "namespace": namespace_levels(ns), "properties": {} }).to_string(),
-                )
-            } else {
-                ("404 Not Found", not_found("namespace"))
-            }
-        }
-        ("GET", ["v1", "namespaces", ns, "tables"]) => {
-            let (page_token, page_size) = parse_pagination(&req.target);
-            (
-                "200 OK",
-                lake.list_tables_visible(ns, &visibility, page_token.as_deref(), page_size)
-                    .to_string(),
-            )
-        }
-        ("POST", ["v1", "namespaces", ns, "tables"]) => {
-            let body: Value = match serde_json::from_str(&req.body) {
-                Ok(v) => v,
-                Err(_) => {
-                    return (
-                        "400 Bad Request",
-                        err_body(
-                            "malformed CreateTableRequest body",
-                            "BadRequestException",
-                            400,
-                        ),
-                    )
-                }
-            };
-            let Some(table) = body.get("name").and_then(Value::as_str).map(str::to_string) else {
-                return (
-                    "400 Bad Request",
-                    err_body(
-                        "CreateTableRequest.name is required",
-                        "BadRequestException",
-                        400,
-                    ),
-                );
-            };
-            let schema = match schema_from_create_request(&body) {
-                Ok(s) => s,
-                Err(e) => return ("400 Bad Request", err_body(&e, "BadRequestException", 400)),
-            };
-            let outcome = lake.create_table(store, ns, &table, schema, owner.as_deref());
-            let (status, resp) = match outcome {
-                Ok(v) => ("200 OK", v.to_string()),
-                Err(CreateTableError::AlreadyExists) => (
-                    "409 Conflict",
-                    err_body(
-                        &format!("table {ns}.{table} already exists"),
-                        "AlreadyExistsException",
-                        409,
-                    ),
-                ),
-                Err(CreateTableError::Other(e)) => {
-                    ("400 Bad Request", err_body(&e, "BadRequestException", 400))
-                }
-            };
-            lake.record_audit(json!({
-                "ts_ms": crate::server::lake::lineage::now_ms(),
-                "op": "CreateTable",
-                "namespace": ns,
-                "table": table,
-                "owner": owner.clone().unwrap_or_else(|| "system".to_string()),
-                "outcome": if status == "200 OK" { "allow" } else { "deny" },
-                "status": status,
-            }));
-            (status, resp)
-        }
-        ("GET", ["v1", "namespaces", ns, "tables", table]) => {
-            // Resolve visibility before parsing or validating `as_of`: a hidden
-            // table must remain the same privacy-safe 404 for malformed, future,
-            // hole, or overflow LSNs, with no cross-owner existence oracle.
-            let Some(current) = lake.load_table_visible(ns, table, &visibility) else {
-                return ("404 Not Found", not_found("table"));
-            };
-            match parse_as_of_lsn(&req.target) {
-                Err(()) => (
-                    "400 Bad Request",
-                    err_body(
-                        "as_of must be one unsigned decimal LSN",
-                        "InvalidAsOfException",
-                        400,
-                    ),
-                ),
-                Ok(None) => ("200 OK", current.to_string()),
-                Ok(Some(lsn)) => match lake.load_table_as_of(ns, table, lsn, &visibility) {
-                    Ok(Some(v)) => ("200 OK", v.to_string()),
-                    // The visibility check above and the manager's scoped check
-                    // intentionally both fail closed if a concurrent delete or
-                    // policy change removes the table between the two reads.
-                    Ok(None) => ("404 Not Found", not_found("table")),
-                    Err(_) => (
-                        "400 Bad Request",
-                        err_body(
-                            "requested as_of LSN is unavailable",
-                            "InvalidSnapshotException",
-                            400,
-                        ),
-                    ),
-                },
-            }
-        }
-        ("HEAD", ["v1", "namespaces", ns, "tables", table]) => {
-            if lake.load_table_visible(ns, table, &visibility).is_some() {
-                ("200 OK", String::new())
-            } else {
-                ("404 Not Found", String::new())
-            }
-        }
-        ("POST", ["v1", "namespaces", ns, "tables", table]) => {
-            if lake.load_table_visible(ns, table, &visibility).is_none() {
-                return ("404 Not Found", not_found("table"));
-            }
-            let (status, resp) = match lake.commit_table(store, ns, table) {
-                Ok(v) => ("200 OK", v.to_string()),
-                Err(e) => (
-                    "400 Bad Request",
-                    err_body(&e, "CommitFailedException", 400),
-                ),
-            };
-            lake.record_audit(json!({
-                "ts_ms": crate::server::lake::lineage::now_ms(),
-                "op": "CommitTable",
-                "namespace": ns,
-                "table": table,
-                "owner": owner.clone().unwrap_or_else(|| "system".to_string()),
-                "outcome": if status == "200 OK" { "allow" } else { "deny" },
-                "status": status,
-            }));
-            (status, resp)
-        }
-        ("DELETE", ["v1", "namespaces", ns, "tables", table]) => {
-            let dropped = lake.drop_table(ns, table, &visibility);
-            let (status, resp) = if dropped {
-                ("204 No Content", String::new())
-            } else {
-                ("404 Not Found", not_found("table"))
-            };
-            lake.record_audit(json!({
-                "ts_ms": crate::server::lake::lineage::now_ms(),
-                "op": "DropTable",
-                "namespace": ns,
-                "table": table,
-                "owner": owner.clone().unwrap_or_else(|| "system".to_string()),
-                "outcome": if dropped { "allow" } else { "deny" },
-                "status": status,
-            }));
-            (status, resp)
-        }
-        ("POST", ["v1", "tables", "rename"]) => {
-            let body: Value = match serde_json::from_str(&req.body) {
-                Ok(v) => v,
-                Err(_) => {
-                    return (
-                        "400 Bad Request",
-                        err_body(
-                            "malformed RenameTableRequest body",
-                            "BadRequestException",
-                            400,
-                        ),
-                    )
-                }
-            };
-            let source = body.get("source").cloned().unwrap_or(Value::Null);
-            let destination = body.get("destination").cloned().unwrap_or(Value::Null);
-            let (Some(src_ns), Some(src_name)) = (
-                table_ident_namespace(&source),
-                source.get("name").and_then(Value::as_str),
-            ) else {
-                return (
-                    "400 Bad Request",
-                    err_body("source identifier is required", "BadRequestException", 400),
-                );
-            };
-            let (Some(dst_ns), Some(dst_name)) = (
-                table_ident_namespace(&destination),
-                destination.get("name").and_then(Value::as_str),
-            ) else {
-                return (
-                    "400 Bad Request",
-                    err_body(
-                        "destination identifier is required",
-                        "BadRequestException",
-                        400,
-                    ),
-                );
-            };
-            let outcome = lake.rename_table(&src_ns, src_name, &dst_ns, dst_name, &visibility);
-            let (status, resp) = match outcome {
-                Ok(()) => ("204 No Content", String::new()),
-                Err(RenameTableError::SourceNotFound) => ("404 Not Found", not_found("table")),
-                Err(RenameTableError::DestinationExists) => (
-                    "409 Conflict",
-                    err_body(
-                        &format!("table {dst_ns}.{dst_name} already exists"),
-                        "AlreadyExistsException",
-                        409,
-                    ),
-                ),
-            };
-            lake.record_audit(json!({
-                "ts_ms": crate::server::lake::lineage::now_ms(),
-                "op": "RenameTable",
-                "source": format!("{src_ns}.{src_name}"),
-                "destination": format!("{dst_ns}.{dst_name}"),
-                "owner": owner.clone().unwrap_or_else(|| "system".to_string()),
-                "outcome": if status == "204 No Content" { "allow" } else { "deny" },
-                "status": status,
-            }));
-            (status, resp)
-        }
-        _ => ("404 Not Found", not_found("route")),
-    }
-}
+mod catalog;
+use catalog::handle;
 
 #[cfg(test)]
 mod tests {
@@ -1072,6 +706,7 @@ mod tests {
     use crate::server::blob::store::RedbChunkStore;
     use eg_tsdb::point::Point;
     use eg_tsdb::store::SeriesStore;
+    use tokio::io::AsyncReadExt as _;
 
     fn seed() -> (LakeManager, RedbChunkStore) {
         let store = RedbChunkStore::open_temp().unwrap();
@@ -1095,23 +730,23 @@ mod tests {
         (mgr, store)
     }
 
-    fn req(method: &str, target: &str) -> HttpRequest {
-        HttpRequest {
+    fn req(method: &str, target: &str) -> HttpMessage {
+        HttpMessage {
             method: method.to_string(),
             target: target.to_string(),
-            origin: String::new(),
+            version: "HTTP/1.1".to_string(),
             headers: HashMap::new(),
-            body: String::new(),
+            body: Vec::new(),
         }
     }
 
-    fn req_body(method: &str, target: &str, body: &str) -> HttpRequest {
-        HttpRequest {
+    fn req_body(method: &str, target: &str, body: &str) -> HttpMessage {
+        HttpMessage {
             method: method.to_string(),
             target: target.to_string(),
-            origin: String::new(),
+            version: "HTTP/1.1".to_string(),
             headers: HashMap::new(),
-            body: body.to_string(),
+            body: body.as_bytes().to_vec(),
         }
     }
 
@@ -1121,7 +756,7 @@ mod tests {
     fn handle_open(
         lake: &LakeManager,
         store: &dyn ChunkStore,
-        req: &HttpRequest,
+        req: &HttpMessage,
     ) -> (&'static str, String) {
         handle(lake, store, req, None)
     }
@@ -1365,12 +1000,14 @@ mod tests {
         let (status, body) = handle_open(
             &mgr,
             &store,
-            &HttpRequest {
+            &HttpMessage {
                 method: "POST".to_string(),
                 target: "/v1/namespaces/engine/tables/rest_series1".to_string(),
-                origin: String::new(),
+                version: "HTTP/1.1".to_string(),
                 headers: HashMap::new(),
-                body: json!({ "requirements": [], "updates": [] }).to_string(),
+                body: json!({ "requirements": [], "updates": [] })
+                    .to_string()
+                    .into_bytes(),
             },
         );
         assert_eq!(status, "200 OK");
@@ -1383,12 +1020,12 @@ mod tests {
         let (status, _) = handle_open(
             &mgr,
             &store,
-            &HttpRequest {
+            &HttpMessage {
                 method: "POST".to_string(),
                 target: "/v1/namespaces/engine/tables/nope".to_string(),
-                origin: String::new(),
+                version: "HTTP/1.1".to_string(),
                 headers: HashMap::new(),
-                body: "{}".to_string(),
+                body: b"{}".to_vec(),
             },
         );
         assert_eq!(status, "404 Not Found");
@@ -2353,12 +1990,13 @@ mod tests {
         fn oauth_token_endpoint_echoes_a_verifying_bearer_and_rejects_a_bad_one() {
             let credential = credential();
             let token = sign("agent:reader", "tenant-shared", 300);
-            let req = HttpRequest {
+            let req = HttpMessage {
                 method: "POST".to_string(),
                 target: "/v1/oauth/tokens".to_string(),
-                origin: String::new(),
+                version: "HTTP/1.1".to_string(),
                 headers: HashMap::new(),
-                body: format!("grant_type=client_credentials&client_id=x&client_secret={token}"),
+                body: format!("grant_type=client_credentials&client_id=x&client_secret={token}")
+                    .into_bytes(),
             };
             let (status, body) = handle_oauth_token(Some(&credential), &req);
             assert_eq!(status, "200 OK", "got: {body}");
@@ -2368,14 +2006,15 @@ mod tests {
 
             // known-bad: a token for a mismatched tenant is denied, not echoed.
             let other_tenant = sign("agent:reader", "tenant-other", 300);
-            let bad_req = HttpRequest {
+            let bad_req = HttpMessage {
                 method: "POST".to_string(),
                 target: "/v1/oauth/tokens".to_string(),
-                origin: String::new(),
+                version: "HTTP/1.1".to_string(),
                 headers: HashMap::new(),
                 body: format!(
                     "grant_type=client_credentials&client_id=x&client_secret={other_tenant}"
-                ),
+                )
+                .into_bytes(),
             };
             let (status, body) = handle_oauth_token(Some(&credential), &bad_req);
             assert_eq!(status, "401 Unauthorized", "got: {body}");
@@ -2388,12 +2027,12 @@ mod tests {
             assert_eq!(status, "401 Unauthorized");
 
             // known-bad: missing grant_type is a typed 400.
-            let no_grant = HttpRequest {
+            let no_grant = HttpMessage {
                 method: "POST".to_string(),
                 target: "/v1/oauth/tokens".to_string(),
-                origin: String::new(),
+                version: "HTTP/1.1".to_string(),
                 headers: HashMap::new(),
-                body: format!("client_secret={token}"),
+                body: format!("client_secret={token}").into_bytes(),
             };
             let (status, _) = handle_oauth_token(Some(&credential), &no_grant);
             assert_eq!(status, "400 Bad Request");

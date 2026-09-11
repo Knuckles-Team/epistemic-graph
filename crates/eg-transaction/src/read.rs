@@ -2,11 +2,13 @@
 //! [`ScopedRead`], which already proved the scope is bound to this store.
 
 use crate::commit::MAX_BATCH_ID_SENTINEL;
-use crate::tables::{BATCHES, CLASSES, FENCES, OUTBOX, PRIVATE_PAYLOADS, VERSIONS};
+use crate::tables::{
+    BATCHES, CLASSES, FENCES, OUTBOX, PRIVATE_PAYLOADS, REPLAY_OPERATIONS, VERSIONS,
+};
 use eg_storage::{
     decode_batch_record, decode_ledger_record, decode_outbox_record, ledger_scope_key,
-    private_payload_digest, CollectionBudget, MutationClass, MutationClassRow, OwnerDomain,
-    ScopeFence, ScopedRead,
+    private_payload_digest, CollectionBudget, MutationClass, MutationClassRow, OperationReplayRow,
+    OwnerDomain, ScopeFence, ScopedRead,
 };
 use eg_types::{MutationBatchRecord, MutationOutboxRecord};
 
@@ -28,6 +30,18 @@ pub fn read_ledger<D: OwnerDomain>(
     read.scoped_table(BATCHES)?
         .get((key.as_str(), batch_id))?
         .map(|value| decode_batch_record(value.value()))
+        .transpose()
+}
+
+/// One durable typed replay operation row of the read's bound scope.
+pub fn read_replay_operation<D: OwnerDomain>(
+    read: &ScopedRead<'_, D>,
+    idempotency_key: &str,
+) -> Result<Option<OperationReplayRow>, String> {
+    let identity_key = ledger_scope_key(read.scope());
+    read.scoped_table(REPLAY_OPERATIONS)?
+        .get((identity_key.as_str(), idempotency_key))?
+        .map(|value| decode_ledger_record::<OperationReplayRow>(value.value()))
         .transpose()
 }
 
@@ -106,11 +120,13 @@ pub fn read_fences<D: OwnerDomain>(
 /// Position inside one scope's outbox stream.
 ///
 /// This is a *paging* position over [`read_outbox`], not a durable delivery
-/// claim: the six declared outbox delivery tables
+/// claim or lease. Delivery claims, acknowledgements, release/expiry, and the
+/// delivery-side fairness cap are implemented by `crate::outbox` and exposed
+/// through `MutationKernel::outbox_*`; this cursor only advances through rows
+/// returned by [`read_outbox`]. The six delivery tables
 /// (`mutation_outbox_consumers`, `..._deliveries`, `..._cursors`,
-/// `..._claim_cursors`, `..._fairness`, `..._topic_index`) are
-/// declared in the manifest census but have no accepted claim/deliver/fairness
-/// protocol yet, so this kernel does not write them.
+/// `..._claim_cursors`, `..._fairness`, `..._topic_index`) are the durable
+/// delivery ledger used by those APIs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutboxCursor {
     batch_id: String,

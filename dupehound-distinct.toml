@@ -1,0 +1,177 @@
+# Reviewed register of dupehound findings that are NOT clones.
+#
+# See scripts/dupehound_ledger.py for what this is and, more importantly,
+# what it is not. Each entry pins the normalized text of BOTH functions:
+# change either one and the entry stops matching, the finding returns, and
+# a human re-reviews it. An entry matching no current finding fails the
+# gate as stale. Nothing here is written or updated by a tool.
+
+[[pair]]
+left_file = "crates/eg-core/src/compute/semantic_index_service.rs"
+left_name = "record"
+left_digest = "sha256:0b2602681ecacb7cfa238fb19ed00ddf2c37c66246359c5961bc8d0f0917edec"
+right_file = "crates/eg-viz-graph-tiles/src/demo.rs"
+right_name = "clamped"
+right_digest = "sha256:84d20cb4c012b8c9e3e455674f71da8636a859def3973731bc3f3e6aa6f66f2b"
+reviewed_on = "2026-09-10"
+reason = """A turn-budget accumulator and a demo-graph coordinate clamp. Different crates, different structs, different domains; they coincide only in the short shape of a field read followed by an arithmetic update. There is no shared concept to name, and no caller could use one for the other."""
+
+[[pair]]
+left_file = "crates/eg-modality/src/served/error.rs"
+left_name = "message"
+left_digest = "sha256:9a66dd95ce905c1bf3efce2787af7ce6fcce6cd57838556c4f11ca5b695b7878"
+right_file = "crates/eg-program/src/contracts.rs"
+right_name = "as_str"
+right_digest = "sha256:ea62a72f6cc0604d3bf4c487bf89652cae9aae0a4751f2d6c47dc95d5abd4cea"
+reviewed_on = "2026-09-10"
+reason = """Two exhaustive match-to-&str accessors over unrelated enums: a served modality error versus an adapter-kind tag. Every Rust enum with a string rendering has this shape; sharing it would require a common enum, which would be an invented abstraction over two unrelated vocabularies."""
+
+[[pair]]
+left_file = "crates/eg-query/src/sql/exec.rs"
+left_name = "exec_sql"
+left_digest = "sha256:53c986bf3c26e3c3927daeb55fb4b7d4b3f2ef12d4b482b1fe551cbfd2b18b5c"
+right_file = "crates/eg-query/src/sql/exec.rs"
+right_name = "exec_sql_typed_cancellable"
+right_digest = "sha256:5097d74b195640784cd865d0d3d4768a38c3cbabdbffa68fed070c51eec8600c"
+reviewed_on = "2026-09-10"
+reason = """Members of a deliberate three-way sibling API family (row-dictionary, typed, and Arrow). Each dispatches to a DIFFERENT backend runner and returns a different type for a different caller; the shared shape is the family's point, not an accident, and collapsing them would remove the type distinction the callers select on."""
+
+[[pair]]
+left_file = "crates/eg-query/src/sql/exec.rs"
+left_name = "exec_sql_arrow_cancellable"
+left_digest = "sha256:2fbec2cfd73e5f6e226de2738be8742492138f309eba1ee567aaa216a75a315d"
+right_file = "crates/eg-query/src/sql/exec.rs"
+right_name = "exec_sql_typed_cancellable"
+right_digest = "sha256:5097d74b195640784cd865d0d3d4768a38c3cbabdbffa68fed070c51eec8600c"
+reviewed_on = "2026-09-10"
+reason = """The Arrow member of the same three-way sibling family as exec_sql; it returns a schema and record batches rather than typed rows, and calls its own backend runner. Same reasoning as its sibling entry."""
+
+[[pair]]
+left_file = "src/redb_store.rs"
+left_name = "commit_envelope_at"
+left_digest = "sha256:14738af82aed0672ebd7bd36182b6dad34f4d84c8ee7e9af54734620a96f4896"
+right_file = "src/redb_store.rs"
+right_name = "commit_envelopes_at"
+right_digest = "sha256:5c702b845cbe297af2eed513b4166605504bbe320b4306827b3822994245a4b3"
+reviewed_on = "2026-09-10"
+reason = """Test wrappers over two genuinely different production functions: a single envelope commit returning Result<_, String>, and a batched, atomic, capacity-capped commit returning a per-index ChangeEnvelopesError. Neither production function delegates to the other, so merging the wrappers would route one path's coverage through the other's code and lose it."""
+
+[[pair]]
+left_file = "src/redb_store/resource.rs"
+left_name = "digit"
+left_digest = "sha256:d4fa1ef046deb30ba58fc6ffbbf971c92f3bc2d8351534a0669caaa955f412b8"
+right_file = "crates/eg-graphql/src/resolver.rs"
+right_name = "val"
+right_digest = "sha256:b8135b35b7a8a29273eddd81adfd908ac2b0adc141889aab7918c61d6501cb1c"
+reviewed_on = "2026-09-10"
+reason = """Base64 alphabet decoders that differ in their final two symbols: URL-safe (-, _) versus standard (+, /), feeding a strict and a lenient decoder respectively. A shared helper would have to live in a crate both can reach; the root crate depends on eg-graphql only optionally behind the graphql feature, so sharing would force eg-graphql and its dependencies into every redb-only build and break the documented Pi-tier build weight."""
+
+[[pair]]
+left_file = "src/server/http1.rs"
+left_name = "is_token_byte"
+left_digest = "sha256:832bb2c70bbd077384c8388b368d4b0d0895971b2394cab6a2fa4a4b1910747a"
+right_file = "src/server/redis_wire/mod.rs"
+right_name = "is_known_command"
+right_digest = "sha256:b81121ba4905d5b2fcc6d21e02317c3942687fab10c78847917ca8986ca9acf9"
+reviewed_on = "2026-09-10"
+reason = """The RFC 7230 tchar byte set versus the set of Redis verbs this shim recognizes. They take different argument types (u8 versus &str) and answer unrelated questions; they collide only because the scanner normalizes the literal set away, leaving two matches! arms of the same shape."""
+
+[[pair]]
+left_file = "src/server/mutation_batch/canonical.rs"
+left_name = "is_work_item_method"
+left_digest = "sha256:93d2c5a53ee1f1601fe7a990ad0e631f8e297e62e62b52c40912fa4dc6527555"
+right_file = "src/server/mutation.rs"
+right_name = "is_coalescable_structural_write"
+right_digest = "sha256:622dfefb2d812c22f59a5551815835da519385cd45506da9c89ba7104ec89532"
+reviewed_on = "2026-09-10"
+reason = """Both are matches! over Method, but over DISJOINT variant sets answering unrelated routing questions: which methods take the native WorkItem command-log admission path, versus which structural writes may be coalesced. Merging them would join two independent routing policies whose membership must be able to change separately."""
+
+[[pair]]
+left_file = "src/server/persistence/online_reshard.rs"
+left_name = "clear_resource_rows"
+left_digest = "sha256:1a0509df966d2ca7f7a7acb55afc3eb002e5364bfb4189bcc530e217fb324681"
+right_file = "src/server/persistence/online_reshard.rs"
+right_name = "import_development_lane_rows"
+right_digest = "sha256:84862808b66b456b235c9b2bd6b5ce95ade22b877f8e3d42814a4955a67dc357"
+reviewed_on = "2026-09-10"
+reason = """Two orchestrators that each call a flat sequence of table helpers: one clears nine resource tables, the other clears then re-imports the development-lane tables from supplied rows. The shape is 'call a list of helpers'; the tables, the operations and the arguments all differ."""
+
+[[pair]]
+left_file = "src/server/persistence/redb_backend.rs"
+left_name = "read_mutation_graph_version"
+left_digest = "sha256:eb10fa8607ab879ea4a4104c3e6a67001002a75466dc9ede9949f1b5bd610c9f"
+right_file = "src/server/persistence/redb_backend.rs"
+right_name = "durable_node_presence"
+right_digest = "sha256:39793314f219a5067cf1f781838d74bfc7aeeafda44b4636e6fb5085a25db1c0"
+reviewed_on = "2026-09-10"
+reason = """Both open with the same shard-resolve-or-error preamble this trait impl reuses throughout, then delegate to unrelated reads with different signatures: a mutation-log version versus a per-node existence vector. Only the preamble is shared, and factoring it out would need a closure redesign of the whole impl rather than a merge of these two."""
+
+[[pair]]
+left_file = "src/server/persistence/redb_backend.rs"
+left_name = "read_change_envelope"
+left_digest = "sha256:ef08d9361ad53828d4a10e5009979a2a82903e1fad7b6d54811893b2518fcaf6"
+right_file = "src/server/persistence/redb_backend.rs"
+right_name = "read_resource_reservation"
+right_digest = "sha256:bd599f068fe30d3a63cc82e80a1d09f9d94002d011e59c0462b7cff1620be572"
+reviewed_on = "2026-09-10"
+reason = """Two uses of this impl's standard read_snapshot(routing_graph, |shard, crypto| read_X_record(..)) scaffold, over unrelated domain objects with different record types. The scaffold recurs dozens of times here by design; each instance names a different record."""
+
+[[pair]]
+left_file = "src/server/persistence/redb_backend.rs"
+left_name = "read_resource_reservation_status"
+left_digest = "sha256:4b2115cd4c59588f52f388460cbd7a0d38ad7bff2831b4dd054f074138a4da75"
+right_file = "src/server/persistence/redb_backend.rs"
+right_name = "read_resource_reservation"
+right_digest = "sha256:bd599f068fe30d3a63cc82e80a1d09f9d94002d011e59c0462b7cff1620be572"
+reviewed_on = "2026-09-10"
+reason = """Same request type, different result projection: the full reservation record versus its bounded status view. A caller picks one by the shape it needs, so the two return types are the distinction, not an accident."""
+
+[[pair]]
+left_file = "src/server/persistence/redb_backend.rs"
+left_name = "read_capacity_status"
+left_digest = "sha256:9321910b8b0d30283e6c8e22e368f9a5b86eda0d8d5a5a86dce02f2bf4187c59"
+right_file = "src/server/persistence/redb_backend.rs"
+right_name = "read_development_lane_status"
+right_digest = "sha256:1b9a5c70f8aed4bdd5eec32b50ffccc0d52fd70b0f53420129e434bcd2e8771e"
+reviewed_on = "2026-09-10"
+reason = """The same shard-resolve, crypto-select and delegate scaffold over two unrelated subsystems, capacity leasing and development-lane status, with distinct record and result types."""
+
+[[pair]]
+left_file = "src/server/persistence/redb_backend.rs"
+left_name = "read_development_lane"
+left_digest = "sha256:b443d6c3658cbdf301f95f45e7fe2006a568746b0c8703798ac56849c80e8bd7"
+right_file = "src/server/persistence/redb_backend.rs"
+right_name = "read_development_lane_status"
+right_digest = "sha256:1b9a5c70f8aed4bdd5eec32b50ffccc0d52fd70b0f53420129e434bcd2e8771e"
+reviewed_on = "2026-09-10"
+reason = """Same subsystem, different result shapes: the full development-lane record versus its bounded status page. As with the reservation pair, the projection is the reason both exist."""
+
+[[pair]]
+left_file = "crates/eg-core/src/compute/semantic_index_service/reconciliation_regression.rs"
+left_name = "verify"
+left_digest = "sha256:c86c2865c5e0d877ccf69658735571003630a612b73f86614536eccb9089071c"
+right_file = "crates/eg-statechart/src/store.rs"
+right_name = "verify"
+right_digest = "sha256:27358414c8dccf022883c8c7ff66adda39924c2d65a4ba61c7c0244e2ab18ea5"
+reviewed_on = "2026-09-10"
+reason = """Two implementations of the SAME trait method, ScopeGrantVerifier::verify, whose signature is therefore fixed by the trait rather than copied. Each body checks the OwnerLayout, tenant and principal constants of a different store domain -- the semantic index and the statechart store. The per-domain policy IS the implementation; there is nothing to share without erasing the distinction the trait exists to express."""
+
+[[pair]]
+left_file = "crates/eg-shacl/src/sparql/pattern.rs"
+left_name = "merge"
+left_digest = "sha256:cc1fba389be8b652e3bb381625a8f0a9db8e4469521f1ebabaab1a2ec22aba0a"
+right_file = "crates/eg-rdf/src/sparql.rs"
+right_name = "merge"
+right_digest = "sha256:8c31fcea53b7f233065e8aa5e840057924e37d0ccc94333cbb82470b9c17c8b5"
+reviewed_on = "2026-09-10"
+reason = """The same join-compatibility algorithm over DIFFERENT solution types: eg-shacl binds oxrdf::Term (full RDF terms with datatype and language), eg-rdf binds its own two-variant Binding enum tied to the GraphView scan engine, which cannot carry that fidelity. Sharing would force the lossier type on eg-shacl, and eg-shacl deliberately does not enable eg-rdf's sparql feature so a shacl-only build stays within the Pi tier."""
+
+[[pair]]
+left_file = "crates/eg-types/src/agent_component.rs"
+left_name = "as_str"
+left_digest = "sha256:a6a7d15bf3729714942568c3d87094416af1042166a186f747cf341a093fd71a"
+right_file = "crates/eg-program/src/contracts.rs"
+right_name = "as_str"
+right_digest = "sha256:ea62a72f6cc0604d3bf4c487bf89652cae9aae0a4751f2d6c47dc95d5abd4cea"
+reviewed_on = "2026-09-10"
+reason = """Two exhaustive match-to-&str renderings over unrelated enums: the agent component KIND vocabulary (model_profile, system_prompt, tool, toolset, mcp_server, mcp_prompt, mcp_resource, skill, ontology, schema, output_validator, predicate) versus a DSPy adapter kind (chat, json, xml, two_step, document, citations). Not one variant is shared and the two live in different crates serving different layers. Sharing the shape would require a common enum over two vocabularies that have nothing in common, which is an invented abstraction. Same family as the already-registered eg-modality served-error pair against this identical right-hand side -- every Rust enum with a string rendering has this body."""

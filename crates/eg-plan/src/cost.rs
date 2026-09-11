@@ -526,6 +526,35 @@ struct NumericColumn {
     total: u64,
 }
 
+/// Visit decodable top-level properties; callers keep their statistic passes separate.
+#[cfg(feature = "query")]
+fn visit_top_level_properties(
+    view: &eg_core::graph::GraphView,
+    mut visit: impl FnMut(&str, &serde_json::Value),
+) {
+    for blob in view.node_properties.values() {
+        let Ok(value) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
+            continue;
+        };
+        if let Some(object) = value.as_object() {
+            for (key, value) in object {
+                visit(key, value);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "query")]
+fn collect_memoized<T: Clone + Send + Sync + 'static>(
+    memo: &std::sync::OnceLock<std::sync::Arc<dyn std::any::Any + Send + Sync>>,
+    compute: impl FnOnce() -> T,
+) -> T {
+    memo.get_or_init(|| std::sync::Arc::new(compute()))
+        .downcast_ref::<T>()
+        .expect("stats memo holds unexpected type")
+        .clone()
+}
+
 #[cfg(feature = "query")]
 impl ColumnStats {
     /// Per-column stats for `view`, MEMOIZED on the snapshot so repeated `optimize()` calls
@@ -544,12 +573,7 @@ impl ColumnStats {
     /// copy — never the O(N) blob scan) to keep the returned `ColumnStats` byte-identical to the
     /// recompute path.
     pub fn collect(view: &eg_core::graph::GraphView) -> Self {
-        let memo = view
-            .plan_stats_memo
-            .get_or_init(|| std::sync::Arc::new(Self::compute(view)));
-        memo.downcast_ref::<Self>()
-            .expect("plan_stats_memo holds ColumnStats")
-            .clone()
+        collect_memoized(&view.plan_stats_memo, || Self::compute(view))
     }
 
     /// Build the per-column stats in ONE pass over the resident node property blobs — the
@@ -566,34 +590,26 @@ impl ColumnStats {
             sample: Vec<f64>,
         }
         let mut acc: HashMap<String, Acc> = HashMap::new();
-        for blob in view.node_properties.values() {
-            let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
-                continue;
+        visit_top_level_properties(view, |k, val| {
+            let Some(x) = val.as_f64() else {
+                return; // non-numeric (string `type`, arrays, …) — skip.
             };
-            let Some(obj) = v.as_object() else {
-                continue;
-            };
-            for (k, val) in obj {
-                let Some(x) = val.as_f64() else {
-                    continue; // non-numeric (string `type`, arrays, …) — skip.
-                };
-                if !x.is_finite() {
-                    continue;
-                }
-                let e = acc.entry(k.clone()).or_insert(Acc {
-                    min: x,
-                    max: x,
-                    count: 0,
-                    sample: Vec::new(),
-                });
-                e.min = e.min.min(x);
-                e.max = e.max.max(x);
-                e.count += 1;
-                if e.sample.len() < SAMPLE_CAP {
-                    e.sample.push(x);
-                }
+            if !x.is_finite() {
+                return;
             }
-        }
+            let e = acc.entry(k.to_owned()).or_insert(Acc {
+                min: x,
+                max: x,
+                count: 0,
+                sample: Vec::new(),
+            });
+            e.min = e.min.min(x);
+            e.max = e.max.max(x);
+            e.count += 1;
+            if e.sample.len() < SAMPLE_CAP {
+                e.sample.push(x);
+            }
+        });
         let cols = acc
             .into_iter()
             .filter_map(|(k, a)| {
@@ -677,12 +693,7 @@ impl DistinctStats {
     /// staleness-impossible argument; it applies identically here (a `GraphView` never changes
     /// after construction, so the memo can never go stale).
     pub fn collect(view: &eg_core::graph::GraphView) -> Self {
-        let memo = view
-            .distinct_stats_memo
-            .get_or_init(|| std::sync::Arc::new(Self::compute(view)));
-        memo.downcast_ref::<Self>()
-            .expect("distinct_stats_memo holds DistinctStats")
-            .clone()
+        collect_memoized(&view.distinct_stats_memo, || Self::compute(view))
     }
 
     /// One O(N) pass over the resident node property blobs: every top-level SCALAR value is
@@ -692,31 +703,23 @@ impl DistinctStats {
     fn compute(view: &eg_core::graph::GraphView) -> Self {
         use std::collections::HashMap;
         let mut sketches: HashMap<String, eg_compute::sketch::HyperLogLog> = HashMap::new();
-        for blob in view.node_properties.values() {
-            let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
-                continue;
-            };
-            let Some(obj) = v.as_object() else {
-                continue;
-            };
-            for (k, val) in obj {
-                if matches!(
-                    val,
-                    serde_json::Value::Array(_)
-                        | serde_json::Value::Object(_)
-                        | serde_json::Value::Null
-                ) {
-                    continue;
-                }
-                // Canonical string form: two equal JSON scalars hash identically regardless of
-                // where they came from, while distinct scalar KINDS with a similar textual form
-                // (the number `1` vs the string `"1"`) still hash distinctly (`to_string` on a
-                // `Value` includes the JSON quoting), matching how Cypher/SQL equality treats
-                // typed values as distinct from their string rendering.
-                let canon = val.to_string();
-                sketches.entry(k.clone()).or_default().insert(&canon);
+        visit_top_level_properties(view, |k, val| {
+            if matches!(
+                val,
+                serde_json::Value::Array(_)
+                    | serde_json::Value::Object(_)
+                    | serde_json::Value::Null
+            ) {
+                return;
             }
-        }
+            // Canonical string form: two equal JSON scalars hash identically regardless of
+            // where they came from, while distinct scalar KINDS with a similar textual form
+            // (the number `1` vs the string `"1"`) still hash distinctly (`to_string` on a
+            // `Value` includes the JSON quoting), matching how Cypher/SQL equality treats
+            // typed values as distinct from their string rendering.
+            let canon = val.to_string();
+            sketches.entry(k.to_owned()).or_default().insert(&canon);
+        });
         Self { sketches }
     }
 

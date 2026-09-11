@@ -28,7 +28,7 @@ The complete Python client binds the two served protocols directly:
 
 | Namespace | Current operation | Result |
 |---|---|---|
-| `client.knowledge` | `pull(query, batch_size=..., cursor=...)` | One `arrow_ipc_v1` payload and an authority-/placement-/snapshot-bound cursor |
+| `client.knowledge` | `pull(query, batch_size=..., cursor=...)` | One `arrow_ipc` payload and an authority-/placement-/snapshot-bound cursor |
 | `client.modalities` | `authority()` | Opaque tenant, access-policy, and purpose references derived from the verified request |
 | `client.modalities` | `ingest(...)` | Atomic native decode/create/update outcome |
 | `client.modalities` | `query(...)` | Bounded page of active or authorized cold records |
@@ -52,7 +52,7 @@ page = await client.modalities.query(
 )
 ```
 
-`KnowledgeStream` has one projection (`arrow_ipc_v1`) and one pull method. The
+`KnowledgeStream` has one projection (`arrow_ipc`) and one pull method. The
 binding does not expose an alternate projection or direct-family aliases. It validates
 the complete query, cursor, and response shape, including matching family and batch
 size. The modality binding likewise emits only the current tagged operation shapes and

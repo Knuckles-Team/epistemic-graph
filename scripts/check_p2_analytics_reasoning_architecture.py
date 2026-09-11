@@ -106,7 +106,9 @@ _REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
         "pub memory_bytes: Option<u64>",
         "pub required_capabilities: Vec<String>",
     ),
-    "src/server/auth.rs": (
+    # The analytics-worker capability belongs to the verified authority context,
+    # declared beside auth in server/mod.rs rather than below auth.rs.
+    "src/server/authority_context.rs": (
         "allows_analytics_worker",
         'allows_action("analytics:worker")',
     ),

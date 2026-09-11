@@ -37,3 +37,7 @@ lod
 Braket
 braket
 bloc
+# WRONLY: rustix::fs::OFlags::WRONLY -- the POSIX O_WRONLY open flag, a kernel
+# ABI name, not a misspelling of "wrongly". It cannot be reworded, and the only
+# occurrence in the tree is the one open() call that needs write-only access.
+wronly

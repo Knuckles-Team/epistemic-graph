@@ -8,6 +8,7 @@ use crate::isolation::{AccessLevel, IsolationLayer};
 #[cfg(feature = "cypher")]
 use crate::protocol::CypherMode;
 use crate::protocol::Method;
+use eg_types::contract::Nonce;
 use std::sync::Arc;
 
 /// Verified ownership carried into stores that are not naturally graph-scoped.
@@ -21,6 +22,12 @@ pub(crate) struct CarrierAuthority {
     actor_scope: String,
     owner_scope: String,
     agent_id: String,
+    /// Per-request replay identity copied from the already-verified envelope.
+    /// Stable carrier ownership fields above remain independent of this
+    /// attempt-scoped value, but self-routed stores still need both pieces to
+    /// compile the kernel-owned mutation envelope.
+    attempt_nonce: Option<Nonce>,
+    idempotency_key: String,
     admin: bool,
     can_read: bool,
     can_write: bool,
@@ -78,6 +85,8 @@ impl CarrierAuthority {
             actor_scope,
             owner_scope,
             agent_id: agent_id.to_string(),
+            attempt_nonce: context.attempt_nonce(),
+            idempotency_key: context.idempotency_key().to_string(),
             admin,
             can_read,
             can_write,
@@ -98,6 +107,21 @@ impl CarrierAuthority {
 
     pub(crate) fn agent_id(&self) -> &str {
         &self.agent_id
+    }
+
+    /// The authenticated transport nonce for the request that minted this
+    /// carrier. Auxiliary mutation stores use this exact value when they
+    /// compile their kernel replay identity; it is never derived from a
+    /// caller-controlled method field.
+    pub(crate) fn attempt_nonce(&self) -> Option<Nonce> {
+        self.attempt_nonce
+    }
+
+    /// Stable caller-supplied idempotency key from the verified envelope.
+    /// Self-routed stores use it as the operation replay key rather than
+    /// inventing a second key from request metadata.
+    pub(crate) fn idempotency_key(&self) -> &str {
+        &self.idempotency_key
     }
 
     /// Collision-proof tenant+actor namespace for a caller-controlled local name.
@@ -556,9 +580,29 @@ impl GraphReadAuthority {
 }
 
 /// Whether a graph-targeted method mutates the target graph (Write) or only
-/// reads from it (Read). Pure-compute methods (finance, datascience, parse)
-/// never touch graph state and classify as Read.
+/// reads from it (Read). Native ControlPlane surfaces such as Agent Library
+/// can be operation-conditional: its publish/retire writes are distinct from
+/// the current/history/status read sub-operations. Pure-compute methods
+/// (finance, datascience, parse) never touch graph state and classify as Read.
 pub(crate) fn requires_write(method: &Method) -> bool {
+    // Agent Library is a runtime-conditional native ControlPlane surface:
+    // publish/retire commit durable owner rows, while current/history/status
+    // are authenticated tenant-bound snapshots and must remain reads.
+    if let Method::AgentLibrary { op } = method {
+        return matches!(
+            op,
+            eg_types::AgentLibraryOp::Publish { .. } | eg_types::AgentLibraryOp::Retire { .. }
+        );
+    }
+    // Agent graphs are the same runtime-conditional shape. `is_mutation` lives
+    // on the op itself so this classifier and the capability policy cannot
+    // drift apart about which operations write.
+    if let Method::AgentGraph { op } = method {
+        return op.is_mutation();
+    }
+    if let Method::AgentComponent { op } = method {
+        return op.is_mutation();
+    }
     #[cfg(feature = "modality-serving")]
     if let Method::ServedModality { op } = method {
         return op.mutates();
@@ -777,6 +821,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
             | Method::ClaimNext { .. }
             | Method::ClaimWorkItem { .. }
             | Method::SubmitWorkItem { .. }
+            | Method::KgDelegate { .. }
             | Method::SubmitWorkItems { .. }
             | Method::AcquireCapacity { .. }
             | Method::RenewCapacity { .. }

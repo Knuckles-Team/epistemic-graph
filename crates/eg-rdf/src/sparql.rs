@@ -1248,8 +1248,8 @@ fn agg_over(func: &AggregateFunction, vals: &[String]) -> String {
         AggregateFunction::Count => vals.len().to_string(),
         AggregateFunction::Sum => fmt_num(nums.iter().sum::<f64>()),
         AggregateFunction::Avg => agg_avg(&nums),
-        AggregateFunction::Min => agg_min(vals, &nums),
-        AggregateFunction::Max => agg_max(vals, &nums),
+        AggregateFunction::Min => agg_extreme(vals, &nums, Extreme::Min),
+        AggregateFunction::Max => agg_extreme(vals, &nums, Extreme::Max),
         AggregateFunction::GroupConcat { separator } => {
             vals.join(separator.as_deref().unwrap_or(" "))
         }
@@ -1267,23 +1267,29 @@ fn agg_avg(nums: &[f64]) -> String {
     }
 }
 
-/// MIN: numeric min when any value parsed as a number, else the lexical min of the
-/// raw values.
-fn agg_min(vals: &[String], nums: &[f64]) -> String {
-    if nums.is_empty() {
-        vals.iter().min().cloned().unwrap_or_default()
-    } else {
-        fmt_num(nums.iter().cloned().fold(f64::INFINITY, f64::min))
-    }
+/// Which end of the ordering a MIN/MAX aggregate takes.
+#[derive(Clone, Copy)]
+enum Extreme {
+    Min,
+    Max,
 }
 
-/// MAX: numeric max when any value parsed as a number, else the lexical max of the
-/// raw values.
-fn agg_max(vals: &[String], nums: &[f64]) -> String {
+/// MIN/MAX: the numeric extreme when any value parsed as a number, else the lexical
+/// extreme of the raw values. `f64::min`/`f64::max` keep SPARQL's NaN-skipping fold.
+fn agg_extreme(vals: &[String], nums: &[f64], end: Extreme) -> String {
     if nums.is_empty() {
-        vals.iter().max().cloned().unwrap_or_default()
+        match end {
+            Extreme::Min => vals.iter().min(),
+            Extreme::Max => vals.iter().max(),
+        }
+        .cloned()
+        .unwrap_or_default()
     } else {
-        fmt_num(nums.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
+        let (seed, fold): (f64, fn(f64, f64) -> f64) = match end {
+            Extreme::Min => (f64::INFINITY, f64::min),
+            Extreme::Max => (f64::NEG_INFINITY, f64::max),
+        };
+        fmt_num(nums.iter().copied().fold(seed, fold))
     }
 }
 

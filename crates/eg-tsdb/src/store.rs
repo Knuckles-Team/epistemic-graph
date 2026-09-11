@@ -47,8 +47,8 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use eg_storage::{
-    OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead, StorageKernel,
-    TimeSeriesOwner,
+    GraphShardOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead,
+    StorageKernel, TimeSeriesOwner,
 };
 use eg_transaction::{AdmittedOwnerWrite, Begin, MutationKernel};
 use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
@@ -223,6 +223,57 @@ impl SeriesTableWriter for AdmittedOwnerWrite<'_, TimeSeriesOwner> {
     }
 }
 
+/// The graph shard's read side of the cross-modal seam.
+///
+/// A cross-modal atomic commit writes measurements into the SAME shard file as
+/// the graph, vector and blob modalities, so `OwnerLayout::GraphShard` declares
+/// the three `series_*` tables as well as `OwnerLayout::TimeSeries`
+/// (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Their keys carry no graph
+/// component -- they are the FILE's rows, not one graph's -- so on a shard they
+/// are file-wide owner tables reached through the file's control scope, exactly
+/// as they are reached through the serving scope on `series.redb`.
+impl SeriesTableReader for ScopedRead<'_, GraphShardOwner> {
+    fn open_series_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<ReadOnlyTable<K, V>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        self.open_owner_table(definition).map_err(redb_err)
+    }
+
+    fn open_series_table_if_present<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<Option<ReadOnlyTable<K, V>>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        // Always present: the storage kernel materializes the whole declared
+        // census when the shard file is created and re-validates it on every
+        // open, so a missing table is a genuine failure, not "no series here".
+        self.open_series_table(definition).map(Some)
+    }
+}
+
+/// The graph shard's write side of the cross-modal seam: the control member of
+/// the admitted scope group the cross-modal commit already holds.
+impl SeriesTableWriter for AdmittedOwnerWrite<'_, GraphShardOwner> {
+    fn open_series_table<K, V>(
+        &self,
+        definition: TableDefinition<'static, K, V>,
+    ) -> Result<Table<'_, K, V>>
+    where
+        K: redb::Key + 'static,
+        V: redb::Value + 'static,
+    {
+        self.open_table(definition).map_err(redb_err)
+    }
+}
+
 fn redb_err<E: std::fmt::Display>(e: E) -> TsError {
     TsError::Redb(e.to_string())
 }
@@ -329,20 +380,20 @@ fn maintenance_batch(
     let batch = MutationBatch {
         schema_version: eg_types::MUTATION_BATCH_VERSION,
         batch_id: batch_id.clone(),
-        context: eg_types::MutationRequestContext {
-            request_id: 0,
-            principal: principal.to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // A maintenance mutation claims no capability: it is a plain
-            // `Native`-versioned write, not the reserved-system `Unversioned`
-            // path. Empty is the true fact here, not a placeholder.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
+        // Compaction and retention have no caller, so they are MAINTENANCE
+        // mutations (RF-RULING-005): ledgered, fenced and version-bumping, with
+        // no operation replay identity and no attempt nonce. The storage key
+        // this write acted on stays in the operation, where a 4 KiB value can
+        // live; the envelope names the store it maintained.
+        envelope: eg_types::mutation_batch::MutationEnvelope::maintenance_for_scope(
+            identity,
+            principal,
+            &format!("timeseries_{kind}"),
+            &batch_id,
+        )
+        .map_err(codec_err)?,
         identity: identity.clone(),
         placement_epoch: 0,
-        idempotency_key: batch_id,
         version_expectation: eg_types::VersionExpectation::Native(expected_version),
         fencing_token: None,
         authoritative_state: None,
@@ -385,16 +436,23 @@ fn validate_storage_key(key: &str) -> Result<()> {
     Ok(())
 }
 
+fn valid_meta_field_names(meta: &SeriesMeta) -> bool {
+    meta.field_names.len() == meta.n_fields
+        && meta
+            .field_names
+            .iter()
+            .all(|name| name.len() <= MAX_TS_FIELD_NAME_BYTES && !name.contains('\0'))
+}
+
 fn validate_meta(meta: &SeriesMeta) -> Result<()> {
     if meta.n_fields == 0
         || meta.n_fields > MAX_TS_FIELDS
         || meta.bucket_ns == 0
-        || meta.field_names.len() != meta.n_fields
-        || meta
-            .field_names
-            .iter()
-            .any(|name| name.len() > MAX_TS_FIELD_NAME_BYTES || name.contains('\0'))
-        || (meta.count == 0 && (meta.min_ts != Ts::MAX || meta.max_ts != Ts::MIN))
+        || !valid_meta_field_names(meta)
+    {
+        return Err(codec_err("stored time-series metadata is invalid"));
+    }
+    if (meta.count == 0 && (meta.min_ts != Ts::MAX || meta.max_ts != Ts::MIN))
         || (meta.count != 0 && meta.min_ts > meta.max_ts)
     {
         return Err(codec_err("stored time-series metadata is invalid"));
@@ -813,17 +871,23 @@ impl SeriesStore {
     where
         F: FnOnce(&AdmittedOwnerWrite<'_, TimeSeriesOwner>) -> Result<T>,
     {
-        let expected_version = self.scope_version(&self.bootstrap)?;
-        let batch = maintenance_batch(
-            kind,
-            storage_key,
-            self.bootstrap.identity(),
-            &self.principal,
-            expected_version,
-        )?;
-        let (write, begun) = self
+        // The maintenance batch must be minted from the version resolved by
+        // the same exclusive write admission.  Reading it from a snapshot
+        // first lets concurrent callers build the same claim key; the second
+        // caller would then replay the first call instead of applying its own
+        // append/retention/compaction effect.
+        let (write, batch, begun) = self
             .mutations
-            .admit_maintenance(&self.bootstrap, &batch)
+            .admit_current(&self.bootstrap, |version| {
+                maintenance_batch(
+                    kind,
+                    storage_key,
+                    self.bootstrap.identity(),
+                    &self.principal,
+                    version,
+                )
+                .map_err(|error| error.to_string())
+            })
             .map_err(redb_err)?;
         let source_version = match begun {
             Begin::Replay(_) => {
@@ -971,7 +1035,7 @@ impl SeriesStore {
                     .as_deref()
                     .ok_or_else(|| codec_err("committed time-series batch has no result"))?;
                 let count = decode_stored(bytes)?;
-                write.abort().map_err(redb_err)?;
+                self.mutations.commit(write, batch).map_err(redb_err)?;
                 Ok(count)
             }
             Begin::Apply { source_version } => {
@@ -1139,100 +1203,7 @@ impl SeriesStore {
             return Ok(0);
         }
         self.maintain("evict", series_id, |wtx| {
-            let mut dropped = 0usize;
-            {
-                let mut chunks = wtx.open_series_table(SERIES_CHUNKS)?;
-                let mut meta_tab = wtx.open_series_table(SERIES_META)?;
-
-                // Pass 1 (read-only over the range — can't mutate while the iterator
-                // borrows `chunks`): classify each bucket into a whole-bucket victim or a
-                // straddler rewrite. A straddler trimmed to empty becomes a victim.
-                let mut victims: Vec<u64> = Vec::new();
-                let mut rewrites: Vec<(u64, Vec<u8>)> = Vec::new();
-                let mut rewrite_bytes = 0usize;
-                let mut scanned_buckets = 0usize;
-                let lo = (series_id, 0u64);
-                let hi = (series_id, u64::MAX);
-                for item in chunks.range(lo..=hi).map_err(redb_err)? {
-                    let (k, v) = item.map_err(redb_err)?;
-                    scanned_buckets = scanned_buckets
-                        .checked_add(1)
-                        .filter(|count| *count <= MAX_TS_BUCKETS_PER_OPERATION)
-                        .ok_or_else(|| {
-                            codec_err("time-series retention exceeds the operation limit")
-                        })?;
-                    if victims.len().saturating_add(rewrites.len()) > MAX_TS_BUCKETS_PER_OPERATION {
-                        return Err(codec_err(
-                            "time-series retention exceeds the operation limit",
-                        ));
-                    }
-                    let bucket = k.value().1;
-                    let bucket_end = bucket.saturating_add(meta.bucket_ns);
-                    if (bucket_end as i64) <= cutoff {
-                        victims.push(bucket);
-                    } else if (bucket as i64) < cutoff {
-                        // Straddles `cutoff`: trim the older prefix in place (CONCEPT:EG-KG.temporal.bucket-cutoff-trim).
-                        let mut chunk = Chunk::decode(v.value())?;
-                        if chunk.trim_before(cutoff) > 0 {
-                            if chunk.ts.is_empty() {
-                                victims.push(bucket);
-                            } else {
-                                let encoded = chunk.encode()?;
-                                rewrite_bytes = rewrite_bytes
-                                    .checked_add(encoded.len())
-                                    .filter(|bytes| *bytes <= MAX_TS_OPERATION_BYTES)
-                                    .ok_or_else(|| {
-                                        codec_err("time-series retention exceeds the operation limit")
-                                    })?;
-                                rewrites.push((bucket, encoded));
-                            }
-                        }
-                    }
-                }
-
-                let mut new_count = 0u64;
-                let mut new_min = Ts::MAX;
-                for bucket in &victims {
-                    if let Some(g) = chunks.remove((series_id, *bucket)).map_err(redb_err)? {
-                        drop(g);
-                        dropped += 1;
-                    }
-                }
-                for (bucket, blob) in &rewrites {
-                    chunks
-                        .insert((series_id, *bucket), blob.as_slice())
-                        .map_err(redb_err)?;
-                }
-                // Recompute count/min over survivors (max is unchanged — we only drop old).
-                let mut survivor_buckets = 0usize;
-                for item in chunks.range(lo..=hi).map_err(redb_err)? {
-                    let (_k, v) = item.map_err(redb_err)?;
-                    survivor_buckets = survivor_buckets
-                        .checked_add(1)
-                        .filter(|count| *count <= MAX_TS_BUCKETS_PER_OPERATION)
-                        .ok_or_else(|| {
-                            codec_err("time-series retention exceeds the operation limit")
-                        })?;
-                    let chunk = Chunk::decode(v.value())?;
-                    new_count = new_count
-                        .checked_add(chunk.ts.len() as u64)
-                        .ok_or_else(|| codec_err("stored time-series point count overflow"))?;
-                    if let Some(&first) = chunk.ts.first() {
-                        new_min = new_min.min(first);
-                    }
-                }
-                let mut m = meta.clone();
-                m.count = new_count;
-                m.min_ts = if new_count == 0 { Ts::MAX } else { new_min };
-                if new_count == 0 {
-                    m.max_ts = Ts::MIN;
-                }
-                let mblob = rmp_serde::to_vec(&m).map_err(codec_err)?;
-                meta_tab
-                    .insert(series_id, mblob.as_slice())
-                    .map_err(redb_err)?;
-            }
-            Ok(dropped)
+            evict_before_in_wtx(wtx, series_id, cutoff, &meta)
         })
     }
 
@@ -1360,6 +1331,140 @@ fn put_projection_in_wtx<W: SeriesTableWriter>(
     Ok(())
 }
 
+fn validate_append_dimensions(
+    n_fields: usize,
+    bucket_ns: u64,
+    field_names: &[String],
+    points: &[Point],
+) -> Result<()> {
+    if n_fields == 0
+        || n_fields > MAX_TS_FIELDS
+        || bucket_ns == 0
+        || field_names.len() != n_fields
+        || field_names
+            .iter()
+            .any(|name| name.len() > MAX_TS_FIELD_NAME_BYTES || name.contains('\0'))
+        || points.len() > MAX_TS_POINTS_PER_CHUNK
+    {
+        return Err(codec_err("time-series append dimensions are invalid"));
+    }
+    for point in points {
+        if point.values.len() != n_fields {
+            return Err(TsError::FieldMismatch {
+                expected: n_fields,
+                got: point.values.len(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn load_append_meta(
+    meta_tab: &Table<'_, &str, &[u8]>,
+    series_id: &str,
+    n_fields: usize,
+    bucket_ns: u64,
+    field_names: &[String],
+) -> Result<SeriesMeta> {
+    let meta = match meta_tab.get(series_id).map_err(redb_err)? {
+        Some(g) => decode_meta(g.value())?,
+        None => SeriesMeta {
+            n_fields,
+            bucket_ns,
+            field_names: field_names.to_vec(),
+            count: 0,
+            min_ts: Ts::MAX,
+            max_ts: Ts::MIN,
+            legal_hold: false,
+        },
+    };
+    if meta.n_fields != n_fields {
+        return Err(TsError::FieldMismatch {
+            expected: meta.n_fields,
+            got: n_fields,
+        });
+    }
+    if meta.bucket_ns != bucket_ns {
+        return Err(codec_err(
+            "time-series bucket width does not match stored schema",
+        ));
+    }
+    Ok(meta)
+}
+
+fn append_bucket(
+    chunks: &mut Table<'_, (&str, u64), &[u8]>,
+    series_id: &str,
+    bucket: u64,
+    n_fields: usize,
+    current_count: u64,
+    points: &mut Vec<&Point>,
+) -> Result<(u64, Ts, Ts)> {
+    let mut chunk = match chunks.get((series_id, bucket)).map_err(redb_err)? {
+        Some(g) => Chunk::decode(g.value())?,
+        None => Chunk {
+            n_fields,
+            ts: vec![],
+            vals: vec![],
+        },
+    };
+    if chunk.n_fields != n_fields {
+        return Err(codec_err("stored time-series chunk schema is invalid"));
+    }
+    let merged_points = chunk
+        .ts
+        .len()
+        .checked_add(points.len())
+        .filter(|count| {
+            *count <= MAX_TS_POINTS_PER_CHUNK
+                && chunk_encoded_len(*count, chunk.n_fields)
+                    .is_some_and(|bytes| bytes <= MAX_TS_CHUNK_BYTES)
+        })
+        .ok_or_else(|| codec_err("time-series chunk exceeds the storage limit"))?;
+    chunk.merge_points(points);
+    debug_assert_eq!(chunk.ts.len(), merged_points);
+    let point_count = points.len();
+    let new_count = current_count
+        .checked_add(point_count as u64)
+        .ok_or_else(|| codec_err("time-series point count overflow"))?;
+    let min_ts = points[0].ts;
+    let max_ts = points[point_count - 1].ts;
+    let blob = chunk.encode()?;
+    chunks
+        .insert((series_id, bucket), blob.as_slice())
+        .map_err(redb_err)?;
+    Ok((new_count, min_ts, max_ts))
+}
+
+fn append_points_by_bucket(
+    chunks: &mut Table<'_, (&str, u64), &[u8]>,
+    series_id: &str,
+    meta: &mut SeriesMeta,
+    points: &[Point],
+) -> Result<()> {
+    let mut by_bucket: BTreeMap<u64, Vec<&Point>> = BTreeMap::new();
+    for point in points {
+        by_bucket
+            .entry(SeriesStore::bucket_of(point.ts, meta.bucket_ns))
+            .or_default()
+            .push(point);
+    }
+    for (bucket, mut bucket_points) in by_bucket {
+        let (new_count, min_ts, max_ts) = append_bucket(
+            chunks,
+            series_id,
+            bucket,
+            meta.n_fields,
+            meta.count,
+            &mut bucket_points,
+        )?;
+        meta.count = new_count;
+        meta.min_ts = meta.min_ts.min(min_ts);
+        meta.max_ts = meta.max_ts.max(max_ts);
+    }
+    Ok(())
+}
+
 /// Append `points` to `series_id` INTO an already-open redb [`WriteTransaction`] the
 /// CALLER owns (CONCEPT:EG-KG.backend.cross-modal-atomic-commit — cross-modal atomic commit). Byte-for-byte the SAME
 /// chunk encoding + read-modify-write + meta bookkeeping as [`SeriesStore::append_batch`]
@@ -1389,105 +1494,156 @@ pub fn append_batch_in_wtx<W: SeriesTableWriter>(
         return Ok(());
     }
     validate_storage_key(series_id)?;
-    if n_fields == 0
-        || n_fields > MAX_TS_FIELDS
-        || bucket_ns == 0
-        || field_names.len() != n_fields
-        || field_names
-            .iter()
-            .any(|name| name.len() > MAX_TS_FIELD_NAME_BYTES || name.contains('\0'))
-        || points.len() > MAX_TS_POINTS_PER_CHUNK
-    {
-        return Err(codec_err("time-series append dimensions are invalid"));
-    }
-    // Reject a mixed-width batch up front (each point must match n_fields).
-    for p in points {
-        if p.values.len() != n_fields {
-            return Err(TsError::FieldMismatch {
-                expected: n_fields,
-                got: p.values.len(),
-            });
-        }
-    }
+    validate_append_dimensions(n_fields, bucket_ns, field_names, points)?;
     let mut chunks = wtx.open_series_table(SERIES_CHUNKS)?;
     let mut meta_tab = wtx.open_series_table(SERIES_META)?;
 
     // Load-or-init meta. An existing series' stored schema is authoritative.
-    let mut meta: SeriesMeta = match meta_tab.get(series_id).map_err(redb_err)? {
-        Some(g) => decode_meta(g.value())?,
-        None => SeriesMeta {
-            n_fields,
-            bucket_ns,
-            field_names: field_names.to_vec(),
-            count: 0,
-            min_ts: Ts::MAX,
-            max_ts: Ts::MIN,
-            legal_hold: false,
-        },
-    };
-    if meta.n_fields != n_fields {
-        return Err(TsError::FieldMismatch {
-            expected: meta.n_fields,
-            got: n_fields,
-        });
-    }
-    if meta.bucket_ns != bucket_ns {
-        return Err(codec_err(
-            "time-series bucket width does not match stored schema",
-        ));
-    }
-
-    // Group incoming points by bucket so each chunk is touched once.
-    let mut by_bucket: BTreeMap<u64, Vec<&Point>> = BTreeMap::new();
-    for p in points {
-        by_bucket
-            .entry(SeriesStore::bucket_of(p.ts, meta.bucket_ns))
-            .or_default()
-            .push(p);
-    }
-
-    for (bucket, mut pts) in by_bucket {
-        let mut chunk = match chunks.get((series_id, bucket)).map_err(redb_err)? {
-            Some(g) => Chunk::decode(g.value())?,
-            None => Chunk {
-                n_fields: meta.n_fields,
-                ts: vec![],
-                vals: vec![],
-            },
-        };
-        if chunk.n_fields != meta.n_fields {
-            return Err(codec_err("stored time-series chunk schema is invalid"));
-        }
-        let merged_points = chunk
-            .ts
-            .len()
-            .checked_add(pts.len())
-            .filter(|count| {
-                *count <= MAX_TS_POINTS_PER_CHUNK
-                    && chunk_encoded_len(*count, chunk.n_fields)
-                        .is_some_and(|bytes| bytes <= MAX_TS_CHUNK_BYTES)
-            })
-            .ok_or_else(|| codec_err("time-series chunk exceeds the storage limit"))?;
-        chunk.merge_points(&mut pts);
-        debug_assert_eq!(chunk.ts.len(), merged_points);
-        meta.count = meta
-            .count
-            .checked_add(pts.len() as u64)
-            .ok_or_else(|| codec_err("time-series point count overflow"))?;
-        // The merge sorted `pts`; use its endpoints rather than re-walking it.
-        meta.min_ts = meta.min_ts.min(pts[0].ts);
-        meta.max_ts = meta.max_ts.max(pts[pts.len() - 1].ts);
-        let blob = chunk.encode()?;
-        chunks
-            .insert((series_id, bucket), blob.as_slice())
-            .map_err(redb_err)?;
-    }
+    let mut meta = load_append_meta(&meta_tab, series_id, n_fields, bucket_ns, field_names)?;
+    append_points_by_bucket(&mut chunks, series_id, &mut meta, points)?;
 
     let mblob = rmp_serde::to_vec(&meta).map_err(codec_err)?;
     meta_tab
         .insert(series_id, mblob.as_slice())
         .map_err(redb_err)?;
     Ok(())
+}
+
+fn classify_retention_bucket(
+    bucket: u64,
+    encoded: &[u8],
+    bucket_ns: u64,
+    cutoff: Ts,
+) -> Result<Option<Vec<u8>>> {
+    let bucket_end = bucket.saturating_add(bucket_ns);
+    if (bucket_end as i64) <= cutoff {
+        return Ok(Some(Vec::new()));
+    }
+    if (bucket as i64) >= cutoff {
+        return Ok(None);
+    }
+    let mut chunk = Chunk::decode(encoded)?;
+    if chunk.trim_before(cutoff) == 0 {
+        return Ok(None);
+    }
+    if chunk.ts.is_empty() {
+        return Ok(Some(Vec::new()));
+    }
+    // `Chunk::encode` is never empty, so an empty payload unambiguously marks a drop.
+    Ok(Some(chunk.encode()?))
+}
+
+fn collect_retention_plan(
+    chunks: &Table<'_, (&str, u64), &[u8]>,
+    series_id: &str,
+    bucket_ns: u64,
+    cutoff: Ts,
+) -> Result<(Vec<u64>, Vec<(u64, Vec<u8>)>)> {
+    let mut victims = Vec::new();
+    let mut rewrites = Vec::new();
+    let mut rewrite_bytes = 0usize;
+    let mut scanned_buckets = 0usize;
+    let lo = (series_id, 0u64);
+    let hi = (series_id, u64::MAX);
+    for item in chunks.range(lo..=hi).map_err(redb_err)? {
+        let (key, value) = item.map_err(redb_err)?;
+        scanned_buckets = scanned_buckets
+            .checked_add(1)
+            .filter(|count| *count <= MAX_TS_BUCKETS_PER_OPERATION)
+            .ok_or_else(|| codec_err("time-series retention exceeds the operation limit"))?;
+        if victims.len().saturating_add(rewrites.len()) > MAX_TS_BUCKETS_PER_OPERATION {
+            return Err(codec_err(
+                "time-series retention exceeds the operation limit",
+            ));
+        }
+        let bucket = key.value().1;
+        match classify_retention_bucket(bucket, value.value(), bucket_ns, cutoff)? {
+            None => {}
+            Some(encoded) if encoded.is_empty() => victims.push(bucket),
+            Some(encoded) => {
+                rewrite_bytes = rewrite_bytes
+                    .checked_add(encoded.len())
+                    .filter(|bytes| *bytes <= MAX_TS_OPERATION_BYTES)
+                    .ok_or_else(|| {
+                        codec_err("time-series retention exceeds the operation limit")
+                    })?;
+                rewrites.push((bucket, encoded));
+            }
+        }
+    }
+    Ok((victims, rewrites))
+}
+
+fn apply_retention_plan(
+    chunks: &mut Table<'_, (&str, u64), &[u8]>,
+    series_id: &str,
+    victims: &[u64],
+    rewrites: &[(u64, Vec<u8>)],
+) -> Result<usize> {
+    let mut dropped = 0usize;
+    for bucket in victims {
+        if let Some(guard) = chunks.remove((series_id, *bucket)).map_err(redb_err)? {
+            drop(guard);
+            dropped += 1;
+        }
+    }
+    for (bucket, blob) in rewrites {
+        chunks
+            .insert((series_id, *bucket), blob.as_slice())
+            .map_err(redb_err)?;
+    }
+    Ok(dropped)
+}
+
+fn recompute_retention_meta(
+    chunks: &Table<'_, (&str, u64), &[u8]>,
+    series_id: &str,
+) -> Result<(u64, Ts)> {
+    let mut new_count = 0u64;
+    let mut new_min = Ts::MAX;
+    let mut survivor_buckets = 0usize;
+    let lo = (series_id, 0u64);
+    let hi = (series_id, u64::MAX);
+    for item in chunks.range(lo..=hi).map_err(redb_err)? {
+        let (_key, value) = item.map_err(redb_err)?;
+        survivor_buckets = survivor_buckets
+            .checked_add(1)
+            .filter(|count| *count <= MAX_TS_BUCKETS_PER_OPERATION)
+            .ok_or_else(|| codec_err("time-series retention exceeds the operation limit"))?;
+        let chunk = Chunk::decode(value.value())?;
+        new_count = new_count
+            .checked_add(chunk.ts.len() as u64)
+            .ok_or_else(|| codec_err("stored time-series point count overflow"))?;
+        if let Some(&first) = chunk.ts.first() {
+            new_min = new_min.min(first);
+        }
+    }
+    Ok((new_count, new_min))
+}
+
+fn evict_before_in_wtx<W: SeriesTableWriter>(
+    wtx: &W,
+    series_id: &str,
+    cutoff: Ts,
+    source_meta: &SeriesMeta,
+) -> Result<usize> {
+    let mut chunks = wtx.open_series_table(SERIES_CHUNKS)?;
+    let mut meta_tab = wtx.open_series_table(SERIES_META)?;
+    let (victims, rewrites) =
+        collect_retention_plan(&chunks, series_id, source_meta.bucket_ns, cutoff)?;
+    let dropped = apply_retention_plan(&mut chunks, series_id, &victims, &rewrites)?;
+    let (new_count, new_min) = recompute_retention_meta(&chunks, series_id)?;
+    let mut meta = source_meta.clone();
+    meta.count = new_count;
+    meta.min_ts = if new_count == 0 { Ts::MAX } else { new_min };
+    if new_count == 0 {
+        meta.max_ts = Ts::MIN;
+    }
+    let blob = rmp_serde::to_vec(&meta).map_err(codec_err)?;
+    meta_tab
+        .insert(series_id, blob.as_slice())
+        .map_err(redb_err)?;
+    Ok(dropped)
 }
 
 /// List every series id present, reading from an ALREADY-OPEN [`ReadTransaction`] the
@@ -1538,6 +1694,57 @@ pub fn meta_in_rtx<R: SeriesTableReader>(rtx: &R, series_id: &str) -> Result<Opt
     }
 }
 
+fn range_bucket_bounds(meta: &SeriesMeta, from: Ts, to: Ts) -> Option<(u64, u64)> {
+    if meta.count == 0 {
+        return None;
+    }
+    let scan_from = from.max(meta.min_ts);
+    if scan_from > meta.max_ts || to <= meta.min_ts {
+        return None;
+    }
+    let scan_through = to.saturating_sub(1).min(meta.max_ts);
+    Some((
+        SeriesStore::bucket_of(scan_from, meta.bucket_ns),
+        SeriesStore::bucket_of(scan_through, meta.bucket_ns),
+    ))
+}
+
+fn append_chunk_window(
+    chunk: &Chunk,
+    expected_fields: usize,
+    from: Ts,
+    to: Ts,
+    out: &mut Vec<Point>,
+    response_bytes: &mut usize,
+) -> Result<()> {
+    let nf = chunk.n_fields;
+    if nf != expected_fields {
+        return Err(codec_err("stored time-series chunk schema is invalid"));
+    }
+    let point_bytes = std::mem::size_of::<Point>()
+        .checked_add(
+            nf.checked_mul(std::mem::size_of::<f64>())
+                .ok_or_else(|| codec_err("time-series response exceeds the limit"))?,
+        )
+        .ok_or_else(|| codec_err("time-series response exceeds the limit"))?;
+    let start = chunk.ts.partition_point(|&t| t < from);
+    let end = chunk.ts.partition_point(|&t| t < to);
+    for i in start..end {
+        *response_bytes = response_bytes
+            .checked_add(point_bytes)
+            .filter(|bytes| *bytes <= MAX_TS_QUERY_BYTES)
+            .ok_or_else(|| codec_err("time-series response exceeds the limit"))?;
+        if out.len() >= MAX_TS_QUERY_POINTS {
+            return Err(codec_err("time-series response exceeds the limit"));
+        }
+        out.push(Point {
+            ts: chunk.ts[i],
+            values: chunk.vals[i * nf..(i + 1) * nf].to_vec(),
+        });
+    }
+    Ok(())
+}
+
 /// Scan `[from, to)` of a series in ts order from an ALREADY-OPEN [`ReadTransaction`]
 /// (CONCEPT:EG-KG.backend.ts-startup-reconcile). Byte-for-byte the same bucket-range walk as
 /// [`SeriesStore::range`] (which now delegates here for its own `db`); see
@@ -1557,21 +1764,9 @@ pub fn range_in_rtx<R: SeriesTableReader>(
         Some(m) => m,
         None => return Ok(vec![]),
     };
-    if meta.count == 0 {
+    let Some((from_bucket, to_bucket)) = range_bucket_bounds(&meta, from, to) else {
         return Ok(vec![]);
-    }
-    // Clamp to the series' real bucket span — see `SeriesStore::range`'s doc comment
-    // for why the caller's open bound must not be cast through u64 directly.
-    let scan_from = from.max(meta.min_ts);
-    if scan_from > meta.max_ts || to <= meta.min_ts {
-        return Ok(vec![]);
-    }
-    // `[from, to)` includes at most `to - 1` at nanosecond resolution. Clamping
-    // the upper bucket to that timestamp avoids the old scan through every future
-    // bucket up to the series maximum for a narrow historical query.
-    let scan_through = to.saturating_sub(1).min(meta.max_ts);
-    let from_bucket = SeriesStore::bucket_of(scan_from, meta.bucket_ns);
-    let to_bucket = SeriesStore::bucket_of(scan_through, meta.bucket_ns);
+    };
     let chunks = match rtx.open_series_table_if_present(SERIES_CHUNKS)? {
         Some(t) => t,
         None => return Ok(vec![]),
@@ -1583,33 +1778,14 @@ pub fn range_in_rtx<R: SeriesTableReader>(
     for item in chunks.range(lo..=hi).map_err(redb_err)? {
         let (_k, v) = item.map_err(redb_err)?;
         let chunk = Chunk::decode(v.value())?;
-        let nf = chunk.n_fields;
-        if nf != meta.n_fields {
-            return Err(codec_err("stored time-series chunk schema is invalid"));
-        }
-        let point_bytes = std::mem::size_of::<Point>()
-            .checked_add(
-                nf.checked_mul(std::mem::size_of::<f64>())
-                    .ok_or_else(|| codec_err("time-series response exceeds the limit"))?,
-            )
-            .ok_or_else(|| codec_err("time-series response exceeds the limit"))?;
-        // Chunks are sorted, so narrow windows seek to their exact slice instead
-        // of testing every point in the two boundary buckets.
-        let start = chunk.ts.partition_point(|&t| t < from);
-        let end = chunk.ts.partition_point(|&t| t < to);
-        for i in start..end {
-            response_bytes = response_bytes
-                .checked_add(point_bytes)
-                .filter(|bytes| *bytes <= MAX_TS_QUERY_BYTES)
-                .ok_or_else(|| codec_err("time-series response exceeds the limit"))?;
-            if out.len() >= MAX_TS_QUERY_POINTS {
-                return Err(codec_err("time-series response exceeds the limit"));
-            }
-            out.push(Point {
-                ts: chunk.ts[i],
-                values: chunk.vals[i * nf..(i + 1) * nf].to_vec(),
-            });
-        }
+        append_chunk_window(
+            &chunk,
+            meta.n_fields,
+            from,
+            to,
+            &mut out,
+            &mut response_bytes,
+        )?;
     }
     Ok(out)
 }

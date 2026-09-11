@@ -22,6 +22,7 @@ use crate::physical::root::{
     initialize_strict_in, store_handle, validate_incarnation_read, PhysicalStore,
 };
 use crate::recovery::validate::validate_recovery_content;
+use crate::tables::SCOPE_BINDINGS;
 use eg_types::MutationScopeIdentity;
 use redb::{Database, ReadableDatabase};
 use std::collections::BTreeSet;
@@ -290,6 +291,58 @@ impl StorageKernel {
         owner: &OwnedStoreHandle<D>,
     ) -> Result<ScopedRead<'_, D>, String> {
         ScopedRead::open(&self.store, owner)
+    }
+
+    /// Tell a graft retry whether its source binding still exists.
+    ///
+    /// A failed write open is not by itself proof of retirement: it can also
+    /// be an I/O, manifest or recovery failure. Keep that distinction in the
+    /// storage kernel, where binding validation is authoritative, so callers
+    /// can only treat the one exact missing-binding result as an idempotent
+    /// completed retirement.
+    pub fn scope_is_bound<D: OwnerDomain>(
+        &self,
+        owner: &OwnedStoreHandle<D>,
+    ) -> Result<bool, String> {
+        match self.read_scope(owner) {
+            Ok(read) => {
+                drop(read);
+                Ok(true)
+            }
+            Err(error) if error == "mutation scope is not bound to this store" => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Prove binding absence for graft recovery when the original typed owner
+    /// handle cannot be reconstructed after retirement.  This checks the
+    /// authoritative physical binding row directly, while still validating
+    /// the current root, manifest and declared table census first.
+    pub fn scope_binding_exists(&self, identity: &MutationScopeIdentity) -> Result<bool, String> {
+        identity.validate_digest()?;
+        self.store.validate_physical_root()?;
+        let read = self
+            .store
+            .database
+            .begin_read()
+            .map_err(|error| error.to_string())?;
+        let manifest = validate_manifest_read(
+            &read,
+            &self.store.manifest().physical_identity,
+            self.store.manifest().layout,
+        )?;
+        if manifest != *self.store.manifest() {
+            return Err("mutation read manifest authority changed".to_string());
+        }
+        validate_declared_owner_tables(&read, manifest.layout)?;
+        let table = read
+            .open_table(SCOPE_BINDINGS)
+            .map_err(|error| error.to_string())?;
+        let key = identity.binding_digest().to_hex();
+        Ok(table
+            .get(key.as_str())
+            .map_err(|error| error.to_string())?
+            .is_some())
     }
 
     /// Capture one complete owner-scoped physical snapshot.

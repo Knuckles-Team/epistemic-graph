@@ -198,6 +198,36 @@ async def send_restore(
     return OpaqueResult("Restore", payload)
 
 
+class AgentLibraryRequest(BaseModel):
+    """Request body for AgentLibrary - contract/schemas/method.request.json#/methods/AgentLibrary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Any
+
+
+async def send_agent_library(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """AgentLibrary - agent:library-write, ControlRedb, replay OperationIdentity.
+
+    Result: opaque (Raw) - the contract declares no result schema.
+    Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
+    """
+    AgentLibraryRequest.model_validate(params or {})
+    payload = await client._send(
+        "AgentLibrary",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("AgentLibrary", payload)
+
+
 class TsAppendRequest(BaseModel):
     """Request body for TsAppend - contract/schemas/method.request.json#/methods/TsAppend."""
 

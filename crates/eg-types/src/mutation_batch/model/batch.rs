@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{MutationOperation, MutationRequestContext, MutationScopeIdentity};
+use super::{MutationCapability, MutationEnvelope, MutationOperation, MutationScopeIdentity};
 
 /// Digest/version descriptor for authenticated authoritative graph material.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,13 +83,13 @@ pub struct MutationBatch {
     pub schema_version: u16,
     /// Stable identity for status lookup and outbox correlation.
     pub batch_id: String,
-    pub context: MutationRequestContext,
+    /// The admission header this batch is admitted under: verified caller
+    /// authority for an operation, the store's own declaration for maintenance.
+    pub envelope: MutationEnvelope,
     /// Exact tenant, typed logical owner, lifecycle generation, and digest.
     pub identity: MutationScopeIdentity,
     /// Catalog epoch used to resolve a placed owner.
     pub placement_epoch: u64,
-    /// Caller-stable retry key.
-    pub idempotency_key: String,
     pub version_expectation: VersionExpectation,
     /// Lease/worker fencing epoch for work-driven writes.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -106,5 +106,70 @@ pub struct MutationBatch {
 impl MutationBatch {
     pub fn validate_identity(&self) -> Result<(), String> {
         self.identity.validate_digest()
+    }
+
+    /// Re-mint this batch's envelope over its CURRENT content.
+    ///
+    /// The compile path mints from final content by construction -- the outbox
+    /// and operations are inputs to the mint, not things appended after it -- so
+    /// production never needs this. A caller that assembles a batch in steps
+    /// (every test fixture, and any future producer that legitimately builds its
+    /// body incrementally) uses this to do exactly what the compile path does at
+    /// the end: recompute the method identity and canonical payload digest FROM
+    /// the batch's own operations, outbox and authoritative state.
+    ///
+    /// It cannot forge anything and it is not a bypass: it reads the body it is
+    /// about to describe. What it prevents is the opposite defect --
+    /// an envelope left covering bytes the batch no longer has, which
+    /// `validate` refuses.
+    ///
+    /// A maintenance envelope covers no content and is left untouched.
+    pub fn reseal_envelope(
+        &mut self,
+        method_schema_digest: crate::contract::Digest256,
+    ) -> Result<(), String> {
+        let content = super::BatchContent {
+            operations: &self.operations,
+            outbox: &self.outbox,
+            authoritative_state: self.authoritative_state.as_ref(),
+        };
+        let resealed =
+            super::CompiledOperation::for_content(&self.identity, content, method_schema_digest)?;
+        let MutationEnvelope::Operation(envelope) = &mut self.envelope else {
+            return Ok(());
+        };
+        envelope.method = resealed.method;
+        envelope.method_schema_id = resealed.method_schema_id;
+        envelope.method_schema_digest = resealed.method_schema_digest;
+        envelope.canonical_payload_digest = resealed.canonical_payload_digest;
+        Ok(())
+    }
+
+    /// The caller-stable retry key, read through the envelope.
+    ///
+    /// It is deliberately NOT a field: RF-ADR-001 forbids two copies of one
+    /// value, and the key lives inside the authority the replay identity is
+    /// derived from. A batch and its identity therefore cannot disagree about
+    /// which key the ledger row is under.
+    pub fn idempotency_key(&self) -> &str {
+        self.envelope.idempotency_key()
+    }
+
+    /// The principal the committing ledger requires -- for every domain, the
+    /// store's serving principal. The verified CALLER is the outbox `actor`
+    /// header (see `MutationBatchRecord::committing_actor`), never this.
+    pub fn serving_principal(&self) -> &str {
+        self.envelope.serving_principal()
+    }
+
+    /// True when this batch is an owner-maintenance write (RF-RULING-005).
+    pub fn is_maintenance(&self) -> bool {
+        self.envelope.is_maintenance()
+    }
+
+    /// Capabilities verified at admission; `None` for a maintenance write, which
+    /// has no caller to have verified anything about.
+    pub fn verified_capabilities(&self) -> Option<&std::collections::BTreeSet<MutationCapability>> {
+        self.envelope.verified_capabilities()
     }
 }

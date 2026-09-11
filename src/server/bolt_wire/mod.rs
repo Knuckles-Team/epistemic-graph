@@ -45,10 +45,12 @@ use crate::server::ServerState;
 
 mod auth;
 pub mod packstream;
+mod session;
 
 pub use auth::{encode_session_credential, BOLT_AUTH_SCHEME};
 
 use packstream::PackValue;
+use session::BoltReply;
 
 /// Env var: when set (and the binary is built `--features bolt-wire`), the Bolt listener
 /// binds this address (documented Neo4j default loopback `127.0.0.1:7687`). Unset ⇒ no
@@ -541,6 +543,8 @@ async fn commit_writes(
     let ctx = MutationCtx {
         req_id: request_id,
         caller: Some(verified.agent_id()),
+        attempt_nonce: verified.attempt_nonce(),
+        idempotency_key: verified.idempotency_key(),
         tenant_scope: carrier.tenant_scope(),
         graph_name: &graph,
         graph_type: graph_context.graph_type,
@@ -749,302 +753,62 @@ async fn handle_connection<S>(s: &mut S, mut session: BoltSession) -> std::io::R
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    // ── handshake: 4-byte magic + four 4-byte version proposals ─────────────────
-    let mut magic = [0u8; 4];
-    s.read_exact(&mut magic).await?;
-    if magic != BOLT_MAGIC {
-        return Ok(()); // not a Bolt client — drop.
+    if !handshake(s).await? {
+        return Ok(());
     }
-    let mut proposals = [0u8; 16];
-    s.read_exact(&mut proposals).await?;
-    // We speak Bolt 4.4. Accept if the client proposed a 4.x version (major byte == 4);
-    // otherwise still answer 4.4 (the driver will disconnect if it can't speak it).
-    let mut chosen = BOLT_VERSION_4_4;
-    let client_supports_4 = proposals.chunks(4).any(|v| v[3] == 4);
-    if !client_supports_4 {
-        // No overlap we can guarantee — reply 4.4 anyway (best-effort single-version offer).
-        chosen = BOLT_VERSION_4_4;
-    }
-    s.write_all(&chosen).await?;
-    s.flush().await?;
-
-    // ── message loop ────────────────────────────────────────────────────────────
-    loop {
-        let body = match read_message(s).await {
-            Ok(Some(b)) => b,
-            Ok(None) => break, // clean EOF
-            Err(_) => break,   // socket error / client gone
-        };
-        let msg = match packstream::decode(&body) {
-            Ok(PackValue::Structure { tag, fields }) => (tag, fields),
-            _ => {
-                // Malformed frame → FAILURE + enter FAILED state.
-                let f = BoltFailure::client(
-                    "Neo.ClientError.Request.Invalid",
-                    "malformed Bolt message (expected a structure)",
-                );
-                write_msg(s, &failure(&f)).await?;
-                session.failed = true;
-                continue;
-            }
-        };
-        let (tag, fields) = msg;
-
-        // GOODBYE always closes, even in FAILED state (no response).
-        if tag == MSG_GOODBYE {
-            break;
-        }
-        // RESET clears FAILED state + any pending result + open txn.
-        if tag == MSG_RESET {
-            session.failed = false;
-            session.pending = None;
-            session.transaction = None;
-            write_msg(s, &success(vec![])).await?;
-            continue;
-        }
-        // In FAILED state, every other message is IGNORED until RESET.
-        if session.failed {
-            write_msg(s, &ignored()).await?;
-            continue;
-        }
-        if session.authority.is_none() && !matches!(tag, MSG_HELLO | MSG_LOGON | MSG_LOGOFF) {
-            let denied = BoltFailure::client(
-                "Neo.ClientError.Security.Unauthorized",
-                "authentication required",
-            );
-            write_msg(s, &failure(&denied)).await?;
-            session.failed = true;
-            continue;
-        }
-
-        match tag {
-            MSG_HELLO => {
-                let extra = fields
-                    .first()
-                    .cloned()
-                    .map(PackValue::into_map)
-                    .unwrap_or_default();
-                session.authority = None;
-                session.graph = None;
-                match authenticate_session(&session.state, &extra).await {
-                    Ok((authority, graph, request_seed)) => {
-                        session.authority = Some(authority);
-                        session.graph = Some(graph);
-                        session.request_seed = Some(request_seed);
-                        session.request_sequence = 0;
-                        let meta = vec![
-                            ("server", PackValue::String(SERVER_AGENT.to_string())),
-                            (
-                                "connection_id",
-                                PackValue::String(format!("bolt-{}", next_conn_id())),
-                            ),
-                        ];
-                        write_msg(s, &success(meta)).await?;
-                    }
-                    Err(denied) => {
-                        write_msg(s, &failure(&denied)).await?;
-                        session.failed = true;
-                    }
-                }
-            }
-            MSG_LOGON => {
-                let extra = fields
-                    .first()
-                    .cloned()
-                    .map(PackValue::into_map)
-                    .unwrap_or_default();
-                if session.transaction.is_some() {
-                    let denied = BoltFailure::client(
-                        "Neo.ClientError.Transaction.TransactionAccessedConcurrently",
-                        "cannot replace authority during a transaction",
-                    );
-                    write_msg(s, &failure(&denied)).await?;
-                    session.failed = true;
-                    continue;
-                }
-                session.authority = None;
-                session.graph = None;
-                match authenticate_session(&session.state, &extra).await {
-                    Ok((authority, graph, request_seed)) => {
-                        session.authority = Some(authority);
-                        session.graph = Some(graph);
-                        session.request_seed = Some(request_seed);
-                        session.request_sequence = 0;
-                        write_msg(s, &success(vec![])).await?;
-                    }
-                    Err(denied) => {
-                        write_msg(s, &failure(&denied)).await?;
-                        session.failed = true;
-                    }
-                }
-            }
-            MSG_LOGOFF => {
-                session.authority = None;
-                session.graph = None;
-                session.request_seed = None;
-                session.transaction = None;
-                session.pending = None;
-                write_msg(s, &success(vec![])).await?;
-            }
-            MSG_BEGIN => {
-                let extra = fields
-                    .first()
-                    .cloned()
-                    .map(PackValue::into_map)
-                    .unwrap_or_default();
-                let started = if session.transaction.is_some() {
-                    Err(BoltFailure::client(
-                        "Neo.ClientError.Transaction.TransactionAccessedConcurrently",
-                        "an explicit transaction is already active",
-                    ))
-                } else {
-                    match require_signed_graph(&session, &extra) {
-                        Ok(()) => begin_transaction(&session).await,
-                        Err(error) => Err(error),
-                    }
-                };
-                match started {
-                    Ok(transaction) => {
-                        session.transaction = Some(transaction);
-                        write_msg(s, &success(vec![])).await?;
-                    }
-                    Err(error) => {
-                        write_msg(s, &failure(&error)).await?;
-                        session.failed = true;
-                    }
-                }
-            }
-            MSG_COMMIT => {
-                let Some(transaction) = session.transaction.take() else {
-                    let error = BoltFailure::client(
-                        "Neo.ClientError.Transaction.InvalidBookmark",
-                        "no explicit transaction is active",
-                    );
-                    write_msg(s, &failure(&error)).await?;
-                    session.failed = true;
-                    continue;
-                };
-                let committed = if transaction.writes.is_empty() {
-                    Ok(())
-                } else {
-                    commit_writes(
-                        &mut session,
-                        transaction.writes,
-                        Some(transaction.base_version),
-                    )
-                    .await
-                    .map(|_| ())
-                };
-                match committed {
-                    Ok(()) => {
-                        write_msg(
-                            s,
-                            &success(vec![(
-                                "bookmark",
-                                PackValue::String(format!(
-                                    "eg:bookmark:{:016x}",
-                                    session.request_sequence
-                                )),
-                            )]),
-                        )
-                        .await?;
-                    }
-                    Err(error) => {
-                        write_msg(s, &failure(&error)).await?;
-                        session.failed = true;
-                    }
-                }
-            }
-            MSG_ROLLBACK => {
-                session.transaction = None;
-                session.pending = None;
-                write_msg(s, &success(vec![])).await?;
-            }
-            MSG_RUN => {
-                // fields: [query: String, params: Map, extra: Map]
-                let query = fields
-                    .first()
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let params = fields
-                    .get(1)
-                    .cloned()
-                    .map(|v| v.into_map())
-                    .unwrap_or_default();
-                let extra = fields
-                    .get(2)
-                    .cloned()
-                    .map(PackValue::into_map)
-                    .unwrap_or_default();
-                if let Err(error) = require_signed_graph(&session, &extra) {
-                    write_msg(s, &failure(&error)).await?;
-                    session.failed = true;
-                    continue;
-                }
-                match run_cypher(&mut session, &query, &params).await {
-                    Ok(pending) => {
-                        let fields_meta = PackValue::List(
-                            pending
-                                .fields
-                                .iter()
-                                .map(|f| PackValue::String(f.clone()))
-                                .collect(),
-                        );
-                        session.pending = Some(pending);
-                        write_msg(s, &success(vec![("fields", fields_meta)])).await?;
-                    }
-                    Err(f) => {
-                        write_msg(s, &failure(&f)).await?;
-                        session.failed = true;
-                    }
-                }
-            }
-            MSG_PULL | MSG_DISCARD => {
-                // extra: {n: i64, qid: i64}. n == -1 means "all". DISCARD drops records.
-                let n = fields
-                    .first()
-                    .and_then(|v| v.get("n"))
-                    .and_then(|v| v.as_int())
-                    .unwrap_or(-1);
-                match session.pending.take() {
-                    Some(pending) => {
-                        if tag == MSG_PULL {
-                            let limit = if n < 0 {
-                                pending.records.len()
-                            } else {
-                                (n as usize).min(pending.records.len())
-                            };
-                            for cells in pending.records.into_iter().take(limit) {
-                                write_msg(s, &record(cells)).await?;
-                            }
-                        }
-                        write_msg(
-                            s,
-                            &success(vec![
-                                ("type", PackValue::String(pending.query_type.to_string())),
-                                ("t_last", PackValue::Int(0)),
-                            ]),
-                        )
-                        .await?;
-                    }
-                    None => {
-                        // No streamed result open — a benign empty SUCCESS.
-                        write_msg(s, &success(vec![])).await?;
-                    }
-                }
-            }
-            other => {
-                let f = BoltFailure::client(
-                    "Neo.ClientError.Request.Invalid",
-                    format!("unsupported Bolt message tag {other:#04x}"),
-                );
-                write_msg(s, &failure(&f)).await?;
-                session.failed = true;
-            }
+    while let Ok(Some(body)) = read_message(s).await {
+        match session::reply(&mut session, &body).await {
+            BoltReply::Close => break,
+            reply => write_reply(s, &mut session, reply).await?,
         }
     }
     Ok(())
+}
+
+/// The Bolt handshake: the 4-byte magic then four 4-byte version proposals. We
+/// speak Bolt 4.4 and offer only that whatever the client proposed — a driver
+/// that cannot speak it disconnects on the version reply. `false` means the
+/// peer is not a Bolt client at all and the connection is dropped.
+async fn handshake<S>(s: &mut S) -> std::io::Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let mut magic = [0u8; 4];
+    s.read_exact(&mut magic).await?;
+    if magic != BOLT_MAGIC {
+        return Ok(false);
+    }
+    let mut proposals = [0u8; 16];
+    s.read_exact(&mut proposals).await?;
+    s.write_all(&BOLT_VERSION_4_4).await?;
+    s.flush().await?;
+    Ok(true)
+}
+
+/// Write one decided reply and apply the session-state effect it carries.
+async fn write_reply<S>(
+    s: &mut S,
+    session: &mut BoltSession,
+    reply: BoltReply,
+) -> std::io::Result<()>
+where
+    S: AsyncWrite + Unpin,
+{
+    match reply {
+        BoltReply::Success(meta) => write_msg(s, &success(meta)).await,
+        BoltReply::Streamed { records, meta } => {
+            for cells in records {
+                write_msg(s, &record(cells)).await?;
+            }
+            write_msg(s, &success(meta)).await
+        }
+        BoltReply::Ignored => write_msg(s, &ignored()).await,
+        BoltReply::Failed(error) => {
+            session.failed = true;
+            write_msg(s, &failure(&error)).await
+        }
+        BoltReply::Close => Ok(()),
+    }
 }
 
 /// Read ONE complete chunked Bolt message off the stream (CONCEPT:EG-KG.query.bolt-wire-protocol): read
@@ -1201,7 +965,6 @@ mod tests {
                     crate::server::unique_temp_dir("eg-bolt-server-test")
                         .to_string_lossy()
                         .into_owned(),
-                    crate::durability::DurabilityPolicy::Each,
                     256,
                 )
                 .expect("open bolt test redb backend"),
@@ -1231,16 +994,11 @@ mod tests {
         Arc<RwLock<ServerState>>,
         Arc<dyn crate::server::persistence::PersistenceBackend>,
     ) {
-        use crate::durability::DurabilityPolicy;
         use crate::protocol::GraphType;
         use crate::server::persistence::redb_backend::RedbBackend;
 
-        let backend = RedbBackend::open(
-            dir.to_string_lossy().to_string(),
-            DurabilityPolicy::Each,
-            64,
-        )
-        .expect("open Bolt test backend");
+        let backend = RedbBackend::open(dir.to_string_lossy().to_string(), 64)
+            .expect("open Bolt test backend");
         let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> =
             Arc::new(backend);
         persistence
@@ -1619,7 +1377,6 @@ mod tests {
     #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread")]
     async fn bolt_atomic_commit_survives_backend_restart() {
-        use crate::durability::DurabilityPolicy;
         use crate::server::persistence::redb_backend::RedbBackend;
 
         // Held for the whole test: this test opens a `RedbBackend`, then DROPS it and
@@ -1683,12 +1440,8 @@ mod tests {
         drop(persistence);
 
         let reopened: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
-            RedbBackend::open(
-                dir.to_string_lossy().to_string(),
-                DurabilityPolicy::Each,
-                64,
-            )
-            .expect("reopen Bolt test backend"),
+            RedbBackend::open(dir.to_string_lossy().to_string(), 64)
+                .expect("reopen Bolt test backend"),
         );
         let recovered = test_state(false);
         reopened.load_all(&recovered).await.unwrap();

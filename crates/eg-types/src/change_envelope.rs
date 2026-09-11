@@ -285,8 +285,7 @@ impl ChangeEnvelope {
     fn validate_principal(&self) -> Result<(), String> {
         let principal_digest = self
             .mutation
-            .context
-            .principal
+            .serving_principal()
             .strip_prefix("principal:sha256:")
             .ok_or_else(|| "durable mutation principal must be an opaque sha256 id".to_string())?;
         validate_digest("sha256", principal_digest)?;
@@ -295,7 +294,6 @@ impl ChangeEnvelope {
 
     fn validate_text_and_context(&self) -> Result<(), String> {
         self.validate_core_text_fields()?;
-        self.validate_optional_context_fields()?;
         self.validate_outbox()?;
         Ok(())
     }
@@ -311,26 +309,24 @@ impl ChangeEnvelope {
         for value in [
             self.envelope_id.as_str(),
             self.mutation.batch_id.as_str(),
-            self.mutation.idempotency_key.as_str(),
+            self.mutation.idempotency_key(),
         ] {
             validate_safe_text(value)?;
         }
         Ok(())
     }
 
-    fn validate_optional_context_fields(&self) -> Result<(), String> {
-        for optional in [
-            self.mutation.context.purpose.as_deref(),
-            self.mutation.context.policy_fingerprint.as_deref(),
-            self.mutation.context.trace_id.as_deref(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            validate_safe_text(optional)?;
-        }
-        Ok(())
-    }
+    // `validate_optional_context_fields` is DELETED, not moved: the three
+    // free-form `Option<String>` fields it scanned -- `purpose`,
+    // `policy_fingerprint`, `trace_id` -- no longer exist. `MutationEnvelope`
+    // replaced them with `purpose_kind` (a closed token), `purpose_resource`
+    // (a `ResourceId` that `AuthorityContext::validate` additionally forces to
+    // EQUAL the scope's own id), `policy_revision`/`policy_digest`, and a
+    // `trace_id` that is an `OpaqueId`. Every one of them is constrained by its
+    // own type and by the context digest, so a path- or address-shaped value is
+    // unrepresentable rather than merely scanned for -- the same reason the
+    // tenant and graph names left this scan when they became newtypes. See
+    // `a_context_purpose_cannot_be_free_form_text` for the structural proof.
 
     fn validate_outbox(&self) -> Result<(), String> {
         for intent in &self.mutation.outbox {
@@ -721,18 +717,54 @@ mod tests {
         assert!(validate_msgpack_privacy(&[0xdd, 0xff, 0xff, 0xff, 0xff]).is_err());
     }
 
+    /// The operation envelope of the fixture batch, on its own graph scope.
+    /// Re-mint the fixture's envelope over its CURRENT body.
+    ///
+    /// These cases change the batch's operations or outbox to plant a privacy
+    /// violation, which is what a PRODUCER compiling that content would have
+    /// produced -- so the envelope has to describe it, exactly as
+    /// `finish_batch` would. Without this they would fail on the envelope
+    /// coverage check and never reach the privacy scanner they exist to test.
+    fn reseal(envelope: &mut ChangeEnvelope) {
+        envelope
+            .mutation
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
+    }
+
+    fn minimal_mutation_envelope() -> crate::mutation_batch::MutationEnvelope {
+        let identity = crate::mutation_batch::MutationScopeIdentity::graph(
+            crate::mutation_batch::ScopeTenantId::new("tenant-a").unwrap(),
+            crate::mutation_batch::LogicalName::new("graph-a").unwrap(),
+            crate::mutation_batch::IncarnationId::new("incarnation:test:change-envelope").unwrap(),
+        );
+        let method =
+            crate::contract::MethodId::new(crate::mutation_batch::BATCH_COMPILED_METHODS).unwrap();
+        crate::mutation_batch::MutationEnvelope::for_scope(
+            crate::mutation_batch::CompiledScope {
+                identity: &identity,
+                actor: &format!("principal:sha256:{}", "a".repeat(64)),
+                serving_principal: &format!("principal:sha256:{}", "a".repeat(64)),
+                request_id: 1,
+                idempotency_key: "idem-1",
+                nonce: crate::contract::Nonce::from_bytes([1_u8; 32]),
+                now_ms: 0,
+            },
+            crate::mutation_batch::CompiledOperation {
+                method_schema_id: crate::mutation_batch::method_schema_id(&method).unwrap(),
+                method,
+                method_schema_digest: crate::contract::Digest256::from_bytes([1_u8; 32]),
+                canonical_payload_digest: crate::contract::Digest256::from_bytes([2_u8; 32]),
+            },
+        )
+        .unwrap()
+    }
+
     fn minimal_envelope() -> ChangeEnvelope {
-        let mutation = crate::mutation_batch::MutationBatch {
+        let mut mutation = crate::mutation_batch::MutationBatch {
             schema_version: crate::mutation_batch::MUTATION_BATCH_VERSION,
             batch_id: "batch-1".into(),
-            context: crate::mutation_batch::MutationRequestContext {
-                request_id: 1,
-                principal: format!("principal:sha256:{}", "a".repeat(64)),
-                purpose: None,
-                policy_fingerprint: None,
-                trace_id: None,
-                verified_capabilities: Default::default(),
-            },
+            envelope: minimal_mutation_envelope(),
             identity: crate::mutation_batch::MutationScopeIdentity::graph(
                 crate::mutation_batch::ScopeTenantId::new("tenant-a").unwrap(),
                 crate::mutation_batch::LogicalName::new("graph-a").unwrap(),
@@ -740,7 +772,6 @@ mod tests {
                     .unwrap(),
             ),
             placement_epoch: 0,
-            idempotency_key: "idem-1".into(),
             version_expectation: crate::mutation_batch::VersionExpectation::Graph(0),
             fencing_token: None,
             authoritative_state: None,
@@ -757,6 +788,9 @@ mod tests {
             outbox: Vec::new(),
             created_at_ms: 0,
         };
+        mutation
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals");
         ChangeEnvelope {
             schema_version: CHANGE_ENVELOPE_VERSION,
             envelope_id: "envelope-1".into(),
@@ -928,12 +962,35 @@ mod tests {
     // below, not deleted (not "genuinely dead" per the 5-evidence-check bar,
     // and behaviour-preservation forbids touching it in this lane anyway).
 
+    /// The privacy property the deleted `unsafe_optional_context_field_is_rejected`
+    /// case asserted, proved structurally instead of by scanning.
+    ///
+    /// That test set `context.purpose` to `/home/person/notes` and expected the
+    /// text scanner to refuse it. Under `MutationEnvelope` the field is gone:
+    /// the purpose is a closed `PurposeKind` token plus a `purpose_resource`
+    /// that `AuthorityContext::validate` forces to EQUAL the authority scope's
+    /// own id. A caller-chosen path can therefore never reach a durable row --
+    /// not because a scanner rejects it, but because there is nowhere to put it.
     #[test]
-    fn unsafe_optional_context_field_is_rejected() {
-        let mut envelope = minimal_envelope();
-        envelope.mutation.context.purpose = Some("/home/person/notes".into());
-        let err = envelope.validate().unwrap_err();
-        assert!(err.contains("persistence privacy policy"), "got: {err}");
+    fn a_context_purpose_cannot_be_free_form_text() {
+        let envelope = minimal_envelope();
+        let operation = envelope.mutation.envelope.operation().unwrap();
+        assert_eq!(operation.authority.purpose_kind.as_str(), "graph_write");
+        assert_eq!(
+            operation.authority.purpose_resource.as_ref().map(|r| r.as_str()),
+            Some(operation.authority.authority_scope.scope_id.as_str())
+        );
+
+        // Planted known-bad input: a purpose resource that is NOT the scope id
+        // fails closed, whatever it spells.
+        let mut forged = operation.clone();
+        forged.authority.purpose_resource =
+            Some(crate::contract::ResourceId::new("/home/person/notes").unwrap());
+        let err = forged.validate().unwrap_err();
+        assert!(
+            err.contains("purpose resource differs from scope target"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -948,6 +1005,7 @@ mod tests {
                 payload: rmp_serde::to_vec_named(&serde_json::json!({"a": 1})).unwrap(),
                 headers: Default::default(),
             });
+        reseal(&mut envelope);
         let err = envelope.validate().unwrap_err();
         assert!(err.contains("persistence privacy policy"), "got: {err}");
     }
@@ -965,6 +1023,7 @@ mod tests {
                     .unwrap(),
                 headers: Default::default(),
             });
+        reseal(&mut envelope);
         let err = envelope.validate().unwrap_err();
         assert!(err.contains("persistence privacy policy"), "got: {err}");
     }
@@ -1168,6 +1227,7 @@ mod tests {
             node_id: "node@bad".into(),
             properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"value": 1})).unwrap(),
         };
+        reseal(&mut envelope);
         let err = envelope.validate().unwrap_err();
         assert!(err.contains("persistence privacy policy"), "got: {err}");
     }
@@ -1186,6 +1246,7 @@ mod tests {
             )
             .unwrap(),
         };
+        reseal(&mut envelope);
         let err = envelope.validate().unwrap_err();
         assert!(err.contains("persistence privacy policy"), "got: {err}");
     }
@@ -1197,6 +1258,7 @@ mod tests {
             source_id: "s@bad".into(),
             target_id: "t1".into(),
         };
+        reseal(&mut envelope);
         let err = envelope.validate().unwrap_err();
         assert!(err.contains("persistence privacy policy"), "got: {err}");
     }

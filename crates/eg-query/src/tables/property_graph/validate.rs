@@ -386,19 +386,59 @@ impl PropertyGraphStatement {
     }
 }
 
+/// The fields every property-graph element table carries, and the word a diagnostic calls
+/// that kind of element.
+pub(crate) trait ElementTable {
+    const KIND: &'static str;
+    fn labels(&self) -> &[LabelDefinition];
+}
+
+impl ElementTable for VertexTableDefinition {
+    const KIND: &'static str = "vertex";
+    fn labels(&self) -> &[LabelDefinition] {
+        &self.labels
+    }
+}
+
+impl ElementTable for EdgeTableDefinition {
+    const KIND: &'static str = "edge";
+    fn labels(&self) -> &[LabelDefinition] {
+        &self.labels
+    }
+}
+
+/// The identity and key contract every element table shares: its relation and alias
+/// identifiers, its key columns, and how those columns resolve. Labels are checked by the
+/// caller, after the edge endpoints, so the order errors surface in is unchanged.
+fn validate_element_identity(
+    relation: &SqlName,
+    alias: &SqlIdentifier,
+    key_columns: &[SqlIdentifier],
+    key_resolution: ElementKeyResolution,
+) -> Result<(), String> {
+    relation.validate()?;
+    alias.validate()?;
+    validate_key(key_columns)?;
+    validate_element_key_resolution(key_resolution, key_columns)
+}
+
 fn validate_vertex(vertex: &VertexTableDefinition) -> Result<(), String> {
-    vertex.relation.validate()?;
-    vertex.alias.validate()?;
-    validate_key(&vertex.key_columns)?;
-    validate_element_key_resolution(vertex.key_resolution, &vertex.key_columns)?;
+    validate_element_identity(
+        &vertex.relation,
+        &vertex.alias,
+        &vertex.key_columns,
+        vertex.key_resolution,
+    )?;
     validate_labels(&vertex.alias, &vertex.labels)
 }
 
 fn validate_edge(edge: &EdgeTableDefinition) -> Result<(), String> {
-    edge.relation.validate()?;
-    edge.alias.validate()?;
-    validate_key(&edge.key_columns)?;
-    validate_element_key_resolution(edge.key_resolution, &edge.key_columns)?;
+    validate_element_identity(
+        &edge.relation,
+        &edge.alias,
+        &edge.key_columns,
+        edge.key_resolution,
+    )?;
     validate_endpoint(&edge.source)?;
     validate_endpoint(&edge.destination)?;
     validate_labels(&edge.alias, &edge.labels)

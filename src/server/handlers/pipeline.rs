@@ -1,37 +1,21 @@
-//! ML pipeline handler (CONCEPT:EG-KG.mining.ml-pipeline): a composable
-//! train→eval→serve→predict lifecycle over a versioned `:Model` artifact that
-//! GENERALIZES the KAN one-off. A `PipelineSpec` is `feature steps → split → a
-//! pluggable model family`, where the family is one of the primitives that ALREADY
-//! live in `eg-compute` — this handler only COMPOSES them:
-//!
-//!   * `classify`   → `eg_compute::mining::classify` (node classification — Gaussian/
-//!     Multinomial NB, k-NN, one-vs-rest logistic / linear-SVC).
-//!   * `estimator`  → `eg_compute::datascience::estimators` (ridge/lasso/elasticnet/
-//!     tree/forest/boosting/adaboost/svr regression).
-//!   * `graphlearn` → `eg_compute::graphlearn::link_predict` (the KAN link-predictor —
-//!     the one-off, now just one registered family behind the same lifecycle).
-//!
-//! Feature steps compose the structural embedders (`fastrp`/`node2vec`) and stored
-//! node vectors; metrics come from `eg_compute::datascience::metrics` (+ the KAN's own
-//! `auc`). The fitted model is persisted as a versioned `:Model` node (`model:<name>:
-//! v<n>`), so two versions are queryable and comparable; `serve` writes a
-//! `:ServedModel` pointer so predict-by-name resolves the deployed version.
-//!
-//! GRAPH-SCOPED like mining/graphlearn — the feature steps read the live subgraph and
-//! the `:Model`/`:ServedModel`/`:Prediction` write-backs materialize into the same
-//! core. `Train`/`Serve`/`Predict` are RUNTIME-CONDITIONAL writes routed through
-//! `graph_ops::try_handle_gateway` → `commit_conditional_mutation`; `Evaluate`/`Compare`
-//! are read-only and route through this module's `try_handle`.
+//! ML pipeline handler (CONCEPT:EG-KG.mining.ml-pipeline): a graph-scoped
+//! train→evaluate→serve→predict lifecycle over versioned `:Model` artifacts.
+//! It composes eg-compute's classify, estimator, graphlearn, embedding, and
+//! metrics primitives; ordered feature steps rebuild the same recipe for eval
+//! and predict. Train/serve/predict writes use the gateway; evaluate/compare
+//! reads use this handler's RLS-projected core.
 
 // The Result router moves the large `Method` enum by value on the fall-through path;
 // boxing the Err would allocate per non-pipeline request (see mining.rs / graphlearn.rs).
 #![allow(clippy::result_large_err)]
 
+mod pipeline_model;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use eg_compute::datascience::primitives::train_test_split;
-use eg_compute::datascience::{estimators, metrics};
+use crate::graph::GraphCore;
+use crate::protocol::{GraphSource, Method, Response, ResultPayload};
+use eg_compute::datascience::estimators;
 use eg_compute::graph_algos::AdjacencyGraph;
 use eg_compute::graphlearn::edge_fn::Basis;
 use eg_compute::graphlearn::embeddings::{
@@ -39,30 +23,12 @@ use eg_compute::graphlearn::embeddings::{
 };
 use eg_compute::graphlearn::link_predict::{self, FeatureCtx, KanLinkConfig, KanLinkModel};
 use eg_compute::mining::classify;
+use eg_types::wire::{FeatureStep, ModelSpec, PipelineSpec};
 use serde_json::{json, Value};
 
-use crate::graph::GraphCore;
-use crate::protocol::{GraphSource, Method, Response, ResultPayload};
-use eg_types::wire::{
-    EstimatorParams, FeatureStep, FittedClassifier, FittedModel, ModelSpec, PipelineSpec,
-};
-
-/// Handle a `MiningPipeline*` READ method (`Evaluate`/`Compare`). `Err(method)` hands a
-/// non-pipeline method back to the dispatcher. `Train`/`Serve`/`Predict` are
-/// `GATEWAY_ROUTED`; `dispatch_graph_op` routes them through `try_handle_gateway`
-/// BEFORE this fallback (the `unreachable!()` arms are the structural proof, exactly
-/// like graphlearn's).
-///
-/// BUG-034: both arms read the graph through label-index scans (`Evaluate`'s
-/// `source`-driven feature build, `Compare`'s loaded `:Model` metrics) that must
-/// see only the caller's RLS-visible rows — same requirement `mining::try_handle`
-/// already enforces for its one non-gateway-routed read, `MineClassifyFit`
-/// (`authority.project_core(&core)` before the first primitive touches the
-/// graph). Before this fix `core` here was the raw, unfiltered live core: an
-/// `Evaluate`/`Compare` caller with graph-level Read access got `n`/metrics
-/// computed over EVERY node carrying the source label, including rows a
-/// non-grantee cannot see — an existence/count side channel identical in kind
-/// to the one `GraphReadAuthority::project_core`'s own doc names.
+/// Handles read-only Evaluate/Compare and returns other methods to dispatch.
+/// BUG-034: both read paths scan graph labels or model nodes, so the caller's
+/// RLS-projected core must be used before any feature or metric computation.
 pub(crate) fn try_handle(
     req_id: u64,
     core: Arc<GraphCore>,
@@ -151,14 +117,14 @@ fn handle_train_tabular(
     writeback: bool,
 ) -> Response {
     let (ids, rows) = match build_features(core, &source, &x, &spec.features) {
-        Ok(v) => v,
+        Ok(data) => data,
         Err(e) => return Response::err(req_id, e),
     };
     if rows.is_empty() {
         return Response::err(req_id, "pipeline: no feature rows produced".to_string());
     }
     let labels = match resolve_labels_f64(core, &ids, &y, &spec.label_property) {
-        Ok(l) => l,
+        Ok(labels) => labels,
         Err(e) => return Response::err(req_id, e),
     };
     if labels.len() != rows.len() {
@@ -171,71 +137,11 @@ fn handle_train_tabular(
             ),
         );
     }
-    let n_features = rows[0].len();
-    // Compose the deterministic seeded split.
-    let (x_train, x_test, y_train_f, y_test_f) = train_test_split(
-        &rows,
-        &labels,
-        spec.split.test_ratio,
-        spec.split.shuffle,
-        spec.split.seed,
-    );
-    if x_train.is_empty() {
-        return Response::err(
-            req_id,
-            "pipeline: empty training split (raise sample count or lower test_ratio)".to_string(),
-        );
-    }
-
-    let (blob, classes, train_metrics, test_metrics) = match family {
-        "classify" => {
-            let y_train = to_i64_round(&y_train_f);
-            let y_test = to_i64_round(&y_test_f);
-            let algo = match classify_algo_from_spec(&spec.model) {
-                Ok(a) => a,
-                Err(e) => return Response::err(req_id, e),
-            };
-            let model = match classify::fit(&x_train, &y_train, algo) {
-                Ok(m) => m,
-                Err(e) => return Response::err(req_id, format!("pipeline: classify fit: {e}")),
-            };
-            let train_pred = classify::predict(&model, &x_train).labels;
-            let test_pred = classify::predict(&model, &x_test).labels;
-            let train_m = json!({
-                "accuracy": metrics::accuracy(&y_train, &train_pred),
-                "macro_f1": metrics::macro_f1(&y_train, &train_pred),
-            });
-            let test_m = json!({
-                "accuracy": metrics::accuracy(&y_test, &test_pred),
-                "macro_f1": metrics::macro_f1(&y_test, &test_pred),
-            });
-            let classes = classify_classes(&model);
-            let blob = serde_json::to_value(&model).unwrap_or(Value::Null);
-            (blob, Value::from(classes), train_m, test_m)
-        }
-        _ => {
-            // estimator (regression)
-            let (est_name, params) = estimator_from_spec(&spec.model);
-            let model = match estimators::fit_estimator(&est_name, &x_train, &y_train_f, &params) {
-                Ok(m) => m,
-                Err(e) => return Response::err(req_id, format!("pipeline: estimator fit: {e}")),
-            };
-            let train_pred = estimators::predict(&model, &x_train);
-            let test_pred = estimators::predict(&model, &x_test);
-            let train_m = json!({
-                "r2": metrics::r2(&y_train_f, &train_pred),
-                "rmse": metrics::rmse(&y_train_f, &train_pred),
-            });
-            let test_m = json!({
-                "r2": metrics::r2(&y_test_f, &test_pred),
-                "rmse": metrics::rmse(&y_test_f, &test_pred),
-            });
-            let blob = serde_json::to_value(&model).unwrap_or(Value::Null);
-            (blob, Value::Null, train_m, test_m)
-        }
-    };
-
-    let metrics_obj = json!({ "train": train_metrics, "test": test_metrics });
+    let artifact =
+        match pipeline_model::fit_tabular(&rows, &labels, &spec.split, &spec.model, family) {
+            Ok(fitted) => fitted,
+            Err(e) => return Response::err(req_id, e),
+        };
     finish_train(
         req_id,
         core,
@@ -243,12 +149,7 @@ fn handle_train_tabular(
         family,
         &spec.model.algorithm,
         spec,
-        blob,
-        classes,
-        metrics_obj,
-        n_features,
-        x_train.len(),
-        x_test.len(),
+        artifact,
         writeback,
     )
 }
@@ -294,9 +195,12 @@ fn handle_train_graphlearn(
         None => FeatureCtx::build(&graph, config.alpha),
     };
     let model = link_predict::fit_link_predictor(&ctx, &positives, &config);
-    let n_features = model.feature_names.len();
-    let metrics_obj = json!({ "train": { "auc": model.train_auc } });
-    let blob = serde_json::to_value(&model).unwrap_or(Value::Null);
+    let artifact = pipeline_model::TrainArtifact {
+        blob: serde_json::to_value(&model).unwrap_or(Value::Null),
+        classes: Value::Null,
+        metrics: json!({ "train": { "auc": model.train_auc } }),
+        counts: (model.feature_names.len(), positives.len(), 0),
+    };
     finish_train(
         req_id,
         core,
@@ -304,18 +208,12 @@ fn handle_train_graphlearn(
         "graphlearn",
         &spec.model.algorithm,
         spec,
-        blob,
-        Value::Null,
-        metrics_obj,
-        n_features,
-        positives.len(),
-        0,
+        artifact,
         writeback,
     )
 }
 
 /// Version + (optionally) persist the fitted model as a `:Model` node, then respond.
-#[allow(clippy::too_many_arguments)]
 fn finish_train(
     req_id: u64,
     core: &GraphCore,
@@ -323,12 +221,7 @@ fn finish_train(
     family: &str,
     algorithm: &str,
     spec: &PipelineSpec,
-    blob: Value,
-    classes: Value,
-    metrics_obj: Value,
-    n_features: usize,
-    n_train: usize,
-    n_test: usize,
+    artifact: pipeline_model::TrainArtifact,
     writeback: bool,
 ) -> Response {
     let version = if writeback {
@@ -345,14 +238,14 @@ fn finish_train(
             "version": version,
             "family": family,
             "algorithm": algorithm,
-            "metrics": metrics_obj,
-            "classes": classes,
-            "n_features": n_features,
-            "n_train": n_train,
-            "n_test": n_test,
+            "metrics": artifact.metrics,
+            "classes": artifact.classes,
+            "n_features": artifact.counts.0,
+            "n_train": artifact.counts.1,
+            "n_test": artifact.counts.2,
             "feature_spec": feature_spec,
             "label_property": spec.label_property,
-            "blob": blob,
+            "blob": artifact.blob,
             "created_ts": now_secs(),
         });
         match rmp_serde::to_vec_named(&props) {
@@ -371,11 +264,11 @@ fn finish_train(
             "model_id": model_id,
             "family": family,
             "algorithm": algorithm,
-            "metrics": metrics_obj,
-            "n_features": n_features,
-            "n_train": n_train,
-            "n_test": n_test,
-            "classes": classes,
+            "metrics": artifact.metrics,
+            "n_features": artifact.counts.0,
+            "n_train": artifact.counts.1,
+            "n_test": artifact.counts.2,
+            "classes": artifact.classes,
             "written_back": writeback,
         })),
     )
@@ -460,9 +353,9 @@ fn predict_classify(
     if rows.is_empty() {
         return Response::err(req_id, "pipeline: no feature rows to predict".to_string());
     }
-    let clf: FittedClassifier = match serde_json::from_value(model.blob.clone()) {
+    let clf = match pipeline_model::decode_blob(&model.blob, Some("classify")) {
         Ok(m) => m,
-        Err(e) => return Response::err(req_id, format!("pipeline: invalid classify blob: {e}")),
+        Err(e) => return Response::err(req_id, e),
     };
     let out = classify::predict(&clf, &rows);
     let written = if writeback {
@@ -507,9 +400,9 @@ fn predict_estimator(
     if rows.is_empty() {
         return Response::err(req_id, "pipeline: no feature rows to predict".to_string());
     }
-    let fm: FittedModel = match serde_json::from_value(model.blob.clone()) {
+    let fm = match pipeline_model::decode_blob(&model.blob, Some("estimator")) {
         Ok(m) => m,
-        Err(e) => return Response::err(req_id, format!("pipeline: invalid estimator blob: {e}")),
+        Err(e) => return Response::err(req_id, e),
     };
     let yhat = estimators::predict(&fm, &rows);
     let written = if writeback {
@@ -550,9 +443,9 @@ fn predict_graphlearn(
             "pipeline: graphlearn predict requires a `source` subgraph".to_string(),
         );
     };
-    let kan: KanLinkModel = match serde_json::from_value(model.blob.clone()) {
+    let kan: KanLinkModel = match pipeline_model::decode_blob(&model.blob, Some("graphlearn")) {
         Ok(m) => m,
-        Err(e) => return Response::err(req_id, format!("pipeline: invalid graphlearn blob: {e}")),
+        Err(e) => return Response::err(req_id, e),
     };
     let (graph, existing) = super::graphlearn::build_graph_with_set(core, &source);
     if graph.node_count() < 2 {
@@ -615,48 +508,22 @@ fn handle_evaluate(
                 .to_string(),
         );
     }
-    let (ids, rows) = match build_features(core, &source, &x, &model.feature_spec) {
-        Ok(v) => v,
+    let (rows, labels) = match prepare_evaluation(
+        core,
+        &source,
+        &x,
+        &y,
+        &model.feature_spec,
+        &model.label_property,
+    ) {
+        Ok(data) => data,
         Err(e) => return Response::err(req_id, e),
     };
-    if rows.is_empty() {
-        return Response::err(req_id, "pipeline: no feature rows to evaluate".to_string());
-    }
-    let labels = match resolve_labels_f64(core, &ids, &y, &model.label_property) {
-        Ok(l) => l,
-        Err(e) => return Response::err(req_id, e),
-    };
-    if labels.len() != rows.len() {
-        return Response::err(
-            req_id,
-            format!("pipeline: {} rows but {} labels", rows.len(), labels.len()),
-        );
-    }
-    let metrics_obj = match model.family.as_str() {
-        "classify" => {
-            let clf: FittedClassifier = match serde_json::from_value(model.blob.clone()) {
-                Ok(m) => m,
-                Err(e) => return Response::err(req_id, format!("pipeline: invalid blob: {e}")),
-            };
-            let y_true = to_i64_round(&labels);
-            let pred = classify::predict(&clf, &rows).labels;
-            json!({
-                "accuracy": metrics::accuracy(&y_true, &pred),
-                "macro_f1": metrics::macro_f1(&y_true, &pred),
-            })
-        }
-        _ => {
-            let fm: FittedModel = match serde_json::from_value(model.blob.clone()) {
-                Ok(m) => m,
-                Err(e) => return Response::err(req_id, format!("pipeline: invalid blob: {e}")),
-            };
-            let yhat = estimators::predict(&fm, &rows);
-            json!({
-                "r2": metrics::r2(&labels, &yhat),
-                "rmse": metrics::rmse(&labels, &yhat),
-            })
-        }
-    };
+    let metrics_obj =
+        match pipeline_model::evaluate_tabular(&model.blob, &model.family, &rows, &labels) {
+            Ok(metrics) => metrics,
+            Err(e) => return Response::err(req_id, e),
+        };
     Response::ok(
         req_id,
         ResultPayload::Json(json!({
@@ -667,6 +534,29 @@ fn handle_evaluate(
             "n": rows.len(),
         })),
     )
+}
+
+fn prepare_evaluation(
+    core: &GraphCore,
+    source: &Option<GraphSource>,
+    x: &[Vec<f64>],
+    y: &[i64],
+    feature_spec: &[FeatureStep],
+    label_property: &str,
+) -> Result<(Vec<Vec<f64>>, Vec<f64>), String> {
+    let (ids, rows) = build_features(core, source, x, feature_spec)?;
+    if rows.is_empty() {
+        return Err("pipeline: no feature rows to evaluate".to_string());
+    }
+    let labels = resolve_labels_f64(core, &ids, y, label_property)?;
+    if labels.len() != rows.len() {
+        return Err(format!(
+            "pipeline: {} rows but {} labels",
+            rows.len(),
+            labels.len()
+        ));
+    }
+    Ok((rows, labels))
 }
 
 // ─────────────────────────── Compare ───────────────────────────
@@ -750,6 +640,14 @@ fn build_features(
     let source = source
         .as_ref()
         .ok_or_else(|| "pipeline: no explicit `x` and no `source` to build features".to_string())?;
+    build_source_features(core, source, steps)
+}
+
+fn build_source_features(
+    core: &GraphCore,
+    source: &GraphSource,
+    steps: &[FeatureStep],
+) -> Result<(Vec<String>, Vec<Vec<f64>>), String> {
     let mut ids: Vec<String> = Vec::new();
     let mut rows: Vec<Vec<f64>> = Vec::new();
     let mut produced = false;
@@ -1082,48 +980,6 @@ fn normalize_family(family: &str) -> String {
     }
 }
 
-fn classify_algo_from_spec(m: &ModelSpec) -> Result<classify::Algorithm, String> {
-    let p = &m.params;
-    let f = |k: &str, d: f64| p.get(k).and_then(|v| v.as_f64()).unwrap_or(d);
-    let u = |k: &str, d: usize| {
-        p.get(k)
-            .and_then(|v| v.as_u64())
-            .map(|x| x as usize)
-            .unwrap_or(d)
-    };
-    match m.algorithm.to_ascii_lowercase().as_str() {
-        "" | "gaussiannb" => Ok(classify::Algorithm::GaussianNb),
-        "multinomialnb" => Ok(classify::Algorithm::MultinomialNb {
-            alpha: f("alpha", 1.0),
-        }),
-        "knn" => Ok(classify::Algorithm::Knn { k: u("k", 5) }),
-        "logistic" => Ok(classify::Algorithm::Logistic {
-            lr: f("lr", 0.1),
-            epochs: u("epochs", 300),
-            l2: f("l2", 0.0),
-        }),
-        "svc" => Ok(classify::Algorithm::LinearSvc {
-            c: f("C", 1.0),
-            epochs: u("epochs", 300),
-            lr: f("lr", 0.1),
-        }),
-        other => Err(format!(
-            "pipeline: unknown classify algorithm {other:?} \
-             (gaussiannb | multinomialnb | knn | logistic | svc)"
-        )),
-    }
-}
-
-fn estimator_from_spec(m: &ModelSpec) -> (String, EstimatorParams) {
-    let params: EstimatorParams = serde_json::from_value(m.params.clone()).unwrap_or_default();
-    let name = if m.algorithm.is_empty() {
-        "ridge".to_string()
-    } else {
-        m.algorithm.clone()
-    };
-    (name, params)
-}
-
 fn kan_config_from_spec(m: &ModelSpec) -> KanLinkConfig {
     let p = &m.params;
     let f = |k: &str, d: f64| p.get(k).and_then(|v| v.as_f64()).unwrap_or(d);
@@ -1159,25 +1015,11 @@ fn kan_config_from_spec(m: &ModelSpec) -> KanLinkConfig {
 
 // ─────────────────────────── Small helpers ───────────────────────────
 
-fn to_i64_round(v: &[f64]) -> Vec<i64> {
-    v.iter().map(|&x| x.round() as i64).collect()
-}
-
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
-}
-
-/// Sorted class set of a fitted classifier (for the `:Model` node + response).
-fn classify_classes(model: &FittedClassifier) -> Vec<i64> {
-    match model {
-        FittedClassifier::GaussianNb { classes, .. }
-        | FittedClassifier::MultinomialNb { classes, .. }
-        | FittedClassifier::Knn { classes, .. }
-        | FittedClassifier::LinearOvr { classes, .. } => classes.clone(),
-    }
 }
 
 #[cfg(test)]
@@ -1273,6 +1115,58 @@ mod tests {
             Some(ResultPayload::Json(v)) => v,
             _ => panic!("expected json result, got error: {:?}", resp.error),
         }
+    }
+
+    #[test]
+    fn explicit_features_skip_producers_and_apply_normalization() {
+        let core = GraphCore::new();
+        let steps = vec![
+            FeatureStep::Embedding {
+                method: "fastrp".into(),
+                dim: 8,
+                iterations: 2,
+                walk_length: 4,
+                walks_per_node: 2,
+                window: 2,
+                epochs: 2,
+                seed: 3,
+            },
+            FeatureStep::Normalize {},
+        ];
+        let (ids, rows) =
+            build_features(&core, &None, &[vec![3.0, 4.0], vec![0.0, 2.0]], &steps).unwrap();
+        assert_eq!(ids, vec!["0".to_string(), "1".to_string()]);
+        assert_eq!(rows[0], vec![0.6, 0.8]);
+        assert_eq!(rows[1], vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn prediction_decode_error_keeps_family_context() {
+        let core = Arc::new(GraphCore::new());
+        core.add_node(
+            "model:broken:v1".into(),
+            node(json!({
+                "type": "Model",
+                "name": "broken",
+                "version": 1,
+                "family": "classify",
+                "algorithm": "logistic",
+                "feature_spec": [],
+                "label_property": "",
+                "metrics": {},
+                "blob": Value::Null,
+            })),
+        );
+        let response = handle_predict(1, &core, "broken".into(), 1, None, vec![vec![1.0]], false);
+        let error = response.error.expect("invalid model blob must fail");
+        assert!(
+            error.starts_with("pipeline: invalid classify blob:"),
+            "{error}"
+        );
+        let response =
+            handle_evaluate(2, &core, "broken".into(), 1, None, vec![vec![1.0]], vec![0]);
+        let error = response.error.expect("invalid model blob must fail");
+        assert!(error.starts_with("pipeline: invalid blob:"), "{error}");
     }
 
     /// E2E acceptance: train + eval + serve + predict a node-classification pipeline

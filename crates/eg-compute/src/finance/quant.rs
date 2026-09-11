@@ -531,14 +531,14 @@ fn hawkes_nll(mu: f64, alpha: f64, beta: f64, times: &[f64], t_horizon: f64) -> 
 /// Initialize the 4-point simplex around `x0` (the vertex-perturbation step
 /// of `nelder_mead_3`). Split out (extract-method, cx/wD8) — same terms,
 /// same order as before.
-fn nelder_mead_initial_simplex(x0: [f64; 3]) -> [[f64; 3]; 4] {
+fn nelder_mead_initial_simplex(x0: [f64; 3], zero_step: f64) -> [[f64; 3]; 4] {
     let mut simplex = [x0; 4];
     for i in 0..3 {
         let mut p = x0;
         p[i] = if p[i].abs() > 1e-9 {
             p[i] * 1.05
         } else {
-            0.00025
+            zero_step
         };
         simplex[i + 1] = p;
     }
@@ -653,14 +653,15 @@ fn nelder_mead_iteration(
 }
 
 /// Nelder-Mead simplex minimiser for a 3-parameter objective.
-fn nelder_mead_3(
+pub(super) fn nelder_mead_3(
     f: &dyn Fn([f64; 3]) -> f64,
     x0: [f64; 3],
     max_iter: usize,
     tol: f64,
+    zero_step: f64,
 ) -> ([f64; 3], f64, bool) {
     let (a, g, r, s) = (1.0, 2.0, 0.5, 0.5); // reflect, expand, contract, shrink
-    let mut simplex = nelder_mead_initial_simplex(x0);
+    let mut simplex = nelder_mead_initial_simplex(x0, zero_step);
     let mut fvals = [0.0; 4];
     for i in 0..4 {
         fvals[i] = f(simplex[i]);
@@ -698,7 +699,7 @@ pub fn hawkes_mle(times: &[f64], t_horizon: f64, max_iter: usize) -> HawkesFit {
     let x0 = [base_rate * 0.5, 1.0, 2.0];
     let times_owned = times.to_vec();
     let obj = move |p: [f64; 3]| hawkes_nll(p[0], p[1], p[2], &times_owned, t_horizon);
-    let (best, fbest, converged) = nelder_mead_3(&obj, x0, max_iter.max(50), 1e-8);
+    let (best, fbest, converged) = nelder_mead_3(&obj, x0, max_iter.max(50), 1e-8, 0.00025);
     let (mu, alpha, beta) = (best[0].max(1e-9), best[1].max(0.0), best[2].max(1e-6));
     HawkesFit {
         mu,

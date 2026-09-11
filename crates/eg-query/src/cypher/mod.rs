@@ -28,6 +28,7 @@
 
 mod exec;
 mod gds;
+mod lexer;
 mod parser;
 mod plan;
 mod plan_cache;

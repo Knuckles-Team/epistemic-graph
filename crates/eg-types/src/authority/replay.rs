@@ -17,6 +17,7 @@ use crate::contract::{
 /// context when the semantically stable fields are identical.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct OperationReplayIdentity {
     pub schema_version: ResourceId,
     pub protocol_id: ProtocolId,
@@ -129,6 +130,7 @@ impl OperationReplayIdentity {
 /// `OperationReplayIdentity` remains stable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct NonceReplayKey {
     pub protocol_id: ProtocolId,
     pub catalog_digest: Digest256,

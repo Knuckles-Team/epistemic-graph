@@ -46,6 +46,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use tokio::sync::RwLock;
 
 use crate::isolation::AccessLevel;
@@ -89,6 +90,78 @@ impl Partitioning {
     /// The shard that owns `v` (`None` if `v` is not in the union).
     fn owner_of(&self, v: &str) -> Option<usize> {
         self.owner.get(v).copied()
+    }
+}
+
+/// Mutable union builder used while snapshots are still borrowed. Keeping the
+/// ownership, edge de-duplication, and fallback endpoint rules together makes the
+/// gather phase's ordering explicit without changing the resulting partition.
+struct PartitionBuilder {
+    owner: HashMap<VertexId, usize>,
+    owned: Vec<BTreeSet<VertexId>>,
+    out_edges: HashMap<VertexId, Vec<VertexId>>,
+    out_degree: HashMap<VertexId, usize>,
+    seen_edges: HashSet<(VertexId, VertexId)>,
+}
+
+impl PartitionBuilder {
+    fn new(n_shards: usize) -> Self {
+        Self {
+            owner: HashMap::new(),
+            owned: vec![BTreeSet::new(); n_shards],
+            out_edges: HashMap::new(),
+            out_degree: HashMap::new(),
+            seen_edges: HashSet::new(),
+        }
+    }
+
+    fn add_view(&mut self, shard_idx: usize, view: &eg_core::graph::GraphView) {
+        for id in view.node_map.keys() {
+            if let std::collections::hash_map::Entry::Vacant(entry) = self.owner.entry(id.clone()) {
+                entry.insert(shard_idx);
+                self.owned[shard_idx].insert(id.clone());
+            }
+        }
+        for edge in view.graph.edge_references() {
+            let source = view.graph[edge.source()].clone();
+            let target = view.graph[edge.target()].clone();
+            if self.seen_edges.insert((source.clone(), target.clone())) {
+                self.out_edges
+                    .entry(source.clone())
+                    .or_default()
+                    .push(target);
+                *self.out_degree.entry(source).or_insert(0) += 1;
+            }
+        }
+    }
+
+    fn finish(mut self) -> Partitioning {
+        if !self.owned.is_empty() {
+            let targets: Vec<VertexId> = self.out_edges.values().flatten().cloned().collect();
+            for target in targets {
+                if let std::collections::hash_map::Entry::Vacant(entry) =
+                    self.owner.entry(target.clone())
+                {
+                    entry.insert(0);
+                    self.owned[0].insert(target);
+                }
+            }
+        }
+
+        let all_vertices = self
+            .owner
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        Partitioning {
+            owner: self.owner,
+            owned: self.owned,
+            out_edges: self.out_edges,
+            out_degree: self.out_degree,
+            all_vertices,
+        }
     }
 }
 
@@ -145,59 +218,11 @@ async fn gather_shards(
         snaps.push(view);
     }
 
-    let n_shards = snaps.len();
-    let mut owner: HashMap<VertexId, usize> = HashMap::new();
-    let mut owned: Vec<BTreeSet<VertexId>> = vec![BTreeSet::new(); n_shards];
-    let mut out_edges: HashMap<VertexId, Vec<VertexId>> = HashMap::new();
-    let mut out_degree: HashMap<VertexId, usize> = HashMap::new();
-    // Dedup the merged edge set: a cross-shard edge can be declared in BOTH shards (the
-    // source's and a mirror); count each (src,tgt) ONCE so the union degree is exact.
-    let mut seen_edges: HashSet<(VertexId, VertexId)> = HashSet::new();
-
-    use petgraph::visit::{EdgeRef, IntoEdgeReferences};
+    let mut builder = PartitionBuilder::new(snaps.len());
     for (shard_idx, view) in snaps.iter().enumerate() {
-        // Ownership: first shard (in `graphs` order) to declare a vertex as a NODE owns
-        // it. (A vertex appearing only as a far edge endpoint is owned by whoever
-        // declares it as a node; if none does, it is mapped below.)
-        for id in view.node_map.keys() {
-            if let std::collections::hash_map::Entry::Vacant(e) = owner.entry(id.clone()) {
-                e.insert(shard_idx);
-                owned[shard_idx].insert(id.clone());
-            }
-        }
-        // Merge this shard's edges into the GLOBAL union edge set (deduped).
-        for e in view.graph.edge_references() {
-            let src = view.graph[e.source()].clone();
-            let tgt = view.graph[e.target()].clone();
-            if seen_edges.insert((src.clone(), tgt.clone())) {
-                out_edges.entry(src.clone()).or_default().push(tgt);
-                *out_degree.entry(src).or_insert(0) += 1;
-            }
-        }
+        builder.add_view(shard_idx, view);
     }
-
-    // Any vertex referenced by an edge but never declared as a node (a pure target)
-    // still needs an owner so a message to it lands somewhere; map it to shard 0.
-    if n_shards > 0 {
-        let targets: Vec<VertexId> = out_edges.values().flatten().cloned().collect();
-        for t in targets {
-            if let std::collections::hash_map::Entry::Vacant(e) = owner.entry(t.clone()) {
-                e.insert(0);
-                owned[0].insert(t);
-            }
-        }
-    }
-
-    let all_set: BTreeSet<VertexId> = owner.keys().cloned().collect();
-    let all_vertices: Vec<VertexId> = all_set.into_iter().collect();
-
-    Ok(Partitioning {
-        owner,
-        owned,
-        out_edges,
-        out_degree,
-        all_vertices,
-    })
+    Ok(builder.finish())
 }
 
 /// A scored result row `(vertex_id, value)` — PageRank score, or a numeric label for
@@ -267,6 +292,56 @@ fn run_partitioned(part: Partitioning, algo: &DistAlgo) -> Result<DistResult, St
 /// power iteration EXACTLY (same teleport, same per-edge mass split, dangling mass simply
 /// leaks — NOT re-normalized), so the distributed result is bit-identical to the
 /// single-graph result on the UNION graph (the property the test asserts).
+fn pagerank_messages<'a>(
+    part: &'a Partitioning,
+    value: &HashMap<&'a str, f64>,
+    damping: f64,
+) -> HashMap<&'a str, f64> {
+    let mut inbox = HashMap::new();
+    for owned in &part.owned {
+        for source in owned {
+            accumulate_pagerank_messages(part, source, value, damping, &mut inbox);
+        }
+    }
+    inbox
+}
+
+fn accumulate_pagerank_messages<'a>(
+    part: &'a Partitioning,
+    source: &str,
+    value: &HashMap<&'a str, f64>,
+    damping: f64,
+    inbox: &mut HashMap<&'a str, f64>,
+) {
+    let degree = part.out_degree.get(source).copied().unwrap_or(0);
+    if degree == 0 {
+        return;
+    }
+    let share = damping * value[source] / degree as f64;
+    if let Some(targets) = part.out_edges.get(source) {
+        for target in targets {
+            // Route the message to the target's owning shard (a real cross-shard hop
+            // when the target is owned elsewhere).
+            if part.owner_of(target).is_some() {
+                *inbox.entry(target.as_str()).or_insert(0.0) += share;
+            }
+        }
+    }
+}
+
+fn pagerank_next<'a>(
+    part: &'a Partitioning,
+    inbox: &HashMap<&'a str, f64>,
+    teleport: f64,
+) -> HashMap<&'a str, f64> {
+    let mut next = HashMap::with_capacity(part.all_vertices.len());
+    for vertex in &part.all_vertices {
+        let incoming = inbox.get(vertex.as_str()).copied().unwrap_or(0.0);
+        next.insert(vertex.as_str(), teleport + incoming);
+    }
+    next
+}
+
 fn distributed_pagerank(part: &Partitioning, damping: f64, iterations: usize) -> ScoreRows {
     let n = part.all_vertices.len();
     if n == 0 {
@@ -290,33 +365,10 @@ fn distributed_pagerank(part: &Partitioning, damping: f64, iterations: usize) ->
         // the source shard before routing is equivalent and cheaper). A vertex with no
         // out-edges (a sink) simply emits nothing — its mass leaks, matching the
         // reference power iteration (no dangling redistribution).
-        let mut inbox: HashMap<&str, f64> = HashMap::new();
-        for owned in &part.owned {
-            for src in owned {
-                let deg = part.out_degree.get(src).copied().unwrap_or(0);
-                if deg == 0 {
-                    continue;
-                }
-                let share = damping * value[src.as_str()] / deg as f64;
-                if let Some(targets) = part.out_edges.get(src) {
-                    for t in targets {
-                        // Route the message to the target's owning shard (a real
-                        // cross-shard hop when the target is owned elsewhere).
-                        if part.owner_of(t).is_some() {
-                            *inbox.entry(t.as_str()).or_insert(0.0) += share;
-                        }
-                    }
-                }
-            }
-        }
+        let inbox = pagerank_messages(part, &value, damping);
 
         // GATHER + APPLY: `teleport + Σ incoming`.
-        let mut next: HashMap<&str, f64> = HashMap::with_capacity(n);
-        for v in &part.all_vertices {
-            let incoming = inbox.get(v.as_str()).copied().unwrap_or(0.0);
-            next.insert(v.as_str(), teleport + incoming);
-        }
-        value = next;
+        value = pagerank_next(part, &inbox, teleport);
     }
 
     let mut rows: ScoreRows = value.into_iter().map(|(k, s)| (k.to_string(), s)).collect();
@@ -326,6 +378,73 @@ fn distributed_pagerank(part: &Partitioning, damping: f64, iterations: usize) ->
 
 // ── Connected components — label propagation supersteps to a fixpoint ──────────
 
+fn vertex_indices<'a>(vertices: &'a [VertexId]) -> HashMap<&'a str, i64> {
+    vertices
+        .iter()
+        .enumerate()
+        .map(|(index, vertex)| (vertex.as_str(), index as i64))
+        .collect()
+}
+
+fn undirected_adjacency<'a>(
+    part: &'a Partitioning,
+    indices: &HashMap<&'a str, i64>,
+) -> HashMap<&'a str, Vec<&'a str>> {
+    let mut adjacency: HashMap<&'a str, Vec<&'a str>> = HashMap::new();
+    for (source, targets) in &part.out_edges {
+        for target in targets {
+            if indices.contains_key(target.as_str()) {
+                adjacency
+                    .entry(source.as_str())
+                    .or_default()
+                    .push(target.as_str());
+                adjacency
+                    .entry(target.as_str())
+                    .or_default()
+                    .push(source.as_str());
+            }
+        }
+    }
+    adjacency
+}
+
+fn propagate_labels<'a>(
+    vertices: &'a [VertexId],
+    adjacency: &HashMap<&'a str, Vec<&'a str>>,
+    mut labels: HashMap<&'a str, i64>,
+) -> HashMap<&'a str, i64> {
+    loop {
+        let mut changed = false;
+        // SCATTER+GATHER+APPLY fused: for each vertex take min(self, neighbor labels).
+        let mut next = labels.clone();
+        for vertex in vertices {
+            let mut minimum = labels[vertex.as_str()];
+            if let Some(neighbors) = adjacency.get(vertex.as_str()) {
+                for neighbor in neighbors {
+                    minimum = minimum.min(labels[*neighbor]);
+                }
+            }
+            if minimum != labels[vertex.as_str()] {
+                next.insert(vertex.as_str(), minimum);
+                changed = true;
+            }
+        }
+        labels = next;
+        if !changed {
+            return labels;
+        }
+    }
+}
+
+fn sorted_label_rows(labels: HashMap<&str, i64>) -> LabelRows {
+    let mut rows: LabelRows = labels
+        .into_iter()
+        .map(|(vertex, label)| (vertex.to_string(), label))
+        .collect();
+    rows.sort_by(|left, right| left.0.cmp(&right.0));
+    rows
+}
+
 /// Distributed weakly-connected components via min-label propagation. Each vertex's
 /// label starts as its own index (in the sorted union order). Every superstep a vertex
 /// SCATTERS its label along every incident edge (both directions — weak connectivity);
@@ -334,63 +453,43 @@ fn distributed_pagerank(part: &Partitioning, damping: f64, iterations: usize) ->
 /// vertex in a component carries the component's minimum index — identical to the
 /// single-graph `connected_components` partition.
 fn distributed_connected_components(part: &Partitioning) -> LabelRows {
-    let n = part.all_vertices.len();
-    if n == 0 {
+    if part.all_vertices.is_empty() {
         return Vec::new();
     }
-    let idx: HashMap<&str, i64> = part
+    let indices = vertex_indices(&part.all_vertices);
+    let adjacency = undirected_adjacency(part, &indices);
+    let labels = part
         .all_vertices
         .iter()
-        .enumerate()
-        .map(|(i, v)| (v.as_str(), i as i64))
+        .map(|vertex| (vertex.as_str(), indices[vertex.as_str()]))
         .collect();
 
-    // Build the UNDIRECTED adjacency from the global union out-edges (weak connectivity:
-    // an edge connects in both directions regardless of which shard owns the endpoint).
-    let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
-    for (src, targets) in &part.out_edges {
-        for t in targets {
-            if idx.contains_key(t.as_str()) {
-                adj.entry(src.as_str()).or_default().push(t.as_str());
-                adj.entry(t.as_str()).or_default().push(src.as_str());
-            }
-        }
-    }
-
-    let mut label: HashMap<&str, i64> = part
-        .all_vertices
-        .iter()
-        .map(|v| (v.as_str(), idx[v.as_str()]))
-        .collect();
-
-    loop {
-        let mut changed = false;
-        // SCATTER+GATHER+APPLY fused: for each vertex take min(self, neighbor labels).
-        let mut next = label.clone();
-        for v in &part.all_vertices {
-            let mut m = label[v.as_str()];
-            if let Some(nbrs) = adj.get(v.as_str()) {
-                for nb in nbrs {
-                    m = m.min(label[*nb]);
-                }
-            }
-            if m != label[v.as_str()] {
-                next.insert(v.as_str(), m);
-                changed = true;
-            }
-        }
-        label = next;
-        if !changed {
-            break;
-        }
-    }
-
-    let mut rows: LabelRows = label.into_iter().map(|(k, l)| (k.to_string(), l)).collect();
-    rows.sort_by(|a, b| a.0.cmp(&b.0));
-    rows
+    sorted_label_rows(propagate_labels(&part.all_vertices, &adjacency, labels))
 }
 
 // ── BFS levels — frontier supersteps with cross-shard messages ─────────────────
+
+fn expand_bfs_frontier<'a>(
+    part: &'a Partitioning,
+    level: &mut HashMap<&'a str, i64>,
+    frontier: &mut VecDeque<String>,
+    current_level: i64,
+) -> BTreeSet<String> {
+    let mut next = BTreeSet::new();
+    while let Some(vertex) = frontier.pop_front() {
+        if let Some(targets) = part.out_edges.get(&vertex) {
+            for target in targets {
+                if let Some(slot) = level.get_mut(target.as_str()) {
+                    if *slot == -1 {
+                        *slot = current_level + 1;
+                        next.insert(target.clone());
+                    }
+                }
+            }
+        }
+    }
+    next
+}
 
 /// Distributed BFS hop-levels from `source`. Level starts at 0 for `source`, ∞ (-1)
 /// elsewhere. Each superstep the frontier SCATTERS `level+1` along out-edges (routed
@@ -414,36 +513,42 @@ fn distributed_bfs(part: &Partitioning, source: &str) -> LabelRows {
     let mut cur = 0i64;
 
     while !frontier.is_empty() {
-        let mut next: BTreeSet<String> = BTreeSet::new();
         // SCATTER from the current frontier; a message to a target owned by another
         // shard is the cross-shard hop. GATHER+APPLY: an unvisited target takes cur+1.
-        while let Some(u) = frontier.pop_front() {
-            // SCATTER along u's out-edges (global union). A target owned by another shard
-            // is the cross-shard hop. GATHER+APPLY: an unvisited target (level == -1)
-            // takes cur+1 and joins the next frontier.
-            if let Some(targets) = part.out_edges.get(&u) {
-                for t in targets {
-                    if let Some(slot) = level.get_mut(t.as_str()) {
-                        if *slot == -1 {
-                            *slot = cur + 1;
-                            next.insert(t.clone());
-                        }
-                    }
-                }
-            }
-        }
-        for v in next {
-            frontier.push_back(v);
-        }
+        let next = expand_bfs_frontier(part, &mut level, &mut frontier, cur);
+        frontier.extend(next);
         cur += 1;
     }
 
-    let mut rows: LabelRows = level.into_iter().map(|(k, l)| (k.to_string(), l)).collect();
-    rows.sort_by(|a, b| a.0.cmp(&b.0));
-    rows
+    sorted_label_rows(level)
 }
 
 // ── Incremental / streaming connected components (CONCEPT:EG-KG.storage.feature) ────────────
+
+fn incremental_seed_labels<'a>(
+    vertices: &'a [VertexId],
+    indices: &HashMap<&'a str, i64>,
+    prior: &LabelRows,
+    affected: &HashSet<String>,
+) -> HashMap<&'a str, i64> {
+    let prior_labels: HashMap<&str, i64> = prior
+        .iter()
+        .map(|(vertex, label)| (vertex.as_str(), *label))
+        .collect();
+    let mut labels = HashMap::with_capacity(vertices.len());
+    for vertex in vertices {
+        let label = if affected.contains(vertex) {
+            indices[vertex.as_str()]
+        } else {
+            prior_labels
+                .get(vertex.as_str())
+                .copied()
+                .unwrap_or(indices[vertex.as_str()])
+        };
+        labels.insert(vertex.as_str(), label);
+    }
+    labels
+}
 
 /// Recompute connected components INCREMENTALLY after a delta: given the prior labeling
 /// and the set of vertices a delta touched (new/changed edges' endpoints), re-propagate
@@ -463,72 +568,24 @@ pub(crate) async fn incremental_connected_components(
     read_authority: &GraphReadAuthority,
 ) -> Result<LabelRows, String> {
     let part = gather_shards(state, graphs, read_authority).await?;
-    let n = part.all_vertices.len();
-    if n == 0 {
+    if part.all_vertices.is_empty() {
         return Ok(Vec::new());
     }
-    let idx: HashMap<&str, i64> = part
-        .all_vertices
-        .iter()
-        .enumerate()
-        .map(|(i, v)| (v.as_str(), i as i64))
-        .collect();
-
-    // Undirected adjacency (weak connectivity) over the global union out-edges.
-    let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
-    for (src, targets) in &part.out_edges {
-        for t in targets {
-            if idx.contains_key(t.as_str()) {
-                adj.entry(src.as_str()).or_default().push(t.as_str());
-                adj.entry(t.as_str()).or_default().push(src.as_str());
-            }
-        }
-    }
+    let indices = vertex_indices(&part.all_vertices);
+    let adjacency = undirected_adjacency(&part, &indices);
 
     // Seed labels from the prior result; a brand-new vertex (in the union but not in
     // `prior`) seeds to its own index. An affected vertex is RESET to its own index so
     // a split (an edge removed) can't keep a stale shared label — min-propagation then
     // re-derives the correct (possibly larger) representative for the affected region.
-    let prior_map: HashMap<&str, i64> = prior.iter().map(|(k, v)| (k.as_str(), *v)).collect();
-    let mut label: HashMap<&str, i64> = HashMap::with_capacity(n);
-    for v in &part.all_vertices {
-        let l = if affected.contains(v) {
-            idx[v.as_str()]
-        } else {
-            prior_map
-                .get(v.as_str())
-                .copied()
-                .unwrap_or(idx[v.as_str()])
-        };
-        label.insert(v.as_str(), l);
-    }
-
-    // Propagate to a fixpoint (over the whole union — cheap because only the affected
-    // region actually moves; unaffected components are already converged).
-    loop {
-        let mut changed = false;
-        let mut next = label.clone();
-        for v in &part.all_vertices {
-            let mut m = label[v.as_str()];
-            if let Some(nbrs) = adj.get(v.as_str()) {
-                for nb in nbrs {
-                    m = m.min(label[*nb]);
-                }
-            }
-            if m != label[v.as_str()] {
-                next.insert(v.as_str(), m);
-                changed = true;
-            }
-        }
-        label = next;
-        if !changed {
-            break;
-        }
-    }
-
-    let mut rows: LabelRows = label.into_iter().map(|(k, l)| (k.to_string(), l)).collect();
-    rows.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(rows)
+    let labels = incremental_seed_labels(&part.all_vertices, &indices, prior, affected);
+    // Propagate to a fixpoint over the whole union. Only the affected region moves;
+    // unaffected components are already converged.
+    Ok(sorted_label_rows(propagate_labels(
+        &part.all_vertices,
+        &adjacency,
+        labels,
+    )))
 }
 
 // ── Materialized views (CONCEPT:EG-KG.storage.feature) ──────────────────────────────────────

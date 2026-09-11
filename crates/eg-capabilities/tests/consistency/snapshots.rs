@@ -29,6 +29,7 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "CasWorkItemMetadata",
     "ClaimNext",
     "ClaimWorkItem",
+    "KgDelegate",
     "SubmitWorkItem",
     "SubmitWorkItems",
     "AcquireCapacity",
@@ -96,6 +97,8 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
 /// `policy()`'s `mutates: true` for these is a conservative UPPER BOUND, not an equality --
 /// the real answer depends on data the static table cannot see.
 pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
+    // Publish/Retire write; Current/History/Status remain authenticated reads.
+    "AgentLibrary",
     "CypherQuery",
     "GraphLearnFit",
     "GraphLearnPredict",
@@ -238,6 +241,7 @@ pub(crate) const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "FinishDevelopmentLane",
     "CleanupDevelopmentLane",
     "UpdateDevelopmentLaneQuota",
+    "KgDelegate",
     "SubmitWorkItem",
     "SubmitWorkItems",
     "AcquireCapacity",
@@ -304,6 +308,7 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "CasWorkItemMetadata",
     "ClaimNext",
     "ClaimWorkItem",
+    "KgDelegate",
     "SubmitWorkItem",
     "SubmitWorkItems",
     "AcquireCapacity",

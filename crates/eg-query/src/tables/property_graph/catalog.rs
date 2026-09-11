@@ -16,7 +16,7 @@ use super::validate::merge_resolved_property_types;
 use super::{
     CanonicalCatalogName, PropertyGraphDefinition, RelationKind, SqlIdentifier, SqlName,
     MAX_CATALOG_ID_BYTES, MAX_CATALOG_OWNER_BYTES, MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES,
-    PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION,
+    MAX_PROPERTY_GRAPH_SELECT_GRANTEES, PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -43,12 +43,15 @@ pub type PropertyGraphObjectId = CatalogIdentity<1>;
 pub type RelationObjectId = CatalogIdentity<2>;
 /// One concrete owner resolved from `CURRENT_USER`/`SESSION_USER` before admission.
 pub type PropertyGraphOwner = CatalogIdentity<3>;
+/// One exact verified SQL actor granted `SELECT` on a property-graph object.
+pub type PropertyGraphGrantee = CatalogIdentity<4>;
 
 fn catalog_identity_field<const KIND: u8>() -> Result<&'static str, String> {
     match KIND {
         1 => Ok("property graph object id"),
         2 => Ok("relation object id"),
         3 => Ok("property graph owner"),
+        4 => Ok("property graph grantee"),
         _ => Err("unsupported SQL catalog identity kind".into()),
     }
 }
@@ -56,7 +59,7 @@ fn catalog_identity_field<const KIND: u8>() -> Result<&'static str, String> {
 fn catalog_identity_max<const KIND: u8>() -> Result<usize, String> {
     match KIND {
         1 | 2 => Ok(MAX_CATALOG_ID_BYTES),
-        3 => Ok(MAX_CATALOG_OWNER_BYTES),
+        3 | 4 => Ok(MAX_CATALOG_OWNER_BYTES),
         _ => Err("unsupported SQL catalog identity kind".into()),
     }
 }
@@ -189,6 +192,10 @@ pub struct PropertyGraphCatalogRecord {
     pub dependency_digest: String,
     pub accepted_definition: PropertyGraphDefinition,
     pub dependencies: Vec<PropertyGraphDependency>,
+    /// Exact verified actors granted `SELECT`, sorted and duplicate-free.
+    /// Grants live with the stable object id so DROP/recreate cannot resurrect
+    /// a name-keyed authorization decision.
+    pub select_grantees: Vec<PropertyGraphGrantee>,
     pub record_digest: String,
 }
 
@@ -315,6 +322,7 @@ impl PropertyGraphCatalogRecord {
             dependency_digest,
             accepted_definition,
             dependencies,
+            select_grantees: Vec::new(),
             record_digest: String::new(),
         };
         record.record_digest = record.compute_record_digest()?;
@@ -356,6 +364,7 @@ impl PropertyGraphCatalogRecord {
             dependency_digest: self.dependency_digest.clone(),
             accepted_definition,
             dependencies: self.dependencies.clone(),
+            select_grantees: self.select_grantees.clone(),
             record_digest: String::new(),
         };
         renamed.record_digest = renamed.compute_record_digest()?;
@@ -419,6 +428,28 @@ impl PropertyGraphCatalogRecord {
             "property graph dependency digest mismatch",
         )?;
         require(
+            self.select_grantees.len() <= MAX_PROPERTY_GRAPH_SELECT_GRANTEES,
+            "property graph SELECT grant count exceeds its bound",
+        )?;
+        for grantee in &self.select_grantees {
+            validate_bounded_text(
+                grantee.value(),
+                "property graph grantee",
+                MAX_CATALOG_OWNER_BYTES,
+            )?;
+            require(
+                grantee.value() != self.owner.value(),
+                "property graph owner must not be stored as an explicit SELECT grantee",
+            )?;
+        }
+        let mut canonical_grantees = self.select_grantees.clone();
+        canonical_grantees.sort();
+        canonical_grantees.dedup();
+        require(
+            canonical_grantees == self.select_grantees,
+            "property graph SELECT grants are not canonically ordered",
+        )?;
+        require(
             self.record_digest == self.compute_record_digest()?,
             "property graph catalog record digest mismatch",
         )?;
@@ -433,7 +464,7 @@ impl PropertyGraphCatalogRecord {
 
     fn compute_record_digest(&self) -> Result<String, String> {
         digest_value(
-            b"epistemic-graph/sql-pgq/catalog-record/v1\0",
+            b"epistemic-graph/sql-pgq/catalog-record/v2\0",
             &(
                 self.schema_version,
                 &self.object_id,
@@ -443,9 +474,83 @@ impl PropertyGraphCatalogRecord {
                 self.definition_revision,
                 &self.definition_digest,
                 &self.dependency_digest,
+                &self.select_grantees,
             ),
             "property graph catalog record",
         )
+    }
+
+    /// Whether `principal` may read this graph object. Engine administrators
+    /// are handled by the serving authority layer; the catalog owns only the
+    /// object owner and explicit exact-principal grants.
+    pub fn permits_select(&self, principal: &str) -> bool {
+        self.owner.value() == principal
+            || self
+                .select_grantees
+                .binary_search_by(|grantee| grantee.value().cmp(principal))
+                .is_ok()
+    }
+
+    pub(crate) fn grant_select(
+        &mut self,
+        principal: PropertyGraphGrantee,
+        next_catalog_revision: u64,
+    ) -> Result<bool, String> {
+        self.validate()?;
+        if self.owner.value() == principal.value() {
+            return Ok(false);
+        }
+        match self.select_grantees.binary_search(&principal) {
+            Ok(_) => Ok(false),
+            Err(at) => {
+                if self.select_grantees.len() == MAX_PROPERTY_GRAPH_SELECT_GRANTEES {
+                    return Err("property graph SELECT grant count exceeds its bound".to_string());
+                }
+                if next_catalog_revision <= self.catalog_revision {
+                    return Err("property graph catalog revision must advance".to_string());
+                }
+                self.select_grantees.insert(at, principal);
+                self.catalog_revision = next_catalog_revision;
+                self.record_digest = self.compute_record_digest()?;
+                self.validate()?;
+                Ok(true)
+            }
+        }
+    }
+
+    /// Carry an already-admitted grant set across a definition re-admission.
+    /// This does not allocate a catalog revision: the surrounding ALTER has
+    /// already done so, and grants do not change the definition revision.
+    pub(crate) fn with_select_grantees(
+        mut self,
+        mut select_grantees: Vec<PropertyGraphGrantee>,
+    ) -> Result<Self, String> {
+        select_grantees.retain(|grantee| grantee.value() != self.owner.value());
+        select_grantees.sort();
+        select_grantees.dedup();
+        self.select_grantees = select_grantees;
+        self.record_digest = self.compute_record_digest()?;
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub(crate) fn revoke_select(
+        &mut self,
+        principal: &PropertyGraphGrantee,
+        next_catalog_revision: u64,
+    ) -> Result<bool, String> {
+        self.validate()?;
+        let Ok(at) = self.select_grantees.binary_search(principal) else {
+            return Ok(false);
+        };
+        if next_catalog_revision <= self.catalog_revision {
+            return Err("property graph catalog revision must advance".to_string());
+        }
+        self.select_grantees.remove(at);
+        self.catalog_revision = next_catalog_revision;
+        self.record_digest = self.compute_record_digest()?;
+        self.validate()?;
+        Ok(true)
     }
 }
 
@@ -503,7 +608,8 @@ impl PropertyGraphCatalog {
             record.definition_revision,
             &record.accepted_definition,
             &self.relations,
-        )?;
+        )?
+        .with_select_grantees(record.select_grantees.clone())?;
         require(
             expected == record,
             "property graph record is not the authoritative catalog resolution",

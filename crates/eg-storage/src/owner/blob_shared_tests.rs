@@ -21,7 +21,7 @@ use crate::owner::layout::OwnerLayout;
 use crate::owner::registry::owner_table_names;
 use crate::owner::table_api::{owner_table_access, OwnerTableAccess};
 use crate::{CasChunkRows, CasRefcountRows, MutationOwnerAuthority};
-use eg_types::mutation_batch::{IncarnationId, LogicalName, DurabilityDomain, ScopeTenantId};
+use eg_types::mutation_batch::{DurabilityDomain, IncarnationId, LogicalName, ScopeTenantId};
 use eg_types::MutationScopeIdentity;
 use redb::TableDefinition;
 use std::path::Path;
@@ -141,7 +141,10 @@ fn the_shared_service_write_serves_every_chunk_and_refcount_operation() {
             .unwrap(),
         vec![false, true]
     );
-    assert_eq!(shared.chunk_bytes(DIGEST_A).unwrap().as_deref(), Some(&b"first"[..]));
+    assert_eq!(
+        shared.chunk_bytes(DIGEST_A).unwrap().as_deref(),
+        Some(&b"first"[..])
+    );
     assert!(shared.chunk_present(DIGEST_B).unwrap());
     assert_eq!(shared.chunk_rows().unwrap(), 2);
 
@@ -181,7 +184,10 @@ fn the_shared_service_write_serves_every_chunk_and_refcount_operation() {
     // the read twin sees exactly the committed rows, and the row COUNT the
     // pre-existing `table_rows` reported still agrees with it.
     let read = cas.kernel.read_blob_shared(&cas.service, SERVICE).unwrap();
-    assert_eq!(read.chunk_bytes(DIGEST_A).unwrap().as_deref(), Some(&b"first"[..]));
+    assert_eq!(
+        read.chunk_bytes(DIGEST_A).unwrap().as_deref(),
+        Some(&b"first"[..])
+    );
     assert!(!read.chunk_present(DIGEST_B).unwrap());
     assert_eq!(read.refcount(DIGEST_A).unwrap(), 7);
     assert_eq!(read.refcount(DIGEST_B).unwrap(), 0);
@@ -224,7 +230,9 @@ fn a_shared_reference_count_cannot_underflow() {
     // Overflow is symmetric, in its own transaction.
     let write = cas.write();
     let shared = write.blob_shared_write(&cas.service, SERVICE).unwrap();
-    shared.compare_and_set_refcount(DIGEST_A, 0, u64::MAX).unwrap();
+    shared
+        .compare_and_set_refcount(DIGEST_A, 0, u64::MAX)
+        .unwrap();
     assert!(shared
         .adjust_refcount(DIGEST_A, 1)
         .unwrap_err()
@@ -357,7 +365,9 @@ fn the_shared_service_write_is_confined_to_the_blob_layout() {
 
     // A handle authenticated for another actor, or against another store, is
     // refused against this one.
-    assert!(write.blob_shared_write(&blob.service, "someone-else").is_err());
+    assert!(write
+        .blob_shared_write(&blob.service, "someone-else")
+        .is_err());
     let other_cas = cas(&dir.path().join("other.redb"), "physical:blob:other");
     assert!(write
         .blob_shared_write(&other_cas.service, SERVICE)
@@ -544,9 +554,7 @@ fn no_open_option_can_weaken_write_durability() {
         let rebuilt = match (options.cache_bytes(), options.is_read_only()) {
             (None, false) => StoreOpenOptions::default(),
             (None, true) => StoreOpenOptions::default().read_only(),
-            (Some(bytes), false) => StoreOpenOptions::default()
-                .with_cache_bytes(bytes)
-                .unwrap(),
+            (Some(bytes), false) => StoreOpenOptions::default().with_cache_bytes(bytes).unwrap(),
             (Some(bytes), true) => StoreOpenOptions::default()
                 .with_cache_bytes(bytes)
                 .unwrap()

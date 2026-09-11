@@ -1,6 +1,6 @@
 //! Bounded SQL/PGQ lexical primitives and statement-shape recognition.
 
-use crate::tables::property_graph::{SqlIdentifier, SqlName};
+use crate::tables::property_graph::{SqlIdentifier, SqlName, MAX_CATALOG_OWNER_BYTES};
 
 pub const MAX_PGQ_SQL_BYTES: usize = 256 * 1024;
 const MAX_PGQ_TOKENS: usize = 16_384;
@@ -28,6 +28,14 @@ pub(crate) fn is_property_graph_ddl(sql: &str) -> bool {
         || starts_with_keywords(sql, &["CREATE", "TEMPORARY", "PROPERTY", "GRAPH"])
         || starts_with_keywords(sql, &["ALTER", "PROPERTY", "GRAPH"])
         || starts_with_keywords(sql, &["DROP", "PROPERTY", "GRAPH"])
+}
+
+/// Whether `sql` starts with the one bounded graph privilege shape. Once this
+/// prefix is recognized, callers propagate parser failures rather than letting
+/// a broader SQL grammar reinterpret it.
+pub(crate) fn is_property_graph_privilege(sql: &str) -> bool {
+    starts_with_keywords(sql, &["GRANT", "SELECT", "ON", "PROPERTY", "GRAPH"])
+        || starts_with_keywords(sql, &["REVOKE", "SELECT", "ON", "PROPERTY", "GRAPH"])
 }
 
 /// Whether `sql` is one of the bounded graph-table read shapes accepted by
@@ -131,6 +139,28 @@ impl Cursor {
             }
             value => Err(format!("expected identifier, found {value:?}")),
         }
+    }
+
+    /// One SQL-spelled exact actor identity. Unlike an object identifier, a
+    /// verified agent id may be longer than 63 bytes (`agent:sha256:...`).
+    pub(super) fn principal_identity(&mut self) -> Result<String, String> {
+        let value = match self.tokens.get(self.at).cloned() {
+            Some(Token::Word(value)) => {
+                if value.eq_ignore_ascii_case("PUBLIC") {
+                    return Err("PUBLIC is not an exact property-graph principal".to_string());
+                }
+                SqlIdentifier::unquoted(value)?.value().to_string()
+            }
+            Some(Token::QuotedIdentifier(value)) => value,
+            value => return Err(format!("expected principal identifier, found {value:?}")),
+        };
+        if value.is_empty() || value.len() > MAX_CATALOG_OWNER_BYTES || value.contains('\0') {
+            return Err(format!(
+                "property graph grantee must contain 1..={MAX_CATALOG_OWNER_BYTES} bytes"
+            ));
+        }
+        self.at += 1;
+        Ok(value)
     }
 
     pub(super) fn expect_keyword(&mut self, value: &str) -> Result<(), String> {

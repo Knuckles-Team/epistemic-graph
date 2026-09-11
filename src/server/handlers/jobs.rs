@@ -57,15 +57,16 @@ use eg_jobs::model::{
 };
 use eg_jobs::store::{JobStore, SubmitSpec, TenantJobQuota, WorkerClaim};
 use eg_jobs::{ReproducibilityManifest, ResultColumn, TypedJobResult};
+use eg_types::contract::Nonce;
 use eg_types::jobs::{JobKind, JobOp, JobResult, SubmitJobSpec};
 
 #[cfg(feature = "program-optimization")]
 use eg_modality::{Classification, OpaqueRef, PolicyEnvelope};
 #[cfg(feature = "program-optimization")]
-use eg_program::{NativeCompiler, OptimizationRequest, ProgramModality};
+use eg_program::{NativeCompiler, OptimizationRequest, ProgramModality, ProgramRevisionIdentity};
 
 use crate::isolation::AccessLevel;
-use crate::mutation_batch::{MutationBatch, DurabilityDomain, MutationSurface};
+use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::{check_graph_access, CarrierAuthority};
 use crate::server::state::ServerState;
@@ -101,6 +102,8 @@ pub(crate) struct PreparedJobPublication {
     claim_id: String,
     dataset_ref: String,
     methods: Vec<Method>,
+    #[cfg(feature = "program-optimization")]
+    promotion: Option<ProgramRevisionIdentity>,
 }
 
 /// Target-group COMMIT plan. Placement authority is frozen before it is sealed,
@@ -232,6 +235,19 @@ impl PreparedJobPublication {
                 .methods
                 .iter()
                 .any(|method| !matches!(method, Method::AddNode { .. } | Method::AddEdge { .. }))
+            || self.promotion_invalid()
+    }
+
+    #[cfg(feature = "program-optimization")]
+    fn promotion_invalid(&self) -> bool {
+        self.promotion
+            .as_ref()
+            .is_some_and(|identity| identity.validate().is_err())
+    }
+
+    #[cfg(not(feature = "program-optimization"))]
+    fn promotion_invalid(&self) -> bool {
+        false
     }
 }
 
@@ -312,12 +328,13 @@ async fn handle_submit_op(
     store: &Arc<JobStore>,
     req_id: u64,
     authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
     spec: SubmitJobSpec,
 ) -> Response {
     let method = Method::AnalyticsJob {
         op: JobOp::Submit(spec.clone()),
     };
-    let (batch, now) = match compile_job_batch(store, req_id, authority, &method) {
+    let (batch, now) = match compile_job_batch(store, req_id, authority, attempt_nonce, &method) {
         Ok(value) => value,
         Err(error) => return Response::err(req_id, error),
     };
@@ -330,6 +347,7 @@ fn handle_cancel_op(
     store: &Arc<JobStore>,
     req_id: u64,
     authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
     job_id: String,
 ) -> Response {
     if let Err(error) = owned_job(store, authority, &job_id) {
@@ -340,7 +358,7 @@ fn handle_cancel_op(
             job_id: job_id.clone(),
         },
     };
-    let (batch, now) = match compile_job_batch(store, req_id, authority, &method) {
+    let (batch, now) = match compile_job_batch(store, req_id, authority, attempt_nonce, &method) {
         Ok(value) => value,
         Err(error) => return Response::err(req_id, error),
     };
@@ -357,6 +375,7 @@ async fn handle_resume_op(
     store: &Arc<JobStore>,
     req_id: u64,
     authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
     job_id: String,
 ) -> Response {
     if let Err(error) = owned_job(store, authority, &job_id) {
@@ -367,7 +386,7 @@ async fn handle_resume_op(
             job_id: job_id.clone(),
         },
     };
-    let (batch, now) = match compile_job_batch(store, req_id, authority, &method) {
+    let (batch, now) = match compile_job_batch(store, req_id, authority, attempt_nonce, &method) {
         Ok(value) => value,
         Err(error) => return Response::err(req_id, error),
     };
@@ -410,6 +429,7 @@ pub(crate) async fn handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
     verified_worker_context: bool,
     op: JobOp,
 ) -> Response {
@@ -420,14 +440,18 @@ pub(crate) async fn handle(
     };
 
     let response = match op {
-        JobOp::Submit(spec) => handle_submit_op(state, &store, req_id, authority, spec).await,
+        JobOp::Submit(spec) => {
+            handle_submit_op(state, &store, req_id, authority, attempt_nonce, spec).await
+        }
         JobOp::Status { job_id } => match owned_job(&store, authority, &job_id) {
             Ok(job) => job_response(req_id, &job),
             Err(e) => Response::err(req_id, e),
         },
-        JobOp::Cancel { job_id } => handle_cancel_op(&store, req_id, authority, job_id),
+        JobOp::Cancel { job_id } => {
+            handle_cancel_op(&store, req_id, authority, attempt_nonce, job_id)
+        }
         JobOp::Resume { job_id } => {
-            handle_resume_op(state, &store, req_id, authority, job_id).await
+            handle_resume_op(state, &store, req_id, authority, attempt_nonce, job_id).await
         }
         JobOp::WorkerClaim {
             worker_instance,
@@ -565,6 +589,7 @@ fn compile_job_batch(
     store: &JobStore,
     req_id: u64,
     authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
     method: &Method,
 ) -> Result<(MutationBatch, u64), String> {
     let scope = authority.namespace("analytics-jobs", "control");
@@ -578,6 +603,7 @@ fn compile_job_batch(
         crate::server::mutation_batch::CompileBatch {
             batch_id: &batch_id,
             request_id: req_id,
+            attempt_nonce,
             principal: Some(authority.actor_scope()),
             tenant: authority.tenant_scope(),
             graph: &scope,
@@ -1805,10 +1831,14 @@ async fn finalize_submit(
         backoff_ms,
         kind,
     } = spec;
+    // The policy this job was admitted under. `policy_fingerprint` was an
+    // always-`None` `Option<String>` on the deleted request context, so this
+    // always fell through to the placeholder; the envelope carries the real
+    // revision, which is also inside the stable replay identity.
     let policy_fingerprint = batch
-        .context
-        .policy_fingerprint
-        .clone()
+        .envelope
+        .operation()
+        .map(|operation| operation.authority.policy_revision.as_str().to_string())
         .unwrap_or_else(|| "policy:unversioned".to_string());
     let (governed_kind, algorithm_family, algorithm, params) = match kind {
         JobKind::MineAssociate {
@@ -2233,6 +2263,9 @@ async fn execute_program_claim(
         )
         .map_err(|error| error.to_string())?;
 
+    let promotion_program = request.program.clone();
+    let promotion_corpus = request.corpus.clone();
+    let promotion_seed = request.budget.seed;
     let cancellation = Arc::new(AtomicBool::new(false));
     let kernel_token = cancellation.clone();
     let mut kernel = tokio::task::spawn_blocking(move || {
@@ -2316,6 +2349,44 @@ async fn execute_program_claim(
         }
     };
 
+    let active_revision_ref = if optimization.promoted {
+        current_program_active_revision_ref(
+            state,
+            &job.input_snapshot.graph,
+            &promotion_program.program_ref,
+        )
+        .await?
+    } else {
+        None
+    };
+    let promotion_result_ref = optimization
+        .promoted
+        .then(|| OpaqueRef::new(job.result_ref()))
+        .transpose()
+        .map_err(|_| "program promotion result identity is invalid".to_string())?;
+    let promotion_identity = optimization
+        .selected_candidate()
+        .filter(|_| optimization.promoted)
+        .map(|candidate| {
+            ProgramRevisionIdentity::from_candidate_with_binding(
+                &promotion_program,
+                candidate,
+                active_revision_ref.clone(),
+                promotion_result_ref
+                    .clone()
+                    .ok_or(eg_program::ProgramError::InvalidCommit)?,
+                OpaqueRef::new(job.input_snapshot.dataset_ref.clone())
+                    .map_err(|_| eg_program::ProgramError::InvalidCommit)?,
+                job.input_snapshot.content_digest.clone(),
+                job.input_snapshot.version,
+                promotion_corpus.corpus_ref.clone(),
+                promotion_corpus.snapshot_version,
+                promotion_seed,
+            )
+        })
+        .transpose()
+        .map_err(|error| format!("program promotion identity failed: {error}"))?;
+
     let now = unix_ms();
     store
         .checkpoint_fenced(
@@ -2331,11 +2402,185 @@ async fn execute_program_claim(
             now,
         )
         .map_err(|error| error.to_string())?;
-    let result = typed_program_result(job, &optimization)?;
+    let result = typed_program_result(
+        job,
+        &optimization,
+        promotion_identity.as_ref(),
+        &promotion_program.policy,
+    )?;
     let staged = store
         .stage_result_fenced(&job.job_id, worker_ref, epoch, result, unix_ms())
         .map_err(|error| error.to_string())?;
     publish_staged_result(state, store, staged, worker_ref, epoch).await
+}
+
+#[cfg(feature = "program-optimization")]
+async fn current_program_active_revision_ref(
+    state: &Arc<RwLock<ServerState>>,
+    graph: &str,
+    program_ref: &OpaqueRef,
+) -> Result<Option<OpaqueRef>, String> {
+    let (_, _, core) = resolve_core_ref(state, graph)
+        .await
+        .ok_or_else(|| "program promotion target graph is unavailable".to_string())?;
+    let pointer = ProgramRevisionIdentity::active_pointer_ref_for(program_ref);
+    let Some(properties) = core.get_node_properties(pointer.as_str()) else {
+        return Ok(None);
+    };
+    let value = eg_types::msgpack::decode_property_value(&properties)
+        .map_err(|_| "program active pointer properties are invalid".to_string())?;
+    if value.get("program_ref").and_then(serde_json::Value::as_str) != Some(program_ref.as_str()) {
+        return Err("program active pointer has a different program identity".to_string());
+    }
+    let revision_ref = value
+        .get("revision_ref")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "program active pointer has no revision identity".to_string())?;
+    let revision_ref = OpaqueRef::new(revision_ref.to_string())
+        .map_err(|_| "program active pointer revision identity is invalid".to_string())?;
+    if revision_ref.namespace() != "program_revision" {
+        return Err("program active pointer revision identity has the wrong namespace".to_string());
+    }
+    crate::server::mutation_batch::resolve_program_promotion_identity(&core, &revision_ref)?;
+    Ok(Some(revision_ref))
+}
+
+#[cfg(feature = "program-optimization")]
+fn staged_program_promotion(
+    job: &eg_jobs::AnalyticsJob,
+) -> Result<Option<ProgramRevisionIdentity>, String> {
+    let output = job
+        .output
+        .as_ref()
+        .ok_or_else(|| "program publication has no staged result".to_string())?;
+    let mut selected = false;
+    let mut identity = None;
+    for row in &output.rows {
+        let row_selected = row
+            .get("selected")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let value = row
+            .get("promotion_identity")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        if !row_selected {
+            if !value.is_null() {
+                return Err(
+                    "program promotion identity is attached to an unselected row".to_string(),
+                );
+            }
+            continue;
+        }
+        if selected {
+            return Err("program result has multiple selected rows".to_string());
+        }
+        selected = true;
+        if value.is_null() {
+            return Err("selected program row is missing promotion identity".to_string());
+        }
+        let parsed: ProgramRevisionIdentity = serde_json::from_value(value)
+            .map_err(|error| format!("program promotion identity is invalid: {error}"))?;
+        parsed
+            .validate()
+            .map_err(|error| format!("program promotion identity is invalid: {error}"))?;
+        if row.get("id").and_then(serde_json::Value::as_str) != Some(parsed.candidate_ref.as_str())
+            || row.get("program_ref").and_then(serde_json::Value::as_str)
+                != Some(parsed.program_ref.as_str())
+        {
+            return Err("program promotion identity does not match its selected row".to_string());
+        }
+        let row_policy = row
+            .get("policy")
+            .cloned()
+            .ok_or_else(|| "selected program row is missing policy binding".to_string())?;
+        let row_policy: PolicyEnvelope = serde_json::from_value(row_policy)
+            .map_err(|error| format!("selected program policy binding is invalid: {error}"))?;
+        let row_tool_policy_ref = row
+            .get("tool_policy_ref")
+            .and_then(serde_json::Value::as_str);
+        let row_model_profile_ref = row
+            .get("model_profile_ref")
+            .and_then(serde_json::Value::as_str);
+        if row_policy != parsed.policy
+            || row_tool_policy_ref != parsed.tool_policy_ref.as_ref().map(OpaqueRef::as_str)
+            || row_model_profile_ref != parsed.model_profile_ref.as_ref().map(OpaqueRef::as_str)
+        {
+            return Err(
+                "program promotion identity does not match its policy/model bindings".to_string(),
+            );
+        }
+        identity = Some(parsed);
+    }
+    Ok(identity)
+}
+
+fn publication_result(
+    claim_id: &str,
+    dataset_ref: &str,
+    promotion_identity: Option<serde_json::Value>,
+) -> ResultPayload {
+    let mut result = serde_json::Map::new();
+    result.insert(
+        "claim_id".to_string(),
+        serde_json::Value::String(claim_id.to_string()),
+    );
+    result.insert(
+        "dataset_ref".to_string(),
+        serde_json::Value::String(dataset_ref.to_string()),
+    );
+    if let Some(identity) = promotion_identity {
+        result.insert("promotion_identity".to_string(), identity);
+    }
+    ResultPayload::Json(serde_json::Value::Object(result))
+}
+
+/// Validate the target group's exact durable receipt against the publication
+/// plan that requested it.  Transport validation proves that the response is a
+/// committed mutation; this domain check proves that it is THIS job's graph
+/// batch and terminal publication result.
+#[cfg(feature = "raft")]
+pub(crate) fn validate_job_publication_commit(
+    prepared: &PreparedJobPublication,
+    committed: &crate::mutation_batch::MutationBatchCommit,
+) -> Result<(), String> {
+    prepared.validate()?;
+    committed.validate()?;
+    let batch = &committed.record.batch;
+    if batch.batch_id != prepared.batch_id || batch.idempotency_key() != prepared.batch_id {
+        return Err("job publication receipt has the wrong batch identity".to_string());
+    }
+    let expected_scope = eg_types::MutationScopeIdentity::fixed_graph(
+        &prepared.target_graph,
+        &prepared.target_graph,
+        crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
+    )?;
+    if batch.identity != expected_scope
+        || committed.record.identity != expected_scope
+        || committed.identity != expected_scope
+    {
+        return Err("job publication receipt has the wrong mutation scope identity".to_string());
+    }
+    #[cfg(feature = "program-optimization")]
+    let promotion_value = prepared
+        .promotion
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    let expected = publication_result(
+        &prepared.claim_id,
+        &prepared.dataset_ref,
+        #[cfg(feature = "program-optimization")]
+        promotion_value,
+        #[cfg(not(feature = "program-optimization"))]
+        None,
+    );
+    let expected = rmp_serde::to_vec_named(&expected).map_err(|error| error.to_string())?;
+    if committed.record.result_msgpack.as_deref() != Some(expected.as_slice()) {
+        return Err("job publication receipt has the wrong terminal result".to_string());
+    }
+    Ok(())
 }
 
 #[cfg(feature = "raft")]
@@ -2372,6 +2617,8 @@ async fn prepare_consensus_job_publication(
         .as_ref()
         .map(|output| output.dataset_ref.clone())
         .ok_or_else(|| "staged analytics result is missing".to_string())?;
+    #[cfg(feature = "program-optimization")]
+    let promotion = staged_program_promotion(job)?;
     let prepared = PreparedJobPublication {
         schema_version: JOB_PUBLICATION_PLAN_VERSION,
         coordinator_id,
@@ -2386,6 +2633,8 @@ async fn prepare_consensus_job_publication(
         claim_id: plan.claim_id,
         dataset_ref,
         methods: plan.methods,
+        #[cfg(feature = "program-optimization")]
+        promotion,
     };
     prepared.validate()?;
     rmp_serde::to_vec_named(&prepared).map_err(|error| error.to_string())
@@ -2490,7 +2739,7 @@ pub(crate) async fn apply_consensus_job_publication_commit(
     applying_group: crate::raft::GroupId,
     expected_coordinator_id: &str,
     plan_bytes: &[u8],
-) -> Result<bool, String> {
+) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
     let plan = decode_routed_job_publication(plan_bytes)?;
     if plan.prepared.coordinator_id != expected_coordinator_id
         || plan.group_id != applying_group
@@ -2521,11 +2770,52 @@ pub(crate) async fn apply_consensus_job_publication_commit(
     {
         return Err("job publication target placement changed".to_string());
     }
-    let result = ResultPayload::Json(serde_json::json!({
-        "claim_id": plan.prepared.claim_id.clone(),
-        "dataset_ref": plan.prepared.dataset_ref.clone(),
-    }));
-    crate::server::mutation_batch::commit_internal_graph_methods(
+    #[cfg(feature = "program-optimization")]
+    let promotion_identity = plan.prepared.promotion.as_ref();
+    #[cfg(feature = "program-optimization")]
+    let promotion_value = promotion_identity
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    let result = publication_result(
+        &plan.prepared.claim_id,
+        &plan.prepared.dataset_ref,
+        #[cfg(feature = "program-optimization")]
+        promotion_value,
+        #[cfg(not(feature = "program-optimization"))]
+        None,
+    );
+    #[cfg(feature = "program-optimization")]
+    let committed = if let Some(identity) = promotion_identity {
+        crate::server::mutation_batch::commit_program_promotion(
+            persistence.as_ref(),
+            &core,
+            request_id,
+            Some(&plan.prepared.principal_ref),
+            &plan.prepared.target_graph,
+            &plan.prepared.batch_id,
+            plan.prepared.methods,
+            &result,
+            identity,
+            authority.attempt_nonce.clone(),
+        )
+        .await?
+    } else {
+        crate::server::mutation_batch::commit_internal_graph_methods_with_nonce(
+            persistence.as_ref(),
+            &core,
+            request_id,
+            Some(&plan.prepared.principal_ref),
+            &plan.prepared.target_graph,
+            &plan.prepared.batch_id,
+            plan.prepared.methods,
+            &result,
+            authority.attempt_nonce.clone(),
+        )
+        .await?
+    };
+    #[cfg(not(feature = "program-optimization"))]
+    let committed = crate::server::mutation_batch::commit_internal_graph_methods_with_nonce(
         persistence.as_ref(),
         &core,
         request_id,
@@ -2534,9 +2824,10 @@ pub(crate) async fn apply_consensus_job_publication_commit(
         &plan.prepared.batch_id,
         plan.prepared.methods,
         &result,
+        authority.attempt_nonce.clone(),
     )
     .await?;
-    Ok(true)
+    Ok(committed)
 }
 
 #[cfg(feature = "raft")]
@@ -2591,10 +2882,51 @@ async fn publish_staged_result(
         .as_ref()
         .map(|output| output.dataset_ref.clone())
         .unwrap_or_default();
-    let result = ResultPayload::Json(serde_json::json!({
-        "claim_id": plan.claim_id.clone(),
-        "dataset_ref": dataset_ref,
-    }));
+    #[cfg(feature = "program-optimization")]
+    let promotion_identity = staged_program_promotion(&job)?;
+    #[cfg(feature = "program-optimization")]
+    let promotion_value = promotion_identity
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    let result = publication_result(
+        &plan.claim_id,
+        &dataset_ref,
+        #[cfg(feature = "program-optimization")]
+        promotion_value,
+        #[cfg(not(feature = "program-optimization"))]
+        None,
+    );
+    #[cfg(feature = "program-optimization")]
+    if let Some(identity) = promotion_identity.as_ref() {
+        crate::server::mutation_batch::commit_program_promotion(
+            persistence.as_ref(),
+            &core,
+            0,
+            Some(&job.policy.actor),
+            &target_graph,
+            &batch_id,
+            plan.methods,
+            &result,
+            identity,
+            None,
+        )
+        .await?;
+    } else {
+        crate::server::mutation_batch::commit_internal_graph_methods(
+            persistence.as_ref(),
+            &core,
+            0,
+            Some(&job.policy.actor),
+            &target_graph,
+            &batch_id,
+            plan.methods,
+            &result,
+        )
+        .await?;
+    }
+    #[cfg(not(feature = "program-optimization"))]
     crate::server::mutation_batch::commit_internal_graph_methods(
         persistence.as_ref(),
         &core,
@@ -2706,6 +3038,8 @@ fn typed_association_result(
 fn typed_program_result(
     job: &eg_jobs::AnalyticsJob,
     optimization: &eg_program::OptimizationResult,
+    promotion_identity: Option<&ProgramRevisionIdentity>,
+    expected_policy: &PolicyEnvelope,
 ) -> Result<TypedJobResult, String> {
     let mut rows = optimization
         .candidates
@@ -2728,7 +3062,17 @@ fn typed_program_result(
                 .as_ref()
                 .map(|evaluation| evaluation.aggregate_score)
                 .unwrap_or(0.0);
-            BTreeMap::from([
+            let promotion_value =
+                if optimization.selected_candidate_ref.as_ref() == Some(&candidate.candidate_ref) {
+                    promotion_identity
+                        .map(serde_json::to_value)
+                        .transpose()
+                        .map_err(|error| error.to_string())?
+                        .unwrap_or(serde_json::Value::Null)
+                } else {
+                    serde_json::Value::Null
+                };
+            Ok(BTreeMap::from([
                 (
                     "id".to_string(),
                     serde_json::json!(candidate.candidate_ref.as_str()),
@@ -2813,6 +3157,10 @@ fn typed_program_result(
                         }),
                 ),
                 (
+                    "policy".to_string(),
+                    serde_json::to_value(&candidate.policy).map_err(|error| error.to_string())?,
+                ),
+                (
                     "modalities".to_string(),
                     serde_json::json!(candidate
                         .modalities
@@ -2834,9 +3182,10 @@ fn typed_program_result(
                             == Some(&candidate.candidate_ref)
                     ),
                 ),
-            ])
+                ("promotion_identity".to_string(), promotion_value),
+            ]))
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, String>>()?;
     rows.extend(optimization.plans.iter().flat_map(|plan| {
         plan.steps.iter().map(move |step| {
             BTreeMap::from([
@@ -2875,6 +3224,7 @@ fn typed_program_result(
                 ("instruction_ref".to_string(), serde_json::Value::Null),
                 ("tool_policy_ref".to_string(), serde_json::Value::Null),
                 ("model_profile_ref".to_string(), serde_json::Value::Null),
+                ("policy".to_string(), serde_json::Value::Null),
                 (
                     "modalities".to_string(),
                     serde_json::json!(step
@@ -2924,6 +3274,7 @@ fn typed_program_result(
                     serde_json::json!(step.max_operations),
                 ),
                 ("selected".to_string(), serde_json::json!(false)),
+                ("promotion_identity".to_string(), serde_json::Value::Null),
             ])
         })
     }));
@@ -2968,6 +3319,7 @@ fn typed_program_result(
             ("instruction_ref", "string", true),
             ("tool_policy_ref", "string", true),
             ("model_profile_ref", "string", true),
+            ("policy", "object", true),
             ("modalities", "list<string>", false),
             ("plan_ref", "string", true),
             ("plan_step_kinds", "list<string>", false),
@@ -2977,6 +3329,7 @@ fn typed_program_result(
             ("plan_depends_on", "list<string>", false),
             ("max_operations", "uint64", true),
             ("selected", "bool", false),
+            ("promotion_identity", "object", true),
         ]
         .into_iter()
         .map(|(name, logical_type, nullable)| ResultColumn {
@@ -3007,7 +3360,7 @@ fn typed_program_result(
             policy_fingerprint: job.policy.policy_fingerprint.clone(),
         },
     )?;
-    validate_program_result_privacy(&result)?;
+    validate_program_result_privacy(&result, expected_policy)?;
     #[cfg(feature = "knowledge-batch")]
     validate_native_job_result(job, &result)?;
     Ok(result)
@@ -3323,6 +3676,7 @@ struct RowGovernanceCtx<'a> {
     candidate_roles: &'a std::collections::BTreeSet<&'a str>,
     plan_step_kinds: &'a std::collections::BTreeSet<&'a str>,
     plan_executors: &'a std::collections::BTreeSet<&'a str>,
+    policy: &'a PolicyEnvelope,
 }
 
 /// Whether one program-result row VIOLATES governance (mirrors the original
@@ -3348,10 +3702,67 @@ fn validate_program_result_row(
         || (!candidate_shape && !plan_shape)
         || !row_governed_identity_and_type(row, ctx.optimizers, ctx.executions)
         || !row_governed_evidence_and_confidence(row, selected)
+        || !row_valid_policy_binding(row, kind, ctx.policy)
         || !valid_modalities
 }
 
-fn validate_program_result_privacy(result: &TypedJobResult) -> Result<(), String> {
+/// The policy column is an immutable candidate binding. Candidate rows must
+/// carry the exact policy that was rebound onto the program request; plan rows
+/// cannot carry a policy because they are not executable candidates.
+fn row_valid_policy_binding(
+    row: &BTreeMap<String, serde_json::Value>,
+    kind: Option<&str>,
+    expected_policy: &PolicyEnvelope,
+) -> bool {
+    match kind {
+        Some("program_candidate") => {
+            let Some(value) = row.get("policy") else {
+                return false;
+            };
+            let Some(object) = value.as_object() else {
+                return false;
+            };
+            let fields = object
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>();
+            let expected_fields = std::collections::BTreeSet::from([
+                "tenant_ref",
+                "access_policy_ref",
+                "classification",
+                "retention_policy_ref",
+                "deletion_policy_ref",
+                "legal_hold_ref",
+                "purpose_refs",
+            ]);
+            if fields != expected_fields {
+                return false;
+            }
+            let Ok(policy) = serde_json::from_value::<PolicyEnvelope>(value.clone()) else {
+                return false;
+            };
+            policy == *expected_policy
+                && policy.tenant_ref.namespace() == "tenant"
+                && policy.access_policy_ref.namespace() == "policy"
+                && policy.retention_policy_ref.namespace() == "retention"
+                && policy.deletion_policy_ref.namespace() == "deletion"
+                && policy.purpose_refs.len() <= eg_program::MAX_PURPOSE_REFS
+                && policy
+                    .purpose_refs
+                    .iter()
+                    .all(|reference| reference.namespace() == "purpose")
+        }
+        Some("program_optimization_plan_step") => {
+            row.get("policy").is_some_and(serde_json::Value::is_null)
+        }
+        _ => false,
+    }
+}
+
+fn validate_program_result_privacy(
+    result: &TypedJobResult,
+    expected_policy: &PolicyEnvelope,
+) -> Result<(), String> {
     let expected = std::collections::BTreeSet::from([
         "id",
         "kind",
@@ -3370,6 +3781,7 @@ fn validate_program_result_privacy(result: &TypedJobResult) -> Result<(), String
         "instruction_ref",
         "tool_policy_ref",
         "model_profile_ref",
+        "policy",
         "modalities",
         "plan_ref",
         "plan_step_kinds",
@@ -3379,6 +3791,7 @@ fn validate_program_result_privacy(result: &TypedJobResult) -> Result<(), String
         "plan_depends_on",
         "max_operations",
         "selected",
+        "promotion_identity",
     ]);
     let actual = result
         .schema
@@ -3425,6 +3838,7 @@ fn validate_program_result_privacy(result: &TypedJobResult) -> Result<(), String
         candidate_roles: &candidate_roles,
         plan_step_kinds: &plan_step_kinds,
         plan_executors: &plan_executors,
+        policy: expected_policy,
     };
     for row in &result.rows {
         if validate_program_result_row(row, &ctx) {
@@ -3641,5 +4055,264 @@ mod privacy_tests {
         let stored = native_opaque_ref("graph", "authorized-graph");
         assert_eq!(stored, native_opaque_ref("graph", "authorized-graph"));
         assert_ne!(stored, "authorized-graph");
+    }
+
+    #[cfg(feature = "program-optimization")]
+    #[test]
+    fn program_result_producer_and_privacy_validator_bind_policy() {
+        use super::{typed_program_result, validate_program_result_privacy};
+        use eg_jobs::model::{
+            AlgoVersion, AnalyticsJob, InputSnapshotHandle, JobPolicy, JobState, RetryPolicy,
+        };
+        use eg_modality::{Classification, OpaqueRef, PolicyEnvelope};
+        use eg_program::{
+            CandidateRole, OptimizationCheckpoint, OptimizationResult, OptimizerKind,
+            ProgramCandidate, ProgramModality, PROGRAM_SCHEMA_VERSION,
+        };
+        use sha2::{Digest, Sha256};
+        use std::collections::BTreeSet;
+
+        let opaque = |namespace: &str, value: &str| {
+            OpaqueRef::new(native_opaque_ref(namespace, value)).expect("opaque test reference")
+        };
+        let policy = PolicyEnvelope {
+            tenant_ref: opaque("tenant", "program-result-tenant"),
+            access_policy_ref: opaque("policy", "program-result-access"),
+            classification: Classification::Internal,
+            retention_policy_ref: opaque("retention", "program-result-retention"),
+            deletion_policy_ref: opaque("deletion", "program-result-deletion"),
+            legal_hold_ref: None,
+            purpose_refs: vec![opaque("purpose", "program-result-purpose")],
+        };
+        let program_ref = opaque("program", "program-result-program");
+        let content_digest = hex::encode(Sha256::digest(b"program-result-candidate"));
+        let candidate = ProgramCandidate {
+            candidate_ref: OpaqueRef::scoped("program_candidate", &content_digest).unwrap(),
+            program_ref: program_ref.clone(),
+            optimizer: OptimizerKind::LabeledFewShot,
+            role: CandidateRole::Proposal,
+            demonstration_refs: vec![opaque("example", "program-result-example")],
+            artifact_refs: Vec::new(),
+            composition_refs: Vec::new(),
+            instruction_ref: None,
+            tool_policy_ref: None,
+            model_profile_ref: None,
+            modalities: BTreeSet::from([ProgramModality::Text]),
+            policy: policy.clone(),
+            content_digest,
+            evaluation: None,
+        };
+        let candidate_ref = candidate.candidate_ref.clone();
+        let optimization = OptimizationResult {
+            schema_version: PROGRAM_SCHEMA_VERSION,
+            request_ref: opaque("optimization_request", "program-result-request"),
+            program_ref,
+            optimizer: OptimizerKind::LabeledFewShot,
+            candidates: vec![candidate],
+            plans: Vec::new(),
+            selected_candidate_ref: None,
+            promoted: false,
+            checkpoint: OptimizationCheckpoint {
+                request_ref: opaque("optimization_request", "program-result-request"),
+                corpus_ref: opaque("corpus", "program-result-corpus"),
+                snapshot_version: 1,
+                optimizer: OptimizerKind::LabeledFewShot,
+                generated_candidates: 1,
+                generated_plans: 0,
+                planned_steps: 0,
+                evaluated_candidates: 0,
+            },
+        };
+        let dataset_ref = native_opaque_ref("dataset", "program-result-input");
+        let job = AnalyticsJob {
+            job_id: "program-result-job".to_string(),
+            input_snapshot: InputSnapshotHandle::new("eg:graph:program-result", 1).with_dataset(
+                dataset_ref.as_str().to_string(),
+                hex::encode(Sha256::digest(b"input")),
+            ),
+            policy: JobPolicy::default(),
+            algo: AlgoVersion {
+                family: "program.optimization".to_string(),
+                algorithm: "labeled_few_shot".to_string(),
+                params_digest: "params".to_string(),
+                code_version: "test".to_string(),
+                env_version: "test".to_string(),
+            },
+            input_payload: None,
+            retry: RetryPolicy::default(),
+            state: JobState::Submitted,
+            cancel_requested: false,
+            lease_epoch: 0,
+            lease: None,
+            last_worker_ref: String::new(),
+            not_before_ms: 0,
+            output: None,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+        };
+
+        let result = typed_program_result(&job, &optimization, None, &policy)
+            .expect("the producer output passes its privacy validator");
+        assert_eq!(
+            result.rows[0].get("id").and_then(serde_json::Value::as_str),
+            Some(candidate_ref.as_str())
+        );
+        assert_eq!(
+            result.rows[0].get("policy"),
+            Some(&serde_json::to_value(&policy).unwrap())
+        );
+        validate_program_result_privacy(&result, &policy)
+            .expect("the emitted policy remains bound at the validator");
+
+        let mut tampered = result;
+        let mut tampered_policy = serde_json::to_value(&policy).unwrap();
+        tampered_policy["access_policy_ref"] =
+            serde_json::json!(opaque("policy", "program-result-other-access").as_str());
+        tampered.rows[0].insert("policy".to_string(), tampered_policy);
+        assert!(validate_program_result_privacy(&tampered, &policy).is_err());
+    }
+}
+
+#[cfg(all(test, feature = "raft"))]
+mod publication_receipt_tests {
+    use super::*;
+
+    fn prepared() -> PreparedJobPublication {
+        let target_graph = "publication-receipt-graph";
+        let result_ref = native_opaque_ref("job_result", "publication-receipt-result");
+        let job_id = "publication-receipt-job";
+        let worker_ref = native_opaque_ref("worker", "publication-receipt-worker");
+        let lease_epoch = 1;
+        let coordinator_id = crate::server::mutation_batch::opaque_coordinator_key(
+            "job-publication",
+            target_graph,
+            &format!("{job_id}\0{worker_ref}\0{lease_epoch}\0{result_ref}"),
+        );
+        let batch_id = crate::server::mutation_batch::opaque_coordinator_key(
+            "job-result",
+            target_graph,
+            &format!("{result_ref}\0{job_id}"),
+        );
+        PreparedJobPublication {
+            schema_version: JOB_PUBLICATION_PLAN_VERSION,
+            coordinator_id,
+            target_graph: target_graph.to_string(),
+            target_graph_type: crate::protocol::GraphType::Agent,
+            job_id: job_id.to_string(),
+            worker_ref,
+            lease_epoch,
+            result_ref: result_ref.clone(),
+            principal_ref: native_opaque_ref("principal", "publication-receipt-principal"),
+            batch_id,
+            claim_id: eg_jobs::claim::claim_node_id(&result_ref),
+            dataset_ref: native_opaque_ref("dataset", "publication-receipt-dataset"),
+            methods: vec![Method::AddNode {
+                node_id: "publication-receipt-claim".to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                    "type": "Claim",
+                    "family": "job"
+                }))
+                .unwrap(),
+            }],
+            #[cfg(feature = "program-optimization")]
+            promotion: None,
+        }
+    }
+
+    fn receipt_for(
+        prepared: &PreparedJobPublication,
+    ) -> crate::mutation_batch::MutationBatchCommit {
+        let batch = crate::server::mutation_batch::compile_methods(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: &prepared.batch_id,
+                request_id: 11,
+                attempt_nonce: None,
+                principal: Some(&prepared.principal_ref),
+                tenant: &prepared.target_graph,
+                graph: &prepared.target_graph,
+                placement_epoch: 0,
+                idempotency_key: &prepared.batch_id,
+                expected_graph_version: Some(0),
+                fencing_token: None,
+                created_at_ms: 17,
+                default_surface: MutationSurface::Job,
+                authoritative_state: None,
+            },
+            prepared.methods.clone(),
+        )
+        .unwrap();
+        let identity = batch.identity.clone();
+        let result = publication_result(
+            &prepared.claim_id,
+            &prepared.dataset_ref,
+            #[cfg(feature = "program-optimization")]
+            None,
+            #[cfg(not(feature = "program-optimization"))]
+            None,
+        );
+        crate::mutation_batch::MutationBatchCommit {
+            record: crate::mutation_batch::MutationBatchRecord {
+                batch,
+                identity: identity.clone(),
+                status: crate::mutation_batch::MutationBatchStatus::Committed,
+                committed_version: crate::mutation_batch::CommittedVersion::Graph {
+                    source: 0,
+                    target: 1,
+                },
+                result_msgpack: Some(rmp_serde::to_vec_named(&result).unwrap()),
+                committed_at_ms: 17,
+            },
+            identity,
+            replayed: false,
+        }
+    }
+
+    #[test]
+    fn publication_receipt_is_bound_to_plan_batch_graph_and_result() {
+        let prepared = prepared();
+        let receipt = receipt_for(&prepared);
+        validate_job_publication_commit(&prepared, &receipt).unwrap();
+
+        let mut wrong_batch = receipt.clone();
+        wrong_batch.record.batch.batch_id.push_str("-other");
+        assert!(validate_job_publication_commit(&prepared, &wrong_batch).is_err());
+
+        let mut wrong_result = receipt;
+        wrong_result.record.result_msgpack = Some(
+            rmp_serde::to_vec_named(&publication_result(
+                "jobclaim:other",
+                &prepared.dataset_ref,
+                #[cfg(feature = "program-optimization")]
+                None,
+                #[cfg(not(feature = "program-optimization"))]
+                None,
+            ))
+            .unwrap(),
+        );
+        assert!(validate_job_publication_commit(&prepared, &wrong_result).is_err());
+
+        let wrong_tenant = eg_types::MutationScopeIdentity::fixed_graph(
+            "other-publication-tenant",
+            &prepared.target_graph,
+            crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
+        )
+        .unwrap();
+        let mut wrong_tenant_receipt = receipt_for(&prepared);
+        wrong_tenant_receipt.record.batch.identity = wrong_tenant.clone();
+        wrong_tenant_receipt.record.identity = wrong_tenant.clone();
+        wrong_tenant_receipt.identity = wrong_tenant;
+        assert!(validate_job_publication_commit(&prepared, &wrong_tenant_receipt).is_err());
+
+        let wrong_incarnation = eg_types::MutationScopeIdentity::fixed_graph(
+            &prepared.target_graph,
+            &prepared.target_graph,
+            "epistemic-graph:mutation-batch-compiler:wrong-incarnation",
+        )
+        .unwrap();
+        let mut wrong_incarnation_receipt = receipt_for(&prepared);
+        wrong_incarnation_receipt.record.batch.identity = wrong_incarnation.clone();
+        wrong_incarnation_receipt.record.identity = wrong_incarnation.clone();
+        wrong_incarnation_receipt.identity = wrong_incarnation;
+        assert!(validate_job_publication_commit(&prepared, &wrong_incarnation_receipt).is_err());
     }
 }

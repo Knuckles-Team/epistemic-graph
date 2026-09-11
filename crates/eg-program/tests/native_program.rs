@@ -4,10 +4,11 @@ use eg_modality::{
 };
 use eg_program::{
     AdapterKind, EvaluationSummary, EvidenceBinding, ExampleOutcome, ExampleSplit, FieldRole,
-    FieldSpec, ModuleKind, NativeCompiler, OptimizationBudget, OptimizationRequest,
+    FieldSpec, GovernedContentRef, ModelCallRequest, ModelCallResponse, ModelFinishReason,
+    ModelTier, ModelUsage, ModuleKind, NativeCompiler, OptimizationBudget, OptimizationRequest,
     OptimizerArtifact, OptimizerArtifactKind, OptimizerExecution, OptimizerKind, PlanExecutor,
-    PlanStepKind, ProgramModality, ProgramRevision, PromotionPolicy, SignatureSpec, TrainingCorpus,
-    TrainingExample, PROGRAM_SCHEMA_VERSION,
+    PlanStepKind, ProgramModality, ProgramRevision, ProgramRevisionIdentity, PromotionPolicy,
+    SignatureSpec, TrainingCorpus, TrainingExample, PROGRAM_SCHEMA_VERSION,
 };
 use sha2::{Digest, Sha256};
 
@@ -392,4 +393,112 @@ fn authority_rebind_replaces_every_caller_policy_scope() {
         .optimizer_artifacts
         .iter()
         .all(|artifact| artifact.access_policy_ref == rebound.program.policy.access_policy_ref));
+}
+
+#[test]
+fn promotion_identity_and_model_trace_bind_to_one_revision() {
+    let mut request = request(OptimizerKind::LabeledFewShot);
+    let proposal = NativeCompiler::compile(&request).expect("compile proposal");
+    request.candidate_evaluations.push(EvaluationSummary {
+        subject_ref: proposal.candidates[0].candidate_ref.clone(),
+        aggregate_score: 0.8,
+        modality_scores: ProgramModality::ALL
+            .into_iter()
+            .map(|modality| (modality, 0.8))
+            .collect(),
+        evidence_refs: vec![opaque("evaluation", "promotion-evidence")],
+    });
+    let result = NativeCompiler::compile(&request).expect("compile promoted candidate");
+    assert!(result.promoted);
+    let candidate = result.selected_candidate().expect("selected candidate");
+    let mut bound_candidate = candidate.clone();
+    bound_candidate.content_digest = token("promotion-bound-candidate");
+    bound_candidate.candidate_ref =
+        OpaqueRef::scoped("program_candidate", &bound_candidate.content_digest)
+            .expect("candidate ref");
+    bound_candidate.tool_policy_ref = Some(opaque("tool_policy", "promotion-tool-policy"));
+    bound_candidate.model_profile_ref = Some(opaque("model_profile", "promotion-model"));
+    let identity =
+        ProgramRevisionIdentity::from_candidate(&request.program, &bound_candidate, None)
+            .expect("derive revision identity");
+    assert_eq!(identity.base_revision, request.program.revision);
+    assert_eq!(identity.revision, request.program.revision + 1);
+    assert_eq!(identity.program_ref, request.program.program_ref);
+    assert_eq!(identity.policy, request.program.policy);
+    assert_eq!(identity.tool_policy_ref, bound_candidate.tool_policy_ref);
+    assert_eq!(
+        identity.model_profile_ref,
+        bound_candidate.model_profile_ref
+    );
+
+    let mut next_program = request.program.clone();
+    next_program.revision += 1;
+    next_program.parent_ref = Some(identity.revision_ref.clone());
+    let mut next_candidate = bound_candidate.clone();
+    next_candidate.content_digest = token("promotion-bound-candidate-next");
+    next_candidate.candidate_ref =
+        OpaqueRef::scoped("program_candidate", &next_candidate.content_digest)
+            .expect("next candidate ref");
+    let next_identity = ProgramRevisionIdentity::from_candidate(
+        &next_program,
+        &next_candidate,
+        Some(identity.revision_ref.clone()),
+    )
+    .expect("derive the second revision from the observed active pointer");
+    assert_eq!(
+        next_identity.parent_ref,
+        Some(identity.revision_ref.clone())
+    );
+    assert_ne!(next_identity.revision_ref, identity.revision_ref);
+
+    let model_request = ModelCallRequest {
+        request_ref: opaque("model_request", "promotion-request"),
+        program_ref: identity.program_ref.clone(),
+        program_revision_ref: identity.revision_ref.clone(),
+        model_profile_ref: identity
+            .model_profile_ref
+            .clone()
+            .expect("bound model profile"),
+        tool_policy_ref: identity.tool_policy_ref.clone(),
+        tier: ModelTier::Balanced,
+        inputs: vec![GovernedContentRef {
+            content_ref: opaque("content", "promotion-input"),
+            modality: ProgramModality::Text,
+            access_policy_ref: request.program.policy.access_policy_ref.clone(),
+            evidence_locus_refs: vec![opaque("locus", "promotion-input")],
+        }],
+        output_schema_refs: vec![opaque("schema", "promotion-output")],
+        max_output_tokens: 128,
+        trace_ref: opaque("trace", "promotion-trace"),
+    };
+    let response = ModelCallResponse {
+        response_ref: opaque("model_response", "promotion-response"),
+        output_refs: vec![opaque("content", "promotion-output")],
+        trace_ref: model_request.trace_ref.clone(),
+        program_revision_ref: identity.revision_ref.clone(),
+        usage: ModelUsage {
+            input_tokens: 4,
+            output_tokens: 5,
+            cached_input_tokens: 0,
+        },
+        finish_reason: ModelFinishReason::Completed,
+    };
+    model_request.validate().expect("valid model request");
+    model_request
+        .validate_for_revision(&identity)
+        .expect("model request resolves the durable revision bindings");
+    response
+        .validate_for(&model_request)
+        .expect("trace and revision binding");
+
+    let mut wrong_revision = response.clone();
+    wrong_revision.program_revision_ref = opaque("program_revision", "other-revision");
+    assert!(wrong_revision.validate_for(&model_request).is_err());
+    let mut wrong_trace = response;
+    wrong_trace.trace_ref = opaque("trace", "other-trace");
+    assert!(wrong_trace.validate_for(&model_request).is_err());
+
+    let mut wrong_profile = model_request.clone();
+    wrong_profile.model_profile_ref = opaque("model_profile", "other-model");
+    assert!(wrong_profile.validate_for_revision(&identity).is_err());
 }

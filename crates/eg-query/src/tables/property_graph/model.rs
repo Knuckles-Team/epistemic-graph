@@ -26,10 +26,13 @@ pub const MAX_PROPERTY_GRAPH_KEY_COLUMNS: usize = 32;
 pub const MAX_SQL_IDENTIFIER_BYTES: usize = 63;
 pub const MAX_QUALIFIED_NAME_PARTS: usize = 3;
 pub const MAX_TENANT_SCOPE_BYTES: usize = 512;
-pub const PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION: u16 = 1;
+pub const PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION: u16 = 2;
 pub const MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES: usize = 512 * 1024;
 pub const MAX_CATALOG_ID_BYTES: usize = 256;
 pub const MAX_CATALOG_OWNER_BYTES: usize = 256;
+/// Explicit `SELECT` principals carried by one property-graph catalog record.
+/// The owner and an engine administrator are implicit and do not consume rows.
+pub const MAX_PROPERTY_GRAPH_SELECT_GRANTEES: usize = 1024;
 
 /// A tenant-scoped SQL name. Tenant is an opaque security scope, not an SQL
 /// identifier. An unqualified name resolves to the tenant's `public` schema.

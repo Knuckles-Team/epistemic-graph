@@ -15,7 +15,7 @@
 //!   RF-RULING-004 makes `eg-transaction::MutationKernel` the sole mutation
 //!   owner, so declaring them as owner tables would put a second mutation
 //!   ledger in a kernel-owned file. They retire onto the kernel ledger and are
-//!   quarantined by name, not re-declared.
+//!   quarantined by name; no layout declares them again.
 //! * Every table is declared unconditionally, with no `cfg` gate, even though
 //!   `audit_chain`, `provenance_anchor_members`, `matviews`, `plan_matviews`
 //!   and `matview_operator_state` are written only under `security`,
@@ -24,6 +24,11 @@
 //!   narrower one, and `validate_table_census` is exact equality, so a
 //!   feature-dependent census would make the same file valid or invalid
 //!   depending on the reader's build.
+//!
+//! `graph_meta` is declared `StorePrivate`, not `Serving`, even though its key
+//! is the graph name: it is the file's catalog of which graphs it hosts, and
+//! the shard's boot scan has to read it to learn those names before any graph
+//! scope can be bound. See [`scope`] for the full reason.
 //!
 //! The three `series_*` tables are declared here as well as on
 //! `OwnerLayout::TimeSeries`: a cross-modal atomic commit writes measurements
@@ -55,11 +60,12 @@ pub(crate) const WORK_ITEM_COMMAND_SEQUENCE: TableDefinition<'static, &str, u64>
 // -- resource reservation -------------------------------------------------
 pub(crate) const RESOURCE_RESERVATIONS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("resource_reservations");
-pub(crate) const RESOURCE_RESERVATION_TENANT_INDEX:
-    TableDefinition<'static, (&str, &str, &str), &str> =
-    TableDefinition::new("resource_reservation_tenant_index");
-pub(crate) const RESOURCE_RESERVATION_ATTEMPTS:
-    TableDefinition<'static, (&str, &str, u64), &str> =
+pub(crate) const RESOURCE_RESERVATION_TENANT_INDEX: TableDefinition<
+    'static,
+    (&str, &str, &str),
+    &str,
+> = TableDefinition::new("resource_reservation_tenant_index");
+pub(crate) const RESOURCE_RESERVATION_ATTEMPTS: TableDefinition<'static, (&str, &str, u64), &str> =
     TableDefinition::new("resource_reservation_attempts");
 pub(crate) const RESOURCE_HOSTS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("resource_hosts");
@@ -103,8 +109,7 @@ pub(crate) const XSHARD_DECISION: TableDefinition<'static, &str, u8> =
     TableDefinition::new("xshard_decision");
 
 // -- materialized views (store-private: keyed by view name) ----------------
-pub(crate) const MATVIEWS: TableDefinition<'static, &str, &[u8]> =
-    TableDefinition::new("matviews");
+pub(crate) const MATVIEWS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("matviews");
 pub(crate) const PLAN_MATVIEWS: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("plan_matviews");
 pub(crate) const MATVIEW_OPERATOR_STATE: TableDefinition<'static, &str, &[u8]> =
@@ -123,38 +128,43 @@ pub(crate) const CAPACITY_IDEMPOTENCY: TableDefinition<'static, (&str, &str, &st
 // -- work-item claim capability -------------------------------------------
 pub(crate) const WORK_ITEM_CLAIM_CAPABILITIES: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("work_item_claim_capabilities");
-pub(crate) const WORK_ITEM_CLAIM_CAPABILITY_INVOCATIONS:
-    TableDefinition<'static, (&str, &str), &[u8]> =
-    TableDefinition::new("work_item_claim_capability_invocations");
+pub(crate) const WORK_ITEM_CLAIM_CAPABILITY_INVOCATIONS: TableDefinition<
+    'static,
+    (&str, &str),
+    &[u8],
+> = TableDefinition::new("work_item_claim_capability_invocations");
 pub(crate) const NATIVE_WORK_ITEM_AUTHORITY: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("native_work_item_authority");
 
 // -- development lane -----------------------------------------------------
 pub(crate) const DEVELOPMENT_LANE_HOLDS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("development_lane_holds");
-pub(crate) const DEVELOPMENT_LANE_TENANT_INDEX:
-    TableDefinition<'static, (&str, &str, &str), &str> =
+pub(crate) const DEVELOPMENT_LANE_TENANT_INDEX: TableDefinition<'static, (&str, &str, &str), &str> =
     TableDefinition::new("development_lane_tenant_index");
-pub(crate) const DEVELOPMENT_LANE_LANE_INDEX:
-    TableDefinition<'static, (&str, &str, &str), &str> =
+pub(crate) const DEVELOPMENT_LANE_LANE_INDEX: TableDefinition<'static, (&str, &str, &str), &str> =
     TableDefinition::new("development_lane_lane_index");
-pub(crate) const DEVELOPMENT_LANE_REPOSITORY_BRANCH_INDEX:
-    TableDefinition<'static, (&str, &str, &str), &str> =
-    TableDefinition::new("development_lane_repository_branch_index");
+pub(crate) const DEVELOPMENT_LANE_REPOSITORY_BRANCH_INDEX: TableDefinition<
+    'static,
+    (&str, &str, &str),
+    &str,
+> = TableDefinition::new("development_lane_repository_branch_index");
 pub(crate) const DEVELOPMENT_LANE_WORKTREE_INDEX: TableDefinition<'static, (&str, &str), &str> =
     TableDefinition::new("development_lane_worktree_index");
-pub(crate) const DEVELOPMENT_LANE_WORK_ITEM_INDEX:
-    TableDefinition<'static, (&str, &str, u64), &str> =
-    TableDefinition::new("development_lane_work_item_index");
+pub(crate) const DEVELOPMENT_LANE_WORK_ITEM_INDEX: TableDefinition<
+    'static,
+    (&str, &str, u64),
+    &str,
+> = TableDefinition::new("development_lane_work_item_index");
 pub(crate) const DEVELOPMENT_LANE_COUNTERS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("development_lane_counters");
-pub(crate) const DEVELOPMENT_LANE_PRESSURE_INDEX:
-    TableDefinition<'static, (&str, &str, &str, &str, u64, &str), u8> =
-    TableDefinition::new("development_lane_pressure_index");
+pub(crate) const DEVELOPMENT_LANE_PRESSURE_INDEX: TableDefinition<
+    'static,
+    (&str, &str, &str, &str, u64, &str),
+    u8,
+> = TableDefinition::new("development_lane_pressure_index");
 pub(crate) const DEVELOPMENT_LANE_POLICIES: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("development_lane_policies");
-pub(crate) const DEVELOPMENT_LANE_INVOCATIONS:
-    TableDefinition<'static, (&str, &str, &str), &[u8]> =
+pub(crate) const DEVELOPMENT_LANE_INVOCATIONS: TableDefinition<'static, (&str, &str, &str), &[u8]> =
     TableDefinition::new("development_lane_invocations");
 
 // -- encryption-at-rest key binding ---------------------------------------
@@ -312,10 +322,14 @@ pub(crate) const RETIRED_SHARD_LEDGER_TABLES: &[&str] = &[
 /// Redb key type for one graph-shard table, or `None` when the name is not one.
 pub(crate) fn key_type(name: &str) -> Option<&'static str> {
     match name {
-        "semantic_store" | "graph_meta" | "work_item_command_sequence" | "xshard_decision"
-        | "matviews" | "plan_matviews" | "matview_operator_state" | "encryption_canary" => {
-            Some("&str")
-        }
+        "semantic_store"
+        | "graph_meta"
+        | "work_item_command_sequence"
+        | "xshard_decision"
+        | "matviews"
+        | "plan_matviews"
+        | "matview_operator_state"
+        | "encryption_canary" => Some("&str"),
         "edges" => Some("(&str,&str,&str,u32)"),
         "ledger" | "audit_chain" | "provenance_anchor_members" | "xshard_prepare" => {
             Some("(&str,u64)")
@@ -416,13 +430,35 @@ pub(crate) fn logical_codec(name: &str) -> Option<&'static str> {
 ///
 /// `Serving` means the key's leading component is the graph name -- the shard's
 /// serving scope -- so a row is addressable within one graph. The rest are
-/// keyed by Raft group, cross-shard transaction id, view name, series id or a
-/// fixed file-wide key, and belong to the file rather than to any one graph.
+/// keyed by Raft group, cross-shard transaction id, view name, series id, a
+/// fixed file-wide key, or (for `graph_meta`) the graph name used as a catalog
+/// entry rather than as a serving scope, and belong to the file rather than to
+/// any one graph.
+///
+/// `graph_meta` is `StorePrivate` even though its key IS the graph name,
+/// because it is the file's **catalog of which graphs it hosts**, not one
+/// graph's rows. A `Serving` classification makes it reachable only through
+/// [`crate::ScopedOwnerTable`], which binds every key to one already-known
+/// graph and which the control scope may not open at all -- and the shard's
+/// boot path has to enumerate this table to LEARN the graph names before any
+/// graph scope can be bound. That circularity has no resolution while the
+/// catalog is per-graph, so the catalog belongs to the control scope, and a
+/// graph's meta row is written by the control member of the same admitted
+/// group that writes the graph's rows.
 pub(crate) fn scope(name: &str) -> Option<TableScope> {
     match name {
-        "raft_log" | "raft_meta" | "xshard_prepare" | "xshard_decision" | "matviews"
-        | "plan_matviews" | "matview_operator_state" | "encryption_canary" | "series_chunks"
-        | "series_meta" | "series_projection_state" => Some(TableScope::StorePrivate),
+        "graph_meta"
+        | "raft_log"
+        | "raft_meta"
+        | "xshard_prepare"
+        | "xshard_decision"
+        | "matviews"
+        | "plan_matviews"
+        | "matview_operator_state"
+        | "encryption_canary"
+        | "series_chunks"
+        | "series_meta"
+        | "series_projection_state" => Some(TableScope::StorePrivate),
         name if GRAPH_SHARD_TABLES.contains(&name) => Some(TableScope::Serving),
         _ => None,
     }

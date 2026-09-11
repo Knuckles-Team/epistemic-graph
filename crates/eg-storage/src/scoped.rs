@@ -13,7 +13,7 @@
 //! read-only view of one LAYOUT-bounded owner table inside an admitted write,
 //! for the tables whose keys carry no scope component at all.
 
-use crate::owner::row_key::OwnerRowScope;
+use crate::owner::row_key::{OwnerRowScope, OwnerRowScopeStart};
 use crate::tables::LedgerRowScope;
 use redb::{AccessGuard, Range, ReadOnlyTable, ReadableTable, ReadableTableMetadata, Table};
 
@@ -223,6 +223,32 @@ where
             .range(start..=end)
             .map_err(|error| error.to_string())
     }
+
+    /// Every row of THIS scope, in key order, and no other scope's.
+    ///
+    /// The scan starts at the least key the scope can own
+    /// ([`OwnerRowScopeStart`]) and stops on the first key whose leading
+    /// component is a different scope, so it never reads past the scope's own
+    /// range and takes no bound from the caller. It is strictly weaker than a
+    /// whole-table `iter()`, which is why a scope-prefixed owner table can
+    /// offer it at all: `iter()` would expose every other scope's rows in the
+    /// file they share.
+    ///
+    /// This is the accessor a per-graph prefix scan needs. `range_inclusive`
+    /// cannot express one for a key whose non-leading components include a
+    /// `&str`, because `&str` has no maximum -- see [`OwnerRowScopeStart`].
+    pub fn scope_rows(
+        &self,
+    ) -> Result<impl Iterator<Item = ScopeRow<'static, K, V>>, String>
+    where
+        for<'k> K::SelfType<'k>: OwnerRowScopeStart<'k>,
+    {
+        let rows = self
+            .table
+            .range(K::SelfType::scope_start(self.scope_key.as_str())..)
+            .map_err(|error| error.to_string())?;
+        Ok(bounded_to_scope(rows, self.scope_key.clone()))
+    }
 }
 
 /// One scope-prefixed owner table opened for writing and restricted to one
@@ -279,10 +305,89 @@ where
             .range(start..=end)
             .map_err(|error| error.to_string())
     }
+
+    /// Every row of THIS scope, in key order, and no other scope's.
+    ///
+    /// The scan starts at the least key the scope can own
+    /// ([`OwnerRowScopeStart`]) and stops on the first key whose leading
+    /// component is a different scope, so it never reads past the scope's own
+    /// range and takes no bound from the caller. It is strictly weaker than a
+    /// whole-table `iter()`, which is why a scope-prefixed owner table can
+    /// offer it at all: `iter()` would expose every other scope's rows in the
+    /// file they share.
+    ///
+    /// This is the accessor a per-graph prefix scan needs. `range_inclusive`
+    /// cannot express one for a key whose non-leading components include a
+    /// `&str`, because `&str` has no maximum -- see [`OwnerRowScopeStart`].
+    pub fn scope_rows<'s>(
+        &'s self,
+    ) -> Result<impl Iterator<Item = ScopeRow<'s, K, V>> + 's, String>
+    where
+        for<'k> K::SelfType<'k>: OwnerRowScopeStart<'k>,
+    {
+        let rows = self
+            .table
+            .range(K::SelfType::scope_start(self.scope_key.as_str())..)
+            .map_err(|error| error.to_string())?;
+        Ok(bounded_to_scope(rows, self.scope_key.clone()))
+    }
+
+    /// Remove every row of THIS scope, and no other scope's.
+    ///
+    /// The write twin of [`Self::scope_rows`], and the primitive an owner
+    /// layout needs to implement [`crate::OwnerPayloadRetirement`] at all when
+    /// its tables are scope-prefixed. `PhysicalWriteCapability::purge_scoped_rows`
+    /// cannot serve that: it is the LEDGER sweep, keyed by
+    /// [`crate::ledger_scope_key`] -- the 64-hex binding digest -- while an owner
+    /// key leads with the scope's logical NAME, so on an owner table it matches
+    /// nothing and returns `Ok(())` having removed no row. A retirement that
+    /// silently retains the payload is the exact failure
+    /// `OwnerPayloadRetirement` exists to prevent, so the sweep has to be keyed
+    /// the way the rows are.
+    ///
+    /// Implemented with `redb`'s own `retain`, bounded to the scope this table
+    /// is already bound to: the scope comes from the capability that opened it,
+    /// never from an argument, so holding one graph's handle can never wipe
+    /// another's rows in the file they share.
+    pub fn purge_scope_rows(&mut self) -> Result<(), String>
+    where
+        for<'k> K::SelfType<'k>: OwnerRowScope,
+    {
+        let scope_key = self.scope_key.clone();
+        self.table
+            .retain(|key, _| key.owner_scope() != scope_key.as_str())
+            .map_err(|error| error.to_string())
+    }
 }
 
 /// Whole-component equality against the holder's own scope name, exactly as
 /// [`ScopedTable::permit`] does for a ledger key.
+/// One row yielded by a scope-bounded scan.
+pub type ScopeRow<'t, K, V> = Result<(AccessGuard<'t, K>, AccessGuard<'t, V>), String>;
+
+/// Stop a scope-started range at the first row that leaves the scope.
+///
+/// The `take_while` lives here rather than at any call site: a caller that
+/// forgot it would read every following scope's rows, which is exactly the
+/// confinement this module exists to enforce. A storage error is yielded rather
+/// than treated as the end of the scope, so a failing scan cannot look like an
+/// empty one.
+fn bounded_to_scope<'t, K, V>(
+    rows: Range<'t, K, V>,
+    scope_key: String,
+) -> impl Iterator<Item = ScopeRow<'t, K, V>>
+where
+    K: redb::Key + 'static,
+    for<'k> K::SelfType<'k>: OwnerRowScope,
+    V: redb::Value + 'static,
+{
+    rows.map(|row| row.map_err(|error| error.to_string()))
+        .take_while(move |row| match row {
+            Ok((key, _)) => key.value().owner_scope() == scope_key.as_str(),
+            Err(_) => true,
+        })
+}
+
 pub(crate) fn permit_owner_row<K: OwnerRowScope>(key: &K, scope_key: &str) -> Result<(), String> {
     if key.owner_scope() != scope_key {
         return Err("scoped owner access may not address another scope's rows".to_string());

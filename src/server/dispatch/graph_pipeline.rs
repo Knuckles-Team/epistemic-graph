@@ -1,7 +1,11 @@
 #[cfg(test)]
 use super::change_envelope::decode_multi_graph_batches;
-use super::change_envelope::{route_change_envelope_ops, work_item_capability_authority_epoch};
-use super::consensus::{authoritative_now_ms, is_replicated_apply};
+use super::change_envelope::route_change_envelope_ops;
+#[cfg(feature = "redb")]
+use super::change_envelope::work_item_capability_authority_epoch;
+use super::consensus::authoritative_now_ms;
+#[cfg(feature = "raft")]
+use super::consensus::is_replicated_apply;
 #[cfg(all(test, feature = "ast"))]
 use super::request_boundary::{decode_ast_files, AstInputLimits};
 #[cfg(test)]
@@ -105,6 +109,7 @@ struct ModalityReplication<'a> {
     graph_name: &'a str,
     graph_type: crate::protocol::GraphType,
     req_id: u64,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
     tenant_scope: &'a str,
     principal_fingerprint: &'a str,
     core: &'a Arc<crate::graph::GraphCore>,
@@ -221,7 +226,10 @@ fn modality_receipt_binding_matches(
             == Some(ctx.graph_name)
         && record.batch.placement_epoch == ctx.placement_epoch
         && record.batch.fencing_token == ctx.fencing_token
-        && crate::server::mutation_batch::batch_actor(&record.batch) == Some(ctx.principal_fingerprint)
+        && matches!(
+            record.committing_actor(),
+            Ok(actor) if actor == ctx.principal_fingerprint
+        )
 }
 
 /// Raft apply authenticated the sealed runtime state and result digest before
@@ -395,6 +403,7 @@ async fn submit_modality_replication(
     let mutation = match crate::raft::RaftMutationContext::from_verified_request(
         batch_id,
         ctx.req_id,
+        ctx.attempt_nonce,
         ctx.tenant_scope,
         ctx.principal_fingerprint.to_string(),
         false,
@@ -445,6 +454,7 @@ async fn replicate_served_modality(
     graph_name: &str,
     graph_type: crate::protocol::GraphType,
     req_id: u64,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
     tenant_scope: &str,
     principal_fingerprint: &str,
     core: &Arc<crate::graph::GraphCore>,
@@ -461,6 +471,7 @@ async fn replicate_served_modality(
         graph_name,
         graph_type,
         req_id,
+        attempt_nonce,
         tenant_scope,
         principal_fingerprint,
         core,
@@ -752,10 +763,11 @@ async fn dispatch_op_tsdb_ops(
         Ok(authority) => authority,
         Err(denied) => return Response::err(req_id, denied),
     };
-    return match handlers::timeseries::try_handle(
+    return match handlers::timeseries::try_handle_with_nonce(
         state,
         req_id,
         &carrier,
+        verified_context.attempt_nonce(),
         graph_name,
         ts_placement_epoch,
         ts_fencing_token,
@@ -891,6 +903,7 @@ async fn apply_served_modality(
                 graph_name,
                 *graph_type,
                 req_id,
+                verified_context.attempt_nonce(),
                 tenant_scope,
                 &principal_fingerprint,
                 &core,
@@ -905,6 +918,8 @@ async fn apply_served_modality(
     let ctx = crate::server::mutation::MutationCtx {
         req_id,
         caller,
+        attempt_nonce: verified_context.attempt_nonce(),
+        idempotency_key: verified_context.idempotency_key(),
         tenant_scope,
         graph_name,
         graph_type: *graph_type,
@@ -969,6 +984,7 @@ async fn dispatch_op_raft_write_routing_barrier(
     let mutation = match crate::raft::RaftMutationContext::from_verified_request(
         batch_id,
         req_id,
+        verified_context.attempt_nonce(),
         tenant_scope,
         verified_context.principal_persistence_id(),
         false,
@@ -1378,6 +1394,8 @@ async fn dispatch_graph_op_inner(
             req_id,
             graph_name,
             caller,
+            attempt_nonce: verified_context.attempt_nonce(),
+            idempotency_key: verified_context.idempotency_key(),
             read_authority: read_authority.clone(),
             verified_actor,
             tenant_scope: tenant_scope.clone(),
@@ -1466,6 +1484,8 @@ async fn route_native_store_ops(
     let state_machine_authorized = ctx.state_machine_authorized;
     let core = ctx.core;
     let persistence = ctx.persistence;
+    #[cfg(feature = "redb")]
+    let agent_library = ctx.state.read().await.agent_library.clone();
     #[cfg(feature = "raft")]
     let routed_raft = ctx.routed_raft;
     #[cfg(feature = "raft")]
@@ -1560,6 +1580,38 @@ async fn route_native_store_ops(
         Err(method) => method,
     };
 
+    // RF-020 is an authenticated adapter over the same native WorkItem
+    // admission transaction. The retained Agent Library owner is resolved
+    // before lowering to the existing consensus/local WorkItem authority.
+    #[cfg(feature = "redb")]
+    let method = match handlers::delegation::try_handle(
+        handlers::delegation::HandleContext {
+            state: ctx.state,
+            req_id,
+            graph_name,
+            caller,
+            verified_context,
+            core,
+            persistence,
+            agent_library: &agent_library,
+            #[cfg(feature = "raft")]
+            routed_raft,
+        },
+        method,
+    )
+    .await
+    {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    #[cfg(not(feature = "redb"))]
+    if matches!(&method, Method::KgDelegate { .. }) {
+        return Ok(Response::err(
+            req_id,
+            "kg-delegate requires the redb Agent Library owner",
+        ));
+    }
+
     // The WorkItem handler owns its six lifecycle Methods explicitly and keeps
     // their authoritative MutationBatch effect. Submission and reservation
     // operations deliberately fall through to their existing native route.
@@ -1568,6 +1620,7 @@ async fn route_native_store_ops(
             req_id,
             graph_name,
             caller,
+            verified_context,
             core,
             persistence,
             #[cfg(feature = "raft")]
@@ -1590,6 +1643,7 @@ async fn route_native_store_ops(
             req_id,
             graph_name,
             caller,
+            verified_context,
             core.clone(),
             persistence.clone(),
             #[cfg(feature = "raft")]
@@ -2041,6 +2095,8 @@ struct GatewayRouteCtx<'a> {
     req_id: u64,
     graph_name: &'a str,
     caller: Option<&'a str>,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
+    idempotency_key: &'a str,
     tenant_scope: &'a str,
     core: Arc<crate::graph::GraphCore>,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
@@ -2062,6 +2118,8 @@ async fn route_query_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Result
         req_id,
         graph_name,
         caller,
+        attempt_nonce,
+        idempotency_key,
         tenant_scope,
         core,
         persistence,
@@ -2085,6 +2143,8 @@ async fn route_query_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Result
         let ctx = crate::server::mutation::MutationCtx {
             req_id,
             caller,
+            attempt_nonce,
+            idempotency_key,
             tenant_scope,
             graph_name,
             graph_type: *gtype,
@@ -2164,6 +2224,8 @@ async fn route_rdf_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Result<R
         req_id,
         graph_name,
         caller,
+        attempt_nonce,
+        idempotency_key,
         tenant_scope,
         core,
         persistence,
@@ -2184,6 +2246,8 @@ async fn route_rdf_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Result<R
         let ctx = crate::server::mutation::MutationCtx {
             req_id,
             caller,
+            attempt_nonce,
+            idempotency_key,
             tenant_scope,
             graph_name,
             graph_type: *gtype,
@@ -2264,6 +2328,8 @@ struct DispatchPipelineCtx<'a> {
     req_id: u64,
     graph_name: &'a str,
     caller: Option<&'a str>,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
+    idempotency_key: &'a str,
     read_authority: Option<GraphReadAuthority>,
     verified_actor: &'a str,
     tenant_scope: String,
@@ -2296,6 +2362,8 @@ async fn route_gateway_and_stateless_domains(
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
     let caller = ctx.caller;
+    let attempt_nonce = ctx.attempt_nonce;
+    let idempotency_key = ctx.idempotency_key;
     let read_authority = &ctx.read_authority;
     let tenant_scope: &str = &ctx.tenant_scope;
     let gateway_authz_ctx = &ctx.gateway_authz_ctx;
@@ -2315,6 +2383,8 @@ async fn route_gateway_and_stateless_domains(
     let method = match handlers::graph_ops::try_handle_gateway(
         req_id,
         caller,
+        attempt_nonce,
+        idempotency_key,
         tenant_scope,
         graph_name,
         core,
@@ -2466,6 +2536,8 @@ async fn route_query_and_rdf_surfaces(
             req_id,
             graph_name,
             caller,
+            attempt_nonce: ctx.attempt_nonce,
+            idempotency_key: ctx.idempotency_key,
             tenant_scope,
             core: core.clone(),
             persistence: persistence.clone(),
@@ -2507,6 +2579,8 @@ async fn route_query_and_rdf_surfaces(
             req_id,
             graph_name,
             caller,
+            attempt_nonce: ctx.attempt_nonce,
+            idempotency_key: ctx.idempotency_key,
             tenant_scope,
             core: core.clone(),
             persistence: persistence.clone(),
@@ -2832,7 +2906,6 @@ mod eg318_dispatch_tests {
     use super::*;
     #[cfg(feature = "tsdb")]
     use crate::acl::{AgentIdentity, AgentRole};
-    use crate::durability::DurabilityPolicy;
     use crate::protocol::{Method, Request};
     #[cfg(feature = "tsdb")]
     use crate::server::auth::sign_current_test_request;
@@ -2879,8 +2952,7 @@ mod eg318_dispatch_tests {
         ));
         let dir_string = dir.to_string_lossy().to_string();
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir_string.clone(), DurabilityPolicy::Each, 64)
-                .expect("open authoritative test backend"),
+            RedbBackend::open(dir_string.clone(), 64).expect("open authoritative test backend"),
         );
         let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation("system"));
         state.persist_dir = Some(dir_string);
@@ -4098,7 +4170,6 @@ mod blob_dispatch_tests {
                     crate::server::unique_temp_dir("eg-blob-dispatch-graph")
                         .to_string_lossy()
                         .into_owned(),
-                    crate::durability::DurabilityPolicy::Each,
                     256,
                 )
                 .expect("open blob-dispatch test redb backend"),

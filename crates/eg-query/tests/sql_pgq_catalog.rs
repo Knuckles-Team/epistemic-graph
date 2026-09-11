@@ -10,8 +10,9 @@ use eg_query::sql::{
 use eg_query::tables::schema::TableConstraint;
 use eg_query::tables::{
     AlterPropertyGraphAction, Column, ColumnType, DropBehavior, ElementKind, GraphOwner,
-    LabelDefinition, PropertyGraphDefinition, PropertyGraphStatement, PropertyGraphTxnOp,
-    PropertySet, SqlIdentifier, SqlName, TableSchema, TableStore, TableTxn, TxnOp,
+    LabelDefinition, PropertyGraphDefinition, PropertyGraphObjectId, PropertyGraphStatement,
+    PropertyGraphTxnOp, PropertySet, SqlIdentifier, SqlName, TableSchema, TableStore, TableTxn,
+    TxnOp,
 };
 use serde_json::json;
 
@@ -943,4 +944,179 @@ fn a_property_graph_op_whose_declared_scope_disagrees_with_its_definition_is_ref
         .property_graph(TENANT, &name("social"))
         .unwrap()
         .is_some());
+}
+
+#[test]
+fn graph_select_grants_bind_the_stable_object_and_survive_rename_and_reopen() {
+    let (store, path) = shop_store();
+    let original = store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        store.list_property_graph_records(TENANT).unwrap(),
+        vec![original.clone()]
+    );
+    assert!(original.permits_select(OWNER));
+    assert!(!original.permits_select("role/reader"));
+
+    let mut owner_grant = TableTxn::new();
+    owner_grant.push(TxnOp::PropertyGraphDdl(PropertyGraphTxnOp::GrantSelect {
+        tenant_scope: TENANT.to_string(),
+        name: name("shop"),
+        expected_object_id: original.object_id.clone(),
+        principal: OWNER.to_string(),
+    }));
+    store.commit_txn(&owner_grant).unwrap();
+    assert_eq!(
+        store
+            .property_graph(TENANT, &name("shop"))
+            .unwrap()
+            .unwrap()
+            .catalog_revision,
+        original.catalog_revision
+    );
+
+    let mut grant = TableTxn::new();
+    grant.push(TxnOp::PropertyGraphDdl(PropertyGraphTxnOp::GrantSelect {
+        tenant_scope: TENANT.to_string(),
+        name: name("shop"),
+        expected_object_id: original.object_id.clone(),
+        principal: "role/reader".to_string(),
+    }));
+    store.commit_txn(&grant).unwrap();
+    let granted = store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .unwrap();
+    assert!(granted.permits_select("role/reader"));
+    assert_eq!(granted.definition_revision, original.definition_revision);
+    assert!(granted.catalog_revision > original.catalog_revision);
+
+    // Repeating a GRANT is a no-op, including its catalog revision.
+    store.commit_txn(&grant).unwrap();
+    assert_eq!(
+        store
+            .property_graph(TENANT, &name("shop"))
+            .unwrap()
+            .unwrap()
+            .catalog_revision,
+        granted.catalog_revision
+    );
+
+    store
+        .alter_property_graph(
+            TENANT,
+            &name("shop"),
+            false,
+            &AlterPropertyGraphAction::RenameTo(id("market")),
+            OWNER,
+        )
+        .unwrap();
+    let renamed = store
+        .property_graph(TENANT, &name("market"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(renamed.object_id, original.object_id);
+    assert!(renamed.permits_select("role/reader"));
+
+    drop(store);
+    let reopened = TableStore::open_scoped(
+        &path,
+        TENANT,
+        eg_query::tables::store::dev_scope_grant::dev_verifier(),
+        eg_query::tables::store::dev_scope_grant::DEV_PRINCIPAL,
+        eg_query::tables::store::dev_scope_grant::DEV_PROOF,
+    )
+    .unwrap();
+    assert!(reopened
+        .property_graph(TENANT, &name("market"))
+        .unwrap()
+        .unwrap()
+        .permits_select("role/reader"));
+}
+
+#[test]
+fn revoke_is_immediate_and_drop_recreate_does_not_resurrect_name_grants() {
+    let (store, _path) = shop_store();
+    let original = store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .unwrap();
+    let grant = PropertyGraphTxnOp::GrantSelect {
+        tenant_scope: TENANT.to_string(),
+        name: name("shop"),
+        expected_object_id: original.object_id.clone(),
+        principal: "role/reader".to_string(),
+    };
+    let mut txn = TableTxn::new();
+    txn.push(TxnOp::PropertyGraphDdl(grant));
+    store.commit_txn(&txn).unwrap();
+
+    let mut revoke = TableTxn::new();
+    revoke.push(TxnOp::PropertyGraphDdl(PropertyGraphTxnOp::RevokeSelect {
+        tenant_scope: TENANT.to_string(),
+        name: name("shop"),
+        expected_object_id: original.object_id.clone(),
+        principal: "role/reader".to_string(),
+    }));
+    store.commit_txn(&revoke).unwrap();
+    let revoked = store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .unwrap();
+    assert!(!revoked.permits_select("role/reader"));
+    store.commit_txn(&revoke).unwrap();
+    assert_eq!(
+        store
+            .property_graph(TENANT, &name("shop"))
+            .unwrap()
+            .unwrap()
+            .catalog_revision,
+        revoked.catalog_revision
+    );
+
+    store
+        .drop_property_graph(TENANT, &[name("shop")], false, DropBehavior::Restrict)
+        .unwrap();
+    store
+        .create_property_graph(TENANT, &definition(SHOP_DDL), OWNER)
+        .unwrap();
+    let replacement = store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .unwrap();
+    assert_ne!(replacement.object_id, original.object_id);
+    assert!(replacement.select_grantees.is_empty());
+}
+
+#[test]
+fn a_stale_graph_object_id_aborts_the_whole_privilege_transaction() {
+    let (store, _path) = shop_store();
+    let record = store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .unwrap();
+    let mut txn = TableTxn::new();
+    txn.push(TxnOp::PropertyGraphDdl(PropertyGraphTxnOp::GrantSelect {
+        tenant_scope: TENANT.to_string(),
+        name: name("shop"),
+        expected_object_id: record.object_id,
+        principal: "role/reader".to_string(),
+    }));
+    txn.push(TxnOp::PropertyGraphDdl(PropertyGraphTxnOp::RevokeSelect {
+        tenant_scope: TENANT.to_string(),
+        name: name("shop"),
+        expected_object_id: PropertyGraphObjectId::new("propertygraph/stale").unwrap(),
+        principal: "role/nobody".to_string(),
+    }));
+    assert!(store
+        .commit_txn(&txn)
+        .unwrap_err()
+        .contains("changed after privilege authorization"));
+    assert!(!store
+        .property_graph(TENANT, &name("shop"))
+        .unwrap()
+        .unwrap()
+        .permits_select("role/reader"));
 }

@@ -54,6 +54,13 @@ def test_exclusions_match_root_and_nested_junk_without_erasing_dot_names(contrac
     assert not contract.is_excluded("src/graph.rs")
 
 
+def test_directory_exclusions_are_root_anchored_unless_recursive(contract):
+    assert contract.is_excluded("contract/methods.json")
+    assert contract.is_excluded("epistemic_graph/contract/receipt.json")
+    assert not contract.is_excluded("crates/eg-types/src/contract/crypto.rs")
+    assert not contract.is_excluded("nested/contract/generated.rs")
+
+
 def test_scanner_source_manifest_uses_only_supported_census_inputs(contract):
     assert contract.cargo_deny_version == "0.20.2"
     manifest = _load_script("list_scanner_sources")

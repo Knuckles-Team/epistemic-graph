@@ -130,7 +130,7 @@ pub struct CommitDescriptor {
     /// Opaque tenant identity (never a raw tenant name written to CAS/audit text).
     pub tenant_ref: String,
     /// Opaque authenticated principal identity, `principal:sha256:<hex>` shaped
-    /// the same way as `MutationRequestContext::principal`.
+    /// the same way as a mutation envelope's serving principal.
     pub principal_ref: String,
     /// Opaque identity of the authority (shard/group/node) that assigned
     /// `commit_seq`. Cross-node participation under a different authority is out

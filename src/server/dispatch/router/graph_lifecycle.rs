@@ -25,6 +25,8 @@ pub(super) async fn dispatch_graph_lifecycle_methods(
                 state,
                 req.id,
                 req.agent_id.clone(),
+                verified_context.attempt_nonce(),
+                verified_context.idempotency_key().to_string(),
                 graph_name,
                 graph_type,
             ))
@@ -36,6 +38,8 @@ pub(super) async fn dispatch_graph_lifecycle_methods(
                 state,
                 req.id,
                 req.agent_id.clone(),
+                verified_context.attempt_nonce(),
+                verified_context.idempotency_key().to_string(),
                 state_machine_authorized,
                 &graph_name,
             ))
@@ -44,9 +48,7 @@ pub(super) async fn dispatch_graph_lifecycle_methods(
 
         Method::ListGraphs => {
             dispatch_boxed(async {
-    let state = state;
     let req_id = req.id;
-    let verified_context = verified_context;
     {
             let s = timed_read(state).await;
             let read_authority =

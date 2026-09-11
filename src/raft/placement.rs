@@ -117,11 +117,15 @@ pub const PLACEMENT_GRAPH: &str = "__placement_catalog__";
 /// [`PLACEMENT_GRAPH`] so epoch allocation and placement rows share one Raft
 /// authority and one persistence boundary.
 pub const PLACEMENT_EPOCH_COUNTER_NODE: &str = "__placement_epoch_counter__";
-const PLACEMENT_EPOCH_FIELD: &str = "epoch";
+pub(crate) const PLACEMENT_EPOCH_FIELD: &str = "epoch";
 pub const MAX_PARTITION_MOVE_GRAPHS: usize = 16_384;
 const MAX_PARTITION_MOVE_GRAPH_BYTES: usize = 4 * 1024 * 1024;
 const MOVE_JOURNAL_NODE_PREFIX: &str = "partition-move:";
 const MEMBERSHIP_SHRINK_NODE_PREFIX: &str = "membership-shrink:";
+
+fn new_operation_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
 
 fn is_move_journal_node_id(node_id: &str) -> bool {
     node_id
@@ -459,6 +463,10 @@ pub fn split_tenant_key(graph_name: &str) -> (&str, &str) {
 /// Dropping it (after the commit resolves) releases the lock.
 pub struct PendingWrite<'a> {
     _guard: MutexGuard<'a, ()>,
+    /// Unique for this optimistic plan and reused for every exact child retry.
+    /// It keeps distinct plans with identical methods out of the same durable
+    /// idempotency record.
+    pub(crate) operation_id: String,
     /// The `Method::AddNode`/`Method::RemoveNode` mutations to commit, in order, to
     /// [`PLACEMENT_GRAPH`].
     pub methods: Vec<Method>,
@@ -1062,6 +1070,7 @@ impl PlacementCatalog {
         methods.push(Self::entry_method(&entry));
         Ok(PendingWrite {
             _guard: guard,
+            operation_id: new_operation_id(),
             methods,
             epoch: allocation.allocated,
             epoch_allocation: Some(allocation),
@@ -1139,6 +1148,7 @@ impl PlacementCatalog {
         methods.push(Self::entry_method(&entry_b));
         Ok(PendingWrite {
             _guard: guard,
+            operation_id: new_operation_id(),
             methods,
             epoch,
             epoch_allocation: Some(allocation),
@@ -1171,6 +1181,7 @@ impl PlacementCatalog {
             } if active_target == target => {
                 return Ok(PendingWrite {
                     _guard: guard,
+                    operation_id: new_operation_id(),
                     methods: Vec::new(),
                     epoch: entry.epoch,
                     epoch_allocation: None,
@@ -1191,6 +1202,7 @@ impl PlacementCatalog {
         let epoch = moving.epoch;
         Ok(PendingWrite {
             _guard: guard,
+            operation_id: new_operation_id(),
             methods: vec![Self::entry_cas_method(&entry, &moving)],
             epoch,
             epoch_allocation: None,
@@ -1231,6 +1243,7 @@ impl PlacementCatalog {
         };
         Ok(PendingWrite {
             _guard: guard,
+            operation_id: new_operation_id(),
             methods: vec![Self::entry_cas_method(&entry, &cut)],
             epoch,
             epoch_allocation: Some(allocation),
@@ -1268,6 +1281,7 @@ impl PlacementCatalog {
         };
         Ok(PendingWrite {
             _guard: guard,
+            operation_id: new_operation_id(),
             methods: vec![Self::entry_cas_method(&entry, &active)],
             epoch: active.epoch,
             epoch_allocation: None,
@@ -1363,6 +1377,62 @@ mod tests {
         assert!(
             !aborting.permits_successor(&transferring),
             "a stale driver cannot regress an abort intent"
+        );
+    }
+
+    #[test]
+    fn placement_cas_fence_binds_the_complete_partition_preimage() {
+        let expected = PlacementEntry {
+            key: PartitionKey::whole("tenant"),
+            group: 7,
+            epoch: 11,
+            state: PartitionState::Moving { target: 9 },
+        };
+        let updated = PlacementEntry {
+            key: expected.key.clone(),
+            group: 9,
+            epoch: 12,
+            state: PartitionState::Active,
+        };
+        let Method::CompareAndSetNodeFields {
+            conditions_msgpack,
+            updates_msgpack,
+            ..
+        } = PlacementCatalog::entry_cas_method(&expected, &updated)
+        else {
+            panic!("placement fence must use a property CAS");
+        };
+        let conditions = eg_types::msgpack::decode_property_object(&conditions_msgpack).unwrap();
+        assert_eq!(
+            conditions.get("key"),
+            Some(&serde_json::to_value(&expected.key).unwrap())
+        );
+        assert_eq!(
+            conditions.get("group"),
+            Some(&serde_json::json!(expected.group))
+        );
+        assert_eq!(
+            conditions.get("epoch"),
+            Some(&serde_json::json!(expected.epoch))
+        );
+        assert_eq!(
+            conditions.get("state"),
+            Some(&serde_json::to_value(expected.state).unwrap())
+        );
+
+        let updates = eg_types::msgpack::decode_property_object(&updates_msgpack).unwrap();
+        assert!(!updates.contains_key("key"));
+        assert_eq!(
+            updates.get("group"),
+            Some(&serde_json::json!(updated.group))
+        );
+        assert_eq!(
+            updates.get("epoch"),
+            Some(&serde_json::json!(updated.epoch))
+        );
+        assert_eq!(
+            updates.get("state"),
+            Some(&serde_json::to_value(updated.state).unwrap())
         );
     }
 }

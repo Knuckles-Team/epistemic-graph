@@ -8,7 +8,7 @@
 
 use crate::admission::AdmissionState;
 use eg_storage::{
-    BlobOwner, BlobSharedServiceHandle, BlobSharedWrite, LedgerRowScope, MutationClass,
+    decode_ledger_record, BlobOwner, BlobSharedServiceHandle, BlobSharedWrite, LedgerRowScope,
     MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain, OwnerLayout, OwnerReadTable,
     OwnerRowScope, PhysicalWriteCapability, ScopedOwnerTableMut, ScopedTableMut,
 };
@@ -126,6 +126,50 @@ impl<'a, D: OwnerDomain> AdmittedMutation<'a, D> {
         self.capability.scope()
     }
 
+    /// Return the class of the batch this write actually admitted, as declared
+    /// by its envelope.  The class is recovered from the encoded batch already
+    /// held by the admission state; it is never supplied as a free admission
+    /// argument.  Replay recording uses this structural check to keep owner
+    /// maintenance outside operation-replay semantics.
+    pub(crate) fn admitted_batch_is_maintenance(&self) -> Result<bool, String> {
+        let state = self.admission.borrow();
+        let encoded = match &*state {
+            AdmissionState::Applying { batch, .. }
+            | AdmissionState::Finished { batch }
+            | AdmissionState::Replayed { batch, .. } => batch,
+            AdmissionState::Poisoned => return Err("mutation write is poisoned".to_string()),
+            AdmissionState::Idle => {
+                return Err("mutation write has no admitted batch".to_string());
+            }
+        };
+        let batch: MutationBatch = decode_ledger_record(encoded)?;
+        Ok(batch.is_maintenance())
+    }
+
+    /// Return the exact batch id currently admitted in this physical write.
+    ///
+    /// Replay metadata is written by the same capability as the owner rows and
+    /// terminal batch record. Reading the id from admission state prevents a
+    /// caller from attaching a typed receipt to a fabricated or unrelated
+    /// batch id.
+    pub(crate) fn admitted_batch_id(&self) -> Result<String, String> {
+        let state = self.admission.borrow();
+        let encoded = match &*state {
+            AdmissionState::Applying { batch, .. }
+            | AdmissionState::Finished { batch }
+            | AdmissionState::Replayed { batch, .. } => batch,
+            AdmissionState::Poisoned => return Err("mutation write is poisoned".to_string()),
+            AdmissionState::Idle => {
+                return Err("mutation write has no admitted batch".to_string());
+            }
+        };
+        let batch: MutationBatch = decode_ledger_record(encoded)?;
+        if batch.batch_id.is_empty() {
+            return Err("admitted mutation batch has no batch id".to_string());
+        }
+        Ok(batch.batch_id)
+    }
+
     pub(crate) fn commit(self) -> Result<(), String> {
         self.capability.commit()
     }
@@ -135,15 +179,28 @@ impl<'a, D: OwnerDomain> AdmittedMutation<'a, D> {
         self.capability.abort()
     }
 
-    /// Admit a further caller-originated batch inside this same write
-    /// transaction, so a caller can order several batches under one commit.
+    /// Admit a further batch inside this same write transaction, so a caller
+    /// can order several operation or maintenance envelopes under one commit.
     pub fn begin(&self, batch: &MutationBatch) -> Result<crate::Begin, String> {
-        crate::commit::begin(self, batch, MutationClass::Operation)
+        crate::commit::begin(self, batch)
     }
 
-    /// Admit a further owner-maintenance batch in this same write transaction.
-    pub fn begin_maintenance(&self, batch: &MutationBatch) -> Result<crate::Begin, String> {
-        crate::commit::begin(self, batch, MutationClass::Maintenance)
+    /// Admit an operation after its stable replay identity was reconstructed
+    /// from retained domain rows.
+    pub fn begin_with_replay_identity(
+        &self,
+        batch: &MutationBatch,
+        operation: &eg_types::authority::OperationReplayIdentity,
+        nonce: &eg_types::authority::NonceReplayKey,
+    ) -> Result<crate::Begin, String> {
+        crate::commit::begin_with_replay_identity(self, batch, operation, nonce)
+    }
+
+    /// Admit a kernel-owned graft marker or destination reservation.  These
+    /// batches use the ordinary maintenance ledger format but their namespace
+    /// is reserved against public callers forging graft provenance.
+    pub(crate) fn begin_graft(&self, batch: &MutationBatch) -> Result<crate::Begin, String> {
+        crate::commit::begin_graft(self, batch)
     }
 
     /// Admit one owner-row operation inside an already admitted batch.
@@ -153,7 +210,7 @@ impl<'a, D: OwnerDomain> AdmittedMutation<'a, D> {
         batch: &MutationBatch,
     ) -> Result<AdmittedOwnerWrite<'_, D>, String> {
         if owner.identity() != &batch.identity
-            || owner.principal() != batch.context.principal
+            || owner.principal() != batch.serving_principal()
             || self.capability.scope() != &batch.identity
         {
             return Err("owner write capability does not match admitted batch".to_string());

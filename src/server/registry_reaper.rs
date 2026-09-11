@@ -48,11 +48,10 @@ const DEFAULT_REAP_INTERVAL_SECS: u64 = 15;
 
 /// The configured positive sweep interval.
 pub fn reap_interval_secs() -> u64 {
-    std::env::var("EPISTEMIC_GRAPH_SERVER_REGISTRY_REAP_SECS")
-        .ok()
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_REAP_INTERVAL_SECS)
+    crate::server::state::positive_runtime_limit_from_env(
+        "EPISTEMIC_GRAPH_SERVER_REGISTRY_REAP_SECS",
+        DEFAULT_REAP_INTERVAL_SECS,
+    )
 }
 
 /// One `:Server` node's lease state, decoded from its property blob.

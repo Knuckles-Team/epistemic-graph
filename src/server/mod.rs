@@ -7,7 +7,10 @@ use hmac::Mac as _;
 
 pub(crate) mod access;
 pub(crate) mod auth;
+pub(crate) mod authority_context;
 pub(crate) mod request_replay;
+#[cfg(any(feature = "mysql-wire", feature = "pgwire"))]
+pub(crate) mod sql_wire_auth;
 
 /// Verified minimum stack for engine Tokio workers.
 ///
@@ -478,6 +481,23 @@ pub mod stomp_wire;
 /// graph ACL, and default-deny RLS guard every caller-visible re-resolution.
 #[cfg(feature = "graphql")]
 pub mod graphql_sub;
+/// One HTTP/1.1 request-framing authority for every hand-rolled listener in
+/// this tree (`obs`, `sparql_http`, `federation`, `viz_interactive`,
+/// `policy_export`, …). Before it each surface carried its own reader and the
+/// copies disagreed about `Transfer-Encoding`, duplicate headers, header
+/// bounds and body framing; see the module doc.
+#[cfg(any(
+    feature = "obs",
+    feature = "sparql-http",
+    feature = "federation-search",
+    feature = "viz-interactive",
+    feature = "policy_export",
+    feature = "graphql",
+    feature = "kvcache-server",
+    feature = "lake",
+    feature = "s3-api",
+))]
+pub(crate) mod http1;
 /// Remote KV-cache HTTP surface (CONCEPT:EG-KG.backend.is-configured-so-co, feature `kvcache-server`): a
 /// hand-rolled HTTP listener exposing the `eg-kvcache` shared, content-addressed
 /// backend (EG-186) so parallel vLLM/LMCache instances SHARE KV blocks by token-hash
@@ -679,7 +699,6 @@ pub(crate) fn test_state_with_services(
                 crate::server::unique_temp_dir(persistence_label)
                     .to_string_lossy()
                     .into_owned(),
-                crate::durability::DurabilityPolicy::Each,
                 256,
             )
             .expect("open test redb backend"),
@@ -854,7 +873,9 @@ mod tests {
     use crate::isolation::{AgentIdentity, AgentRole};
     use crate::protocol::{GraphType, Method, Request, Response, ResultPayload};
     use std::sync::Arc;
-    use tokio::sync::{RwLock, Semaphore};
+    use tokio::sync::RwLock;
+    #[cfg(feature = "redb")]
+    use tokio::sync::Semaphore;
 
     const SECRET: &str = "dispatch-test-secret";
 
@@ -1147,6 +1168,26 @@ mod tests {
             node: None,
             priority: None,
         };
+        // The idempotency key must identify the OPERATION, not just the request
+        // id. `request(1, ...)` is called 21 times across this module with
+        // different methods, and keying on `id` alone gave every one of them
+        // `server-mod-request-1`: the second to reach a shared store failed with
+        // `IDEMPOTENCY_CONFLICT: key 'server-mod-request-1' was already used by
+        // a different operation` -- which is the ledger correctly reporting that
+        // the key does not mean what the caller thought.
+        //
+        // Folding a digest of the method in keeps genuine replay working (same
+        // id AND same operation still resolves to the same key, which is what a
+        // retry is) while a different operation under the same id is a different
+        // key, which is what it always should have been.
+        let operation_digest = {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(graph.as_bytes());
+            hasher.update([0]);
+            hasher.update(rmp_serde::to_vec_named(&method).unwrap_or_default());
+            hex::encode(hasher.finalize())
+        };
         let mut request = Request {
             id,
             graph: graph.to_string(),
@@ -1169,7 +1210,7 @@ mod tests {
                     .expect("system clock")
                     .as_secs(),
                 nonce: &nonce,
-                idempotency_key: &format!("server-mod-request-{id}"),
+                idempotency_key: &format!("server-mod-request-{id}-{}", &operation_digest[..16]),
             },
         );
         request
@@ -2796,7 +2837,6 @@ mod tests {
                     unique_temp_dir("eg-per-graph-backpressure")
                         .to_string_lossy()
                         .into_owned(),
-                    crate::durability::DurabilityPolicy::Each,
                     256,
                 )
                 .expect("open test redb backend"),
@@ -5867,11 +5907,11 @@ ex:p1 a ex:Paper .
         for (g, doc) in [
             ("__commons__", tbox),
             (
-                "shard:b",
+                "shard-b",
                 "@prefix ex: <http://example.org/> .\nex:p2 a ex:Article .\n",
             ),
         ] {
-            if g == "shard:b" {
+            if g == "shard-b" {
                 assert_ok(
                     &dispatch_on_heap(
                         &state,
@@ -5880,7 +5920,7 @@ ex:p1 a ex:Paper .
                             "__commons__",
                             None,
                             Method::CreateGraph {
-                                graph_name: "shard:b".into(),
+                                graph_name: "shard-b".into(),
                                 graph_type: GraphType::Commons,
                             },
                         ),
@@ -5932,7 +5972,7 @@ ex:p1 a ex:Paper .
                 "__commons__",
                 None,
                 Method::OwlReasonDistributed {
-                    graphs: vec!["__commons__".into(), "shard:b".into()],
+                    graphs: vec!["__commons__".into(), "shard-b".into()],
                     ontology: String::new(),
                     target_class: "http://example.org/ScholarlyWork".into(),
                     class_base: String::new(),

@@ -66,6 +66,26 @@ impl PagerankFunc {
     }
 }
 
+/// The series itself: `start` to `stop` INCLUSIVE, ascending or descending by the sign of
+/// `step`, bounded by [`GENERATE_SERIES_MAX_ROWS`]. Overflow ends the series.
+fn generate_series_values(start: i64, stop: i64, step: i64) -> DfResult<Vec<i64>> {
+    let mut values: Vec<i64> = Vec::new();
+    let mut cur = start;
+    while (step > 0 && cur <= stop) || (step < 0 && cur >= stop) {
+        values.push(cur);
+        if values.len() >= GENERATE_SERIES_MAX_ROWS {
+            return Err(DataFusionError::Execution(format!(
+                "generate_series: series exceeds {GENERATE_SERIES_MAX_ROWS} rows"
+            )));
+        }
+        match cur.checked_add(step) {
+            Some(next) => cur = next,
+            None => break,
+        }
+    }
+    Ok(values)
+}
+
 impl TableFunctionImpl for PagerankFunc {
     fn call_with_args(&self, _args: TableFunctionArgs<'_, '_>) -> DfResult<Arc<dyn TableProvider>> {
         let rows =
@@ -147,21 +167,7 @@ impl TableFunctionImpl for GenerateSeriesFunc {
                 "generate_series: step must be non-zero".into(),
             ));
         }
-        let mut values: Vec<i64> = Vec::new();
-        let mut cur = start;
-        // Inclusive of `stop`, ascending or descending by the sign of `step`.
-        while (step > 0 && cur <= stop) || (step < 0 && cur >= stop) {
-            values.push(cur);
-            if values.len() >= GENERATE_SERIES_MAX_ROWS {
-                return Err(DataFusionError::Execution(format!(
-                    "generate_series: series exceeds {GENERATE_SERIES_MAX_ROWS} rows"
-                )));
-            }
-            match cur.checked_add(step) {
-                Some(next) => cur = next,
-                None => break,
-            }
-        }
+        let values = generate_series_values(start, stop, step)?;
         let schema: SchemaRef = Arc::new(Schema::new(vec![Field::new(
             "value",
             DataType::Int64,

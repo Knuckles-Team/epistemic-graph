@@ -13,19 +13,32 @@
 //! server writes — so it adds no duplicate durable logic and a graph written here
 //! reopens in the server.
 
-use redb::Database;
-
 use crate::protocol::{GraphType, Method};
-use crate::redb_store::{self, GraphDump};
+use crate::redb_store::{self, shard::Shard, GraphDump};
+
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(test)]
+struct RegisterFailureBlock {
+    entered: std::sync::mpsc::SyncSender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
 
 /// Owns the canonical single shard `{persist_dir}/graph-0.redb` and commits synchronously.
 pub(super) struct EmbeddedRedbStore {
-    db: Database,
+    shard: Shard,
     /// Encryption-at-rest cipher (CONCEPT:EG-KG.sharding.row-level-security), resolved once from
     /// `EPISTEMIC_GRAPH_ENCRYPTION_KEY` at open. `None` ⇒ encryption off ⇒ durable
     /// format unchanged. Only present in a `security` build.
     #[cfg(feature = "security")]
     cipher: Option<crate::crypto::ValueCipher>,
+    /// Unit-test-only hooks exercise lifecycle rollback paths without relying
+    /// on filesystem or process failure injection.
+    #[cfg(test)]
+    fail_next_purge: AtomicBool,
+    #[cfg(test)]
+    register_failure_block: std::sync::Mutex<Option<RegisterFailureBlock>>,
 }
 
 impl EmbeddedRedbStore {
@@ -54,17 +67,38 @@ impl EmbeddedRedbStore {
             ));
         }
         let db_path = persist_dir.join(crate::redb_layout::shard_filename(0));
-        let db = Database::create(&db_path).map_err(|e| e.to_string())?;
-        {
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            redb_store::initialize_canonical_tables(&wtx)?;
-            wtx.commit().map_err(|e| e.to_string())?;
-        }
+        let shard = Shard::open(&db_path)?;
         Ok(Self {
-            db,
+            shard,
             #[cfg(feature = "security")]
             cipher: crate::crypto::ValueCipher::from_env_checked()?,
+            #[cfg(test)]
+            fail_next_purge: AtomicBool::new(false),
+            #[cfg(test)]
+            register_failure_block: std::sync::Mutex::new(None),
         })
+    }
+
+    /// Block the next registration until the returned release sender is used,
+    /// then fail it. The entered receiver makes the lifecycle lock ordering
+    /// test deterministic without sleeps.
+    #[cfg(test)]
+    pub(super) fn block_next_register_failure(
+        &self,
+    ) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::SyncSender<()>) {
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        *self.register_failure_block.lock().unwrap() = Some(RegisterFailureBlock {
+            entered: entered_tx,
+            release: release_rx,
+        });
+        (entered_rx, release_tx)
+    }
+
+    /// Inject one purge failure for the embedded lifecycle tests.
+    #[cfg(test)]
+    pub(super) fn fail_next_purge(&self) {
+        self.fail_next_purge.store(true, Ordering::Release);
     }
 
     /// Commit one durable mutation INLINE with `Durability::Immediate`
@@ -83,11 +117,18 @@ impl EmbeddedRedbStore {
         // server's group-commit thread, which keeps its cache hot across batches.
         #[cfg(feature = "security")]
         let mut audit_tail = redb_store::AuditTailCache::new();
+        static NEXT_ATTEMPT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let drain_id = format!(
+            "embedded/{}/{}",
+            std::process::id(),
+            NEXT_ATTEMPT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
         redb_store::commit_ops(
-            &self.db,
+            &self.shard,
             &mut ops,
             &mut raft_log_ops,
-            redb::Durability::Immediate,
+            &drain_id,
+            0,
             self.crypto(),
             #[cfg(feature = "security")]
             &mut audit_tail,
@@ -103,8 +144,14 @@ impl EmbeddedRedbStore {
         graph_type: GraphType,
         incarnation_id: &str,
     ) -> Result<(), String> {
+        #[cfg(test)]
+        if let Some(block) = self.register_failure_block.lock().unwrap().take() {
+            let _ = block.entered.send(());
+            let _ = block.release.recv();
+            return Err("injected embedded graph registration failure".to_string());
+        }
         redb_store::write_graph_meta_with_incarnation(
-            &self.db,
+            &self.shard,
             graph_fname,
             name,
             graph_type,
@@ -115,12 +162,12 @@ impl EmbeddedRedbStore {
     /// Snapshot the whole registry dump into redb in one durable transaction.
     pub(super) fn checkpoint(&self, dumps: Vec<GraphDump>) -> Result<usize, String> {
         let mut pending = Vec::new();
-        redb_store::apply_checkpoint(&self.db, &mut pending, dumps, self.crypto())
+        redb_store::apply_checkpoint(&self.shard, &mut pending, dumps, self.crypto())
     }
 
     /// Read the entire durable store back into per-graph dumps (boot recovery).
     pub(super) fn load_all(&self) -> Result<Vec<GraphDump>, String> {
-        redb_store::read_all_dumps(&self.db, self.crypto())
+        redb_store::read_all_dumps(&self.shard, self.crypto())
     }
 
     /// Durably PURGE every row for a deleted graph (nodes/edges/ledger/semantic +
@@ -129,6 +176,10 @@ impl EmbeddedRedbStore {
     /// from a clean durable slate — the embedded analogue of the server's
     /// `Cmd::PurgeGraph` tenant-delete teardown.
     pub(super) fn purge(&self, graph_fname: &str) -> Result<(), String> {
-        redb_store::purge_graph_rows(&self.db, graph_fname, self.crypto())
+        #[cfg(test)]
+        if self.fail_next_purge.swap(false, Ordering::AcqRel) {
+            return Err("injected embedded graph purge failure".to_string());
+        }
+        redb_store::purge_graph_rows(&self.shard, graph_fname)
     }
 }

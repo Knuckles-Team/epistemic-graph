@@ -65,16 +65,51 @@ def test_conditional_derive_is_inert_and_the_child_module_is_still_read(
 ) -> None:
     """Known-good: `cfg_attr(<pred>, derive(...))` must not stop the walk.
 
-    A derive can neither drop an item nor name a source file, so it cannot move
-    a `mod` declaration. Rejecting it made every `crates/eg-types` module tree
-    unreadable (195 occurrences of the schemars derive on the integration
+    The audited derive expands to impls only, so it cannot move a `mod`
+    declaration. Rejecting it made every `crates/eg-types` module tree
+    unreadable (195 occurrences of the audited derives on the integration
     head), which is what kept the gates below pinned to single facade files.
+    Unknown proc-macro derives remain rejected because they can emit items.
     """
 
     walker = _script("rust_module_tree")
     _plant_module(
         tmp_path,
         '#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]',
+    )
+
+    source = walker.read_module_tree("src/facade.rs", root_dir=tmp_path)
+
+    assert "PLANTED_CHILD_TOKEN" in source
+
+
+@pytest.mark.parametrize(
+    "derive",
+    [
+        "schemars::JsonSchema",
+        "serde::Serialize",
+        "serde::Deserialize",
+        "strum::IntoStaticStr",
+    ],
+)
+def test_each_audited_conditional_derive_is_inert(
+    tmp_path: Path, derive: str
+) -> None:
+    walker = _script("rust_module_tree")
+    _plant_module(tmp_path, f'#[cfg_attr(feature = "x", derive({derive}))]')
+
+    source = walker.read_module_tree("src/facade.rs", root_dir=tmp_path)
+
+    assert "PLANTED_CHILD_TOKEN" in source
+
+
+def test_audited_conditional_derives_can_be_combined(tmp_path: Path) -> None:
+    walker = _script("rust_module_tree")
+    _plant_module(
+        tmp_path,
+        '#[cfg_attr(feature = "x", derive('
+        "schemars::JsonSchema, serde::Serialize, serde::Deserialize, "
+        "strum::IntoStaticStr,))]",
     )
 
     source = walker.read_module_tree("src/facade.rs", root_dir=tmp_path)
@@ -93,6 +128,7 @@ def test_conditional_derive_is_inert_and_the_child_module_is_still_read(
         # `derive` name must not be waved through by the new allowance.
         '#[cfg_attr(feature = "x", derive(schemars::JsonSchema(with = "Vec<u8>")))]',
         '#[cfg_attr(feature = "x", derive("JsonSchema"))]',
+        '#[cfg_attr(feature = "x", derive(schemars::JsonSchema, CustomMacro))]',
         # Still-unknown conditional attributes stay rejected.
         '#[cfg_attr(feature = "x", some_unknown_attribute(arg))]',
     ],

@@ -18,6 +18,8 @@
 //!     owner-scoped scalar index definitions and schema-bound B-tree directory
 //!     entries. These are optional row-reduction structures; a digest/version
 //!     mismatch always falls back to the authoritative rows.
+//!   * `__sql_source_authority__`  one tenant-wide `(authority_digest, epoch)`
+//!     record advanced in the same owner write as every successful SQL mutation.
 //!   * `__sql_mutation_*` batch/status, idempotency, SQL-domain version/fence,
 //!     and immutable outbox tables. These are committed in the same transaction as
 //!     table/catalog mutations, enabling exact retry and restart reconciliation.
@@ -74,6 +76,7 @@ use super::property_graph::persist::{
 };
 use super::property_graph::{
     AlterPropertyGraphAction, DropBehavior, PropertyGraphCatalogRecord, PropertyGraphDefinition,
+    PropertyGraphObjectId, PropertyGraphPrivilegeOperation, PropertyGraphPrivilegeStatement,
     SqlName,
 };
 use super::schema::{
@@ -395,6 +398,20 @@ pub enum PropertyGraphTxnOp {
         if_exists: bool,
         behavior: DropBehavior,
     },
+    /// Add one exact verified principal to this stable graph object.
+    GrantSelect {
+        tenant_scope: String,
+        name: SqlName,
+        expected_object_id: PropertyGraphObjectId,
+        principal: String,
+    },
+    /// Remove one exact verified principal from this stable graph object.
+    RevokeSelect {
+        tenant_scope: String,
+        name: SqlName,
+        expected_object_id: PropertyGraphObjectId,
+        principal: String,
+    },
 }
 
 impl PropertyGraphTxnOp {
@@ -403,7 +420,9 @@ impl PropertyGraphTxnOp {
         match self {
             Self::Create { tenant_scope, .. }
             | Self::Alter { tenant_scope, .. }
-            | Self::Drop { tenant_scope, .. } => tenant_scope,
+            | Self::Drop { tenant_scope, .. }
+            | Self::GrantSelect { tenant_scope, .. }
+            | Self::RevokeSelect { tenant_scope, .. } => tenant_scope,
         }
     }
 
@@ -455,6 +474,38 @@ impl PropertyGraphTxnOp {
                     behavior,
                 },
                 "DROP PROPERTY GRAPH",
+            ),
+        }
+    }
+
+    /// Bind a parsed privilege statement to the exact graph object resolved at
+    /// the authority boundary. Persistence rejects a DROP/recreate race rather
+    /// than applying a name-authorized grant to a replacement object.
+    pub fn from_privilege_statement(
+        statement: PropertyGraphPrivilegeStatement,
+        tenant_scope: impl Into<String>,
+        expected_object_id: PropertyGraphObjectId,
+    ) -> (Self, &'static str) {
+        let tenant_scope = tenant_scope.into();
+        let principal = statement.principal;
+        match statement.operation {
+            PropertyGraphPrivilegeOperation::Grant => (
+                Self::GrantSelect {
+                    tenant_scope,
+                    name: statement.name,
+                    expected_object_id,
+                    principal,
+                },
+                "GRANT",
+            ),
+            PropertyGraphPrivilegeOperation::Revoke => (
+                Self::RevokeSelect {
+                    tenant_scope,
+                    name: statement.name,
+                    expected_object_id,
+                    principal,
+                },
+                "REVOKE",
             ),
         }
     }
@@ -514,13 +565,19 @@ pub struct TableSnapshotRow {
     pub cells: Vec<Cell>,
 }
 
-/// A bounded, point-in-time table page. Schema, schema revision, digest, and
-/// rows all come from the same redb read transaction.
+/// A bounded, point-in-time table page. Schema, schema revision, source
+/// authority/epoch, and rows all come from the same redb read transaction.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableRowSnapshot {
     pub schema: TableSchema,
     pub schema_revision: u64,
     pub schema_digest: String,
+    /// Physical tenant SQL-source identity. A cursor must not cross an owner
+    /// file adoption or replacement, even when the logical tenant is reused.
+    pub source_authority_digest: [u8; 32],
+    /// Tenant-wide SQL source epoch. It advances once in the same fresh owner
+    /// write as a catalog mutation, regardless of the mutation's native scope.
+    pub source_epoch: u64,
     pub rows: Vec<TableSnapshotRow>,
     /// Exclusive physical-row cursor for the next page. `None` means this read
     /// snapshot reached the end of the table.
@@ -651,8 +708,7 @@ impl TableStore {
     pub fn create_table(&self, schema: &TableSchema, if_not_exists: bool) -> Result<bool, String> {
         self.authority
             .maintain("create-table", &schema.name, |wtx| {
-                let created = create_in(wtx, schema, if_not_exists)?;
-                Ok(created)
+                create_in(wtx, schema, if_not_exists)
             })
     }
 
@@ -660,8 +716,7 @@ impl TableStore {
     pub fn drop_table(&self, name: &str, if_exists: bool) -> Result<bool, String> {
         self.ensure_legacy_schema_ddl_allowed(name)?;
         self.authority.maintain("drop-table", name, |wtx| {
-            let dropped = drop_in(wtx, self.index_scope(), name, if_exists)?;
-            Ok(dropped)
+            drop_in(wtx, self.index_scope(), name, if_exists)
         })
     }
 
@@ -811,12 +866,15 @@ impl TableStore {
         let (schema, snapshot) = self
             .schema_and_snapshot_in(rtx, table)?
             .ok_or_else(|| format!("table `{table}` does not exist"))?;
+        let source = self.authority.source_snapshot(rtx)?;
         let Some(first_row_id) = after_row_id.map_or(Some(0), |row_id| row_id.checked_add(1))
         else {
             return Ok(TableRowSnapshot {
                 schema,
                 schema_revision: snapshot.version,
                 schema_digest: snapshot.schema_digest,
+                source_authority_digest: source.authority_digest,
+                source_epoch: source.epoch,
                 rows: Vec::new(),
                 next_cursor: None,
                 encoded_bytes: 0,
@@ -830,6 +888,8 @@ impl TableStore {
             schema,
             schema_revision: snapshot.version,
             schema_digest: snapshot.schema_digest,
+            source_authority_digest: source.authority_digest,
+            source_epoch: source.epoch,
             rows,
             next_cursor,
             encoded_bytes,
@@ -882,8 +942,7 @@ impl TableStore {
     ) -> Result<SchemaMigrationApply, String> {
         self.authority
             .maintain("schema-migration", &migration.migration_id, |wtx| {
-                let result = apply_schema_migration_in(wtx, self.scope.as_ref(), migration)?;
-                Ok(result)
+                apply_schema_migration_in(wtx, self.scope.as_ref(), migration)
             })
     }
 
@@ -1422,8 +1481,7 @@ impl TableStore {
         rows: &[Vec<Value>],
     ) -> Result<Vec<Vec<Cell>>, String> {
         self.authority.maintain("insert-rows", table, |wtx| {
-            let out = insert_in(wtx, self.index_scope(), table, col_order, rows)?;
-            Ok(out)
+            insert_in(wtx, self.index_scope(), table, col_order, rows)
         })
     }
 
@@ -1438,9 +1496,7 @@ impl TableStore {
     ) -> Result<Vec<Vec<Cell>>, String> {
         self.authority
             .maintain("insert-rows-on-conflict", table, |wtx| {
-                let out =
-                    insert_on_conflict_in(wtx, self.index_scope(), table, col_order, rows, action)?;
-                Ok(out)
+                insert_on_conflict_in(wtx, self.index_scope(), table, col_order, rows, action)
             })
     }
 
@@ -1463,8 +1519,7 @@ impl TableStore {
         selector: &eg_types::RowPredicate,
     ) -> Result<Vec<Vec<Cell>>, String> {
         self.authority.maintain("update-rows", table, |wtx| {
-            let out = update_in(wtx, self.index_scope(), table, set, selector)?;
-            Ok(out)
+            update_in(wtx, self.index_scope(), table, set, selector)
         })
     }
 
@@ -1485,8 +1540,7 @@ impl TableStore {
         selector: &eg_types::RowPredicate,
     ) -> Result<Vec<Vec<Cell>>, String> {
         self.authority.maintain("delete-rows", table, |wtx| {
-            let out = delete_in(wtx, self.index_scope(), table, selector)?;
-            Ok(out)
+            delete_in(wtx, self.index_scope(), table, selector)
         })
     }
 
@@ -1561,14 +1615,13 @@ impl TableStore {
     ) -> Result<usize, String> {
         self.authority
             .maintain("drop-property-graph", tenant_scope, |wtx| {
-                let dropped = property_graph_persist::drop_property_graphs_in(
+                property_graph_persist::drop_property_graphs_in(
                     wtx,
                     tenant_scope,
                     names,
                     if_exists,
                     behavior,
-                )?;
-                Ok(dropped)
+                )
             })
     }
 
@@ -1616,6 +1669,16 @@ impl TableStore {
         property_graph_persist::list_property_graphs_snapshot(&rtx)
     }
 
+    /// Complete internal graph catalog for one verified tenant scope. Serving
+    /// surfaces must filter these records before exposing metadata.
+    pub fn list_property_graph_records(
+        &self,
+        tenant_scope: &str,
+    ) -> Result<Vec<PropertyGraphCatalogRecord>, String> {
+        let rtx = self.authority.read()?;
+        property_graph_persist::list_property_graph_records_snapshot(&rtx, tenant_scope)
+    }
+
     // ── view catalog (CONCEPT:EG-KG.query.create-drop-view) ─────────────────────────────────────────
 
     /// `CREATE [OR REPLACE] VIEW name AS <select>`: record `select_sql` in the view
@@ -1636,10 +1699,8 @@ impl TableStore {
     /// `DROP VIEW [IF EXISTS] name`: remove the view catalog entry. `Ok(true)` when a
     /// view was removed, `Ok(false)` when absent and `if_exists` was set.
     pub fn drop_view(&self, name: &str, if_exists: bool) -> Result<bool, String> {
-        self.authority.maintain("drop-view", name, |wtx| {
-            let existed = drop_view_in(wtx, name, if_exists)?;
-            Ok(existed)
-        })
+        self.authority
+            .maintain("drop-view", name, |wtx| drop_view_in(wtx, name, if_exists))
     }
 
     /// The stored SELECT text of view `name`, or `None` if no such view exists.
@@ -1682,8 +1743,7 @@ impl TableStore {
     /// extension as a benign success so a re-run setup script proceeds).
     pub fn create_extension(&self, name: &str, _if_not_exists: bool) -> Result<bool, String> {
         self.authority.maintain("create-extension", name, |wtx| {
-            let created = create_extension_in(wtx, name, _if_not_exists)?;
-            Ok(created)
+            create_extension_in(wtx, name, _if_not_exists)
         })
     }
 
@@ -1691,8 +1751,7 @@ impl TableStore {
     /// extension was removed, `Ok(false)` when absent and `if_exists` was set (else Err).
     pub fn drop_extension(&self, name: &str, if_exists: bool) -> Result<bool, String> {
         self.authority.maintain("drop-extension", name, |wtx| {
-            let existed = drop_extension_in(wtx, name, if_exists)?;
-            Ok(existed)
+            drop_extension_in(wtx, name, if_exists)
         })
     }
 
@@ -1726,8 +1785,7 @@ impl TableStore {
     /// when a function was removed, `Ok(false)` when absent and `if_exists` was set.
     pub fn drop_function(&self, name: &str, if_exists: bool) -> Result<bool, String> {
         self.authority.maintain("drop-function", name, |wtx| {
-            let existed = drop_function_in(wtx, name, if_exists)?;
-            Ok(existed)
+            drop_function_in(wtx, name, if_exists)
         })
     }
 
@@ -1791,8 +1849,7 @@ impl TableStore {
     /// `table`.`column` (all metrics). `Ok(n)` = number of entries removed.
     pub fn drop_ann_indexes_for_column(&self, table: &str, column: &str) -> Result<usize, String> {
         self.authority.maintain("drop-ann-indexes", table, |wtx| {
-            let removed = drop_ann_indexes_for_column_in(wtx, table, column)?;
-            Ok(removed)
+            drop_ann_indexes_for_column_in(wtx, table, column)
         })
     }
 
@@ -1829,9 +1886,7 @@ impl TableStore {
     ) -> Result<bool, String> {
         self.authority
             .maintain("create-secondary-index", &spec.table, |wtx| {
-                let created =
-                    create_secondary_index_in(wtx, self.index_scope(), spec, if_not_exists)?;
-                Ok(created)
+                create_secondary_index_in(wtx, self.index_scope(), spec, if_not_exists)
             })
     }
 
@@ -1845,9 +1900,7 @@ impl TableStore {
     ) -> Result<bool, String> {
         self.authority
             .maintain("drop-secondary-index", table, |wtx| {
-                let removed =
-                    drop_secondary_index_in(wtx, self.index_scope(), table, name, if_exists)?;
-                Ok(removed)
+                drop_secondary_index_in(wtx, self.index_scope(), table, name, if_exists)
             })
     }
 
@@ -1963,6 +2016,45 @@ impl TableStore {
         self.commit_txn_batch_inner(txn, batch, committed_at_ms, None, Some(result_msgpack))
     }
 
+    /// Resolve a retry before an external source is reopened.
+    ///
+    /// A replay is committed through the mutation kernel so its fresh attempt
+    /// nonce is consumed atomically with the replay decision. A fresh attempt
+    /// is aborted without touching owner rows; the caller must acquire its
+    /// source and submit the complete transaction through the normal commit
+    /// entry point, which re-admits it and therefore closes any intervening
+    /// writer race.
+    pub fn probe_txn_batch_replay<T>(
+        &self,
+        batch: &MutationBatch,
+        validate_result: impl FnOnce(&MutationBatchCommit) -> Result<T, String>,
+    ) -> Result<Option<T>, String> {
+        batch.validate_write_budget()?;
+        verify_batch_is_sql_catalog_only(batch)?;
+        sql_scope_key(batch)?;
+        let (mutation, begun) = self.authority.begin_operation(batch)?;
+        let Begin::Replay(record) = begun else {
+            mutation.abort()?;
+            return Ok(None);
+        };
+        let commit = match sql_batch_commit(*record, true) {
+            Ok(commit) => commit,
+            Err(error) => {
+                mutation.abort()?;
+                return Err(error);
+            }
+        };
+        let result = match validate_result(&commit) {
+            Ok(result) => result,
+            Err(error) => {
+                mutation.abort()?;
+                return Err(error);
+            }
+        };
+        mutation.commit_finished()?;
+        Ok(Some(result))
+    }
+
     /// Admit, apply and commit one SQL statement batch through the mutation
     /// kernel (RF-RULING-006).
     ///
@@ -1970,17 +2062,12 @@ impl TableStore {
     /// the outbox rows are all the kernel ledger's: this method admits the
     /// batch, changes owner rows inside the admitted write, and finishes.
     ///
-    /// **Replay identity.** RF-RULING-004's two-identity contract
-    /// (`OperationReplayIdentity` + `NonceReplayKey`) is not reachable from
-    /// here: `MutationRequestContext` carries no attempt nonce, no canonical
-    /// payload digest, no `MethodId`/`SchemaId` and no policy epoch, so a
-    /// SQL statement cannot be mapped onto an operation replay identity from
-    /// what its batch holds. That is K2's blocker 1 and belongs to the
-    /// `MutationEnvelope` cutover. Until then a SQL statement is admitted as
-    /// an operation with the identity its context CAN provide -- the batch's own
-    /// `idempotency_key` -- and the kernel's accepted `MutationBatch` replay
-    /// path decides it, byte-for-byte, exactly as the retired private ledger
-    /// did.
+    /// **Replay identity.** The operation envelope already carries the verified
+    /// authority, attempt nonce, method identity and canonical payload digest.
+    /// `begin_operation` hands that envelope to the kernel, which alone resolves
+    /// the operation replay and nonce identities before this method changes owner
+    /// rows. There is no private SQL replay ledger or second identity derivation
+    /// here.
     fn commit_txn_batch_inner(
         &self,
         txn: &TableTxn,
@@ -1997,11 +2084,19 @@ impl TableStore {
         let (mut mutation, begun) = self.authority.begin_operation(batch)?;
         let source_version = match begun {
             Begin::Replay(record) => {
-                // The idempotency key already names a terminally committed
-                // receipt. Nothing is written, nothing is versioned, and the
-                // stored result is returned instead of re-executing the SQL.
-                mutation.abort()?;
-                return sql_batch_commit(*record, true);
+                // Validate the stored result before acknowledging it, then
+                // commit the kernel's replay finalization. This writes only
+                // the fresh attempt nonce; owner rows, version and outbox stay
+                // exactly as the original receipt recorded them.
+                let commit = match sql_batch_commit(*record, true) {
+                    Ok(commit) => commit,
+                    Err(error) => {
+                        mutation.abort()?;
+                        return Err(error);
+                    }
+                };
+                mutation.commit_finished()?;
+                return Ok(commit);
             }
             Begin::Apply { source_version } => source_version,
         };
@@ -2375,6 +2470,34 @@ fn apply_txn_op_property_graph(
                 names,
                 *if_exists,
                 *behavior,
+            )?;
+        }
+        PropertyGraphTxnOp::GrantSelect {
+            name,
+            expected_object_id,
+            principal,
+            ..
+        } => {
+            property_graph_persist::grant_property_graph_select_in(
+                wtx,
+                tenant_scope,
+                name,
+                expected_object_id,
+                principal,
+            )?;
+        }
+        PropertyGraphTxnOp::RevokeSelect {
+            name,
+            expected_object_id,
+            principal,
+            ..
+        } => {
+            property_graph_persist::revoke_property_graph_select_in(
+                wtx,
+                tenant_scope,
+                name,
+                expected_object_id,
+                principal,
             )?;
         }
     }
@@ -5099,6 +5222,19 @@ fn rename_column_in_child_fks_in(
     from: &str,
     to: &str,
 ) -> Result<(), String> {
+    rewrite_dependent_schemas_in(wtx, tenant_scope, table, |child| {
+        rebind_child_fk_ref_columns(child, table, from, to)
+    })
+}
+
+/// Rewrite every OTHER table's schema through `rebind` and persist only the ones it
+/// changed. Collected first, written second, exactly as before.
+fn rewrite_dependent_schemas_in(
+    wtx: &SqlWrite<'_>,
+    tenant_scope: &str,
+    table: &str,
+    mut rebind: impl FnMut(&mut TableSchema) -> bool,
+) -> Result<(), String> {
     let mut dependents = Vec::new();
     for child_table in list_tables_in(wtx)? {
         if child_table == table {
@@ -5107,7 +5243,7 @@ fn rename_column_in_child_fks_in(
         let Some(mut child_schema) = get_schema_in(wtx, &child_table)? else {
             continue;
         };
-        if rebind_child_fk_ref_columns(&mut child_schema, table, from, to) {
+        if rebind(&mut child_schema) {
             dependents.push(child_schema);
         }
     }
@@ -5275,22 +5411,9 @@ fn retarget_inbound_foreign_keys_in(
     table: &str,
     new_name: &str,
 ) -> Result<(), String> {
-    let mut dependents = Vec::new();
-    for child_table in list_tables_in(wtx)? {
-        if child_table == table {
-            continue;
-        }
-        let Some(mut child_schema) = get_schema_in(wtx, &child_table)? else {
-            continue;
-        };
-        if retarget_schema_foreign_keys(&mut child_schema, table, new_name) {
-            dependents.push(child_schema);
-        }
-    }
-    for child_schema in &dependents {
-        put_schema_in(wtx, tenant_scope, child_schema)?;
-    }
-    Ok(())
+    rewrite_dependent_schemas_in(wtx, tenant_scope, table, |child| {
+        retarget_schema_foreign_keys(child, table, new_name)
+    })
 }
 
 /// Points every `FOREIGN KEY ... REFERENCES table(...)` constraint in
@@ -6793,8 +6916,8 @@ mod tests {
     // The mutation ledger is the kernel's now, so the store itself no longer
     // imports these; the fixtures that build a `MutationBatch` still need them.
     use eg_types::mutation_batch::{
-        IncarnationId, LogicalName, MutationBatchStatus, MutationOperation, MutationOutboxIntent,
-        MutationRequestContext, MutationSurface, ScopeTenantId, VersionExpectation,
+        IncarnationId, LogicalName, MutationBatchStatus, MutationEnvelope, MutationOperation,
+        MutationOutboxIntent, MutationSurface, ScopeTenantId, VersionExpectation,
         COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
     };
 
@@ -7485,27 +7608,83 @@ mod tests {
             .is_err());
     }
 
+    /// The operation envelope a fixture SQL batch carries.
+    ///
+    /// A served SQL statement HAS a caller, so it is an operation envelope: the
+    /// actor is the caller's fingerprint and the serving principal is the SQL
+    /// owner file's, which is exactly the split the deleted overloaded
+    /// `context.principal` could not express.
+    /// Re-mint a fixture batch's envelope from its CURRENT content and actor.
+    ///
+    /// A producer compiles the envelope from the body it is about to commit, so
+    /// a test that changes the body must do the same; leaving the original
+    /// envelope on a changed body is a state no producer can reach and would
+    /// prove nothing about the identity rule.
+    fn remint_sql_envelope(batch: &mut MutationBatch, actor: &str) {
+        let key = batch.idempotency_key().to_string();
+        let method = eg_types::contract::MethodId::new("sql_catalog_operation").unwrap();
+        batch.envelope = MutationEnvelope::for_scope(
+            eg_types::mutation_batch::CompiledScope {
+                identity: &batch.identity,
+                actor,
+                serving_principal: &format!("principal:sha256:{}", "a".repeat(64)),
+                request_id: 7,
+                idempotency_key: &key,
+                nonce: eg_types::contract::Nonce::minted(),
+                now_ms: 0,
+            },
+            eg_types::mutation_batch::CompiledOperation {
+                method_schema_id: eg_types::mutation_batch::method_schema_id(&method).unwrap(),
+                method,
+                method_schema_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
+                canonical_payload_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
+            },
+        )
+        .unwrap();
+        // Then bind it to the body it actually describes, through the one
+        // function every producer mints with.
+        batch
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+            .expect("a re-minted fixture envelope reseals");
+    }
+
+    fn sql_test_envelope(identity: &MutationScopeIdentity, batch_id: &str) -> MutationEnvelope {
+        let actor = format!("principal:sha256:{}", "a".repeat(64));
+        let method = eg_types::contract::MethodId::new("sql_catalog_operation").unwrap();
+        MutationEnvelope::for_scope(
+            eg_types::mutation_batch::CompiledScope {
+                identity,
+                actor: &actor,
+                serving_principal: &actor,
+                request_id: 7,
+                idempotency_key: &format!("idem-{batch_id}"),
+                nonce: eg_types::contract::Nonce::minted(),
+                now_ms: 0,
+            },
+            eg_types::mutation_batch::CompiledOperation {
+                method_schema_id: eg_types::mutation_batch::method_schema_id(&method).unwrap(),
+                method,
+                method_schema_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
+                canonical_payload_digest: eg_types::contract::Digest256::from_bytes([1_u8; 32]),
+            },
+        )
+        .unwrap()
+    }
+
     fn sql_batch(batch_id: &str) -> MutationBatch {
-        MutationBatch {
+        let identity = MutationScopeIdentity::native(
+            ScopeTenantId::new("tenant-a").unwrap(),
+            DurabilityDomain::SqlCatalog,
+            LogicalName::new("graph-a").unwrap(),
+            IncarnationId::new(COMPILED_BATCH_INCARNATION).unwrap(),
+        )
+        .unwrap();
+        let mut batch = MutationBatch {
             schema_version: MUTATION_BATCH_VERSION,
             batch_id: batch_id.to_string(),
-            context: MutationRequestContext {
-                request_id: 7,
-                principal: format!("principal:sha256:{}", "a".repeat(64)),
-                purpose: None,
-                policy_fingerprint: None,
-                trace_id: None,
-                verified_capabilities: Default::default(),
-            },
-            identity: MutationScopeIdentity::native(
-                ScopeTenantId::new("tenant-a").unwrap(),
-                DurabilityDomain::SqlCatalog,
-                LogicalName::new("graph-a").unwrap(),
-                IncarnationId::new(COMPILED_BATCH_INCARNATION).unwrap(),
-            )
-            .unwrap(),
+            envelope: sql_test_envelope(&identity, batch_id),
+            identity,
             placement_epoch: 0,
-            idempotency_key: format!("idem-{batch_id}"),
             version_expectation: VersionExpectation::Native(0),
             fencing_token: None,
             authoritative_state: None,
@@ -7527,7 +7706,11 @@ mod tests {
                 headers: Default::default(),
             }],
             created_at_ms: 100,
-        }
+        };
+        batch
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+            .expect("a fixture SQL batch reseals its envelope");
+        batch
     }
 
     /// Successor of `sql_record_decoder_validates_native_receipt_semantics`.
@@ -7551,6 +7734,12 @@ mod tests {
             IncarnationId::new(COMPILED_BATCH_INCARNATION).unwrap(),
         );
         graph_scoped.version_expectation = eg_types::mutation_batch::VersionExpectation::Graph(0);
+        // The identity is part of the canonical payload, so re-mint the
+        // envelope against it -- otherwise the envelope-coverage rule refuses
+        // the batch before it can reach the native-scope check under test.
+        graph_scoped
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+            .expect("a re-scoped fixture batch reseals its envelope");
         let error = store
             .commit_txn_batch(&create_metrics_txn(), &graph_scoped, 101)
             .unwrap_err();
@@ -7561,6 +7750,12 @@ mod tests {
         for operation in &mut wrong_domain.operations {
             operation.domain = DurabilityDomain::KvStore;
         }
+        // Same reason as above: the operations changed, so the envelope has to
+        // be re-minted from them before the domain-mismatch check can be the
+        // thing that refuses this batch.
+        wrong_domain
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+            .expect("a re-domained fixture batch reseals its envelope");
         // `MutationBatch::validate_write_budget` refuses it first: a native
         // scope's domain must equal every operation's.
         let error = store
@@ -7583,11 +7778,15 @@ mod tests {
     /// Successor of `sql_replay_comparator_covers_the_complete_batch_identity`.
     ///
     /// The store no longer owns a replay comparator of its own -- that was a
-    /// second replay authority, which RF-RULING-004 forbids. The kernel's
-    /// `MutationBatch` replay rule is byte-identity of the WHOLE batch, so the
-    /// same field-by-field coverage is asserted through the commit path: the
-    /// identical batch replays, and each single-field change under the same
-    /// idempotency key conflicts.
+    /// second replay authority, which RF-RULING-004 forbids. The kernel's rule
+    /// is the STABLE OPERATION IDENTITY, not byte-identity of the whole batch:
+    /// a retry keeps the idempotency key, operations and outbox and mints a
+    /// FRESH attempt nonce, and that replays. A nonce is single-use, so
+    /// resubmitting the byte-identical value is a duplicated attempt and is
+    /// refused by name -- which is why every retry below is built through
+    /// `sql_batch` again rather than by resubmitting one value twice. The same
+    /// field-by-field coverage is asserted through the commit path: route
+    /// metadata replays, and a changed payload under the same key conflicts.
     #[test]
     fn the_kernel_replay_rule_covers_the_complete_batch_identity() {
         let (store, _path) = TableStore::open_temp().unwrap();
@@ -7599,32 +7798,64 @@ mod tests {
                 .replayed
         );
         // Reapplying CREATE TABLE would fail, so a successful replay proves the
-        // stored result was returned rather than the SQL re-executed.
+        // stored result was returned rather than the SQL re-executed. The retry
+        // carries a fresh nonce over the unchanged key and content.
+        let retry = sql_batch("complete-replay-identity");
         assert!(
             store
-                .commit_txn_batch(&create_metrics_txn(), &stored, 101)
+                .commit_txn_batch(&create_metrics_txn(), &retry, 101)
                 .unwrap()
                 .replayed
         );
 
+        // The ROUTE is attempt metadata, not identity: a retry legitimately
+        // re-observes a different placement epoch and fencing token, so it must
+        // REPLAY. Under the whole-batch byte rule these three cases conflicted,
+        // which is precisely the defect RF-RULING-004's stable operation
+        // identity removes -- the fields are not in it.
         for (label, mutate) in [
-            (
-                "purpose",
-                Box::new(|b: &mut MutationBatch| b.context.purpose = Some("different".to_string()))
-                    as Box<dyn Fn(&mut MutationBatch)>,
-            ),
             (
                 "placement epoch and fencing token",
                 Box::new(|b: &mut MutationBatch| {
                     b.placement_epoch = 1;
                     b.fencing_token = Some(1);
-                }),
+                }) as Box<dyn Fn(&mut MutationBatch)>,
             ),
             (
                 "fencing token",
                 Box::new(|b: &mut MutationBatch| b.fencing_token = Some(1)),
             ),
-            ("outbox", Box::new(|b: &mut MutationBatch| b.outbox.clear())),
+            (
+                "created_at_ms",
+                Box::new(|b: &mut MutationBatch| b.created_at_ms = 999),
+            ),
+        ] {
+            // Built fresh, so each attempt carries its own nonce -- otherwise
+            // the retry is refused as a duplicated attempt before the route
+            // fields under test are ever compared.
+            let mut changed = sql_batch("complete-replay-identity");
+            mutate(&mut changed);
+            assert!(
+                store
+                    .commit_txn_batch(&create_metrics_txn(), &changed, 102)
+                    .unwrap_or_else(|error| panic!("changing the {label} must replay: {error}"))
+                    .replayed,
+                "changing the {label} must replay, not conflict"
+            );
+        }
+
+        // The PAYLOAD is identity: a batch whose operations or outbox differ is a
+        // different operation under the same key, and conflicts. Each case
+        // re-mints the envelope from the changed content, exactly as a producer
+        // would compile it -- mutating the body alone would leave an envelope
+        // that disagrees with its own batch, which is not a state any producer
+        // can reach.
+        for (label, mutate) in [
+            (
+                "outbox",
+                Box::new(|b: &mut MutationBatch| b.outbox.clear())
+                    as Box<dyn Fn(&mut MutationBatch)>,
+            ),
             (
                 "operations",
                 Box::new(|b: &mut MutationBatch| {
@@ -7637,6 +7868,10 @@ mod tests {
         ] {
             let mut changed = stored.clone();
             mutate(&mut changed);
+            remint_sql_envelope(
+                &mut changed,
+                &format!("principal:sha256:{}", "a".repeat(64)),
+            );
             let error = store
                 .commit_txn_batch(&create_metrics_txn(), &changed, 102)
                 .unwrap_err();
@@ -7645,6 +7880,22 @@ mod tests {
                 "changing the {label} must conflict, got: {error}"
             );
         }
+
+        // So is the ACTOR: the caller is inside the stable identity, which is
+        // what makes a cross-actor reuse of one key a named conflict instead of
+        // an anonymous replay (the M1 review's P1).
+        let mut changed = stored.clone();
+        remint_sql_envelope(
+            &mut changed,
+            &format!("principal:sha256:{}", "b".repeat(64)),
+        );
+        let error = store
+            .commit_txn_batch(&create_metrics_txn(), &changed, 102)
+            .unwrap_err();
+        assert!(
+            error.contains("IDEMPOTENCY_CONFLICT"),
+            "changing the actor must conflict, got: {error}"
+        );
 
         // A SQL batch may not carry a graph state descriptor at all: it is
         // rejected by the batch's own validation, before admission.
@@ -7900,10 +8151,19 @@ mod tests {
         );
         assert_eq!(reopened.mutation_version("tenant-a", "graph-a").unwrap(), 1);
 
-        // Reapplying CREATE TABLE would fail. A successful replay therefore proves
-        // the durable result was returned without executing the transaction twice.
-        let replay = reopened
+        // The committed attempt nonce is consumed even when its acknowledgement
+        // is lost. An exact retry is refused before owner rows can run.
+        let consumed = reopened
             .commit_txn_batch(&create_metrics_txn(), &batch, 102)
+            .unwrap_err();
+        assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
+
+        // Reapplying CREATE TABLE would fail. A fresh-nonce replay therefore
+        // proves the durable result was returned without executing twice.
+        let mut replay_batch = sql_batch("after-commit");
+        replay_batch.version_expectation = VersionExpectation::Native(1);
+        let replay = reopened
+            .commit_txn_batch(&create_metrics_txn(), &replay_batch, 103)
             .unwrap();
         assert!(replay.replayed);
         assert_eq!(reopened.list_tables().unwrap(), vec!["metrics".to_string()]);
@@ -7915,32 +8175,82 @@ mod tests {
             1
         );
 
-        // A rebuilt retry that observed the incremented version is now an
-        // IDEMPOTENCY_CONFLICT, not a replay. The retired private ledger
-        // tolerated exactly that one field differing; `MutationKernel`'s
-        // `MutationBatch` replay rule is byte-identity of the whole batch, and
-        // RF-RULING-006 makes the kernel's rule the SQL rule. The tolerance is
-        // what `OperationReplayIdentity` restores for free -- it excludes the
-        // version expectation -- and that path needs `MutationEnvelope`
-        // (K2 blocker 1), which no SQL caller emits yet.
-        let mut rederived = batch.clone();
-        rederived.version_expectation = eg_types::mutation_batch::VersionExpectation::Native(1);
-        let error = reopened
-            .commit_txn_batch(&create_metrics_txn(), &rederived, 103)
-            .unwrap_err();
-        assert!(error.contains("IDEMPOTENCY_CONFLICT"), "{error}");
-
         // Same key plus a changed operation is not a retry either.
-        let mut conflict = rederived.clone();
+        let mut conflict = sql_batch("after-commit");
+        conflict.version_expectation = VersionExpectation::Native(1);
         conflict.operations[0].method = eg_types::protocol::Method::ApplyMutation {
             event_type: "sql_catalog_operation".to_string(),
             query: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
                 .to_string(),
         };
+        conflict
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+            .unwrap();
         let error = reopened
             .commit_txn_batch(&create_metrics_txn(), &conflict, 104)
             .unwrap_err();
         assert!(error.contains("IDEMPOTENCY_CONFLICT"));
+    }
+
+    /// A source-owning adapter can ask the kernel about replay before opening
+    /// an external file. Replay consumes the fresh attempt nonce without
+    /// changing SQL state; Fresh is discarded and the later full commit still
+    /// re-admits against any writer that won while the source was being read.
+    #[test]
+    fn replay_probe_finalizes_nonce_and_fresh_probe_rechecks_commit_races() {
+        let (store, _path) = TableStore::open_temp().unwrap();
+        let original = sql_batch("source-probe");
+        store
+            .commit_txn_batch(&create_metrics_txn(), &original, 101)
+            .unwrap();
+        let version = store.mutation_version("tenant-a", "graph-a").unwrap();
+        let outbox = store
+            .mutation_outbox(&original.identity, &original.batch_id)
+            .unwrap();
+
+        let mut retry = sql_batch("source-probe");
+        retry.version_expectation = VersionExpectation::Native(version);
+        let replay = store
+            .probe_txn_batch_replay(&retry, |commit| Ok(commit.clone()))
+            .unwrap()
+            .expect("stable operation with a fresh nonce replays");
+        assert!(replay.replayed);
+        assert_eq!(
+            store.mutation_version("tenant-a", "graph-a").unwrap(),
+            version
+        );
+        assert_eq!(
+            store
+                .mutation_outbox(&original.identity, &original.batch_id)
+                .unwrap(),
+            outbox
+        );
+        let consumed = store
+            .probe_txn_batch_replay(&retry, |commit| Ok(commit.clone()))
+            .unwrap_err();
+        assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
+
+        let (racing_store, _path) = TableStore::open_temp().unwrap();
+        let candidate = sql_batch("source-race");
+        assert!(racing_store
+            .probe_txn_batch_replay(&candidate, |commit| Ok(commit.clone()))
+            .unwrap()
+            .is_none());
+        let winner = sql_batch("source-race");
+        racing_store
+            .commit_txn_batch(&create_metrics_txn(), &winner, 102)
+            .unwrap();
+        let reconciled = racing_store
+            .commit_txn_batch(&create_metrics_txn(), &candidate, 103)
+            .unwrap();
+        assert!(reconciled.replayed);
+        assert_eq!(racing_store.scan("metrics").unwrap().len(), 0);
+        assert_eq!(
+            racing_store
+                .mutation_version("tenant-a", "graph-a")
+                .unwrap(),
+            1
+        );
     }
 
     /// L-RLS-1-adjacent (WS-H, the served SQL context cache): [`TableStore::catalog_fingerprint`]
@@ -7963,6 +8273,9 @@ mod tests {
         store
             .commit_txn_batch(&create_metrics_txn(), &batch_a, 101)
             .unwrap();
+        let page_a = store.row_snapshot("metrics", None, None).unwrap();
+        assert_eq!(page_a.source_epoch, 1);
+        assert_ne!(page_a.source_authority_digest, [0; 32]);
         let after_a = store.catalog_fingerprint().unwrap();
         assert_ne!(
             after_a, empty,
@@ -7986,13 +8299,37 @@ mod tests {
             eg_types::mutation_batch::IncarnationId::new(COMPILED_BATCH_INCARNATION).unwrap(),
         )
         .unwrap();
-        batch_b.idempotency_key = "idem-fp-b".to_string();
+        // Re-mint the envelope for the new scope: the retry key lives inside it,
+        // and so does the scope the identity is bound to, so a batch whose
+        // identity moved must carry an envelope that says so.
+        remint_sql_envelope(
+            &mut batch_b,
+            &format!("principal:sha256:{}", "a".repeat(64)),
+        );
         let mut txn_b = TableTxn::new();
         txn_b.push(TxnOp::CreateTable {
             schema: TableSchema::new("other_table", vec![col("value", ColumnType::Text, false)]),
             if_not_exists: false,
         });
         store.commit_txn_batch(&txn_b, &batch_b, 102).unwrap();
+        let page_b = store.row_snapshot("other_table", None, None).unwrap();
+        assert_eq!(
+            page_b.source_authority_digest,
+            page_a.source_authority_digest
+        );
+        assert_eq!(page_b.source_epoch, 2);
+        let replay = store
+            .commit_txn_batch(&create_metrics_txn(), &sql_batch("fp-a"), 103)
+            .unwrap();
+        assert!(replay.replayed);
+        assert_eq!(
+            store
+                .row_snapshot("other_table", None, None)
+                .unwrap()
+                .source_epoch,
+            2,
+            "a fresh-nonce receipt replay does not advance the source epoch"
+        );
         let after_b = store.catalog_fingerprint().unwrap();
         assert_ne!(
             after_b, after_a,

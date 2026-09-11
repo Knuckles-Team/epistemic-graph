@@ -781,43 +781,40 @@ pub fn sweep_expired(core: &GraphCore, now_ms: u64) -> usize {
         .collect();
     queues.sort();
     queues.dedup();
-    let mut acted = 0usize;
-    for q in queues {
-        let label = queue_msg_label(&q);
-        // Snapshot ids first (dead_letter mutates the graph), id-sorted for a
-        // deterministic dead-letter order across replay.
-        let mut rows = core.get_nodes_by_label(&label, 0);
+    // Keep each queue snapshot and its transitions together; dead_letter mutates the graph.
+    let sweep_queue = |queue: &str| {
+        // Snapshot ids first, then keep their replay order deterministic.
+        let mut rows = core.get_nodes_by_label(&queue_msg_label(queue), 0);
         rows.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut acted = 0usize;
         for (id, blob) in rows {
-            let Ok(v) = decode_property(&blob) else {
+            let Ok(value) = decode_property(&blob) else {
                 continue;
             };
-            let Some(obj) = v.as_object() else { continue };
-            let status = f_str(obj, "status");
-            if status != "pending" && status != "claimed" {
+            let Some(object) = value.as_object() else {
                 continue;
-            }
-            let lease_expired = status == "claimed"
-                && f_u64(obj, "lease_until")
-                    .map(|l| l <= now_ms)
-                    .unwrap_or(false);
-            // EG-277: TTL expiry (a live-lease claimed message is left to its holder).
-            if let Some(ea) = f_u64(obj, "expires_at") {
-                if ea <= now_ms && (status == "pending" || lease_expired) {
-                    dead_letter(core, &q, &id, &v, "expired", now_ms);
+            };
+            let status = f_str(object, "status");
+            let lease_until = f_u64(object, "lease_until");
+            let lease_expired = status == "claimed" && lease_until.is_some_and(|l| l <= now_ms);
+            let ttl_expired =
+                f_u64(object, "expires_at").is_some_and(|expires_at| expires_at <= now_ms);
+            match (status, lease_expired, ttl_expired) {
+                ("pending", _, true) | ("claimed", true, true) => {
+                    dead_letter(core, queue, &id, &value, "expired", now_ms);
                     acted += 1;
-                    continue;
                 }
-            }
-            // EG-280: proactively return an expired lease to the claimable pool.
-            if lease_expired
-                && core.broker_release_expired_delivery(&id, f_u64(obj, "lease_until"), now_ms)
-            {
-                acted += 1;
+                ("claimed", true, false)
+                    if core.broker_release_expired_delivery(&id, lease_until, now_ms) =>
+                {
+                    acted += 1;
+                }
+                _ => {}
             }
         }
-    }
-    acted
+        acted
+    };
+    queues.into_iter().map(|queue| sweep_queue(&queue)).sum()
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1065,48 +1062,49 @@ pub fn stream_trim(core: &GraphCore, stream: &str, now_ms: u64) -> usize {
     if ret.max_messages.is_none() && ret.max_age_ms.is_none() {
         return 0;
     }
-    // Snapshot (offset, ts, id), ascending by offset (oldest first).
-    let mut msgs: Vec<(i64, u64, String)> = core
+    // Select the complete drop set before the one write-guarded removal.
+    let select_drop_ids = |mut msgs: Vec<(i64, u64, String)>| {
+        let n = msgs.len();
+        let mut drop_ids: HashSet<String> = HashSet::new();
+        // Count selects the oldest overflow; age unions older rows before one trim.
+        if let Some(maxc) = ret.max_messages {
+            let maxc = maxc as usize;
+            if n > maxc {
+                let drop_count = n - maxc;
+                if drop_count < n {
+                    // Partial selection avoids sorting rows that will be retained.
+                    msgs.select_nth_unstable_by_key(drop_count, |(off, _, _)| *off);
+                }
+                for (_, _, id) in &msgs[..drop_count] {
+                    drop_ids.insert(id.clone());
+                }
+            }
+        }
+        if let Some(maxa) = ret.max_age_ms {
+            for (_, ts, id) in &msgs {
+                if now_ms.saturating_sub(*ts) > maxa {
+                    drop_ids.insert(id.clone());
+                }
+            }
+        }
+        let mut drop_ids: Vec<String> = drop_ids.into_iter().collect();
+        drop_ids.sort_unstable();
+        drop_ids
+    };
+    let msgs: Vec<(i64, u64, String)> = core
         .get_nodes_by_label(&stream_msg_label(stream), 0)
         .into_iter()
         .filter_map(|(id, blob)| {
             let v = decode_property(&blob).ok()?;
             let o = v.as_object()?;
             let offset = o.get("offset")?.as_i64()?;
-            let ts = f_u64(o, "ts").unwrap_or(0);
-            Some((offset, ts, id))
+            Some((offset, f_u64(o, "ts").unwrap_or(0), id))
         })
         .collect();
-    let n = msgs.len();
-    let mut drop_ids: HashSet<String> = HashSet::new();
-    // Count bound: the oldest `n - max_messages` overflow.
-    if let Some(maxc) = ret.max_messages {
-        let maxc = maxc as usize;
-        if n > maxc {
-            let drop_count = n - maxc;
-            if drop_count < n {
-                // Retention needs the set of oldest rows, not a fully ordered
-                // image. Partial selection avoids an `O(N log N)` full sort.
-                msgs.select_nth_unstable_by_key(drop_count, |(off, _, _)| *off);
-            }
-            for (_, _, id) in &msgs[..drop_count] {
-                drop_ids.insert(id.clone());
-            }
-        }
-    }
-    // Age bound: anything older than the horizon (union with the count overflow).
-    if let Some(maxa) = ret.max_age_ms {
-        for (_, ts, id) in &msgs {
-            if now_ms.saturating_sub(*ts) > maxa {
-                drop_ids.insert(id.clone());
-            }
-        }
-    }
+    let drop_ids = select_drop_ids(msgs);
     if drop_ids.is_empty() {
         return 0;
     }
-    let mut drop_ids: Vec<String> = drop_ids.into_iter().collect();
-    drop_ids.sort_unstable();
     core.stream_trim_nodes(&drop_ids)
 }
 

@@ -138,6 +138,18 @@ impl CrossModalTxnRegistry {
             .unwrap()
             .remove(&(owner_scope.to_string(), txn_id.to_string()))
     }
+
+    /// Test whether an owner-scoped handle is still present without consuming it.
+    /// The facade uses this read-only membership check when deciding whether a
+    /// durable lifecycle receipt may replay a result for GraphQL's volatile
+    /// registry. It deliberately takes the exact parsed `txnId`; callers must
+    /// not infer membership from raw query text or from a process-local marker.
+    pub fn contains_handle(&self, owner_scope: &str, txn_id: &str) -> bool {
+        self.txns
+            .lock()
+            .unwrap()
+            .contains_key(&(owner_scope.to_string(), txn_id.to_string()))
+    }
 }
 
 /// How the facade should route a GraphQL cross-modal mutation (CONCEPT:EG-KG.query.facade-reconcile-hook).

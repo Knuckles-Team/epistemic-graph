@@ -1,6 +1,6 @@
 use crate::owner::domain::{
-    BlobOwner, JobsOwner, KvOwner, OwnerDomain, RbacOwner, SemanticIndexOwner, StatechartOwner,
-    TimeSeriesOwner,
+    AgentLibraryOwner, BlobOwner, JobsOwner, KvOwner, OwnerDomain, RbacOwner, SemanticIndexOwner,
+    StatechartOwner, TimeSeriesOwner,
 };
 
 /// Sealed typed table contract. External code can use declared row domains but
@@ -69,16 +69,19 @@ declared_owner_tables!(
     SemanticStateRows: SemanticIndexOwner => ((String, String), Vec<u8>, "semantic_binding_state_transitions"),
     SemanticSourceProgressRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_source_progress"),
     SemanticActivePointerRows: SemanticIndexOwner => ((String, String), Vec<u8>, "semantic_active_pointers"),
-    SemanticDeadLetterRows: SemanticIndexOwner => ((String, String, u32), Vec<u8>, "semantic_dead_letters"),
+    SemanticDeadLetterRows: SemanticIndexOwner => ((String, String, String, u32), Vec<u8>, "semantic_dead_letters"),
     SemanticTombstoneRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_tombstones"),
     SemanticSqlManifestRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_sql_source_manifests"),
     SemanticGraphManifestRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_graph_projection_manifests"),
     SemanticAuthorizationRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_authorization_receipts"),
     SemanticCheckpointRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_generation_checkpoints"),
+    SemanticCheckpointHeadRows: SemanticIndexOwner => ((String, String, u64, String, String), Vec<u8>, "semantic_generation_checkpoint_heads"),
     SemanticLexicalRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_lexical_manifests"),
     SemanticAnnRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_ann_manifests"),
     SemanticVectorRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "semantic_vectors"),
     AnnCodeRows: SemanticIndexOwner => ((String, String, u64, String), Vec<u8>, "eg_ann"),
+    AgentLibraryRevisionRows: AgentLibraryOwner => ((String, String, u64), Vec<u8>, "agent_library"),
+    AgentLibraryHeadRows: AgentLibraryOwner => ((String, String), u64, "agent_library_heads"),
 );
 
 /// Closed dispatch over the declared owner tables. The `unreachable!` arm is a
@@ -123,6 +126,7 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         | "semantic_graph_projection_manifests"
         | "semantic_authorization_receipts"
         | "semantic_generation_checkpoints"
+        | "semantic_generation_checkpoint_heads"
         | "semantic_lexical_manifests"
         | "semantic_ann_manifests"
         | "semantic_vectors"
@@ -135,7 +139,9 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         | "tenant_catalog"
         | "node_info"
         | "node_info_meta"
-        | "cluster_hierarchy" => OwnerTableAccess::DomainService,
+        | "cluster_hierarchy"
+        | "agent_library"
+        | "agent_library_heads" => OwnerTableAccess::DomainService,
         name if name.starts_with("__sql_") => OwnerTableAccess::DomainService,
         // Every graph-shard table is reached through the shard's own admitted
         // owner write, never as a shared service: one shard file is one

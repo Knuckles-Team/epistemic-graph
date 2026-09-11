@@ -20,8 +20,9 @@
 use eg_storage::{OwnedStoreHandle, OwnerDomain};
 use eg_types::mutation_batch::DurabilityDomain;
 use eg_types::protocol::Method;
+use eg_types::mutation_batch::MutationEnvelope;
 use eg_types::{
-    MutationBatch, MutationOperation, MutationRequestContext, MutationSurface, VersionExpectation,
+    MutationBatch, MutationOperation, MutationScope, MutationSurface, VersionExpectation,
     MUTATION_BATCH_VERSION,
 };
 
@@ -67,24 +68,31 @@ impl<'a> MaintenanceBatch<'a> {
         version: u64,
     ) -> Result<MutationBatch, String> {
         let batch_id = format!("{}/{}:v{version}", self.kind, self.subject);
+        // `admit_current` resolves the version from the bound identity, so the
+        // constructor must carry the same version namespace. A graph-shaped
+        // owner (including the ledger-only cluster-admin coordinator) advances
+        // its graph version; native owner files advance their native version.
+        let version_expectation = match owner.identity().scope() {
+            MutationScope::Graph { .. } => VersionExpectation::Graph(version),
+            MutationScope::Native { .. } => VersionExpectation::Native(version),
+        };
         let batch = MutationBatch {
             schema_version: MUTATION_BATCH_VERSION,
             batch_id: batch_id.clone(),
-            context: MutationRequestContext {
-                request_id: 0,
-                principal: owner.principal().to_string(),
-                purpose: None,
-                policy_fingerprint: None,
-                trace_id: None,
-                // A maintenance mutation claims no capability: a plain
-                // `Native`-versioned write, not the reserved-system
-                // `Unversioned` path. Empty is the true fact, not a placeholder.
-                verified_capabilities: std::collections::BTreeSet::new(),
-            },
+            // A maintenance write has no caller, so it has no authority to
+            // derive an operation identity from and no attempt nonce to consume
+            // (RF-RULING-005). Its `kind` and `subject` are mandatory here, so
+            // the ledger row NAMES what it wrote rather than merely recording
+            // that something was written -- the C1 P1-2 complaint.
+            envelope: MutationEnvelope::maintenance(
+                owner.principal(),
+                self.kind,
+                self.subject,
+                &batch_id,
+            )?,
             identity: owner.identity().clone(),
             placement_epoch: 0,
-            idempotency_key: batch_id.clone(),
-            version_expectation: VersionExpectation::Native(version),
+            version_expectation,
             fencing_token: None,
             authoritative_state: None,
             operations: vec![MutationOperation {

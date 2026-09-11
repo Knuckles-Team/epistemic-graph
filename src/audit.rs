@@ -301,6 +301,10 @@ pub fn audit_line(method: &Method) -> Option<String> {
             Method::ClaimWorkItem { request } => {
                 Some(format!("CLAIM_WORK_ITEM|{}", request.tenant_ref))
             }
+            Method::KgDelegate { request } => Some(format!(
+                "KG_DELEGATE|{}|{}|{}",
+                request.context.tenant_id, request.delegation_id, request.idempotency_key
+            )),
             Method::SubmitWorkItem { request } => Some(format!(
                 "SUBMIT_WORK_ITEM|{}|{}",
                 request.context.tenant_id, request.idempotency_key

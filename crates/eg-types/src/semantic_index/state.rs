@@ -129,8 +129,10 @@ pub enum SemanticIndexMutation {
     StoreBinding {
         binding: Box<SemanticBinding>,
     },
+    /// Boxed for the same reason as `StoreBinding` above: the transition
+    /// carries its intent and receipt and dominates the enum's size.
     RecordStageTransition {
-        transition: SemanticStageTransition,
+        transition: Box<SemanticStageTransition>,
         artifact: SemanticStageArtifact,
     },
     FinalizeGeneration {
@@ -316,13 +318,17 @@ impl SemanticGenerationArtifact {
                 }
                 validate_generation_artifact(
                     checkpoint,
-                    &manifest.binding_id,
-                    manifest.binding_digest,
-                    manifest.generation,
-                    &manifest.source_revision,
-                    manifest.artifact_digest,
-                    manifest.completed_receipt_digest,
-                    &manifest.completed_at,
+                    (
+                        &manifest.binding_id,
+                        manifest.binding_digest,
+                        manifest.generation,
+                        &manifest.source_revision,
+                    ),
+                    (
+                        manifest.artifact_digest,
+                        manifest.completed_receipt_digest,
+                        &manifest.completed_at,
+                    ),
                 )
             }
             (SemanticStage::AnnIndex, Self::AnnIndexManifest { manifest }) => {
@@ -332,13 +338,17 @@ impl SemanticGenerationArtifact {
                 }
                 validate_generation_artifact(
                     checkpoint,
-                    &manifest.binding_id,
-                    manifest.binding_digest,
-                    manifest.generation,
-                    &manifest.source_revision,
-                    manifest.artifact_digest,
-                    manifest.completed_receipt_digest,
-                    &manifest.completed_at,
+                    (
+                        &manifest.binding_id,
+                        manifest.binding_digest,
+                        manifest.generation,
+                        &manifest.source_revision,
+                    ),
+                    (
+                        manifest.artifact_digest,
+                        manifest.completed_receipt_digest,
+                        &manifest.completed_at,
+                    ),
                 )
             }
             (SemanticStage::ReconcileAndActivate, Self::Activation { target, pointer }) => {
@@ -438,16 +448,16 @@ fn validate_dead_letter_artifact(
     Ok(())
 }
 
+/// `coordinates` is `(binding_id, binding_digest, generation, source_revision)`
+/// and `proof` is `(artifact_digest, completed_receipt_digest, completed_at)`:
+/// the identity of the generation, and the evidence offered for it.
 fn validate_generation_artifact(
     checkpoint: &SemanticGenerationCheckpoint,
-    binding_id: &str,
-    binding_digest: SemanticDigest,
-    generation: u64,
-    source_revision: &str,
-    artifact_digest: SemanticDigest,
-    completed_receipt_digest: SemanticDigest,
-    completed_at: &str,
+    coordinates: (&str, SemanticDigest, u64, &str),
+    proof: (SemanticDigest, SemanticDigest, &str),
 ) -> Result<(), SemanticIndexError> {
+    let (binding_id, binding_digest, generation, source_revision) = coordinates;
+    let (artifact_digest, completed_receipt_digest, completed_at) = proof;
     if binding_id != checkpoint.binding_id
         || binding_digest != checkpoint.binding_digest
         || generation != checkpoint.generation

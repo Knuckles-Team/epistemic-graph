@@ -75,7 +75,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 #[cfg(feature = "rdf")]
-use oxrdf::{Term, Triple};
+use oxrdf::Triple;
 use serde::{Deserialize, Serialize};
 
 use crate::owl::Ontology;
@@ -1338,15 +1338,6 @@ pub fn reason_triples(triples: &[Triple], ont: &Ontology, custom: &RuleSet) -> R
 /// becomes a binary edge fact `p(s,o)`. Confidence defaults to `1.0`.
 #[cfg(feature = "rdf")]
 pub fn facts_from_triples(triples: &[Triple]) -> Vec<(String, Vec<String>, f64)> {
-    fn term_id(t: &Term) -> String {
-        match t {
-            Term::NamedNode(n) => format!("<{}>", n.as_str()),
-            Term::BlankNode(b) => format!("_:{}", b.as_str()),
-            Term::Literal(l) => l.value().to_string(),
-            #[allow(unreachable_patterns)]
-            _ => String::new(),
-        }
-    }
     let mut out = Vec::new();
     for t in triples {
         let p = t.predicate.as_str();
@@ -1359,7 +1350,7 @@ pub fn facts_from_triples(triples: &[Triple]) -> Vec<(String, Vec<String>, f64)>
             #[allow(unreachable_patterns)]
             _ => continue,
         };
-        let o = term_id(&t.object);
+        let o = crate::owl::term_key(&t.object);
         if p == RDF_TYPE {
             if is_meta_class(&o) {
                 continue;

@@ -27,6 +27,8 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+mod search;
+
 /// PQ codebook entries per subspace (8-bit codes).
 pub const PQ_KSUB: usize = 256;
 
@@ -265,7 +267,7 @@ impl IvfPq {
                 let resid: Vec<f32> = (0..dim)
                     .map(|d| rv[d] - self.coarse_centroids[base + d])
                     .collect();
-                let code = self.encode_residual(&resid);
+                let code = encode_residual(self, &resid);
                 let (sq, mn, sc) = sq8_encode(&rv);
                 (*id, c as u32, code, sq, mn, sc)
             })
@@ -297,31 +299,6 @@ impl IvfPq {
         n
     }
 
-    fn encode_residual(&self, resid: &[f32]) -> Vec<u8> {
-        let dsub = self.dsub;
-        (0..self.m)
-            .map(|sq| {
-                let sv = &resid[sq * dsub..(sq + 1) * dsub];
-                let book_base = sq * PQ_KSUB * dsub;
-                let mut best = 0u8;
-                let mut bestd = f32::MAX;
-                for k in 0..PQ_KSUB {
-                    let cb = book_base + k * dsub;
-                    let mut d = 0.0f32;
-                    for (a, b) in sv.iter().zip(&self.pq_centroids[cb..cb + dsub]) {
-                        let diff = a - b;
-                        d += diff * diff;
-                    }
-                    if d < bestd {
-                        bestd = d;
-                        best = k as u8;
-                    }
-                }
-                best
-            })
-            .collect()
-    }
-
     /// Rebuild in-RAM posting lists from `list_of` (after a no-rebuild mmap load).
     /// One O(N) integer pass — NO vector math, NO k-means, NO graph build.
     pub fn rebuild_postings(&mut self) {
@@ -334,18 +311,29 @@ impl IvfPq {
 
     /// kNN search: probe `nprobe` cells, ADC-score the candidates, then (if
     /// `refine`) re-rank the top `refine_factor*k` with the SQ8 tier for recall.
-    /// A thin wrapper over [`Self::search_filtered`] with no candidate pre-filter.
+    /// The returned hits are nearest-first with deterministic `(distance, id, row)`
+    /// tie-breaking; distances are ADC distances without refinement and SQ8-decode
+    /// distances after refinement. `nprobe` is clamped to `[1, nlist]`,
+    /// `refine_factor` is clamped to at least one when refinement is active, and
+    /// `k == 0` returns an empty vector. The search allocates one rotated query,
+    /// one residual/table scratch pair reused across probed cells, and a candidate
+    /// buffer over the live rows scanned.
+    ///
+    /// This is the unfiltered form of [`Self::search_filtered`].
     pub fn search(&self, query: &[f32], k: usize, sp: SearchParams) -> Vec<SearchResult> {
-        self.search_filtered(query, k, sp, None)
+        search::search(self, query, k, sp)
     }
 
-    /// kNN search with an optional metadata pre-filter (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). `allow`, when
-    /// present, is tested against each candidate's EXTERNAL id (`self.ids[row]`) DURING
-    /// the ADC probe/scan, so disallowed rows never enter the candidate heap and the
-    /// returned top-k already satisfies the predicate — no over-fetch-then-post-filter.
-    /// `allow == None` is exactly the unfiltered `search`. The refine tier re-ranks only
-    /// the rows that already passed the filter, so recall is preserved over the allowed
-    /// subset.
+    /// kNN search with an optional metadata pre-filter (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter).
+    /// `allow`, when present, is tested against each candidate's external id
+    /// (`self.ids[row]`) during the ADC probe/scan, so disallowed rows never enter
+    /// the candidate buffer and the returned top-k already satisfies the predicate.
+    /// `allow == None` is exactly the unfiltered [`Self::search`]. The refine tier
+    /// re-ranks only rows that passed the filter, using the same deterministic
+    /// `(distance, id, row)` ordering. `k == 0` returns an empty vector; live rows
+    /// from the selected cells are scanned in posting order, with residual/table
+    /// scratch reused across cells and candidate storage proportional to the rows
+    /// admitted by the predicate.
     pub fn search_filtered(
         &self,
         query: &[f32],
@@ -353,125 +341,7 @@ impl IvfPq {
         sp: SearchParams,
         allow: Option<&dyn Fn(u64) -> bool>,
     ) -> Vec<SearchResult> {
-        if k == 0 {
-            return Vec::new();
-        }
-        let dim = self.dim;
-        let dsub = self.dsub;
-        let rq = rotate(&self.rotation, query, dim);
-
-        // 1. nprobe nearest coarse cells (in rotated space).
-        let mut cell_d: Vec<(usize, f32)> = (0..self.nlist)
-            .map(|c| {
-                (
-                    c,
-                    sq_dist(&rq, &self.coarse_centroids[c * dim..(c + 1) * dim]),
-                )
-            })
-            .collect();
-        let nprobe = sp.nprobe.max(1).min(cell_d.len());
-        retain_best_sorted_by(&mut cell_d, nprobe, cell_distance_cmp);
-
-        // 2. ADC over each probed cell's posting list.
-        let mut cands: Vec<AdcCandidate> = Vec::new();
-        // Scratch buffers reused across probed cells instead of reallocated each
-        // iteration: `qresid` (dim floats) and `table` (m*PQ_KSUB floats, ~100KB
-        // at default settings) are both FULLY overwritten every iteration before
-        // any read — `qresid` by the `0..dim` fill below, `table` by the `sq`/`kc`
-        // double loop covering every `sq*PQ_KSUB+kc` index exactly once — so
-        // reuse is behavior-preserving and turns O(nprobe) allocations into O(1).
-        let mut qresid = vec![0.0f32; dim];
-        let mut table = vec![0.0f32; self.m * PQ_KSUB];
-        for &(cell, _) in &cell_d {
-            let base = cell * dim;
-            for d in 0..dim {
-                qresid[d] = rq[d] - self.coarse_centroids[base + d];
-            }
-            // ADC table: m x 256 squared sub-distances.
-            for sq in 0..self.m {
-                let qs = &qresid[sq * dsub..(sq + 1) * dsub];
-                let book_base = sq * PQ_KSUB * dsub;
-                for kc in 0..PQ_KSUB {
-                    let cb = book_base + kc * dsub;
-                    let mut d = 0.0f32;
-                    for (a, b) in qs.iter().zip(&self.pq_centroids[cb..cb + dsub]) {
-                        let diff = a - b;
-                        d += diff * diff;
-                    }
-                    table[sq * PQ_KSUB + kc] = d;
-                }
-            }
-            for &row in &self.postings[cell] {
-                let row = row as usize;
-                if self.deleted[row] == 1 {
-                    continue;
-                }
-                // CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter — metadata pre-filter DURING the scan: skip rows whose
-                // external id is not permitted, so the ADC/refine top-k is built only
-                // over the allowed subset.
-                if let Some(allow) = allow {
-                    if !allow(self.ids[row]) {
-                        continue;
-                    }
-                }
-                let cbase = row * self.m;
-                let mut dist = 0.0f32;
-                for sq in 0..self.m {
-                    let code = self.codes[cbase + sq] as usize;
-                    dist += table[sq * PQ_KSUB + code];
-                }
-                cands.push(AdcCandidate {
-                    row,
-                    distance: dist,
-                });
-            }
-        }
-
-        let adc_cmp = |a: &AdcCandidate, b: &AdcCandidate| {
-            distance_cmp(a.distance, b.distance)
-                .then_with(|| self.ids[a.row].cmp(&self.ids[b.row]))
-                .then_with(|| a.row.cmp(&b.row))
-        };
-        if !sp.refine || self.sq_codes.is_empty() {
-            retain_best_sorted_by(&mut cands, k, adc_cmp);
-            return cands
-                .into_iter()
-                .map(|candidate| SearchResult {
-                    id: self.ids[candidate.row],
-                    distance: candidate.distance,
-                })
-                .collect();
-        }
-
-        // 3. Refine: keep the best refine_factor*k ADC candidates, re-rank by SQ8
-        // distance (near-exact in the rotated space).
-        let keep = sp.refine_factor.max(1).saturating_mul(k).min(cands.len());
-        retain_best_unordered_by(&mut cands, keep, adc_cmp);
-        let mut refined: Vec<SearchResult> = cands
-            .into_iter()
-            .map(|candidate| SearchResult {
-                id: self.ids[candidate.row],
-                distance: self.sq8_dist(&rq, candidate.row),
-            })
-            .collect();
-        retain_best_sorted_by(&mut refined, k, search_result_cmp);
-        refined
-    }
-
-    /// Squared distance between a rotated query and row's SQ8-decoded rotated vec.
-    #[inline]
-    fn sq8_dist(&self, rq: &[f32], row: usize) -> f32 {
-        let dim = self.dim;
-        let mn = self.sq_min[row];
-        let sc = self.sq_scale[row];
-        let base = row * dim;
-        let mut d = 0.0f32;
-        for (q, code) in rq.iter().zip(&self.sq_codes[base..base + dim]) {
-            let val = mn + (*code as f32) * sc;
-            let diff = q - val;
-            d += diff * diff;
-        }
-        d
+        search::search_filtered(self, query, k, sp, allow)
     }
 
     pub fn len(&self) -> usize {
@@ -492,6 +362,31 @@ impl IvfPq {
         let dead = self.deleted.iter().filter(|&&d| d == 1).count();
         dead as f32 / self.ids.len() as f32
     }
+}
+
+fn encode_residual(index: &IvfPq, resid: &[f32]) -> Vec<u8> {
+    let dsub = index.dsub;
+    (0..index.m)
+        .map(|sq| {
+            let sv = &resid[sq * dsub..(sq + 1) * dsub];
+            let book_base = sq * PQ_KSUB * dsub;
+            let mut best = 0u8;
+            let mut bestd = f32::MAX;
+            for k in 0..PQ_KSUB {
+                let cb = book_base + k * dsub;
+                let mut d = 0.0f32;
+                for (a, b) in sv.iter().zip(&index.pq_centroids[cb..cb + dsub]) {
+                    let diff = a - b;
+                    d += diff * diff;
+                }
+                if d < bestd {
+                    bestd = d;
+                    best = k as u8;
+                }
+            }
+            best
+        })
+        .collect()
 }
 
 /// Keep the exact best `limit` items under a total order without ordering the

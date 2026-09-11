@@ -34,6 +34,10 @@ pub struct MutationOutboxRecord {
     pub ordinal: u32,
     pub identity: MutationScopeIdentity,
     pub committed_version: CommittedVersion,
+    /// The scope version after the batch committed. Legacy rows may omit
+    /// this field and are rejected when their original order is unverifiable.
+    #[serde(default)]
+    pub commit_sequence: Option<u64>,
     pub intent: MutationOutboxIntent,
     pub created_at_ms: u64,
 }
@@ -72,7 +76,38 @@ pub struct MutationBatchCommit {
     pub replayed: bool,
 }
 
+/// The outbox header that carries the verified caller on every compiled batch.
+pub const MUTATION_ACTOR_HEADER: &str = "actor";
+
 impl MutationBatchRecord {
+    /// The verified CALLER that committed this record -- the one owner accessor.
+    ///
+    /// RF-RULING-004's application note makes the batch's serving principal the
+    /// committing ledger's own requirement for every domain, so it can no longer
+    /// answer "whose operation was this": comparing it would compare the engine
+    /// against itself and pass for any caller. Caller attribution has exactly one
+    /// home, the outbox `actor` header, which `compile.rs` writes unconditionally
+    /// on every batch it builds.
+    ///
+    /// This exists as ONE checked accessor because the alternative already
+    /// happened: three private, divergent re-derivations of it grew in
+    /// `wire/mod.rs`, `handlers/query.rs` and `handlers/sqlite_file.rs`, and a
+    /// fourth site (`sql_catalog_acl.rs`) simply had none -- the cross-actor
+    /// replay-ownership hole the M1 review raised as a P1. A missing header is an
+    /// `Err`, never `None`: "this record names no owner" must fail closed, not
+    /// read as "this record matches every owner".
+    pub fn committing_actor(&self) -> Result<&str, String> {
+        self.batch
+            .outbox
+            .iter()
+            .find_map(|intent| intent.headers.get(MUTATION_ACTOR_HEADER))
+            .map(String::as_str)
+            .filter(|actor| !actor.is_empty())
+            .ok_or_else(|| {
+                "committed MutationBatch carries no actor attribution".to_string()
+            })
+    }
+
     pub fn validate_identity(&self) -> Result<(), String> {
         self.batch.validate_identity()?;
         require_same_identity(

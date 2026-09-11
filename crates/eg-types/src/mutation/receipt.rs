@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::envelope::MutationEnvelope;
+use super::envelope::MutationRequestEnvelope;
 use super::payload::digest_sequence;
 use crate::authority::{AuthorityScope, ReplayReceipt};
 use crate::contract::{
@@ -86,7 +86,7 @@ pub(super) fn result_matches_request(
 
 fn receipt_binds_exact_envelope(
     receipt: &MutationReceipt,
-    envelope: &MutationEnvelope,
+    envelope: &MutationRequestEnvelope,
 ) -> bool {
     receipt.mutation_id == envelope.mutation_id
         && receipt.scope == envelope.scope
@@ -99,7 +99,7 @@ fn receipt_binds_exact_envelope(
 
 fn receipt_result_matches_request(
     receipt: &MutationReceipt,
-    envelope: &MutationEnvelope,
+    envelope: &MutationRequestEnvelope,
 ) -> bool {
     !matches!(receipt.disposition.as_str(), "committed" | "replayed")
         || result_matches_request(&envelope.requested_result, &receipt.result)
@@ -146,7 +146,7 @@ fn receipt_matches_replay_lifecycle(receipt: &MutationReceipt, replay: &ReplayRe
 
 fn receipt_effect_binds_envelope(
     receipt: &MutationReceipt,
-    envelope: &MutationEnvelope,
+    envelope: &MutationRequestEnvelope,
 ) -> Result<bool, String> {
     match receipt.disposition.as_str() {
         "committed" | "replayed" => {
@@ -203,7 +203,7 @@ impl MutationReceipt {
         }
     }
 
-    pub fn validate_against(&self, envelope: &MutationEnvelope) -> Result<(), String> {
+    pub fn validate_against(&self, envelope: &MutationRequestEnvelope) -> Result<(), String> {
         self.validate()?;
         envelope.validate_untrusted_request()?;
         if !receipt_binds_exact_envelope(self, envelope) {

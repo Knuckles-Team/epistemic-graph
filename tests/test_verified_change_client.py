@@ -635,7 +635,7 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
                     "k": 2,
                 },
                 "batch_size": 2,
-                "projection": "arrow_ipc_v1",
+                "projection": "arrow_ipc",
             }
         },
     )

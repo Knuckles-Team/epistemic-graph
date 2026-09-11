@@ -37,6 +37,8 @@
 
 use serde_json::Value;
 
+use super::lexer::{tokenize, Tok};
+
 use super::plan::{
     Accessor, AggArg, AggFunc, CompareOp, Condition, CypherQuery, Direction, EdgePat, Expr,
     ListExpr, NodePat, OrderKey, Pattern, PropVal, QuantifiedGroup, ReadStage, RemoveItem,
@@ -44,201 +46,15 @@ use super::plan::{
     YieldItem,
 };
 
-/// A flat token. The tokenizer is whitespace-insensitive; punctuation is matched
-/// greedily for the multi-char operators (`->`, `<-`, `<=`, `>=`, `<>`, `!=`,
-/// `..`, `*`).
-#[derive(Debug, Clone, PartialEq)]
-enum Tok {
-    LParen,
-    RParen,
-    LBracket,
-    RBracket,
-    LBrace,
-    RBrace,
-    Colon,
-    Dot,
-    Comma,
-    Star,
-    DotDot,
-    Dash,       // '-'
-    ArrowRight, // '->'
-    ArrowLeft,  // '<-'
-    Eq,
-    Ne, // '<>' or '!='
-    Lt,
-    Le,
-    Gt,
-    Ge,
-    Ident(String),
-    Str(String),
-    Num(f64),
-    /// `$name` — a query parameter reference (CONCEPT:EG-KG.query.param-list-drives-unwind).
-    Param(String),
+/// What a statement opening with `(OPTIONAL) MATCH` turned out to be.
+enum MatchOpening {
+    Read(ReadStage),
+    Write(Statement),
 }
 
-fn tokenize(input: &str) -> Result<Vec<Tok>, String> {
-    let chars: Vec<char> = input.chars().collect();
-    let mut i = 0;
-    let mut out = Vec::new();
-    while i < chars.len() {
-        let c = chars[i];
-        match c {
-            ws if ws.is_whitespace() => {
-                i += 1;
-            }
-            '(' => {
-                out.push(Tok::LParen);
-                i += 1;
-            }
-            ')' => {
-                out.push(Tok::RParen);
-                i += 1;
-            }
-            '[' => {
-                out.push(Tok::LBracket);
-                i += 1;
-            }
-            ']' => {
-                out.push(Tok::RBracket);
-                i += 1;
-            }
-            '{' => {
-                out.push(Tok::LBrace);
-                i += 1;
-            }
-            '}' => {
-                out.push(Tok::RBrace);
-                i += 1;
-            }
-            ':' => {
-                out.push(Tok::Colon);
-                i += 1;
-            }
-            ',' => {
-                out.push(Tok::Comma);
-                i += 1;
-            }
-            '*' => {
-                out.push(Tok::Star);
-                i += 1;
-            }
-            '=' => {
-                out.push(Tok::Eq);
-                i += 1;
-            }
-            '.' => {
-                if i + 1 < chars.len() && chars[i + 1] == '.' {
-                    out.push(Tok::DotDot);
-                    i += 2;
-                } else {
-                    out.push(Tok::Dot);
-                    i += 1;
-                }
-            }
-            '-' => {
-                if i + 1 < chars.len() && chars[i + 1] == '>' {
-                    out.push(Tok::ArrowRight);
-                    i += 2;
-                } else {
-                    out.push(Tok::Dash);
-                    i += 1;
-                }
-            }
-            '<' => {
-                if i + 1 < chars.len() && chars[i + 1] == '-' {
-                    out.push(Tok::ArrowLeft);
-                    i += 2;
-                } else if i + 1 < chars.len() && chars[i + 1] == '=' {
-                    out.push(Tok::Le);
-                    i += 2;
-                } else if i + 1 < chars.len() && chars[i + 1] == '>' {
-                    out.push(Tok::Ne);
-                    i += 2;
-                } else {
-                    out.push(Tok::Lt);
-                    i += 1;
-                }
-            }
-            '>' => {
-                if i + 1 < chars.len() && chars[i + 1] == '=' {
-                    out.push(Tok::Ge);
-                    i += 2;
-                } else {
-                    out.push(Tok::Gt);
-                    i += 1;
-                }
-            }
-            '!' => {
-                if i + 1 < chars.len() && chars[i + 1] == '=' {
-                    out.push(Tok::Ne);
-                    i += 2;
-                } else {
-                    return Err("unexpected '!'".into());
-                }
-            }
-            '\'' | '"' => {
-                let quote = c;
-                i += 1;
-                let mut s = String::new();
-                while i < chars.len() && chars[i] != quote {
-                    // Minimal escape handling: \' \" \\ pass the next char through.
-                    if chars[i] == '\\' && i + 1 < chars.len() {
-                        s.push(chars[i + 1]);
-                        i += 2;
-                    } else {
-                        s.push(chars[i]);
-                        i += 1;
-                    }
-                }
-                if i >= chars.len() {
-                    return Err("unterminated string literal".into());
-                }
-                i += 1; // closing quote
-                out.push(Tok::Str(s));
-            }
-            d if d.is_ascii_digit() => {
-                // Unsigned numeric literal. `-` is always a Dash token (handled
-                // above); the grammar has no negative literals in this subset.
-                let start = i;
-                while i < chars.len()
-                    && (chars[i].is_ascii_digit() || chars[i] == '.')
-                    // stop before a '..' range token
-                    && !(chars[i] == '.' && i + 1 < chars.len() && chars[i + 1] == '.')
-                {
-                    i += 1;
-                }
-                let num_str: String = chars[start..i].iter().collect();
-                let n: f64 = num_str
-                    .parse()
-                    .map_err(|_| format!("bad number: {num_str}"))?;
-                out.push(Tok::Num(n));
-            }
-            '$' => {
-                // `$name` parameter reference (CONCEPT:EG-KG.query.param-list-drives-unwind).
-                i += 1;
-                let start = i;
-                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                    i += 1;
-                }
-                if i == start {
-                    return Err("expected a parameter name after '$'".into());
-                }
-                let name: String = chars[start..i].iter().collect();
-                out.push(Tok::Param(name));
-            }
-            a if a.is_alphabetic() || a == '_' => {
-                let start = i;
-                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
-                    i += 1;
-                }
-                let ident: String = chars[start..i].iter().collect();
-                out.push(Tok::Ident(ident));
-            }
-            other => return Err(format!("unexpected character: {other:?}")),
-        }
-    }
-    Ok(out)
-}
+/// Projection functions over a single variable: `name(v)`.
+static VAR_FUNCTIONS: [(&str, fn(String) -> Expr); 2] =
+    [("type", Expr::RelType), ("labels", Expr::Labels)];
 
 struct Parser {
     toks: Vec<Tok>,
@@ -465,12 +281,21 @@ impl Parser {
     /// leading `-` is disambiguated by the CLOSING token — `->` confirms `Right`, a
     /// bare `-` (no arrowhead) means `Both` (undirected, matches either direction).
     fn parse_edge(&mut self) -> Result<EdgePat, String> {
-        let mut direction = match self.next() {
+        let opened = match self.next() {
             Some(Tok::Dash) => Direction::Right,
             Some(Tok::ArrowLeft) => Direction::Left,
             other => return Err(format!("expected edge start, found {other:?}")),
         };
         self.expect(&Tok::LBracket)?;
+        let mut edge = self.parse_edge_detail()?;
+        self.expect(&Tok::RBracket)?;
+        edge.direction = self.close_edge_direction(opened)?;
+        Ok(edge)
+    }
+
+    /// The `[r:REL*1..3 {…}]` detail of an edge pattern, brackets already consumed. The
+    /// direction is not known here — [`Self::close_edge_direction`] settles it.
+    fn parse_edge_detail(&mut self) -> Result<EdgePat, String> {
         // optional edge variable `[r:REL]` (used by DELETE r on the write path).
         let mut var = None;
         if let Some(Tok::Ident(_)) = self.peek() {
@@ -492,30 +317,35 @@ impl Parser {
         } else {
             None
         };
-        self.expect(&Tok::RBracket)?;
-        // closing arrow: `<-[...]-` always closes on Dash (Left, unambiguous). A
-        // pattern that OPENED on Dash closes either on `->` (confirms Right) or a
-        // bare `-` (no arrowhead ⇒ undirected, Both).
-        match direction {
-            Direction::Right => {
-                if matches!(self.peek(), Some(Tok::ArrowRight)) {
-                    self.next();
-                } else {
-                    self.expect(&Tok::Dash)?;
-                    direction = Direction::Both;
-                }
-            }
-            Direction::Left => self.expect(&Tok::Dash)?,
-            Direction::Both => unreachable!("Both is never the opening direction"),
-        }
         Ok(EdgePat {
             rel_type,
-            direction,
+            direction: Direction::Right,
             var_len,
             var,
             props,
             group: None,
         })
+    }
+
+    /// The closing arrow: `<-[...]-` always closes on Dash (Left, unambiguous). A pattern
+    /// that OPENED on Dash closes either on `->` (confirms Right) or a bare `-` (no
+    /// arrowhead ⇒ undirected, Both).
+    fn close_edge_direction(&mut self, opened: Direction) -> Result<Direction, String> {
+        match opened {
+            Direction::Right if matches!(self.peek(), Some(Tok::ArrowRight)) => {
+                self.next();
+                Ok(Direction::Right)
+            }
+            Direction::Right => {
+                self.expect(&Tok::Dash)?;
+                Ok(Direction::Both)
+            }
+            Direction::Left => {
+                self.expect(&Tok::Dash)?;
+                Ok(Direction::Left)
+            }
+            Direction::Both => unreachable!("Both is never the opening direction"),
+        }
     }
 
     /// `*` already consumed. Forms: `1..3`, `1..`, `..3`, `2` (exact), or bare
@@ -786,39 +616,8 @@ impl Parser {
     /// `labels(n)` node-label accessor, or a bare `var` / `var.prop`
     /// (CONCEPT:EG-KG.query.eg-extend-read-side).
     fn parse_proj_expr(&mut self) -> Result<Expr, String> {
-        // Aggregate: an agg-func ident immediately followed by `(`.
-        if let Some(Tok::Ident(name)) = self.peek() {
-            if matches!(self.peek2(), Some(Tok::LParen)) {
-                if let Some(func) = agg_func(name) {
-                    self.next(); // func name
-                    self.expect(&Tok::LParen)?;
-                    // `count(*)`
-                    if func == AggFunc::Count && matches!(self.peek(), Some(Tok::Star)) {
-                        self.next();
-                        self.expect(&Tok::RParen)?;
-                        return Ok(Expr::CountStar);
-                    }
-                    let arg = self.parse_agg_arg()?;
-                    self.expect(&Tok::RParen)?;
-                    return Ok(Expr::Aggregate(func, arg));
-                }
-                // `type(r)` — the relationship-type accessor over an edge variable.
-                if name.eq_ignore_ascii_case("type") {
-                    self.next(); // `type`
-                    self.expect(&Tok::LParen)?;
-                    let var = self.ident()?;
-                    self.expect(&Tok::RParen)?;
-                    return Ok(Expr::RelType(var));
-                }
-                // `labels(n)` — the node-label accessor over a node variable.
-                if name.eq_ignore_ascii_case("labels") {
-                    self.next(); // `labels`
-                    self.expect(&Tok::LParen)?;
-                    let var = self.ident()?;
-                    self.expect(&Tok::RParen)?;
-                    return Ok(Expr::Labels(var));
-                }
-            }
+        if let Some(call) = self.parse_proj_call()? {
+            return Ok(call);
         }
         // Bare var / var.prop.
         let var = self.ident()?;
@@ -828,6 +627,42 @@ impl Parser {
         } else {
             Ok(Expr::Var(var))
         }
+    }
+
+    /// A projection function call — an aggregate, `count(*)`, or one of
+    /// [`VAR_FUNCTIONS`]. `None` when the next tokens are not a known `name(`.
+    fn parse_proj_call(&mut self) -> Result<Option<Expr>, String> {
+        let Some(Tok::Ident(name)) = self.peek() else {
+            return Ok(None);
+        };
+        if !matches!(self.peek2(), Some(Tok::LParen)) {
+            return Ok(None);
+        }
+        let name = name.clone();
+        if let Some(func) = agg_func(&name) {
+            self.next(); // func name
+            self.expect(&Tok::LParen)?;
+            // `count(*)`
+            if func == AggFunc::Count && matches!(self.peek(), Some(Tok::Star)) {
+                self.next();
+                self.expect(&Tok::RParen)?;
+                return Ok(Some(Expr::CountStar));
+            }
+            let arg = self.parse_agg_arg()?;
+            self.expect(&Tok::RParen)?;
+            return Ok(Some(Expr::Aggregate(func, arg)));
+        }
+        let Some((_, build)) = VAR_FUNCTIONS
+            .iter()
+            .find(|(n, _)| name.eq_ignore_ascii_case(n))
+        else {
+            return Ok(None);
+        };
+        self.next(); // func name
+        self.expect(&Tok::LParen)?;
+        let var = self.ident()?;
+        self.expect(&Tok::RParen)?;
+        Ok(Some(build(var)))
     }
 
     fn parse_agg_arg(&mut self) -> Result<AggArg, String> {
@@ -897,53 +732,13 @@ impl Parser {
     fn parse_statement(&mut self) -> Result<Statement, String> {
         // A statement that opens with a write clause has no MATCH.
         if self.at_write_clause() {
-            let ops = self.parse_write_clauses()?;
-            let returns = self.parse_optional_simple_return()?;
-            self.finish()?;
-            return Ok(Statement::Write(WriteQuery {
-                match_pattern: None,
-                where_clause: None,
-                ops,
-                returns,
-            }));
+            return self.parse_write_tail(None, None);
         }
-
         // A statement opening with (OPTIONAL) MATCH may be a write-over-a-binding.
         let first = if self.peek_keyword("MATCH") || self.peek_keyword("OPTIONAL") {
-            let optional = if self.peek_keyword("OPTIONAL") {
-                self.eat_keyword("OPTIONAL")?;
-                true
-            } else {
-                false
-            };
-            self.eat_keyword("MATCH")?;
-            let path_var = self.parse_optional_path_var()?;
-            let pattern = self.parse_pattern()?;
-            let where_clause = self.parse_optional_where()?;
-
-            // `MATCH … <write clause>+ [RETURN …]` ⇒ a write over the matched binding.
-            if self.at_write_clause() {
-                if optional {
-                    return Err("OPTIONAL MATCH cannot precede a write clause".into());
-                }
-                if path_var.is_some() {
-                    return Err("a path variable cannot bind on a write statement".into());
-                }
-                let ops = self.parse_write_clauses()?;
-                let returns = self.parse_optional_simple_return()?;
-                self.finish()?;
-                return Ok(Statement::Write(WriteQuery {
-                    match_pattern: Some(pattern),
-                    where_clause,
-                    ops,
-                    returns,
-                }));
-            }
-            ReadStage::Match {
-                pattern,
-                optional,
-                where_clause,
-                path_var,
+            match self.parse_match_opening()? {
+                MatchOpening::Write(stmt) => return Ok(stmt),
+                MatchOpening::Read(stage) => stage,
             }
         } else {
             // A read opening with UNWIND / CALL / WITH (CONCEPT:EG-KG.query.param-list-drives-unwind/142).
@@ -962,6 +757,54 @@ impl Parser {
         let ret = self.parse_return_spec()?;
         self.finish()?;
         Ok(Statement::Read(CypherQuery { stages, ret }))
+    }
+
+    /// The tail of a write statement: its write clauses, an optional RETURN, and EOF.
+    fn parse_write_tail(
+        &mut self,
+        match_pattern: Option<Pattern>,
+        where_clause: Option<WhereExpr>,
+    ) -> Result<Statement, String> {
+        let ops = self.parse_write_clauses()?;
+        let returns = self.parse_optional_simple_return()?;
+        self.finish()?;
+        Ok(Statement::Write(WriteQuery {
+            match_pattern,
+            where_clause,
+            ops,
+            returns,
+        }))
+    }
+
+    /// Parse a leading `(OPTIONAL) MATCH …`: a write over the matched binding when a
+    /// write clause follows it, a first reading stage otherwise.
+    fn parse_match_opening(&mut self) -> Result<MatchOpening, String> {
+        let optional = if self.peek_keyword("OPTIONAL") {
+            self.eat_keyword("OPTIONAL")?;
+            true
+        } else {
+            false
+        };
+        self.eat_keyword("MATCH")?;
+        let path_var = self.parse_optional_path_var()?;
+        let pattern = self.parse_pattern()?;
+        let where_clause = self.parse_optional_where()?;
+        if !self.at_write_clause() {
+            return Ok(MatchOpening::Read(ReadStage::Match {
+                pattern,
+                optional,
+                where_clause,
+                path_var,
+            }));
+        }
+        if optional {
+            return Err("OPTIONAL MATCH cannot precede a write clause".into());
+        }
+        if path_var.is_some() {
+            return Err("a path variable cannot bind on a write statement".into());
+        }
+        self.parse_write_tail(Some(pattern), where_clause)
+            .map(MatchOpening::Write)
     }
 
     /// Parse one reading stage: `(OPTIONAL) MATCH …`, `WITH …`, `UNWIND …` or

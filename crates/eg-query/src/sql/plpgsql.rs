@@ -1330,27 +1330,6 @@ fn strip_word<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
     None
 }
 
-/// Read a balanced `(…)` whose `(` is at the start of `s`. Returns the inner text and the
-/// remainder after the matching `)`. Skips `'…'` string literals.
-/// Advance past a `'...'` string literal starting at `b[start] == '\''`
-/// (Postgres `''` escape). Split out of `read_parens` (extract-method,
-/// cx/wD8) — same terms, same order as before. Returns the index just past
-/// the closing quote (or `b.len()` if unterminated).
-fn skip_plpgsql_string_literal(b: &[u8], start: usize) -> usize {
-    let mut i = start + 1;
-    while i < b.len() {
-        if b[i] == b'\'' {
-            if b.get(i + 1) == Some(&b'\'') {
-                i += 2;
-                continue;
-            }
-            return i + 1;
-        }
-        i += 1;
-    }
-    i
-}
-
 fn read_parens(s: &str) -> Option<(&str, &str)> {
     let b = s.as_bytes();
     if b.first() != Some(&b'(') {
@@ -1361,7 +1340,7 @@ fn read_parens(s: &str) -> Option<(&str, &str)> {
     while i < b.len() {
         let c = b[i];
         if c == b'\'' {
-            i = skip_plpgsql_string_literal(b, i);
+            i = super::funcs::skip_single_quote(b, i);
             continue;
         }
         match c {

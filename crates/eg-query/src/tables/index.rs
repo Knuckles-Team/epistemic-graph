@@ -114,24 +114,23 @@ pub enum SecondaryIndexLookup {
 }
 
 impl SecondaryIndexLookup {
-    pub fn column(&self) -> &str {
+    /// The `(column, value)` a lookup binds — every comparison carries both.
+    fn parts(&self) -> (&str, &Cell) {
         match self {
-            Self::Eq { column, .. }
-            | Self::Lt { column, .. }
-            | Self::Le { column, .. }
-            | Self::Gt { column, .. }
-            | Self::Ge { column, .. } => column,
+            Self::Eq { column, value }
+            | Self::Lt { column, value }
+            | Self::Le { column, value }
+            | Self::Gt { column, value }
+            | Self::Ge { column, value } => (column, value),
         }
     }
 
+    pub fn column(&self) -> &str {
+        self.parts().0
+    }
+
     fn value(&self) -> &Cell {
-        match self {
-            Self::Eq { value, .. }
-            | Self::Lt { value, .. }
-            | Self::Le { value, .. }
-            | Self::Gt { value, .. }
-            | Self::Ge { value, .. } => value,
-        }
+        self.parts().1
     }
 }
 
@@ -140,6 +139,14 @@ impl SecondaryIndexLookup {
 /// therefore fail-closed to a scan.
 pub fn validate_spec(spec: &SecondaryIndexSpec, schema: &TableSchema) -> Result<(), String> {
     schema.validate()?;
+    validate_spec_binding(spec, schema)?;
+    validate_spec_columns(spec, schema)
+}
+
+/// The index's identity and its binding to one schema version: format version, table,
+/// non-empty NUL-free names, the column-count bound, and the schema digest it was built
+/// against. A stale digest is fail-closed, so a changed table falls back to a scan.
+fn validate_spec_binding(spec: &SecondaryIndexSpec, schema: &TableSchema) -> Result<(), String> {
     if spec.schema_version != SECONDARY_INDEX_SCHEMA_VERSION {
         return Err(format!(
             "secondary index `{}` uses unsupported schema version {}",
@@ -152,12 +159,10 @@ pub fn validate_spec(spec: &SecondaryIndexSpec, schema: &TableSchema) -> Result<
             spec.name, spec.table, schema.name
         ));
     }
-    if spec.tenant_scope.is_empty()
-        || spec.tenant_scope.contains('\0')
-        || spec.table.is_empty()
-        || spec.table.contains('\0')
-        || spec.name.is_empty()
-        || spec.name.contains('\0')
+    // Scope, table, and name are stored verbatim in the catalog key.
+    if [&spec.tenant_scope, &spec.table, &spec.name]
+        .iter()
+        .any(|value| value.is_empty() || value.contains('\0'))
     {
         return Err("secondary index scope, table, and name must be non-empty and NUL-free".into());
     }
@@ -167,13 +172,18 @@ pub fn validate_spec(spec: &SecondaryIndexSpec, schema: &TableSchema) -> Result<
             spec.name, MAX_SECONDARY_INDEX_COLUMNS
         ));
     }
-    let digest = schema.schema_digest()?;
-    if spec.schema_digest != digest {
+    if spec.schema_digest != schema.schema_digest()? {
         return Err(format!(
             "secondary index `{}` is stale for table `{}` (schema digest mismatch)",
             spec.name, spec.table
         ));
     }
+    Ok(())
+}
+
+/// Every key column: ascending, distinct, present in the schema, and of an indexable
+/// type.
+fn validate_spec_columns(spec: &SecondaryIndexSpec, schema: &TableSchema) -> Result<(), String> {
     let mut seen = std::collections::HashSet::new();
     for indexed in &spec.columns {
         if indexed.order != SecondaryIndexOrder::Asc {
@@ -314,11 +324,37 @@ pub fn entry_range(
     Ok(Some(bounds))
 }
 
+/// The order-preserving big-endian form of a float key: the sign bit is flipped for a
+/// positive value and every bit inverted for a negative one, so byte order is numeric
+/// order. SQL equality treats -0.0 and +0.0 as one value, so the sign is normalized first.
+fn sortable_float_bits(value: f64) -> Result<u64, String> {
+    if !value.is_finite() {
+        return Err("non-finite floating values are not indexable".into());
+    }
+    let bits = if value == 0.0 { 0.0f64 } else { value }.to_bits();
+    Ok(if bits & (1u64 << 63) != 0 {
+        !bits
+    } else {
+        bits ^ (1u64 << 63)
+    })
+}
+
+/// Append a NUL-escaped, NUL-NUL-terminated component. The escape preserves lexical order
+/// for strings and gives a prefix range for composite indexes.
+fn push_escaped(out: &mut Vec<u8>, payload: &[u8]) {
+    for &byte in payload {
+        if byte == 0 {
+            out.extend_from_slice(&[0, 0xff]);
+        } else {
+            out.push(byte);
+        }
+    }
+    out.extend_from_slice(&[0, 0]);
+}
+
 fn encode_cell(out: &mut Vec<u8>, cell: &Cell, ty: ColumnType) -> Result<(), String> {
-    // A NUL-escaped, terminated component preserves lexical order for strings
-    // and gives a prefix range for composite indexes.  Null is indexed but no
-    // SQL NULL predicate is planned here; it remains available to future IS NULL
-    // support without changing the durable encoding.
+    // Null is indexed but no SQL NULL predicate is planned here; it remains available to
+    // future IS NULL support without changing the durable encoding.
     let (tag, payload): (u8, Vec<u8>) = match (cell, ty) {
         (Cell::Null, _) => (0x00, Vec::new()),
         (Cell::Int(value), ColumnType::Int | ColumnType::BigInt) => (
@@ -326,19 +362,7 @@ fn encode_cell(out: &mut Vec<u8>, cell: &Cell, ty: ColumnType) -> Result<(), Str
             ((*value as u64) ^ (1u64 << 63)).to_be_bytes().to_vec(),
         ),
         (Cell::Float(value), ColumnType::Float | ColumnType::Double | ColumnType::Numeric(_)) => {
-            if !value.is_finite() {
-                return Err("non-finite floating values are not indexable".into());
-            }
-            // SQL equality treats -0.0 and +0.0 as the same value; normalize
-            // the sign before constructing the sortable representation.
-            let canonical = if *value == 0.0 { 0.0 } else { *value };
-            let bits = canonical.to_bits();
-            let sortable = if bits & (1u64 << 63) != 0 {
-                !bits
-            } else {
-                bits ^ (1u64 << 63)
-            };
-            (0x11, sortable.to_be_bytes().to_vec())
+            (0x11, sortable_float_bits(*value)?.to_be_bytes().to_vec())
         }
         (Cell::Timestamp(value), ColumnType::Timestamp | ColumnType::TimestampTz) => (
             0x12,
@@ -356,13 +380,6 @@ fn encode_cell(out: &mut Vec<u8>, cell: &Cell, ty: ColumnType) -> Result<(), Str
         }
     };
     out.push(tag);
-    for byte in payload {
-        if byte == 0 {
-            out.extend_from_slice(&[0, 0xff]);
-        } else {
-            out.push(byte);
-        }
-    }
-    out.extend_from_slice(&[0, 0]);
+    push_escaped(out, &payload);
     Ok(())
 }

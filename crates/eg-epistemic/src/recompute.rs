@@ -71,6 +71,7 @@ use eg_core::graph::GraphView;
 use serde::{Deserialize, Serialize};
 
 use crate::adapter::BeliefGraph;
+use crate::incremental::remove_value;
 use crate::tms::{self, RetractionResult};
 
 /// Lifecycle state of one tracked [`Materialization`].
@@ -275,26 +276,10 @@ impl TruthMaintenance {
     fn unregister(&mut self, id: &str) {
         if let Some(old) = self.materializations.remove(id) {
             for dep in &old.depends_on {
-                let prune = if let Some(set) = self.dependents.get_mut(dep) {
-                    set.remove(id);
-                    set.is_empty()
-                } else {
-                    false
-                };
-                if prune {
-                    self.dependents.remove(dep);
-                }
+                remove_value(&mut self.dependents, dep, id);
             }
             if let Some(generator) = old.generating_activity {
-                let prune = if let Some(set) = self.generators.get_mut(&generator) {
-                    set.remove(id);
-                    set.is_empty()
-                } else {
-                    false
-                };
-                if prune {
-                    self.generators.remove(&generator);
-                }
+                remove_value(&mut self.generators, &generator, id);
             }
         }
     }
@@ -539,6 +524,19 @@ pub fn resolve_provenance<'a>(
     }
 
     // Channel 2: outgoing `:DerivedFrom` / `:GeneratedBy` edges.
+    merge_edge_provenance(outgoing_edges, &mut depends_on, &mut generating_activity);
+
+    (depends_on, generating_activity)
+}
+
+/// Decode the outgoing provenance channel without changing the source iterator's order.
+/// `GENERATED_BY` keeps the first target as the generator while every recognized target
+/// remains an invalidation dependency.
+fn merge_edge_provenance<'a>(
+    outgoing_edges: impl IntoIterator<Item = (String, &'a [u8])>,
+    depends_on: &mut BTreeSet<String>,
+    generating_activity: &mut Option<String>,
+) {
     for (target, blob) in outgoing_edges {
         let Some(rel) = eg_types::msgpack::decode_property_value(blob)
             .ok()
@@ -557,14 +555,12 @@ pub fn resolve_provenance<'a>(
             "GENERATED_BY" => {
                 depends_on.insert(target.clone());
                 if generating_activity.is_none() {
-                    generating_activity = Some(target);
+                    *generating_activity = Some(target);
                 }
             }
             _ => {}
         }
     }
-
-    (depends_on, generating_activity)
 }
 
 #[cfg(test)]

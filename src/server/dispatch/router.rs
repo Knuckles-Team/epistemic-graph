@@ -36,10 +36,25 @@ async fn reconcile_existing_graph_create(
     backend: &Arc<dyn PersistenceBackend>,
     graph_name: &str,
     req_id: u64,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
+    principal: Option<&str>,
+    idempotency_key: &str,
+    graph_type: crate::protocol::GraphType,
     created_result: ResultPayload,
 ) -> Response {
     match crate::server::mutation_batch::lifecycle_was_committed(
-        backend, "create", graph_name, req_id,
+        backend,
+        "create",
+        graph_name,
+        req_id,
+        attempt_nonce,
+        principal,
+        idempotency_key,
+        Method::CreateGraph {
+            graph_name: graph_name.to_string(),
+            graph_type,
+        },
+        &created_result,
     )
     .await
     {
@@ -81,6 +96,8 @@ async fn create_graph(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
+    idempotency_key: String,
     graph_name: String,
     graph_type: crate::protocol::GraphType,
 ) -> Response {
@@ -98,17 +115,32 @@ async fn create_graph(
     let created_result = ResultPayload::Json(serde_json::json!({
         "created": graph_name.clone()
     }));
-    let incarnation_id =
-        crate::server::mutation_batch::lifecycle_batch_id("create", &graph_name, req_id);
+    let incarnation_id = crate::server::mutation_batch::lifecycle_batch_id(
+        "create",
+        &graph_name,
+        req_agent_id.as_deref(),
+        &idempotency_key,
+    );
     if already_exists {
-        return reconcile_existing_graph_create(&backend, &graph_name, req_id, created_result)
-            .await;
+        return reconcile_existing_graph_create(
+            &backend,
+            &graph_name,
+            req_id,
+            attempt_nonce,
+            req_agent_id.as_deref(),
+            &idempotency_key,
+            graph_type,
+            created_result,
+        )
+        .await;
     }
     if let Err(e) = crate::server::mutation_batch::commit_lifecycle(
         &backend,
         "create",
         req_id,
+        attempt_nonce,
         req_agent_id.as_deref(),
+        &idempotency_key,
         &graph_name,
         Method::CreateGraph {
             graph_name: graph_name.clone(),
@@ -191,10 +223,23 @@ async fn reconcile_missing_graph_delete(
     backend: &Arc<dyn PersistenceBackend>,
     graph_name: &str,
     req_id: u64,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
+    principal: Option<&str>,
+    idempotency_key: &str,
     deleted_result: ResultPayload,
 ) -> Response {
     match crate::server::mutation_batch::lifecycle_was_committed(
-        backend, "delete", graph_name, req_id,
+        backend,
+        "delete",
+        graph_name,
+        req_id,
+        attempt_nonce,
+        principal,
+        idempotency_key,
+        Method::DeleteGraph {
+            graph_name: graph_name.to_string(),
+        },
+        &deleted_result,
     )
     .await
     {
@@ -211,6 +256,8 @@ async fn delete_graph(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
+    idempotency_key: String,
     state_machine_authorized: bool,
     graph_name: &str,
 ) -> Response {
@@ -250,13 +297,24 @@ async fn delete_graph(
         "deleted": graph_name
     }));
     if !exists {
-        return reconcile_missing_graph_delete(&backend, graph_name, req_id, deleted_result).await;
+        return reconcile_missing_graph_delete(
+            &backend,
+            graph_name,
+            req_id,
+            attempt_nonce,
+            req_agent_id.as_deref(),
+            &idempotency_key,
+            deleted_result,
+        )
+        .await;
     }
     if let Err(e) = crate::server::mutation_batch::commit_lifecycle(
         &backend,
         "delete",
         req_id,
+        attempt_nonce,
         req_agent_id.as_deref(),
+        &idempotency_key,
         graph_name,
         Method::DeleteGraph {
             graph_name: graph_name.to_string(),
@@ -506,7 +564,6 @@ async fn dispatch_cluster_admin_methods(
         | Method::Restore { .. }) => {
             dispatch_boxed(
                 async {
-    let state = state;
     let req_id = req.id;
     let req_agent_id = req.agent_id.clone();
     {
@@ -514,6 +571,7 @@ async fn dispatch_cluster_admin_methods(
                 state,
                 req_id,
                 req_agent_id.as_deref(),
+                verified_context.attempt_nonce(),
                 method,
             )
             .await
@@ -541,7 +599,6 @@ async fn dispatch_cluster_admin_methods(
                 method @ (Method::PlacementRoute { .. } | Method::PlacementAdmin { .. }) => {
             dispatch_boxed(
                 async {
-    let state = state;
     let req_id = req.id;
     {
             match handlers::placement::try_handle(state, req_id, method).await {
@@ -564,7 +621,6 @@ async fn dispatch_cluster_admin_methods(
                 method @ (Method::RaftAddLearner { .. } | Method::RaftChangeMembership { .. }) => {
             dispatch_boxed(
                 async {
-    let state = state;
     let req_id = req.id;
     {
             match handlers::raft_admin::try_handle(state, req_id, method).await {
@@ -587,9 +643,7 @@ async fn dispatch_cluster_admin_methods(
                 method @ Method::ClusterMembers => {
             dispatch_boxed(
                 async {
-    let state = state;
     let req_id = req.id;
-    let verified_context = verified_context;
     {
             match handlers::topology::try_handle(state, req_id, method, verified_context).await {
                 Ok(resp) => resp,
@@ -619,10 +673,8 @@ async fn dispatch_cluster_admin_methods(
         } => {
             dispatch_boxed(
                 async {
-    let state = state;
     let req_id = req.id;
     let req_agent_id = req.agent_id.clone();
-    let verified_context = verified_context;
     {
             handle_register_server(
                 state,
@@ -639,6 +691,77 @@ async fn dispatch_cluster_admin_methods(
 }
             )
             .await
+        }
+        other => return ControlFlow::Continue(other),
+    })
+}
+
+/// RF-020 Agent Library is self-routing and tenant-bound, but it is not part
+/// of the cluster-admin backend. Keep its owner opening and typed operations
+/// on the authenticated request context before the M3 admin handler resolves a
+/// graph backend.
+async fn dispatch_agent_library_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(match method {
+        Method::AgentLibrary { op } => {
+            #[cfg(feature = "redb")]
+            {
+                dispatch_boxed(async {
+                    handlers::admin::handle_agent_library(state, req.id, verified_context, op).await
+                })
+                .await
+            }
+            #[cfg(not(feature = "redb"))]
+            {
+                let _ = (state, verified_context, op);
+                Response::err(
+                    req.id,
+                    "Agent Library is not available in this build (requires the `redb` feature)",
+                )
+            }
+        }
+        Method::AgentGraph { op } => {
+            #[cfg(feature = "redb")]
+            {
+                dispatch_boxed(async {
+                    handlers::admin::handle_agent_graph(state, req.id, verified_context, op).await
+                })
+                .await
+            }
+            #[cfg(not(feature = "redb"))]
+            {
+                let _ = (state, verified_context, op);
+                Response::err(
+                    req.id,
+                    "Agent graphs are not available in this build (requires the `redb` feature)",
+                )
+            }
+        }
+        Method::AgentComponent { op } => {
+            #[cfg(feature = "redb")]
+            {
+                dispatch_boxed(async {
+                    handlers::admin::handle_agent_component(state, req.id, verified_context, op)
+                        .await
+                })
+                .await
+            }
+            #[cfg(not(feature = "redb"))]
+            {
+                let _ = (state, verified_context, op);
+                Response::err(
+                    req.id,
+                    "Agent components are not available in this build (requires `redb`)",
+                )
+            }
         }
         other => return ControlFlow::Continue(other),
     })
@@ -691,9 +814,7 @@ async fn dispatch_compute_and_media_methods(
             #[cfg(feature = "jobs")]
             Method::AnalyticsJob { op } => {
                 dispatch_boxed(async {
-                    let state = state;
                     let req_id = req.id;
-                    let verified_context = verified_context;
                     {
                         // Worker fencing identity and durable actor attribution come from the
                         // authenticated context, never from the unsigned request envelope's
@@ -706,6 +827,7 @@ async fn dispatch_compute_and_media_methods(
                             state,
                             req_id,
                             &carrier,
+                            verified_context.attempt_nonce(),
                             verified_context.allows_analytics_worker(),
                             op,
                         )
@@ -722,9 +844,7 @@ async fn dispatch_compute_and_media_methods(
             #[cfg(feature = "statechart")]
             Method::Statechart { op } => {
                 dispatch_boxed(async {
-                    let state = state;
                     let req_id = req.id;
-                    let verified_context = verified_context;
                     {
                         // Durable owner attribution comes from the authenticated context, never
                         // from the unsigned request envelope's display/agent field.
@@ -769,9 +889,7 @@ async fn dispatch_compute_and_media_methods(
             #[cfg(feature = "viz-static-export")]
             Method::Viz { op } => {
                 dispatch_boxed(async {
-                    let state = state;
                     let req_id = req.id;
-                    let verified_context = verified_context;
                     {
                         // No durable owner-scoped state to attribute a render to; the carrier
                         // is still resolved for parity with the sibling self-routed handlers
@@ -824,10 +942,8 @@ async fn dispatch_transaction_methods(
         | Method::Commit { .. }
         | Method::Rollback { .. }) => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 let req_graph = req.graph.clone();
-                let verified_context = verified_context;
                 {
                     // BeginTxn defaults its target to the request envelope's graph.
                     let method = match method {
@@ -870,9 +986,7 @@ async fn dispatch_transaction_methods(
         #[cfg(feature = "tsdb")]
         method @ Method::TxnAddMeasurement { .. } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
-                let verified_context = verified_context;
                 {
                     match handlers::txn::try_handle(
                         state,
@@ -893,9 +1007,7 @@ async fn dispatch_transaction_methods(
         #[cfg(feature = "owl")]
         method @ Method::TxnAxiom { .. } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
-                let verified_context = verified_context;
                 {
                     match handlers::txn::try_handle(
                         state,
@@ -916,9 +1028,7 @@ async fn dispatch_transaction_methods(
         #[cfg(feature = "sparql")]
         method @ Method::TxnConstruct { .. } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
-                let verified_context = verified_context;
                 {
                     match handlers::txn::try_handle(
                         state,
@@ -942,9 +1052,7 @@ async fn dispatch_transaction_methods(
         #[cfg(feature = "query")]
         method @ Method::TxnPlanWriteback { .. } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
-                let verified_context = verified_context;
                 {
                     match handlers::txn::try_handle(
                         state,
@@ -969,9 +1077,7 @@ async fn dispatch_transaction_methods(
         #[cfg(feature = "epistemic")]
         method @ Method::TxnMaterializeBelief { .. } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
-                let verified_context = verified_context;
                 {
                     match handlers::txn::try_handle(
                         state,
@@ -1034,15 +1140,21 @@ async fn dispatch_store_methods(
             | Method::BlobUnref { .. }
             | Method::BlobGc) => {
                 dispatch_boxed(async {
-                    let state = state;
                     let req_id = req.id;
-                    let verified_context = verified_context;
                     {
                         let carrier = match CarrierAuthority::from_verified(verified_context) {
                             Ok(authority) => authority,
                             Err(denied) => return Response::err(req_id, denied),
                         };
-                        match handlers::blob::try_handle(state, req_id, &carrier, method).await {
+                        match handlers::blob::try_handle(
+                            state,
+                            req_id,
+                            &carrier,
+                            verified_context.attempt_nonce(),
+                            method,
+                        )
+                        .await
+                        {
                             Ok(resp) => resp,
                             // Unreachable: every variant matched above is a blob method.
                             Err(_) => Response::err(req_id, "blob dispatch routing error"),
@@ -1064,9 +1176,7 @@ async fn dispatch_store_methods(
             | Method::KvScan { .. }
             | Method::KvCas { .. }) => {
                 dispatch_boxed(async {
-                    let state = state;
                     let req_id = req.id;
-                    let verified_context = verified_context;
                     {
                         let carrier = match CarrierAuthority::from_verified(verified_context) {
                             Ok(authority) => authority,
@@ -1091,16 +1201,20 @@ async fn dispatch_store_methods(
             #[cfg(feature = "sqlite-file")]
             method @ (Method::ImportSqliteFile { .. } | Method::ExportSqliteFile { .. }) => {
                 dispatch_boxed(async {
-                    let state = state;
                     let req_id = req.id;
-                    let verified_context = verified_context;
                     {
                         let carrier = match CarrierAuthority::from_verified(verified_context) {
                             Ok(authority) => authority,
                             Err(denied) => return Response::err(req_id, denied),
                         };
-                        match handlers::sqlite_file::try_handle(state, req_id, &carrier, method)
-                            .await
+                        match handlers::sqlite_file::try_handle(
+                            state,
+                            req_id,
+                            &carrier,
+                            verified_context.attempt_nonce(),
+                            method,
+                        )
+                        .await
                         {
                             Ok(resp) => resp,
                             // Unreachable: both variants matched above are sqlite-file methods.
@@ -1159,9 +1273,7 @@ async fn dispatch_streaming_methods(
             | Method::ListTriggers { .. }
             | Method::FiredTriggers { .. }) => {
                 dispatch_boxed(async {
-                    let state = state;
                     let req_id = req.id;
-                    let verified_context = verified_context;
                     {
                         let carrier = match CarrierAuthority::from_verified(verified_context) {
                             Ok(authority) => authority,
@@ -1208,9 +1320,7 @@ async fn dispatch_streaming_methods(
             | Method::CepPoll { .. }
             | Method::CepUnsubscribe { .. }) => {
                 dispatch_boxed(async {
-                    let state = state;
                     let req_id = req.id;
-                    let verified_context = verified_context;
                     {
                         let carrier = match CarrierAuthority::from_verified(verified_context) {
                             Ok(authority) => authority,
@@ -1261,11 +1371,9 @@ async fn dispatch_governed_stream_write_methods(
             #[cfg(feature = "modality-serving")]
             Method::ServedModality { op } => {
                 dispatch_boxed(async {
-                    let state = state;
                     let req_id = req.id;
                     let req_agent_id = req.agent_id.clone();
                     let req_graph = req.graph.clone();
-                    let verified_context = verified_context;
                     {
                         let auth_secret = timed_read(state).await.auth_secret.clone();
                         let authority = match handlers::modality::ModalityAuthority::from_verified(
@@ -1292,11 +1400,9 @@ async fn dispatch_governed_stream_write_methods(
             #[cfg(feature = "knowledge-batch")]
             Method::KnowledgeStream { request } => {
                 dispatch_boxed(async {
-    let state = state;
     let req_id = req.id;
     let req_agent_id = req.agent_id.clone();
     let req_graph = req.graph.clone();
-    let verified_context = verified_context;
     {
             let (auth_secret, isolation) = {
                 let s = timed_read(state).await;
@@ -1410,14 +1516,11 @@ async fn dispatch_change_envelope_methods(
         // ── Graph operations (dispatch to target graph) ──────────────
         Method::ApplyChangeEnvelope { envelope } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 let req_agent_id = req.agent_id.clone();
                 let req_graph = req.graph.clone();
-                let verified_context = verified_context;
                 {
                     let claims = verified_context.claims();
-                    let batch_context = &envelope.mutation.context;
                     // A native (non-graph) mutation scope reports no graph name at all.
                     // Comparing `Option<&str>` against `Some(req_graph)` fails closed on
                     // `None` instead of ever coercing it into an empty-string/sentinel
@@ -1430,12 +1533,19 @@ async fn dispatch_change_envelope_methods(
                         .map(crate::mutation_batch::LogicalName::as_str)
                         != Some(req_graph.as_str())
                         || envelope.mutation.identity.tenant().as_str() != claims.tenant
-                        || batch_context.request_id != req_id
+                        || eg_types::mutation_batch::batch_request_number(&envelope.mutation)
+                            != Some(req_id)
                         || crate::server::mutation_batch::batch_actor(&envelope.mutation)
                             != Some(verified_context.principal_persistence_id().as_str())
-                        || envelope.mutation.idempotency_key != verified_context.idempotency_key()
-                        || batch_context.policy_fingerprint.as_deref()
-                            != Some(claims.policy_version.as_str())
+                    // The idempotency key cross-check is GONE: the batch's key
+                    // now lives inside the envelope's authority, which the
+                    // request boundary mints from this same verified context, so
+                    // comparing them would compare a value against itself. The
+                    // policy comparison goes with it -- `policy_fingerprint` was
+                    // an always-`None` `Option<String>`, so it could only ever
+                    // have refused every caller-supplied envelope; the real
+                    // policy revision is inside the stable replay identity, where
+                    // a change conflicts rather than merely mismatching here.
                     {
                         return Response::err(
                     req_id,
@@ -1457,10 +1567,8 @@ async fn dispatch_change_envelope_methods(
         }
         Method::ApplyChangeEnvelopes { envelopes } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 let req_agent_id = req.agent_id.clone();
-                let verified_context = verified_context;
                 {
                     dispatch_change_envelopes(
                         state,
@@ -1479,11 +1587,9 @@ async fn dispatch_change_envelope_methods(
             tenant,
         } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 let req_agent_id = req.agent_id.clone();
                 let req_graph = req.graph.clone();
-                let verified_context = verified_context;
                 {
                     if tenant != verified_context.claims().tenant {
                         return Response::err(
@@ -1509,11 +1615,9 @@ async fn dispatch_change_envelope_methods(
         }
         Method::GetContentVersion { object_id, tenant } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 let req_agent_id = req.agent_id.clone();
                 let req_graph = req.graph.clone();
-                let verified_context = verified_context;
                 {
                     if tenant != verified_context.claims().tenant {
                         return Response::err(
@@ -1540,11 +1644,9 @@ async fn dispatch_change_envelope_methods(
             tenant,
         } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 let req_agent_id = req.agent_id.clone();
                 let req_graph = req.graph.clone();
-                let verified_context = verified_context;
                 {
                     if tenant != verified_context.claims().tenant {
                         return Response::err(
@@ -1600,7 +1702,6 @@ async fn dispatch_method_scoped_graph_methods(
         #[cfg(feature = "owl")]
         method @ Method::OwlReasonDistributed { .. } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 let verified_context = // `verified_context` is a `&VerifiedRequestContext` here; spell the
                 // clone out so it cannot be read as cloning the reference.
@@ -1637,11 +1738,9 @@ async fn dispatch_method_scoped_graph_methods(
         // "not available" catch-all like any other feature-off method.
         Method::NlQuery { text, graph } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 let req_agent_id = req.agent_id.clone();
                 let req_graph = req.graph.clone();
-                let verified_context = verified_context;
                 {
                     let target = if graph.is_empty() {
                         req_graph.clone()
@@ -1669,10 +1768,8 @@ async fn dispatch_method_scoped_graph_methods(
         // writers in parallel.
         Method::MultiGraphBatchUpdate { batches_msgpack } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 let req_agent_id = req.agent_id.clone();
-                let verified_context = verified_context;
                 {
                     multi_graph_batch_update(
                         state,
@@ -1737,6 +1834,7 @@ async fn dispatch_control_plane_methods(
     let method = dispatch_source_ingest_methods(ctx, method).await?;
     let method = dispatch_resource_cost_methods(ctx, method).await?;
     let method = dispatch_graph_lifecycle_methods(ctx, method).await?;
+    let method = dispatch_agent_library_methods(ctx, method).await?;
     let method = dispatch_cluster_admin_methods(ctx, method).await?;
     let method = dispatch_channel_methods(ctx, method).await?;
     let method = dispatch_identity_and_access_methods(ctx, method).await?;

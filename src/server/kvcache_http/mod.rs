@@ -85,15 +85,19 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
+use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
 use eg_kvcache::{
     BranchId, DataVersion, ReleaseOutcome, SharedKvBackend, SharedKvIndex, SnapshotId,
 };
 
+/// The zero-copy snapshot/fork sub-surface: `/kv/snapshot…`, `/kv/fork/stats`
+/// and `/kv/branch…`.
+mod fork;
 /// The networked (mutation-store-backed) shared backend — the durable, fleet-shared
 /// KV-cache over the engine's live `kv.redb` (feature `kv`). See [`shared_store`].
 #[cfg(feature = "kv")]
@@ -130,7 +134,6 @@ pub const KVCACHE_TOKEN_ENV: &str = "EPISTEMIC_GRAPH_KVCACHE_TOKEN";
 /// ([`DataVersion::Agnostic`], never version-invalidated) — so existing connectors are
 /// unaffected.
 pub const KVCACHE_DATA_VERSION_HEADER: &str = "x-eg-data-version";
-const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
 const MAX_KVCACHE_BODY_BYTES: usize = 64 * 1024 * 1024;
 const HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
@@ -421,14 +424,6 @@ fn parse_data_version(headers: &HashMap<String, String>) -> DataVersion {
 
 // ── request / response + routing ──────────────────────────────────────────────────
 
-/// A parsed request: method, decoded path, headers (lowercased keys), raw (binary) body.
-struct KvRequest {
-    method: String,
-    path: String,
-    headers: HashMap<String, String>,
-    body: Vec<u8>,
-}
-
 /// A response ready to serialize: status line, content-type, body bytes, head-only flag.
 struct KvResponse {
     status: &'static str,
@@ -493,7 +488,7 @@ fn release_outcome_response(outcome: ReleaseOutcome) -> KvResponse {
 
 /// Route + execute one request → a [`KvResponse`]. Pure (sync) so it is fully
 /// unit-testable without a socket (CONCEPT:EG-KG.backend.is-configured-so-co).
-fn handle(store: &KvCacheStore, auth: &KvAuth, req: &KvRequest) -> KvResponse {
+fn handle(store: &KvCacheStore, auth: &KvAuth, req: &HttpMessage) -> KvResponse {
     let credential_verified = authorized(auth, &req.headers);
     if !credential_verified {
         return KvResponse::error(
@@ -526,193 +521,130 @@ fn handle(store: &KvCacheStore, auth: &KvAuth, req: &KvRequest) -> KvResponse {
 /// Route a request after the served boundary authenticated it. Kept separate so
 /// unit tests can exercise storage/routing without manufacturing credentials;
 /// only [`handle`] is called by the network listener.
-fn handle_authorized(store: &KvCacheStore, req: &KvRequest) -> KvResponse {
-    // Everything lives under `/kv/…`.
-    let rest = match req.path.strip_prefix("/kv/") {
-        Some(r) => r,
-        None if req.path == "/kv" => "",
-        None => return KvResponse::error("404 Not Found", "NotFound", "unknown path"),
+///
+/// Everything this surface serves lives under `/kv/`. Within that, the
+/// zero-copy snapshot/fork routes belong to [`fork`]; a path it does not claim
+/// is a content-addressed block address, which is why an undefined
+/// `snapshot/<id>` GET answers `NoSuchBlock` rather than `NotFound`.
+fn handle_authorized(store: &KvCacheStore, req: &HttpMessage) -> KvResponse {
+    let (path, _) = req.path_and_query();
+    let Some(rest) = path
+        .strip_prefix("/kv/")
+        .or_else(|| (path == "/kv").then_some(""))
+    else {
+        return KvResponse::error("404 Not Found", "NotFound", "unknown path");
     };
+    match fork::route(&req.method, rest) {
+        Some(route) => route.serve(store, req),
+        None => block_route(rest).serve(store, req),
+    }
+}
 
-    // `GET /kv/stats` → JSON stats.
-    if rest == "stats" {
-        return match req.method.as_str() {
-            "GET" | "HEAD" => KvResponse::json("200 OK", store.stats_json()),
-            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
-        };
-    }
+/// The one `405` this surface answers.
+fn method_not_allowed() -> KvResponse {
+    KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported")
+}
 
-    // `GET /kv/version` → the current data version; `PUT /kv/version/<n>` advances it
-    // (CONCEPT:EG-KG.storage.content-addressed-put) — the hook a graph write drives to invalidate stale context.
-    if rest == "version" {
-        return match req.method.as_str() {
-            "GET" | "HEAD" => KvResponse::json("200 OK", store.version_json()),
-            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
-        };
+/// A read route: `GET` and `HEAD` only.
+fn on_read(method: &str, serve: impl FnOnce() -> KvResponse) -> KvResponse {
+    match method {
+        "GET" | "HEAD" => serve(),
+        _ => method_not_allowed(),
     }
-    if let Some(n) = rest.strip_prefix("version/") {
-        return match req.method.as_str() {
-            "PUT" | "POST" => match n.parse::<u64>() {
-                Ok(v) => {
-                    store.set_data_version(DataVersion::At(v));
-                    KvResponse::json("200 OK", store.version_json())
-                }
-                Err(_) => {
-                    KvResponse::error("400 Bad Request", "BadRequest", "version must be a u64")
-                }
-            },
-            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
-        };
-    }
+}
 
-    // Zero-copy snapshot-fork surface (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork).
-    // `POST /kv/snapshot` (JSON `{"keys":[...]}`) → pin those pages into a snapshot.
-    if rest == "snapshot" {
-        return match req.method.as_str() {
-            "POST" | "PUT" => {
-                let keys = serde_json::from_slice::<serde_json::Value>(&req.body)
-                    .ok()
-                    .and_then(|v| {
-                        v.get("keys").and_then(|k| k.as_array()).map(|a| {
-                            a.iter()
-                                .filter_map(|x| x.as_str().map(String::from))
-                                .collect::<Vec<_>>()
-                        })
-                    });
-                match keys {
-                    Some(keys) => {
-                        let (id, pages) = store.snapshot(&keys);
-                        KvResponse::json(
-                            "200 OK",
-                            serde_json::json!({ "snapshot": id, "pages": pages }).to_string(),
-                        )
-                    }
-                    None => KvResponse::error(
-                        "400 Bad Request",
-                        "BadRequest",
-                        "body must be JSON {\"keys\":[...]}",
-                    ),
-                }
-            }
-            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
-        };
+/// A write route: `PUT` and `POST` only.
+fn on_write(method: &str, serve: impl FnOnce() -> KvResponse) -> KvResponse {
+    match method {
+        "PUT" | "POST" => serve(),
+        _ => method_not_allowed(),
     }
-    // `POST /kv/snapshot/<id>/fork` → fork a branch off the snapshot (O(1), zero-copy).
-    if let Some(sid) = rest
-        .strip_prefix("snapshot/")
-        .and_then(|r| r.strip_suffix("/fork"))
-    {
-        return match req.method.as_str() {
-            "POST" | "PUT" => match sid.parse::<u64>() {
-                Ok(s) => match store.fork(s) {
-                    Some(b) => {
-                        KvResponse::json("200 OK", serde_json::json!({ "branch": b }).to_string())
-                    }
-                    None => {
-                        KvResponse::error("404 Not Found", "NoSuchSnapshot", "unknown snapshot")
-                    }
-                },
-                Err(_) => {
-                    KvResponse::error("400 Bad Request", "BadRequest", "snapshot id must be a u64")
-                }
-            },
-            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
-        };
+}
+
+/// A `u64` path id, or this surface's standard 400 naming what it was meant to
+/// be.
+fn parsed_id(raw: &str, kind: &str, serve: impl FnOnce(u64) -> KvResponse) -> KvResponse {
+    match raw.parse::<u64>() {
+        Ok(id) => serve(id),
+        Err(_) => KvResponse::error(
+            "400 Bad Request",
+            "BadRequest",
+            &format!("{kind} id must be a u64"),
+        ),
     }
-    // `DELETE /kv/snapshot/<id>` → release a live snapshot (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork):
-    // frees its pinned shared pages once no branch still forks off it. Rejected (`409`) if
-    // a branch is still live, `404` if the id is unknown or already released — see
-    // `release_outcome_response`. Guarded to the DELETE method only, so an existing
-    // GET/PUT/POST to a bare `/kv/snapshot/<id>` (never a defined route) keeps falling
-    // through to the same 404 it always has.
-    if req.method == "DELETE" {
-        if let Some(sid) = rest.strip_prefix("snapshot/").filter(|r| !r.contains('/')) {
-            return match sid.parse::<u64>() {
-                Ok(s) => release_outcome_response(store.release_snapshot(s)),
-                Err(_) => {
-                    KvResponse::error("400 Bad Request", "BadRequest", "snapshot id must be a u64")
-                }
-            };
+}
+
+/// A route on the content-addressed block surface — the pages themselves plus
+/// the store-wide stats and data version that scope them.
+enum BlockRoute<'a> {
+    /// `GET /kv/stats`.
+    Stats,
+    /// `GET /kv/version`.
+    Version,
+    /// `PUT /kv/version/<n>` — the hook a graph write drives to invalidate
+    /// stale context (CONCEPT:EG-KG.storage.content-addressed-put).
+    SetVersion(&'a str),
+    /// `/kv/<hash>/exists` — a JSON existence probe, on any method.
+    Exists(&'a str),
+    /// `/kv/<hash>` — the block itself.
+    Block(&'a str),
+}
+
+/// Resolve `rest` (the path under `/kv/`) as a block route. Every path that is
+/// not one of the three named ones IS a block address, so this never fails.
+fn block_route(rest: &str) -> BlockRoute<'_> {
+    match rest.split_once('/') {
+        Some(("version", tail)) => BlockRoute::SetVersion(tail),
+        None if rest == "stats" => BlockRoute::Stats,
+        None if rest == "version" => BlockRoute::Version,
+        _ => match rest.strip_suffix("/exists") {
+            Some(hash) => BlockRoute::Exists(hash),
+            None => BlockRoute::Block(rest),
+        },
+    }
+}
+
+impl BlockRoute<'_> {
+    /// Execute this route against the store.
+    fn serve(self, store: &KvCacheStore, req: &HttpMessage) -> KvResponse {
+        match self {
+            Self::Stats => on_read(&req.method, || {
+                KvResponse::json("200 OK", store.stats_json())
+            }),
+            Self::Version => on_read(&req.method, || {
+                KvResponse::json("200 OK", store.version_json())
+            }),
+            Self::SetVersion(version) => on_write(&req.method, || set_version(store, version)),
+            Self::Exists(hash) => exists(store, hash),
+            Self::Block(hash) => block(store, req, hash),
         }
     }
-    // `GET /kv/fork/stats` → the zero-copy occupancy proof (resident stays flat vs branch count).
-    if rest == "fork/stats" {
-        return match req.method.as_str() {
-            "GET" | "HEAD" => KvResponse::json("200 OK", store.fork_stats_json()),
-            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
-        };
-    }
-    // `DELETE /kv/branch/<bid>` → drop a live branch (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork):
-    // frees its copy-on-write overlay and decrements its parent snapshot's branch count
-    // (unblocking that snapshot's own `DELETE /kv/snapshot/<id>` once every branch is
-    // dropped). Guarded to DELETE only, ahead of the branch/<bid>/<key> block below, so a
-    // GET/PUT to the same bare path keeps its existing "expected branch/<id>/<key>" 400.
-    if req.method == "DELETE" {
-        if let Some(bid) = rest.strip_prefix("branch/").filter(|r| !r.contains('/')) {
-            return match bid.parse::<u64>() {
-                Ok(b) => release_outcome_response(store.drop_branch(b)),
-                Err(_) => {
-                    KvResponse::error("400 Bad Request", "BadRequest", "branch id must be a u64")
-                }
-            };
-        }
-    }
-    // `GET /kv/branch/<bid>/<key>` (zero-copy read) + `PUT /kv/branch/<bid>/<key>` (CoW write).
-    if let Some(r) = rest.strip_prefix("branch/") {
-        let (bid, key) = match r.split_once('/') {
-            Some((b, k)) if !k.is_empty() => (b, k),
-            _ => {
-                return KvResponse::error(
-                    "400 Bad Request",
-                    "BadRequest",
-                    "expected branch/<id>/<key>",
-                )
-            }
-        };
-        let branch = match bid.parse::<u64>() {
-            Ok(b) => b,
-            Err(_) => {
-                return KvResponse::error(
-                    "400 Bad Request",
-                    "BadRequest",
-                    "branch id must be a u64",
-                )
-            }
-        };
-        return match req.method.as_str() {
-            "GET" => match store.branch_get(branch, key) {
-                Some(bytes) => KvResponse::bytes("200 OK", bytes),
-                None => KvResponse::error(
-                    "404 Not Found",
-                    "NoSuchBranchKey",
-                    "no page for that branch/key",
-                ),
-            },
-            "PUT" | "POST" => {
-                if store.branch_put(branch, key, req.body.clone()) {
-                    KvResponse::empty("200 OK")
-                } else {
-                    KvResponse::error("404 Not Found", "NoSuchBranch", "unknown branch")
-                }
-            }
-            _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
-        };
-    }
+}
 
-    // `GET /kv/<hash>/exists` → JSON existence probe.
-    if let Some(hash) = rest.strip_suffix("/exists") {
-        if hash.is_empty() {
-            return KvResponse::error("400 Bad Request", "BadRequest", "empty hash");
+/// `PUT|POST /kv/version/<n>` — advance the store's data version.
+fn set_version(store: &KvCacheStore, raw: &str) -> KvResponse {
+    match raw.parse::<u64>() {
+        Ok(version) => {
+            store.set_data_version(DataVersion::At(version));
+            KvResponse::json("200 OK", store.version_json())
         }
-        let exists = store.contains(hash);
-        return KvResponse::json(
-            "200 OK",
-            serde_json::json!({ "hash": hash, "exists": exists }).to_string(),
-        );
+        Err(_) => KvResponse::error("400 Bad Request", "BadRequest", "version must be a u64"),
     }
+}
 
-    // `/kv/<hash>` block ops.
-    let hash = rest;
+/// `/kv/<hash>/exists` — presence as JSON, without transferring the page.
+fn exists(store: &KvCacheStore, hash: &str) -> KvResponse {
+    if hash.is_empty() {
+        return KvResponse::error("400 Bad Request", "BadRequest", "empty hash");
+    }
+    KvResponse::json(
+        "200 OK",
+        serde_json::json!({ "hash": hash, "exists": store.contains(hash) }).to_string(),
+    )
+}
+
+/// `/kv/<hash>` — `GET` the page, `HEAD` its presence, `PUT` it.
+fn block(store: &KvCacheStore, req: &HttpMessage, hash: &str) -> KvResponse {
     if hash.is_empty() {
         return KvResponse::error("400 Bad Request", "BadRequest", "empty hash");
     }
@@ -721,128 +653,56 @@ fn handle_authorized(store: &KvCacheStore, req: &KvRequest) -> KvResponse {
             Some(bytes) => KvResponse::bytes("200 OK", bytes),
             None => KvResponse::error("404 Not Found", "NoSuchBlock", "no block under that hash"),
         },
-        "HEAD" => {
-            if store.contains(hash) {
-                let mut r = KvResponse::empty("200 OK");
-                r.head_only = true;
-                r
-            } else {
-                let mut r =
-                    KvResponse::error("404 Not Found", "NoSuchBlock", "no block under that hash");
-                r.head_only = true;
-                r
-            }
+        "HEAD" => head(store, hash),
+        "PUT" => put_block(store, req, hash),
+        _ => method_not_allowed(),
+    }
+}
+
+/// `HEAD /kv/<hash>` — the presence answer with the body suppressed.
+fn head(store: &KvCacheStore, hash: &str) -> KvResponse {
+    let mut response = if store.contains(hash) {
+        KvResponse::empty("200 OK")
+    } else {
+        KvResponse::error("404 Not Found", "NoSuchBlock", "no block under that hash")
+    };
+    response.head_only = true;
+    response
+}
+
+/// `PUT /kv/<hash>` — store the page, version-tagged with `X-EG-Data-Version`
+/// when the connector supplied one (CONCEPT:EG-KG.storage.content-addressed-put);
+/// absent ⇒ a pure content-addressed page, never version-invalidated. `201` on a
+/// brand-new block, `200` on a dedup hit, `500` on a durable-store write failure
+/// — never a silent success.
+fn put_block(store: &KvCacheStore, req: &HttpMessage, hash: &str) -> KvResponse {
+    let derived_at = parse_data_version(&req.headers);
+    match store.put(hash, req.body.clone(), derived_at) {
+        Ok(true) => KvResponse::empty("201 Created"),
+        Ok(false) => KvResponse::empty("200 OK"),
+        Err(error) => {
+            tracing::warn!(
+                target: "epistemic_graph::kvcache",
+                hash = %hash,
+                error = %error,
+                "kvcache PUT failed"
+            );
+            KvResponse::error(
+                "500 Internal Server Error",
+                "StoreError",
+                "failed to store block",
+            )
         }
-        "PUT" => {
-            // Version-tag the entry with the `X-EG-Data-Version` header if the connector
-            // supplied one (CONCEPT:EG-KG.storage.content-addressed-put); absent ⇒ a pure content-addressed page
-            // (Agnostic, never version-invalidated).
-            let derived_at = parse_data_version(&req.headers);
-            // 201 on a brand-new block; 200 on a dedup hit (the block was already present);
-            // 500 on a durable-store write failure (never a silent success — no masking).
-            match store.put(hash, req.body.clone(), derived_at) {
-                Ok(true) => KvResponse::empty("201 Created"),
-                Ok(false) => KvResponse::empty("200 OK"),
-                Err(error) => {
-                    tracing::warn!(
-                        target: "epistemic_graph::kvcache",
-                        hash = %hash,
-                        error = %error,
-                        "kvcache PUT failed"
-                    );
-                    KvResponse::error(
-                        "500 Internal Server Error",
-                        "StoreError",
-                        "failed to store block",
-                    )
-                }
-            }
-        }
-        _ => KvResponse::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
     }
 }
 
 // ── the HTTP listener (hand-rolled, no axum/hyper — the Pi contract) ───────────────
 
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
-
-/// Read one HTTP/1.1 request, keeping the body as RAW BYTES (KV pages are binary) and
-/// capturing headers (lowercased keys) for the auth guard. Mirrors the s3 reader.
-async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<KvRequest> {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 8192];
-    let header_end = loop {
-        if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
-            break pos;
-        }
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > MAX_HTTP_HEADER_BYTES {
-            return None; // header flood guard
-        }
-    };
-    let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
-    let mut lines = head.split("\r\n");
-    let request_line = lines.next()?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next()?.to_string();
-    let target = parts.next()?.to_string();
-    let version = parts.next()?;
-    if !version.starts_with("HTTP/1.") || parts.next().is_some() {
-        return None;
-    }
-    // The address is an opaque hex/base token-hash — no query params are used here.
-    let path = target.split('?').next().unwrap_or(&target).to_string();
-
-    let mut headers = HashMap::new();
-    let mut content_length: Option<usize> = None;
-    for line in lines {
-        let (k, v) = line.split_once(':')?;
-        let key = k.trim().to_ascii_lowercase();
-        let val = v.trim().to_string();
-        if key.is_empty() || headers.contains_key(&key) {
-            return None;
-        }
-        if key == "content-length" {
-            if content_length.is_some() {
-                return None;
-            }
-            content_length = Some(val.parse().ok()?);
-        } else if key == "transfer-encoding" {
-            return None;
-        }
-        headers.insert(key, val);
-    }
-    let content_length = content_length.unwrap_or(0);
-    if content_length > MAX_KVCACHE_BODY_BYTES {
-        return None;
-    }
-    let mut body = buf[header_end + 4..].to_vec();
-    if body.len() > content_length || body.len() > MAX_KVCACHE_BODY_BYTES {
-        return None;
-    }
-    while body.len() < content_length {
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            break;
-        }
-        body.extend_from_slice(&tmp[..n]);
-    }
-    if body.len() != content_length {
-        return None;
-    }
-    Some(KvRequest {
-        method,
-        path,
-        headers,
-        body,
-    })
-}
+/// KV pages are binary and large: a 64 MiB body budget, framed by [`http1`].
+const HTTP_LIMITS: RequestLimits = RequestLimits {
+    max_head_bytes: 64 * 1024,
+    max_body_bytes: MAX_KVCACHE_BODY_BYTES,
+};
 
 /// Production KV-cache listener linked to the live engine isolation policy. The
 /// HTTP bearer/JWT guard does not establish tenant+actor ownership of individual
@@ -957,11 +817,15 @@ async fn serve_with_store_inner(
         let store = store.clone();
         let auth = auth.clone();
         tokio::spawn(async move {
-            let resp =
-                match tokio::time::timeout(HTTP_READ_TIMEOUT, read_request(&mut stream)).await {
-                    Ok(Some(req)) => handle(&store, &auth, &req),
-                    _ => KvResponse::error("400 Bad Request", "InvalidRequest", "malformed"),
-                };
+            let resp = match tokio::time::timeout(
+                HTTP_READ_TIMEOUT,
+                http1::read_request(&mut stream, HTTP_LIMITS),
+            )
+            .await
+            {
+                Ok(Some(req)) => handle(&store, &auth, &req),
+                _ => KvResponse::error("400 Bad Request", "InvalidRequest", "malformed"),
+            };
             let head = format!(
                 "HTTP/1.1 {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
                 resp.status,
@@ -988,10 +852,11 @@ mod tests {
         KvCacheStore::new()
     }
 
-    fn req(method: &str, path: &str, body: &[u8], headers: &[(&str, &str)]) -> KvRequest {
-        KvRequest {
+    fn req(method: &str, path: &str, body: &[u8], headers: &[(&str, &str)]) -> HttpMessage {
+        HttpMessage {
             method: method.to_string(),
-            path: path.to_string(),
+            target: path.to_string(),
+            version: "HTTP/1.1".to_string(),
             headers: headers
                 .iter()
                 .map(|(k, v)| (k.to_ascii_lowercase(), v.to_string()))
@@ -1150,7 +1015,7 @@ mod tests {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 let store = srv_store.clone();
                 tokio::spawn(async move {
-                    let resp = match read_request(&mut stream).await {
+                    let resp = match http1::read_request(&mut stream, HTTP_LIMITS).await {
                         Some(r) => handle_authorized(&store, &r),
                         None => KvResponse::error("400 Bad Request", "InvalidRequest", "malformed"),
                     };
@@ -1193,7 +1058,7 @@ mod tests {
             .unwrap();
         let mut buf = Vec::new();
         c.read_to_end(&mut buf).await.unwrap();
-        let sep = find_subslice(&buf, b"\r\n\r\n").unwrap();
+        let sep = http1::find_subslice(&buf, b"\r\n\r\n").unwrap();
         assert!(String::from_utf8_lossy(&buf[..sep]).starts_with("HTTP/1.1 200 OK"));
         assert_eq!(
             &buf[sep + 4..],

@@ -55,10 +55,11 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
 use crate::server::blob::store::{ChunkStore, RedbChunkStore};
+use crate::server::http1::{self, HttpMessage, RequestLimits};
 use eg_text::TextIndex;
 use eg_tsdb::point::Point;
 use eg_tsdb::store::SeriesStore;
@@ -78,11 +79,11 @@ pub const DEFAULT_FLUSH_RECORDS: usize = 1024;
 /// TSDB time-partition width for a log series: 1 hour of wall-clock per chunk.
 const SERIES_BUCKET_NS: u64 = 3_600_000_000_000;
 /// Hard network bounds for the dependency-free observability HTTP listener.
-const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
-const MAX_HTTP_HEADER_LINE_BYTES: usize = 16 * 1024;
-const MAX_HTTP_HEADERS: usize = 128;
-const MAX_HTTP_TARGET_BYTES: usize = 8 * 1024;
 const MAX_HTTP_BODY_BYTES: usize = 16 * 1024 * 1024;
+const HTTP_LIMITS: RequestLimits = RequestLimits {
+    max_head_bytes: 64 * 1024,
+    max_body_bytes: MAX_HTTP_BODY_BYTES,
+};
 const MAX_HTTP_CONNECTIONS: usize = 256;
 const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_SNAPSHOT_BYTES: usize = eg_types::msgpack::MAX_PROPERTY_BYTES;
@@ -866,13 +867,15 @@ fn record_segment_manifest(
 }
 
 /// The self-contained ingest state: a tsdb series store + per-stream text indices +
-/// the blob CAS for Parquet segments + per-stream flush buffers + the recorded
-/// segment manifests. NOT tied to the graph `ServerState` — it is the observability
-/// tier's own substrate.
+/// the selected blob CAS for Parquet segments + per-stream flush buffers + the
+/// recorded segment manifests. Production startup injects the graph server's
+/// selected CAS; the private Redb fallback remains for direct test/embedded
+/// construction.
 pub struct ObsState {
     /// Time-series store (series id = `obs:logs:<stream>`).
     series: Arc<SeriesStore>,
-    /// Blob CAS the Parquet segments land in (S3-backed when `blob-s3` is on).
+    /// Blob CAS the Parquet segments land in, injected from server composition
+    /// (Redb or an explicitly built `blob-s3` backend).
     blob: Arc<dyn ChunkStore>,
     /// Per-stream Tantivy full-text indices, created lazily.
     indices: Mutex<HashMap<String, TextIndex>>,
@@ -904,7 +907,10 @@ pub struct ObsState {
     traces: Arc<eg_tsdb::traces::SpanStore>,
 }
 
-fn open_persistent_obs_stores(base: &Path) -> Result<(SeriesStore, RedbChunkStore), String> {
+fn open_persistent_obs_stores(
+    base: &Path,
+    blob_store: Option<Arc<dyn ChunkStore>>,
+) -> Result<(SeriesStore, Arc<dyn ChunkStore>), String> {
     let authority = SnapshotDirectory::open(base, true, OBS_PERSISTENCE_DIRECTORY_ERROR)?;
     let series = SeriesStore::open_in_dir(
         &authority.io_path,
@@ -913,12 +919,17 @@ fn open_persistent_obs_stores(base: &Path) -> Result<(SeriesStore, RedbChunkStor
         &crate::store_authority::process_authority().proof(),
     )
     .map_err(|_| "observability series store is unavailable".to_string())?;
-    let blob = RedbChunkStore::open(
-        &authority
-            .child(std::ffi::OsStr::new("blob"))
-            .to_string_lossy(),
-    )
-    .map_err(|_| "observability blob store is unavailable".to_string())?;
+    let blob: Arc<dyn ChunkStore> = match blob_store {
+        Some(blob) => blob,
+        None => Arc::new(
+            RedbChunkStore::open(
+                &authority
+                    .child(std::ffi::OsStr::new("blob"))
+                    .to_string_lossy(),
+            )
+            .map_err(|_| "observability blob store is unavailable".to_string())?,
+        ),
+    };
     authority.require_still_named(OBS_PERSISTENCE_DIRECTORY_ERROR)?;
     Ok((series, blob))
 }
@@ -928,11 +939,12 @@ fn open_persistent_obs_stores(base: &Path) -> Result<(SeriesStore, RedbChunkStor
 fn open_obs_state_blocking(
     persist_dir: Option<&str>,
     flush_threshold: usize,
+    blob_store: Option<Arc<dyn ChunkStore>>,
 ) -> Result<ObsState, String> {
     let (series, blob, text_dir, obs_base) = match persist_dir {
         Some(dir) => {
             let base = Path::new(dir).join("obs");
-            let (series, blob) = open_persistent_obs_stores(&base)?;
+            let (series, blob) = open_persistent_obs_stores(&base, blob_store)?;
             (series, blob, Some(base.join("text")), Some(base))
         }
         None => {
@@ -945,8 +957,13 @@ fn open_obs_state_blocking(
                 &crate::store_authority::process_authority().proof(),
             )
             .map_err(|_| "observability series store is unavailable".to_string())?;
-            let blob = RedbChunkStore::open(&base.join("blob").to_string_lossy())
-                .map_err(|_| "observability blob store is unavailable".to_string())?;
+            let blob: Arc<dyn ChunkStore> = match blob_store {
+                Some(blob) => blob,
+                None => Arc::new(
+                    RedbChunkStore::open(&base.join("blob").to_string_lossy())
+                        .map_err(|_| "observability blob store is unavailable".to_string())?,
+                ),
+            };
             (series, blob, None, None)
         }
     };
@@ -968,7 +985,7 @@ fn open_obs_state_blocking(
     };
     Ok(ObsState {
         series: Arc::new(series),
-        blob: Arc::new(blob),
+        blob,
         indices: Mutex::new(HashMap::new()),
         buffers: Mutex::new(HashMap::new()),
         segments: Mutex::new(loaded.manifests),
@@ -984,17 +1001,29 @@ fn open_obs_state_blocking(
 }
 
 impl ObsState {
-    /// Open the ingest substrate under a persist dir (durable series + blob CAS +
-    /// on-disk text indices under `{persist_dir}/obs/…`). With `persist_dir = None`
-    /// everything is in a temp dir / in-memory (tests / ephemeral). The complete
-    /// initialization and recovery boundary runs on Tokio's blocking pool.
-    pub async fn open(persist_dir: Option<&str>, flush_threshold: usize) -> Result<Self, String> {
+    /// Open the ingest substrate with a selected blob CAS under a persist dir
+    /// (durable series + injected blob CAS + on-disk text indices under
+    /// `{persist_dir}/obs/…`). With `persist_dir = None` everything is in a temp
+    /// dir / in-memory (tests / ephemeral). The complete initialization and
+    /// recovery boundary runs on Tokio's blocking pool.
+    pub async fn open_with_blob_store(
+        persist_dir: Option<&str>,
+        flush_threshold: usize,
+        blob_store: Option<Arc<dyn ChunkStore>>,
+    ) -> Result<Self, String> {
         let persist_dir = persist_dir.map(str::to_owned);
         ::tokio::task::spawn_blocking(move || {
-            open_obs_state_blocking(persist_dir.as_deref(), flush_threshold)
+            open_obs_state_blocking(persist_dir.as_deref(), flush_threshold, blob_store)
         })
         .await
         .map_err(|_| "observability persistence worker failed".to_string())?
+    }
+
+    /// Open the observability substrate with its legacy private Redb fallback.
+    /// Served startup uses [`Self::open_with_blob_store`] so all blob consumers
+    /// share the server-selected CAS authority.
+    pub async fn open(persist_dir: Option<&str>, flush_threshold: usize) -> Result<Self, String> {
+        Self::open_with_blob_store(persist_dir, flush_threshold, None).await
     }
 
     /// CONCEPT:EG-OS.observability.trace-assembly — the distributed-trace span store handle, used by the trace
@@ -1030,7 +1059,7 @@ impl ObsState {
 
     /// In-memory ingest state (temp series/blob, RAM text indices) — for tests.
     pub fn in_memory(flush_threshold: usize) -> Result<Self, String> {
-        open_obs_state_blocking(None, flush_threshold)
+        open_obs_state_blocking(None, flush_threshold, None)
     }
 
     /// Ingest a batch of normalized records: append each stream's points to its tsdb
@@ -1531,206 +1560,19 @@ pub fn parse_json_lines(body: &str, default_stream: &str) -> Vec<LogRecord> {
 
 // ── HTTP listener (hand-rolled, no axum/hyper — the Pi contract) ────────────────
 
-/// A parsed HTTP request: method, raw target, content type, body.
-struct HttpRequest {
-    method: String,
-    target: String,
-    content_type: String,
-    body: String,
-    /// CONCEPT:EG-OS.observability.prometheus-ingest — the ORIGINAL (un-lossy-UTF-8'd) request bytes, kept for the
-    /// Prometheus `remote_write` receiver whose body is snappy-compressed BINARY (the
-    /// `body` String would corrupt it). Only populated/read under `otel-export`.
-    #[cfg(feature = "otel-export")]
-    body_bytes: Vec<u8>,
-}
-
-/// Read one HTTP/1.1 request: headers to the blank line, then `Content-Length` body.
-/// Mirrors [`crate::server::sparql_http`]'s reader (bounded header flood guard).
-async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest> {
-    let mut buf = Vec::new();
-    let header_end = read_header_bytes(stream, &mut buf).await?;
-
-    let head = std::str::from_utf8(&buf[..header_end]).ok()?;
-    let mut lines = head.split("\r\n");
-    let request_line = lines.next()?;
-    let (method, target, version) = parse_request_line(request_line)?;
-
-    let headers = parse_headers(lines)?;
-    if version == "HTTP/1.1" && headers.host_count != 1 {
-        return None;
-    }
-    let content_length = headers.content_length.unwrap_or(0);
-    let body = read_body(stream, &buf, header_end, content_length).await?;
-
-    Some(HttpRequest {
-        method,
-        target,
-        content_type: headers.content_type,
-        body: String::from_utf8_lossy(&body).to_string(),
-        #[cfg(feature = "otel-export")]
-        body_bytes: body,
-    })
-}
-
-/// Read into `buf` until the `\r\n\r\n` header/body boundary appears, bounded by
-/// `MAX_HTTP_HEADER_BYTES`. Returns the boundary offset. Extracted from
-/// [`read_request`].
-async fn read_header_bytes(stream: &mut tokio::net::TcpStream, buf: &mut Vec<u8>) -> Option<usize> {
-    let mut tmp = [0u8; 4096];
-    let header_end = loop {
-        if let Some(pos) = find_subslice(buf, b"\r\n\r\n") {
-            break pos;
-        }
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > MAX_HTTP_HEADER_BYTES {
-            return None;
-        }
-    };
-    if header_end > MAX_HTTP_HEADER_BYTES {
-        return None;
-    }
-    Some(header_end)
-}
-
-/// Parse + validate the HTTP request line (`METHOD target VERSION`): only
-/// GET/POST/OPTIONS, only HTTP/1.0 or HTTP/1.1, an absolute-path target with no control
-/// bytes, within `MAX_HTTP_TARGET_BYTES`. Extracted from [`read_request`].
-fn parse_request_line(request_line: &str) -> Option<(String, String, &str)> {
-    if request_line.len() > MAX_HTTP_TARGET_BYTES + 32 {
-        return None;
-    }
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next()?.to_string();
-    let target = parts.next()?.to_string();
-    let version = parts.next()?;
-    if parts.next().is_some()
-        || !matches!(version, "HTTP/1.0" | "HTTP/1.1")
-        || !matches!(method.as_str(), "GET" | "POST" | "OPTIONS")
-        || target.len() > MAX_HTTP_TARGET_BYTES
-        || !target.starts_with('/')
-        || target.bytes().any(|byte| byte.is_ascii_control())
+/// Read one framed HTTP/1.1 request and apply the observability surface's own
+/// routing contract on top of [`http1`]'s framing: only the three methods this
+/// listener serves, and a non-empty `Host` — which this surface has always
+/// required on HTTP/1.1 and now also requires on HTTP/1.0, where it previously
+/// accepted an empty one.
+async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpMessage> {
+    let request = http1::read_request(stream, HTTP_LIMITS).await?;
+    if !matches!(request.method.as_str(), "GET" | "POST" | "OPTIONS")
+        || request.header("host").is_empty()
     {
         return None;
     }
-    Some((method, target, version))
-}
-
-/// The header values [`parse_headers`] extracts while validating each header line.
-#[derive(Default)]
-struct ParsedHeaders {
-    content_length: Option<usize>,
-    content_type: String,
-    host_count: usize,
-}
-
-/// Validate + fold every header line (bounded count/length, RFC 7230 token/field-value
-/// syntax), collecting `content-length`/`content-type`/`host` and rejecting
-/// `transfer-encoding` outright (chunked framing is intentionally unsupported —
-/// accepting it as an empty body would create request-smuggling ambiguity). Extracted
-/// from [`read_request`].
-fn parse_headers<'a>(lines: impl Iterator<Item = &'a str>) -> Option<ParsedHeaders> {
-    let mut headers = ParsedHeaders::default();
-    for (index, line) in lines.enumerate() {
-        if index >= MAX_HTTP_HEADERS || line.len() > MAX_HTTP_HEADER_LINE_BYTES {
-            return None;
-        }
-        let (key, value) = line.split_once(':')?;
-        if !is_valid_header_line(key, value) {
-            return None;
-        }
-        apply_header(&mut headers, key, value)?;
-    }
-    Some(headers)
-}
-
-/// RFC 7230 `field-name`/`field-value` syntax check for one header line. Extracted from
-/// [`parse_headers`].
-fn is_valid_header_line(key: &str, value: &str) -> bool {
-    !key.is_empty()
-        && key.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric()
-                || matches!(
-                    byte,
-                    b'!' | b'#'
-                        | b'$'
-                        | b'%'
-                        | b'&'
-                        | b'\''
-                        | b'*'
-                        | b'+'
-                        | b'-'
-                        | b'.'
-                        | b'^'
-                        | b'_'
-                        | b'`'
-                        | b'|'
-                        | b'~'
-                )
-        })
-        && !value
-            .bytes()
-            .any(|byte| byte.is_ascii_control() && byte != b'\t')
-}
-
-/// Fold one validated header's `(key, value)` into `headers`. `None` signals a
-/// rejection (a repeated/oversized `content-length`, more than one non-empty `host`, or
-/// any `transfer-encoding`). Extracted from [`parse_headers`].
-fn apply_header(headers: &mut ParsedHeaders, key: &str, value: &str) -> Option<()> {
-    match key.to_ascii_lowercase().as_str() {
-        "content-length" => {
-            if headers.content_length.is_some() {
-                return None;
-            }
-            let parsed = value.trim().parse::<usize>().ok()?;
-            if parsed > MAX_HTTP_BODY_BYTES {
-                return None;
-            }
-            headers.content_length = Some(parsed);
-        }
-        "content-type" => headers.content_type = value.trim().to_ascii_lowercase(),
-        "host" => {
-            headers.host_count += 1;
-            if headers.host_count > 1 || value.trim().is_empty() {
-                return None;
-            }
-        }
-        "transfer-encoding" => return None,
-        _ => {}
-    }
-    Some(())
-}
-
-/// Read the request body to `content_length` (already bounded to
-/// `MAX_HTTP_BODY_BYTES` by [`apply_header`]), starting from whatever body bytes
-/// already arrived in `buf` past the header boundary. Extracted from [`read_request`].
-async fn read_body(
-    stream: &mut tokio::net::TcpStream,
-    buf: &[u8],
-    header_end: usize,
-    content_length: usize,
-) -> Option<Vec<u8>> {
-    let mut tmp = [0u8; 4096];
-    let mut body = buf[header_end + 4..].to_vec();
-    if body.len() > content_length || body.len() > MAX_HTTP_BODY_BYTES {
-        return None;
-    }
-    while body.len() < content_length {
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            return None;
-        }
-        if body.len().saturating_add(n) > content_length
-            || body.len().saturating_add(n) > MAX_HTTP_BODY_BYTES
-        {
-            return None;
-        }
-        body.extend_from_slice(&tmp[..n]);
-    }
-    Some(body)
+    Some(request)
 }
 
 /// Serve the observability log-ingestion HTTP surface on `listener`, backed by
@@ -1883,12 +1725,10 @@ async fn observability_access_denied(
 async fn handle(
     state: &Arc<ObsState>,
     security_state: Option<&Arc<tokio::sync::RwLock<crate::server::ServerState>>>,
-    req: HttpRequest,
+    req: HttpMessage,
 ) -> (&'static str, &'static str, String) {
-    let (path, query) = match req.target.split_once('?') {
-        Some((p, q)) => (p, q),
-        None => (req.target.as_str(), ""),
-    };
+    let (path, query) = req.path_and_query();
+    let body = req.text();
     if let Some(resp) = control_response(&req.method, path) {
         return resp;
     }
@@ -1905,7 +1745,7 @@ async fn handle(
     // POST-only ingest guard (instant queries are typically GET). Gated on `promql`,
     // which implies `obs`; absent that feature these paths fall through to 404.
     #[cfg(feature = "promql")]
-    if let Some(resp) = try_promql_route(state, &req.method, path, query, &req.body).await {
+    if let Some(resp) = try_promql_route(state, &req.method, path, query, &body).await {
         return resp;
     }
 
@@ -1916,7 +1756,7 @@ async fn handle(
     // (`/api/traces`), single-trace assembly (`/api/traces/<id>`) and the
     // service-dependency graph (`/api/dependencies`).
     #[cfg(feature = "traces")]
-    if let Some(resp) = try_traces_route(state, &req.method, path, query, &req.body).await {
+    if let Some(resp) = try_traces_route(state, &req.method, path, query, &body).await {
         return resp;
     }
 
@@ -1926,20 +1766,21 @@ async fn handle(
     // durable eg-tsdb SeriesStore. Gated on `otel-export`; absent the feature this path
     // falls through to the unknown-ingest 404.
     #[cfg(feature = "otel-export")]
-    if let Some(resp) = try_otel_write_route(state, &req.method, path, &req.body_bytes).await {
+    if let Some(resp) = try_otel_write_route(state, &req.method, path, &req.body).await {
         return resp;
     }
 
-    handle_ingest(state, &req, path, query).await
+    handle_ingest(state, &req, path, query, &body).await
 }
 
 /// The POST-only ingest path: `_search` (EG-162), then route-by-shape log ingest.
 /// Extracted from [`handle`]'s tail — everything after the GET-friendly gated routes.
 async fn handle_ingest(
     state: &Arc<ObsState>,
-    req: &HttpRequest,
+    req: &HttpMessage,
     path: &str,
     query: &str,
+    body: &str,
 ) -> (&'static str, &'static str, String) {
     if req.method != "POST" {
         return (
@@ -1952,14 +1793,14 @@ async fn handle_ingest(
     // EG-162 search surface: O2/Elasticsearch `_search`-shaped query API. Routed
     // BEFORE ingest (no ingest path ends with `_search`).
     if path == "/api/_search" || path == "/_search" || path.ends_with("/_search") {
-        return handle_search(state, path, query, &req.body).await;
+        return handle_search(state, path, query, body).await;
     }
 
     // The `stream` query param is the default stream for shapes that don't name one.
     let default_stream = query_param(query, "stream").unwrap_or_else(|| "default".to_string());
 
     // Route by path → parse into records + choose the response shape.
-    let Some((records, shape)) = route_ingest_records(path, &req.body, &default_stream) else {
+    let Some((records, shape)) = route_ingest_records(path, body, &default_stream) else {
         return (
             "404 Not Found",
             "text/plain",
@@ -2448,13 +2289,10 @@ fn query_param(query: &str, key: &str) -> Option<String> {
     None
 }
 
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::AsyncReadExt as _;
 
     fn snapshot_temporaries(parent: &Path) -> Vec<PathBuf> {
         std::fs::read_dir(parent)
@@ -2468,14 +2306,40 @@ mod tests {
             .collect()
     }
 
+    /// A temporary root that satisfies the snapshot authority's private-directory
+    /// contract regardless of the process umask.
+    fn private_tempdir() -> tempfile::TempDir {
+        let directory = tempfile::tempdir().expect("temp dir");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))
+                .expect("make temp directory private");
+        }
+        directory
+    }
+
+    /// Create every missing fixture-directory component with private permissions.
+    fn create_private_test_directory(path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt as _;
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true).mode(0o700);
+            builder.create(path).expect("create private test directory");
+        }
+        #[cfg(not(unix))]
+        std::fs::create_dir_all(path).expect("create private test directory");
+    }
+
     #[cfg(feature = "traces")]
     #[tokio::test(flavor = "current_thread")]
     async fn public_trace_persistence_yields_the_current_thread_reactor() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let persist_dir = dir.path().to_str().expect("utf8 temp path");
         let obs = ObsState::open(Some(persist_dir), 1024).await.expect("open");
         let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let counter = Arc::new(AtomicU64::new(0));
         let observed = counter.clone();
 
@@ -2506,11 +2370,11 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn cancelling_waiter_does_not_cancel_started_atomic_publication() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let path = dir.path().join("snapshot.msgpack");
         let written_path = path.clone();
         let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
-        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
 
         let waiter = tokio::spawn(async move {
@@ -2551,7 +2415,7 @@ mod tests {
 
     #[test]
     fn failed_atomic_publication_preserves_authority_and_cleans_temporary() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let path = dir.path().join("snapshot.msgpack");
         write_snapshot_atomically_blocking(path.clone(), || Ok(b"prior-authority".to_vec()))
             .expect("seed private authority");
@@ -2593,7 +2457,7 @@ mod tests {
 
     #[test]
     fn panicked_snapshot_attempt_does_not_poison_later_publication() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let path = dir.path().join("snapshot.msgpack");
         let failed_path = path.clone();
 
@@ -2618,12 +2482,12 @@ mod tests {
     fn parent_replacement_cannot_redirect_an_opened_publication() {
         use std::os::unix::fs::symlink;
 
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let parent = dir.path().join("authority");
         let moved_parent = dir.path().join("moved-authority");
         let outside = dir.path().join("outside");
-        std::fs::create_dir_all(&parent).expect("create authority");
-        std::fs::create_dir_all(&outside).expect("create outside");
+        create_private_test_directory(&parent);
+        create_private_test_directory(&outside);
         let path = parent.join("snapshot.msgpack");
 
         let error = write_snapshot_atomically_blocking_with(
@@ -2648,7 +2512,7 @@ mod tests {
 
     #[test]
     fn oversized_and_nonregular_snapshots_fail_closed() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let oversized = dir.path().join("oversized.msgpack");
         std::fs::File::create(&oversized)
             .and_then(|file| file.set_len(MAX_SNAPSHOT_BYTES as u64 + 1))
@@ -2742,9 +2606,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn public_open_rejects_a_nonregular_manifest_authority() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let manifests = dir.path().join("obs/segments");
-        std::fs::create_dir_all(&manifests).expect("create manifest directory");
+        create_private_test_directory(&manifests);
         std::fs::create_dir(manifests.join("nonregular.msgpack"))
             .expect("create nonregular manifest");
         let persist_dir = dir.path().to_str().expect("utf8 temp path");
@@ -2759,9 +2623,9 @@ mod tests {
     #[cfg(feature = "traces")]
     #[tokio::test(flavor = "current_thread")]
     async fn public_open_rejects_an_oversized_trace_snapshot() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let obs_base = dir.path().join("obs");
-        std::fs::create_dir_all(&obs_base).expect("create obs directory");
+        create_private_test_directory(&obs_base);
         std::fs::File::create(traces_snapshot_path(&obs_base))
             .and_then(|file| file.set_len(MAX_SNAPSHOT_BYTES as u64 + 1))
             .expect("create sparse oversized trace snapshot");
@@ -2786,7 +2650,7 @@ mod tests {
             }
         }
 
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let persist_dir = dir.path().to_str().expect("utf8 temp path");
         let obs = Arc::new(ObsState::open(Some(persist_dir), 1).await.expect("open"));
         let first = obs.clone();
@@ -2829,7 +2693,7 @@ mod tests {
 
     #[test]
     fn missing_manifest_directory_is_an_empty_fresh_authority() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         assert!(load_segment_manifests(dir.path())
             .expect("missing manifest directory")
             .manifests
@@ -2838,9 +2702,9 @@ mod tests {
 
     #[test]
     fn corrupt_manifest_fails_closed_without_path_disclosure() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let manifests = dir.path().join("segments");
-        std::fs::create_dir_all(&manifests).expect("create manifests");
+        create_private_test_directory(&manifests);
         let path = manifests.join("private-stream.msgpack");
         write_snapshot_atomically_blocking(path.clone(), || Ok(b"not-messagepack".to_vec()))
             .expect("write private corrupt manifest");
@@ -2854,7 +2718,7 @@ mod tests {
     #[cfg(feature = "traces")]
     #[test]
     fn corrupt_trace_snapshot_fails_closed_without_path_disclosure() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let path = traces_snapshot_path(dir.path());
         write_snapshot_atomically_blocking(path.clone(), || Ok(b"not-messagepack".to_vec()))
             .expect("write private corrupt trace snapshot");
@@ -2873,9 +2737,9 @@ mod tests {
     fn symlinked_snapshot_and_manifest_authorities_fail_closed() {
         use std::os::unix::fs::symlink;
 
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let outside = dir.path().join("outside");
-        std::fs::create_dir_all(&outside).expect("create outside");
+        create_private_test_directory(&outside);
         let outside_file = outside.join("authority.msgpack");
         std::fs::write(&outside_file, b"outside-authority").expect("seed outside");
 
@@ -2896,7 +2760,7 @@ mod tests {
         );
 
         let obs_base = dir.path().join("obs");
-        std::fs::create_dir_all(&obs_base).expect("create obs base");
+        create_private_test_directory(&obs_base);
         symlink(&outside, obs_base.join("segments")).expect("symlink manifest directory");
         assert_eq!(
             load_segment_manifests(&obs_base).expect_err("symlinked directory must fail"),
@@ -2905,7 +2769,7 @@ mod tests {
 
         let linked_base = dir.path().join("linked-obs");
         symlink(&outside, &linked_base).expect("symlink manifest ancestor");
-        std::fs::create_dir_all(outside.join("segments")).expect("create outside manifests");
+        create_private_test_directory(&outside.join("segments"));
         assert_eq!(
             load_segment_manifests(&linked_base).expect_err("symlinked ancestor must fail"),
             "segment manifest directory is unavailable"
@@ -3085,7 +2949,7 @@ mod tests {
     #[cfg(feature = "traces")]
     #[tokio::test(flavor = "current_thread")]
     async fn bug_016_traces_survive_an_obsstate_restart_only_after_persist_traces() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let persist_dir = dir.path().to_str().expect("utf8 temp path");
 
         let span = eg_tsdb::traces::Span {
@@ -3149,7 +3013,7 @@ mod tests {
     /// must pass.
     #[tokio::test(flavor = "current_thread")]
     async fn bug_210_segment_manifests_survive_an_obsstate_restart() {
-        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = private_tempdir();
         let persist_dir = dir.path().to_str().expect("utf8 temp path");
 
         {
@@ -3196,6 +3060,63 @@ mod tests {
         assert_eq!(rows.len(), 2);
         let bodies: Vec<&str> = rows.iter().map(|r| r.body.as_str()).collect();
         assert!(bodies.contains(&"one") && bodies.contains(&"two"));
+    }
+
+    /// The served observability state must use the server-selected CAS rather
+    /// than opening a private `{persist_dir}/obs/blob.redb`.  The same selected
+    /// store is supplied after restart so both the manifest index and segment
+    /// bytes remain visible through one authority.
+    #[tokio::test(flavor = "current_thread")]
+    async fn injected_blob_store_is_shared_across_obs_restart() {
+        let dir = private_tempdir();
+        let persist_dir = dir.path().to_str().expect("utf8 temp path");
+        let blob_dir = dir.path().join("selected-blob");
+        let blob_dir_string = blob_dir.to_string_lossy().into_owned();
+        let first_manifest = {
+            let selected: Arc<dyn ChunkStore> =
+                Arc::new(RedbChunkStore::open(&blob_dir_string).expect("open selected blob"));
+            let obs = ObsState::open_with_blob_store(Some(persist_dir), 1, Some(selected.clone()))
+                .await
+                .expect("open injected observability state");
+            let out = obs
+                .ingest(vec![LogRecord {
+                    ts: 10,
+                    stream: "selected".into(),
+                    severity: "INFO".into(),
+                    body: "shared CAS".into(),
+                    attrs: BTreeMap::new(),
+                }])
+                .expect("ingest");
+            assert_eq!(out.segments_flushed, 1);
+            let manifest = obs.segments_for("selected").pop().expect("segment");
+            assert!(selected
+                .get_manifest(&manifest.blob_digest)
+                .expect("selected manifest")
+                .is_some());
+            manifest
+        };
+
+        let selected: Arc<dyn ChunkStore> =
+            Arc::new(RedbChunkStore::open(&blob_dir_string).expect("reopen selected blob"));
+        let reopened = ObsState::open_with_blob_store(Some(persist_dir), 1, Some(selected.clone()))
+            .await
+            .expect("reopen injected observability state");
+        let manifests = reopened.segments_for("selected");
+        assert_eq!(manifests.len(), 1);
+        assert_eq!(manifests[0].blob_digest, first_manifest.blob_digest);
+        let rows = reopened
+            .read_segment(&manifests[0])
+            .expect("read shared segment");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].body, "shared CAS");
+        assert!(selected
+            .get_manifest(&first_manifest.blob_digest)
+            .expect("reopened selected manifest")
+            .is_some());
+        assert!(
+            !dir.path().join("obs/blob/blob.redb").exists(),
+            "injected composition must not create a private observability CAS"
+        );
     }
 
     #[tokio::test]
@@ -3287,19 +3208,49 @@ mod tests {
             String::from_utf8_lossy(&response).to_string()
         }
 
+        let valid_body = r#"{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"body":{"stringValue":"framing-control"}}]}]}]}"#;
+        let framed = |head: &str| {
+            format!(
+                "{head}Content-Length: {}\r\n\r\n{valid_body}",
+                valid_body.len()
+            )
+        };
+        let assert_framing_rejection = |case: &str, response: &str| {
+            assert!(
+                response.starts_with("HTTP/1.1 400 Bad Request\r\n"),
+                "{case} must reject with 400; got {response:?}"
+            );
+            assert_eq!(
+                response.split("\r\n\r\n").nth(1),
+                Some("malformed HTTP request"),
+                "{case} must be rejected by the framing reader; got {response:?}"
+            );
+        };
+
+        let control = raw(
+            addr,
+            &framed("POST /v1/logs HTTP/1.1\r\nHost: x\r\ncontent-type: application/json\r\n"),
+        )
+        .await;
+        assert!(control.starts_with("HTTP/1.1 200 OK\r\n"), "got: {control}");
+        assert_eq!(
+            control.split("\r\n\r\n").nth(1),
+            Some("{\"partialSuccess\":{}}")
+        );
+
         let duplicate = raw(
             addr,
             "POST /v1/logs HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n",
         )
         .await;
-        assert!(duplicate.starts_with("HTTP/1.1 400 Bad Request"));
+        assert_framing_rejection("duplicate content-length", &duplicate);
 
         let chunked = raw(
             addr,
             "POST /v1/logs HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
         )
         .await;
-        assert!(chunked.starts_with("HTTP/1.1 400 Bad Request"));
+        assert_framing_rejection("chunked transfer-encoding", &chunked);
 
         let oversized = raw(
             addr,
@@ -3309,7 +3260,80 @@ mod tests {
             ),
         )
         .await;
-        assert!(oversized.starts_with("HTTP/1.1 400 Bad Request"));
+        assert_framing_rejection("oversized body", &oversized);
+
+        // Every case below is a MUST-reject that the shared `http1` reader owns
+        // for all ten listeners. Each is a known-bad input: none of them may
+        // ever frame, because each is a way for a fronting proxy and this
+        // server to disagree about where one request ends.
+        for (case, request) in [
+            // RFC 7230 3.2.4: whitespace between a field name and its colon.
+            // `name.trim()` would make this `host`, i.e. a second Host header a
+            // proxy never saw.
+            (
+                "space before the colon",
+                framed("POST /v1/logs HTTP/1.1\r\nHost : evil\r\n"),
+            ),
+            // RFC 7230 3.2.4: obs-fold. Trimming the name would re-materialize
+            // a folded continuation as an independent `authorization` header.
+            (
+                "obs-fold continuation",
+                framed(
+                    "POST /v1/logs HTTP/1.1\r\nHost: x\r\nAccept: a\r\n Authorization: Bearer smuggled\r\n",
+                ),
+            ),
+            // A repeated arbitrary name (not just Content-Length) is ambiguous.
+            (
+                "duplicate arbitrary header",
+                framed("POST /v1/logs HTTP/1.1\r\nHost: x\r\nAccept: a\r\nAccept: b\r\n"),
+            ),
+            // RFC 7230 3.1.1: exactly two single spaces, no control bytes.
+            (
+                "tab in the request line",
+                framed("POST /v1/logs\tHTTP/1.1\r\nHost: x\r\n"),
+            ),
+            (
+                "doubled space in the request line",
+                framed("POST  /v1/logs HTTP/1.1\r\nHost: x\r\n"),
+            ),
+            (
+                "leading space in the request line",
+                framed(" POST /v1/logs HTTP/1.1\r\nHost: x\r\n"),
+            ),
+            // A method must be an RFC 7230 token: `{` is not a tchar.
+            (
+                "non-token method",
+                framed("PO{ST /v1/logs HTTP/1.1\r\nHost: x\r\n"),
+            ),
+            // Only HTTP/1.0 and HTTP/1.1 frame.
+            (
+                "unsupported version",
+                framed("POST /v1/logs HTTP/2.0\r\nHost: x\r\n"),
+            ),
+            // Origin-form only.
+            (
+                "absolute-form target",
+                framed("POST http://x/v1/logs HTTP/1.1\r\nHost: x\r\n"),
+            ),
+            // This surface requires a non-empty Host on 1.0 as well as 1.1.
+            (
+                "empty Host on HTTP/1.0",
+                framed("POST /v1/logs HTTP/1.0\r\nHost: \r\n"),
+            ),
+            // The header-count bound.
+            (
+                "too many headers",
+                framed(&format!(
+                    "POST /v1/logs HTTP/1.1\r\nHost: x\r\n{}",
+                    (0..200)
+                        .map(|index| format!("x-pad-{index}: v\r\n"))
+                        .collect::<String>()
+                )),
+            ),
+        ] {
+            let response = raw(addr, &request).await;
+            assert_framing_rejection(case, &response);
+        }
     }
 
     /// The `_search` HTTP surface: a structured search returns ES-shaped hits, and a
@@ -3443,13 +3467,12 @@ mod tests {
         // Contrast case: a read-shaped GET IS correctly denied under a secured
         // deployment -- proves the harness is exercising the real gate, not a
         // vacuous stub.
-        let read_req = HttpRequest {
+        let read_req = HttpMessage {
             method: "GET".to_string(),
             target: "/api/v1/query?query=up".to_string(),
-            content_type: "text/plain".to_string(),
-            body: String::new(),
-            #[cfg(feature = "otel-export")]
-            body_bytes: Vec::new(),
+            version: "HTTP/1.1".to_string(),
+            headers: HashMap::new(),
+            body: Vec::new(),
         };
         let (read_status, _, _) = handle(&obs, Some(&security_state), read_req).await;
         assert_eq!(
@@ -3462,13 +3485,12 @@ mod tests {
         // The actual BUG-037 proof: an ingest POST, same secured deployment, same
         // zero credential -- must ALSO deny, but does not.
         let ingest_body = r#"{"resourceLogs":[]}"#;
-        let ingest_req = HttpRequest {
+        let ingest_req = HttpMessage {
             method: "POST".to_string(),
             target: "/v1/logs".to_string(),
-            content_type: "application/json".to_string(),
-            body: ingest_body.to_string(),
-            #[cfg(feature = "otel-export")]
-            body_bytes: ingest_body.as_bytes().to_vec(),
+            version: "HTTP/1.1".to_string(),
+            headers: HashMap::new(),
+            body: ingest_body.as_bytes().to_vec(),
         };
         let (ingest_status, _, ingest_body_out) =
             handle(&obs, Some(&security_state), ingest_req).await;

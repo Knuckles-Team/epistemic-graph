@@ -1,8 +1,8 @@
-use super::envelope::MutationEnvelope;
+use super::envelope::MutationRequestEnvelope;
 use crate::contract::{Digest256, OpaqueId, RequestedMutationResult};
 use crate::outbox::OutboxIntent;
 
-impl MutationEnvelope {
+impl MutationRequestEnvelope {
     pub fn requested_result(&self) -> &RequestedMutationResult {
         &self.requested_result
     }

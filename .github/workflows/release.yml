@@ -424,6 +424,10 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version-file: '.python-version'
+      - name: Install scanner adapter test dependency
+        run: python -m pip install --disable-pip-version-check --no-input pytest
+      - name: Dupehound adapter contract tests
+        run: python -m pytest -q tests/test_dupehound_census.py
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
@@ -521,6 +525,34 @@ jobs:
         run: python3 scripts/check_duplication.py enforce --base-ref "$CX_DUP_BASE_REF"
       - name: jscpd tracked-tree census (advisory)
         run: python3 scripts/check_duplication.py census
+
+      # Dupehound's changed-source hook is a differential gate.  This second
+      # invocation archives the selected commit, proves a complete tracked
+      # manifest, and records full-tree function-clone clusters as advisory
+      # scanner evidence.  The adapter owns the exact command, exclusions,
+      # immutable-tree proof, and fail-closed report join.
+      - name: Dupehound tracked-tree census (advisory)
+        run: |
+          set -euo pipefail
+          python3 scripts/check_dupehound_census.py \
+            --repository agent-packages/epistemic-graph \
+            --commit HEAD \
+            --profile dupehound-full-tree-v1:epistemic-graph \
+            --raw-output "$RUNNER_TEMP/epistemic-graph-dupehound.raw.json" \
+            --stderr-output "$RUNNER_TEMP/epistemic-graph-dupehound.stderr.txt" \
+            --normalized-output "$RUNNER_TEMP/epistemic-graph-dupehound.scanner-evidence.json" \
+            --manifest-output "$RUNNER_TEMP/epistemic-graph-dupehound.manifest.json"
+      - name: Upload Dupehound census evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: epistemic-graph-dupehound-census-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/epistemic-graph-dupehound.raw.json
+            ${{ runner.temp }}/epistemic-graph-dupehound.stderr.txt
+            ${{ runner.temp }}/epistemic-graph-dupehound.scanner-evidence.json
+            ${{ runner.temp }}/epistemic-graph-dupehound.manifest.json
 
       # CCCC is intentionally invoked over an explicit tracked-file list.  A
       # directory walk would include an untracked build artifact and would not

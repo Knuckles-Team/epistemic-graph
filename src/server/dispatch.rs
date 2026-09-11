@@ -392,17 +392,43 @@ pub(crate) use consensus::{
     apply_replicated_job_publication_commit, apply_replicated_job_publication_finalize,
 };
 #[cfg(feature = "raft")]
+pub(crate) async fn propose_native_mutation(
+    state: &Arc<RwLock<ServerState>>,
+    request_graph: &str,
+    request_id: u64,
+    verified_context: &VerifiedRequestContext,
+    identity_bootstrap: bool,
+    method: Method,
+) -> Response {
+    consensus::propose_native_mutation(
+        state,
+        request_graph,
+        request_id,
+        verified_context,
+        identity_bootstrap,
+        method,
+    )
+    .await
+}
+
+#[cfg(feature = "raft")]
 pub(crate) use consensus::{
     apply_replicated_native, apply_replicated_transaction_decision,
     apply_replicated_transaction_finalize, apply_replicated_transaction_participant,
     apply_replicated_transaction_prepare, ReplicatedParticipantRef,
 };
-pub(crate) use consensus::{
-    authoritative_now_ms, authoritative_now_secs, is_replicated_apply,
-    replicated_placement_authority,
-};
+pub(crate) use consensus::{authoritative_now_ms, authoritative_now_secs};
+#[cfg(feature = "raft")]
+pub(crate) use consensus::{is_replicated_apply, replicated_placement_authority};
 pub use request_boundary::dispatch;
-pub(crate) use request_boundary::{
-    dispatch_authenticated_broker_actor, dispatch_authenticated_local_query,
-    dispatch_verified_request,
-};
+#[cfg(any(
+    feature = "amqp-wire",
+    feature = "mqtt-wire",
+    feature = "stomp-wire",
+    feature = "mssql-wire",
+    feature = "redis-wire",
+))]
+pub(crate) use request_boundary::dispatch_authenticated_broker_actor;
+#[cfg(any(feature = "federation-search", feature = "nl-query"))]
+pub(crate) use request_boundary::dispatch_authenticated_local_query;
+pub(crate) use request_boundary::dispatch_verified_request;

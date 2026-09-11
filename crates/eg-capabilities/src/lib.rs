@@ -34,10 +34,13 @@
 //! turned on -- see `Cargo.toml` for why). It is not a dependency of the main
 //! `epistemic-graph` package's default build; see the root `Cargo.toml`'s `members` comment.
 
+pub mod catalog;
 #[cfg(feature = "contract-schema")]
 pub mod contract;
 mod descriptor;
 mod domains;
+
+pub use catalog::{method_schema, CONTRACT_CATALOG_DIGEST, METHOD_CATALOG};
 
 pub use descriptor::{
     error_set_for, format_identities_for, replay_class_for, ConsumerProfile, MethodDescriptor,
@@ -46,6 +49,99 @@ pub use descriptor::{
 };
 
 use eg_types::protocol::{CypherMode, Method};
+
+fn agent_library_policy(op: &eg_types::agent_library::AgentLibraryOp) -> MethodPolicy {
+    let mutates = matches!(
+        op,
+        eg_types::agent_library::AgentLibraryOp::Publish { .. }
+            | eg_types::agent_library::AgentLibraryOp::Retire { .. }
+    );
+    MethodPolicy {
+        mutates,
+        durability_domain: if mutates {
+            DurabilityDomain::ControlRedb
+        } else {
+            DurabilityDomain::None
+        },
+        authz_action: if mutates {
+            "agent:library-write"
+        } else {
+            "agent:library-read"
+        },
+        idempotent: true,
+        // Agent Library is a native ControlRedb owner. Its typed revision,
+        // action-provenance, replay, and outbox rows are its RF-020 audit and
+        // projection authority; the generic graph audit/CdcHub classifiers do
+        // not apply to this self-routing native surface.
+        audited: false,
+        emits_cdc: false,
+        txn_participation: if mutates {
+            TxnParticipation::Atomic
+        } else {
+            TxnParticipation::Snapshot
+        },
+    }
+}
+
+/// An agent graph is published into the SAME ControlRedb owner as an agent
+/// entry, so it takes the same policy shape. The one thing it does not share is
+/// the authz action: composing agents into a runnable graph is a distinct
+/// privilege from publishing one agent, and collapsing them would mean anyone
+/// who can publish an agent can also wire arbitrary agents together.
+fn agent_graph_policy(op: &eg_types::agent_graph::AgentGraphOp) -> MethodPolicy {
+    let mutates = op.is_mutation();
+    MethodPolicy {
+        mutates,
+        durability_domain: if mutates {
+            DurabilityDomain::ControlRedb
+        } else {
+            DurabilityDomain::None
+        },
+        authz_action: if mutates {
+            "agent:graph-write"
+        } else {
+            "agent:graph-read"
+        },
+        idempotent: true,
+        audited: false,
+        emits_cdc: false,
+        txn_participation: if mutates {
+            TxnParticipation::Atomic
+        } else {
+            TxnParticipation::Snapshot
+        },
+    }
+}
+
+/// Components take the same shape as the two layers above them, with their own
+/// authz action: curating what agents may be BUILT from is a distinct privilege
+/// from assembling an agent out of already-approved parts. Collapsing them
+/// would mean anyone who can publish an agent can also introduce a new
+/// side-effecting tool for it to use.
+fn agent_component_policy(op: &eg_types::agent_component::AgentComponentOp) -> MethodPolicy {
+    let mutates = op.is_mutation();
+    MethodPolicy {
+        mutates,
+        durability_domain: if mutates {
+            DurabilityDomain::ControlRedb
+        } else {
+            DurabilityDomain::None
+        },
+        authz_action: if mutates {
+            "agent:component-write"
+        } else {
+            "agent:component-read"
+        },
+        idempotent: true,
+        audited: false,
+        emits_cdc: false,
+        txn_participation: if mutates {
+            TxnParticipation::Atomic
+        } else {
+            TxnParticipation::Snapshot
+        },
+    }
+}
 
 /// Where (if anywhere) a mutation's effect survives a process/host crash.
 ///
@@ -292,6 +388,15 @@ fn served_modality_policy(op: &eg_types::modality::ServedModalityOp) -> MethodPo
 fn policy_for_method(method: &Method) -> MethodPolicy {
     if let Method::CypherQuery { mode, .. } = method {
         return cypher_policy(mode);
+    }
+    if let Method::AgentLibrary { op } = method {
+        return agent_library_policy(op);
+    }
+    if let Method::AgentGraph { op } = method {
+        return agent_graph_policy(op);
+    }
+    if let Method::AgentComponent { op } = method {
+        return agent_component_policy(op);
     }
     #[cfg(feature = "modality-serving")]
     if let Method::ServedModality { op } = method {

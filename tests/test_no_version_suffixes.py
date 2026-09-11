@@ -93,18 +93,6 @@ FALSE_POSITIVE_LINE_PATTERNS: list[tuple[re.Pattern, str]] = [
         re.compile(r"tests/fixtures/[a-z_]+_v[0-9]+\.json|method_policy_registry_v1"),
         "test fixture FILENAME, not a persisted table",
     ),
-    # -- Held back from the RF-ADR-006 rename, deliberately and visibly. -----
-    # KnowledgeStreamProjection::ArrowIpcV1 derives its serde tag from the
-    # variant name (`#[serde(rename_all = "snake_case")]`), so stripping the
-    # suffix rewrites the wire string `arrow_ipc_v1` that epistemic_graph/
-    # client.py, three Python client tests, contract/schemas/* and four docs
-    # all mirror. That is a wire-contract change, not a rename, and it needs a
-    # coordinated decision this guard must not pre-empt or hide.
-    (
-        re.compile(r"ArrowIpcV1|arrow_ipc_v1"),
-        "OPEN RF-ADR-006 follow-up: the one V-suffixed enum variant, whose serde tag is the wire "
-        "contract -- renaming it is a wire change, tracked, not silently exempt",
-    ),
 ]
 
 
@@ -238,7 +226,6 @@ class NoVersionSuffixesTest(unittest.TestCase):
             '    "mutation_store_root_v3",',
             '        self.maintain("blob_sweep_v1", batch)?;',
             "        let want_v2 = hierarchy == \"0\";",
-            '    projection: Literal["arrow_ipc_v1"]',
         ):
             self.assertIsNotNone(_is_excused(line), f"expected an excuse pattern to fire for: {line!r}")
 

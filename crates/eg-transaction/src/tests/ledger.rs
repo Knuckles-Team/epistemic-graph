@@ -98,6 +98,44 @@ fn missing_private_integrity_authority_fails_closed() {
 }
 
 #[test]
+fn committed_saga_fresh_replay_consumes_nonce_and_rejects_reuse() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity = native_identity("tenant-a", "incarnation:saga-replay");
+    let fixture = Fixture::create::<LedgerOnlyOwner>(
+        &dir.path().join("native.redb"),
+        "physical:test:ledger-only",
+        Some(Arc::new(TestIntegrity)),
+    );
+    let owner = fixture.bind::<LedgerOnlyOwner>(
+        &verifier("tenant-a", OwnerLayout::LedgerOnly),
+        identity,
+    );
+    let (batch, sealed) = recovery_batch(owner.identity().clone(), "committed-saga-replay");
+    assert!(matches!(
+        fixture
+            .mutations
+            .saga_step(&owner, &batch, 2, Some(&sealed))
+            .unwrap(),
+        crate::SagaBegin::Execute
+    ));
+    fixture
+        .mutations
+        .saga_end(&owner, &batch, b"saga-result".to_vec(), 3)
+        .unwrap();
+
+    let retry = retry_of(&batch);
+    assert!(matches!(
+        fixture.mutations.saga_step(&owner, &retry, 4, None).unwrap(),
+        crate::SagaBegin::Committed(_)
+    ));
+    let consumed = fixture
+        .mutations
+        .saga_step(&owner, &retry, 5, None)
+        .expect_err("a committed saga replay nonce cannot be reused");
+    assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
+}
+
+#[test]
 fn authenticated_binding_rejects_cross_tenant_and_different_actor() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("strict.redb");
@@ -112,7 +150,15 @@ fn authenticated_binding_rejects_cross_tenant_and_different_actor() {
     let identity = native_identity("tenant-a", "incarnation:blob:a");
     let owner = fixture.bind::<BlobOwner>(&verifier, identity.clone());
     let mut wrong_actor = batch(identity, "wrong-actor");
-    wrong_actor.context.principal = format!("principal:sha256:{}", "b".repeat(64));
+    // The principal the committing ledger requires is the envelope's, so a
+    // batch naming another owner is refused by `owner_rows` -- exactly as it
+    // was when the value lived in the deleted `context.principal`.
+    let eg_types::mutation_batch::MutationEnvelope::Operation(envelope) =
+        &mut wrong_actor.envelope
+    else {
+        panic!("a fixture operation batch has an operation envelope");
+    };
+    envelope.serving_principal = format!("principal:sha256:{}", "b".repeat(64));
     let (write, begun) = fixture.mutations.admit(&owner, &wrong_actor).unwrap();
     assert!(matches!(begun, Begin::Apply { .. }));
     assert!(write.owner_rows(&owner, &wrong_actor).is_err());
@@ -184,7 +230,13 @@ fn strict_owner_preserves_sequential_batches_occ_and_replay() {
         2
     );
 
-    let (replay, begun) = fixture.mutations.admit(&owner, &first).unwrap();
+    // A retry is a FRESH attempt over the unchanged stable identity, which is
+    // what a producer compiles; re-submitting the byte-identical batch value
+    // would be a duplicated attempt, and the kernel refuses that by name.
+    let (replay, begun) = fixture
+        .mutations
+        .admit(&owner, &retry_of(&first))
+        .unwrap();
     assert!(matches!(begun, Begin::Replay(_)));
     replay.abort().unwrap();
 }
@@ -222,6 +274,9 @@ fn staged_adoption_reanchors_only_root_and_bindings() {
         payload: b"preserved".to_vec(),
         headers: Default::default(),
     });
+    committed_batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .expect("the staged-adoption fixture reseals its final outbox");
     let owner_scope = eg_storage::ledger_scope_key(&identity);
     let (write, begun) = fixture.mutations.admit(&owner, &committed_batch).unwrap();
     let source_version = match begun {

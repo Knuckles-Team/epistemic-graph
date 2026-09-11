@@ -235,7 +235,7 @@ struct SpillIoHooks {
 /// the collector can enqueue another resident batch. Dropping the handle closes
 /// the channel; the worker then closes and removes its file before exiting.
 struct SpillWorker {
-    commands: Option<std::sync::mpsc::Sender<SpillCommand>>,
+    commands: Option<std::sync::mpsc::SyncSender<SpillCommand>>,
     worker: Option<tokio::task::JoinHandle<Result<Vec<arrow::record_batch::RecordBatch>, String>>>,
 }
 
@@ -245,7 +245,7 @@ impl SpillWorker {
     }
 
     fn start_with_hooks(schema: SchemaRef, hooks: Option<Arc<SpillIoHooks>>) -> Self {
-        let (commands, receiver) = std::sync::mpsc::channel();
+        let (commands, receiver) = std::sync::mpsc::sync_channel(1);
         let worker = tokio::task::spawn_blocking(move || run_spill_worker(schema, receiver, hooks));
         Self {
             commands: Some(commands),

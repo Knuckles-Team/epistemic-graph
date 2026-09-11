@@ -62,7 +62,6 @@ pub(super) fn instance_batch(
     // batch naming another. Per-instance attribution is not lost: `actor` is a
     // field of the persisted instance image, and its server-hashed form travels
     // on the outbox row below.
-    let principal = owner.principal().to_string();
     let actor_digest = format!(
         "principal:sha256:{}",
         hex::encode(Sha256::digest(instance.actor.as_bytes()))
@@ -77,25 +76,23 @@ pub(super) fn instance_batch(
             query: format!("sha256:{digest}"),
         },
     };
-    let batch = MutationBatch {
+    let mut batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch_id.clone(),
-        context: MutationRequestContext {
-            request_id: 0,
-            principal,
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // No admission boundary verifies a capability for this internal,
-            // firing-transition mutation -- it is a plain `Native`-versioned
-            // mutation, not the reserved-system `Unversioned` path, so it
-            // legitimately needs none. Empty is the true fact here, not a
-            // default standing in for an unknown value.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
+        // A firing transition HAS a caller -- the instance's own actor -- so it
+        // is an OPERATION envelope. `actor` is that caller's fingerprint and
+        // `serving_principal` is the one the storage kernel authenticated this
+        // store's scope for; the two were the single overloaded
+        // `context.principal` before, which is why per-instance attribution
+        // could only survive on the outbox row.
+        envelope: operation_envelope(
+            owner,
+            &actor_digest,
+            &batch_id,
+            "statechart_instance_transition",
+        )?,
         identity: owner.identity().clone(),
         placement_epoch: 0,
-        idempotency_key: batch_id.clone(),
         // The scope's live authoritative version, supplied by the caller (see
         // this function's callers, which all read it via
         // `StatechartStore::mutation_version` before admitting the write) --
@@ -115,6 +112,9 @@ pub(super) fn instance_batch(
         }],
         created_at_ms: instance.updated_at_ms.max(0) as u64,
     };
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+        .map_err(codec_err)?;
     batch.validate().map_err(codec_err)?;
     Ok(batch)
 }
@@ -129,6 +129,42 @@ pub(super) fn instance_batch(
 /// idempotency key IS the content address, so storing a byte-identical chart
 /// twice replays instead of rewriting, which is exactly `define`'s documented
 /// contract.
+/// The operation envelope for one caller-identified statechart write.
+///
+/// `actor` is the instance's own actor, fingerprinted; `serving_principal` is
+/// the principal the storage kernel authenticated this store's scope for. The
+/// attempt nonce is server-minted, because a nonce is the ATTEMPT identity and
+/// a caller-supplied one would let a caller make its own retry undeliverable;
+/// the caller's stable retry identity is `batch_id`, which is this write's
+/// content address.
+fn operation_envelope(
+    owner: &OwnedStoreHandle<StatechartOwner>,
+    actor: &str,
+    batch_id: &str,
+    method: &str,
+) -> Result<MutationEnvelope> {
+    let method = eg_types::contract::MethodId::new(method).map_err(codec_err)?;
+    MutationEnvelope::for_scope(
+        eg_types::mutation_batch::CompiledScope {
+            identity: owner.identity(),
+            actor,
+            serving_principal: owner.principal(),
+            request_id: 0,
+            idempotency_key: batch_id,
+            nonce: eg_types::contract::Nonce::minted(),
+            now_ms: 0,
+        },
+        eg_types::mutation_batch::CompiledOperation {
+            method_schema_id: eg_types::mutation_batch::method_schema_id(&method)
+                .map_err(codec_err)?,
+            method,
+            method_schema_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
+            canonical_payload_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
+        },
+    )
+    .map_err(codec_err)
+}
+
 pub(super) fn definition_batch(
     def_id: &str,
     identity: &MutationScopeIdentity,
@@ -145,23 +181,21 @@ pub(super) fn definition_batch(
             query: def_id.to_string(),
         },
     };
-    let batch = MutationBatch {
+    let mut batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch_id.clone(),
-        context: MutationRequestContext {
-            request_id: 0,
-            principal: principal.to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // A maintenance mutation claims no capability: it is a plain
-            // `Native`-versioned write, not the reserved-system `Unversioned`
-            // path. Empty is the true fact here, not a placeholder.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
+        // See this function's own doc comment: a definition write is
+        // content-addressed and identical whoever stores it, so it carries no
+        // caller identity and is a MAINTENANCE envelope.
+        envelope: MutationEnvelope::maintenance(
+            principal,
+            "statechart_definition_store",
+            def_id,
+            &batch_id,
+        )
+        .map_err(codec_err)?,
         identity: identity.clone(),
         placement_epoch: 0,
-        idempotency_key: batch_id.clone(),
         version_expectation: VersionExpectation::Native(expected_version),
         fencing_token: None,
         authoritative_state: None,
@@ -174,6 +208,9 @@ pub(super) fn definition_batch(
         }],
         created_at_ms: 0,
     };
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+        .map_err(codec_err)?;
     batch.validate().map_err(codec_err)?;
     Ok(batch)
 }
@@ -208,7 +245,6 @@ pub(super) fn creation_batch(
     use sha2::{Digest, Sha256};
     // See `instance_batch`: the batch actor is this store's bound serving
     // principal; the instance's own actor travels server-hashed on the outbox.
-    let principal = owner.principal().to_string();
     let actor_digest = format!(
         "principal:sha256:{}",
         hex::encode(Sha256::digest(instance.actor.as_bytes()))
@@ -223,25 +259,19 @@ pub(super) fn creation_batch(
             query: batch_id.clone(),
         },
     };
-    let batch = MutationBatch {
+    let mut batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch_id.clone(),
-        context: MutationRequestContext {
-            request_id: 0,
-            principal,
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // No admission boundary verifies a capability for this internal
-            // creation mutation -- it is a plain `Native`-versioned mutation,
-            // not the reserved-system `Unversioned` path, so it legitimately
-            // needs none. Empty is the true fact here, not a default standing
-            // in for an unknown value.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
+        // See `instance_batch`: creation has the instance's own actor as its
+        // caller, so it is an OPERATION envelope keyed on that actor.
+        envelope: operation_envelope(
+            owner,
+            &actor_digest,
+            &batch_id,
+            "statechart_instance_create",
+        )?,
         identity: owner.identity().clone(),
         placement_epoch: 0,
-        idempotency_key: batch_id.clone(),
         // The scope's live authoritative version, supplied by the caller -- see
         // `instance_batch`'s identical note just above.
         version_expectation: VersionExpectation::Native(expected_version),
@@ -256,6 +286,9 @@ pub(super) fn creation_batch(
         }],
         created_at_ms: instance.updated_at_ms.max(0) as u64,
     };
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+        .map_err(codec_err)?;
     batch.validate().map_err(codec_err)?;
     Ok(batch)
 }

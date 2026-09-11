@@ -934,6 +934,17 @@ impl HalfOpen {
     }
 }
 
+/// A range literal's position-specific delimiter: `[`/`(` open the lower bound,
+/// while `]`/`)` close the upper bound. Anything else means the text is not a
+/// range literal at all.
+fn bound_inclusive(delimiter: u8, is_lower: bool) -> Option<bool> {
+    match (is_lower, delimiter) {
+        (true, b'[') | (false, b']') => Some(true),
+        (true, b'(') | (false, b')') => Some(false),
+        _ => None,
+    }
+}
+
 /// Parse a Postgres range text form (`[1,5)`, `(0,10]`, `[10,)`, `empty`) into the
 /// discrete half-open interval (CONCEPT:EG-KG.query.greatest-least-int4range-tsrange). `None` when the text isn't a range —
 /// the predicate UDFs then yield NULL (the "never error" discipline). Bounds are parsed
@@ -947,16 +958,8 @@ fn parse_range(s: &str) -> Option<HalfOpen> {
     if bytes.len() < 3 {
         return None;
     }
-    let lo_inc = match bytes[0] {
-        b'[' => true,
-        b'(' => false,
-        _ => return None,
-    };
-    let hi_inc = match bytes[bytes.len() - 1] {
-        b']' => true,
-        b')' => false,
-        _ => return None,
-    };
+    let lo_inc = bound_inclusive(bytes[0], true)?;
+    let hi_inc = bound_inclusive(bytes[bytes.len() - 1], false)?;
     let inner = &t[1..t.len() - 1];
     let (lo_str, hi_str) = inner.split_once(',')?;
     let parse_bound = |b: &str| -> Option<Option<i64>> {

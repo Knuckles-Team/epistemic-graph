@@ -213,6 +213,17 @@ struct Subscription {
     ack: AckMode,
 }
 
+/// Immutable dispatch context shared by the frame phases of one connection.
+/// Protocol state that changes while a frame is handled remains in the explicit
+/// actor/subscription arguments below; this context only carries the fixed engine
+/// boundary selected when the listener accepted the connection.
+struct ConnectionContext<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    graph: &'a str,
+    exchange: &'a str,
+    auth_secret: &'a str,
+}
+
 async fn handle_connection(
     socket: &mut TcpStream,
     state: Arc<RwLock<ServerState>>,
@@ -226,38 +237,26 @@ async fn handle_connection(
     // ack-id → (queue, graph node id) for native broker acknowledgement.
     let mut unacked: std::collections::HashMap<String, (String, String)> =
         std::collections::HashMap::new();
+    let context = ConnectionContext {
+        state: &state,
+        graph: &graph,
+        exchange: &exchange,
+        auth_secret: &auth_secret,
+    };
 
     loop {
-        // Drain every complete frame already buffered before reading more.
-        // Keep an offset and compact once: draining after every pipelined frame
-        // repeatedly memmoves the entire tail and creates quadratic CPU work.
-        let mut consumed_total = 0usize;
-        while let Some(nul_relative) = buf[consumed_total..].iter().position(|byte| *byte == 0) {
-            let nul = consumed_total + nul_relative;
-            validate_stomp_frame_bounds(&buf[consumed_total..=nul]).map_err(invalid_data)?;
-            let (frame, consumed) = Frame::parse(&buf[consumed_total..])
-                .ok_or_else(|| invalid_data("invalid STOMP frame"))?;
-            consumed_total = consumed_total
-                .checked_add(consumed)
-                .ok_or_else(|| invalid_data("invalid STOMP frame"))?;
-            let action = handle_frame(
-                socket,
-                &state,
-                &graph,
-                &exchange,
-                &frame,
-                &auth_secret,
-                &mut authenticated_actor,
-                &mut subs,
-                &mut unacked,
-            )
-            .await?;
-            if action == FrameAction::Close {
-                return Ok(());
-            }
-        }
-        if consumed_total > 0 {
-            buf.drain(..consumed_total);
+        if drain_buffered_frames(
+            socket,
+            &context,
+            &mut buf,
+            &mut authenticated_actor,
+            &mut subs,
+            &mut unacked,
+        )
+        .await?
+            == FrameAction::Close
+        {
+            return Ok(());
         }
 
         // Need more bytes. With active subscriptions, bound the read so the pump runs.
@@ -273,7 +272,15 @@ async fn handle_connection(
                     let actor = authenticated_actor
                         .as_deref()
                         .ok_or_else(|| invalid_data("STOMP authentication required"))?;
-                    pump_subscriptions(socket, &state, &graph, actor, &subs, &mut unacked).await?;
+                    pump_subscriptions(
+                        socket,
+                        context.state,
+                        context.graph,
+                        actor,
+                        &subs,
+                        &mut unacked,
+                    )
+                    .await?;
                     continue;
                 }
             }
@@ -292,6 +299,37 @@ async fn handle_connection(
     Ok(())
 }
 
+/// Drain complete frames already buffered before reading more bytes. Keep one
+/// compaction per batch so pipelined frames do not repeatedly move the tail.
+async fn drain_buffered_frames(
+    socket: &mut TcpStream,
+    context: &ConnectionContext<'_>,
+    buf: &mut Vec<u8>,
+    authenticated_actor: &mut Option<String>,
+    subs: &mut Vec<Subscription>,
+    unacked: &mut std::collections::HashMap<String, (String, String)>,
+) -> std::io::Result<FrameAction> {
+    let mut consumed_total = 0usize;
+    while let Some(nul_relative) = buf[consumed_total..].iter().position(|byte| *byte == 0) {
+        let nul = consumed_total + nul_relative;
+        validate_stomp_frame_bounds(&buf[consumed_total..=nul]).map_err(invalid_data)?;
+        let (frame, consumed) = Frame::parse(&buf[consumed_total..])
+            .ok_or_else(|| invalid_data("invalid STOMP frame"))?;
+        consumed_total = consumed_total
+            .checked_add(consumed)
+            .ok_or_else(|| invalid_data("invalid STOMP frame"))?;
+        if handle_frame(socket, context, &frame, authenticated_actor, subs, unacked).await?
+            == FrameAction::Close
+        {
+            return Ok(FrameAction::Close);
+        }
+    }
+    if consumed_total > 0 {
+        buf.drain(..consumed_total);
+    }
+    Ok(FrameAction::Continue)
+}
+
 /// Whether the connection should continue or close after a frame.
 #[derive(PartialEq, Eq)]
 enum FrameAction {
@@ -299,14 +337,10 @@ enum FrameAction {
     Close,
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn handle_frame(
     socket: &mut TcpStream,
-    state: &Arc<RwLock<ServerState>>,
-    graph: &str,
-    exchange: &str,
+    context: &ConnectionContext<'_>,
     frame: &Frame,
-    auth_secret: &str,
     authenticated_actor: &mut Option<String>,
     subs: &mut Vec<Subscription>,
     unacked: &mut std::collections::HashMap<String, (String, String)>,
@@ -315,114 +349,68 @@ async fn handle_frame(
         return Err(invalid_data("STOMP command received before CONNECT"));
     }
     if matches!(frame.command.as_str(), "CONNECT" | "STOMP") {
-        if authenticated_actor.is_some() {
-            return Err(invalid_data("duplicate STOMP CONNECT"));
-        }
-        let principal = required_header(frame, "login")?;
-        let passcode = required_header(frame, "passcode")?;
-        if !verify_stomp_passcode(auth_secret, &principal, &passcode) {
-            return Err(invalid_data("STOMP authentication failed"));
-        }
-        let actor = crate::server::pseudonymous_broker_actor(auth_secret, &principal)?;
-        StompBroker::new(state, graph, &actor)
-            .dispatch(crate::protocol::Method::DeclareExchange {
-                exchange: exchange.to_string(),
-                kind: "direct".to_string(),
-            })
-            .await;
-        *authenticated_actor = Some(actor);
-        let session = format!("stomp-{}", next_req_id());
-        let connected_frame = Frame::new(
-            "CONNECTED",
-            vec![
-                ("version".into(), "1.2".into()),
-                ("server".into(), "epistemic-graph".into()),
-                ("session".into(), session),
-                ("heart-beat".into(), "0,0".into()),
-            ],
-            Vec::new(),
-        );
-        write_frame(socket, &connected_frame).await?;
-        return Ok(FrameAction::Continue);
+        return handle_connect(socket, context, frame, authenticated_actor).await;
     }
     let actor = authenticated_actor
         .as_deref()
         .ok_or_else(|| invalid_data("STOMP authentication required"))?;
+    handle_authenticated_command(socket, context, frame, actor, subs, unacked).await
+}
+
+async fn handle_connect(
+    socket: &mut TcpStream,
+    context: &ConnectionContext<'_>,
+    frame: &Frame,
+    authenticated_actor: &mut Option<String>,
+) -> std::io::Result<FrameAction> {
+    if authenticated_actor.is_some() {
+        return Err(invalid_data("duplicate STOMP CONNECT"));
+    }
+    let principal = required_header(frame, "login")?;
+    let passcode = required_header(frame, "passcode")?;
+    if !verify_stomp_passcode(context.auth_secret, &principal, &passcode) {
+        return Err(invalid_data("STOMP authentication failed"));
+    }
+    let actor = crate::server::pseudonymous_broker_actor(context.auth_secret, &principal)?;
+    StompBroker::new(context.state, context.graph, &actor)
+        .dispatch(crate::protocol::Method::DeclareExchange {
+            exchange: context.exchange.to_string(),
+            kind: "direct".to_string(),
+        })
+        .await;
+    *authenticated_actor = Some(actor);
+    let session = format!("stomp-{}", next_req_id());
+    let connected_frame = Frame::new(
+        "CONNECTED",
+        vec![
+            ("version".into(), "1.2".into()),
+            ("server".into(), "epistemic-graph".into()),
+            ("session".into(), session),
+            ("heart-beat".into(), "0,0".into()),
+        ],
+        Vec::new(),
+    );
+    write_frame(socket, &connected_frame).await?;
+    Ok(FrameAction::Continue)
+}
+
+async fn handle_authenticated_command(
+    socket: &mut TcpStream,
+    context: &ConnectionContext<'_>,
+    frame: &Frame,
+    actor: &str,
+    subs: &mut Vec<Subscription>,
+    unacked: &mut std::collections::HashMap<String, (String, String)>,
+) -> std::io::Result<FrameAction> {
     if frame.header("transaction").is_some() {
         return Err(invalid_data("STOMP transactions are unsupported"));
     }
-    let broker = StompBroker::new(state, graph, actor);
     match frame.command.as_str() {
-        "SEND" => {
-            let destination = required_header(frame, "destination")?;
-            broker
-                .dispatch(crate::protocol::Method::Publish {
-                    exchange: exchange.to_string(),
-                    routing_key: destination.clone(),
-                    payload: frame.body.clone(),
-                })
-                .await;
-            maybe_receipt(socket, frame).await?;
-        }
-        "SUBSCRIBE" => {
-            if subs.len() >= MAX_STOMP_SUBSCRIPTIONS {
-                return Err(invalid_data("STOMP subscription limit exceeded"));
-            }
-            let sub_id = required_header(frame, "id")?;
-            if subs.iter().any(|subscription| subscription.id == sub_id) {
-                return Err(invalid_data("duplicate STOMP subscription id"));
-            }
-            let destination = required_header(frame, "destination")?;
-            let ack_header = frame.header("ack").unwrap_or_default();
-            let ack = AckMode::parse(&ack_header)
-                .ok_or_else(|| invalid_data("invalid STOMP acknowledgement mode"))?;
-            let queue = format!("stomp.{}", next_req_id());
-            // Bind the per-subscription queue to the destination (exact match).
-            broker
-                .dispatch(crate::protocol::Method::BindQueue {
-                    exchange: exchange.to_string(),
-                    queue: queue.clone(),
-                    routing_key: destination.clone(),
-                })
-                .await;
-            subs.push(Subscription {
-                id: sub_id,
-                destination,
-                queue,
-                consumer_id: format!("{actor}:{}", next_req_id()),
-                ack,
-            });
-            maybe_receipt(socket, frame).await?;
-        }
-        "UNSUBSCRIBE" => {
-            let sub_id = required_header(frame, "id")?;
-            if let Some(pos) = subs.iter().position(|s| s.id == sub_id) {
-                let s = subs.remove(pos);
-                broker
-                    .dispatch(crate::protocol::Method::UnbindQueue {
-                        exchange: exchange.to_string(),
-                        queue: s.queue.clone(),
-                        routing_key: s.destination.clone(),
-                    })
-                    .await;
-            }
-            maybe_receipt(socket, frame).await?;
-        }
-        "ACK" => {
-            // STOMP 1.2 ACK carries the message's `ack` id in the `id` header.
-            let ack_id = required_header(frame, "id")?;
-            if let Some((queue, node_id)) = unacked.remove(&ack_id) {
-                broker_wire::ack_message(state, graph, actor, next_req_id, &queue, &node_id).await;
-            }
-            maybe_receipt(socket, frame).await?;
-        }
-        "NACK" => {
-            let ack_id = required_header(frame, "id")?;
-            if let Some((queue, node_id)) = unacked.remove(&ack_id) {
-                requeue_message(state, graph, actor, &queue, &node_id).await;
-            }
-            maybe_receipt(socket, frame).await?;
-        }
+        "SEND" => handle_send(socket, context, actor, frame).await?,
+        "SUBSCRIBE" => handle_subscribe(socket, context, actor, frame, subs).await?,
+        "UNSUBSCRIBE" => handle_unsubscribe(socket, context, actor, frame, subs).await?,
+        "ACK" => handle_ack(socket, context, actor, frame, unacked).await?,
+        "NACK" => handle_nack(socket, context, actor, frame, unacked).await?,
         // Never acknowledge transaction semantics that this protocol surface
         // cannot actually provide; doing so would invite callers to assume writes
         // are isolated when they are not.
@@ -438,6 +426,118 @@ async fn handle_frame(
         }
     }
     Ok(FrameAction::Continue)
+}
+
+async fn handle_send(
+    socket: &mut TcpStream,
+    context: &ConnectionContext<'_>,
+    actor: &str,
+    frame: &Frame,
+) -> std::io::Result<()> {
+    let destination = required_header(frame, "destination")?;
+    StompBroker::new(context.state, context.graph, actor)
+        .dispatch(crate::protocol::Method::Publish {
+            exchange: context.exchange.to_string(),
+            routing_key: destination,
+            payload: frame.body.clone(),
+        })
+        .await;
+    maybe_receipt(socket, frame).await
+}
+
+async fn handle_subscribe(
+    socket: &mut TcpStream,
+    context: &ConnectionContext<'_>,
+    actor: &str,
+    frame: &Frame,
+    subs: &mut Vec<Subscription>,
+) -> std::io::Result<()> {
+    if subs.len() >= MAX_STOMP_SUBSCRIPTIONS {
+        return Err(invalid_data("STOMP subscription limit exceeded"));
+    }
+    let sub_id = required_header(frame, "id")?;
+    if subs.iter().any(|subscription| subscription.id == sub_id) {
+        return Err(invalid_data("duplicate STOMP subscription id"));
+    }
+    let destination = required_header(frame, "destination")?;
+    let ack_header = frame.header("ack").unwrap_or_default();
+    let ack = AckMode::parse(&ack_header)
+        .ok_or_else(|| invalid_data("invalid STOMP acknowledgement mode"))?;
+    let queue = format!("stomp.{}", next_req_id());
+    // Bind the per-subscription queue to the destination (exact match).
+    StompBroker::new(context.state, context.graph, actor)
+        .dispatch(crate::protocol::Method::BindQueue {
+            exchange: context.exchange.to_string(),
+            queue: queue.clone(),
+            routing_key: destination.clone(),
+        })
+        .await;
+    subs.push(Subscription {
+        id: sub_id,
+        destination,
+        queue,
+        consumer_id: format!("{actor}:{}", next_req_id()),
+        ack,
+    });
+    maybe_receipt(socket, frame).await
+}
+
+async fn handle_unsubscribe(
+    socket: &mut TcpStream,
+    context: &ConnectionContext<'_>,
+    actor: &str,
+    frame: &Frame,
+    subs: &mut Vec<Subscription>,
+) -> std::io::Result<()> {
+    let sub_id = required_header(frame, "id")?;
+    if let Some(pos) = subs.iter().position(|s| s.id == sub_id) {
+        let s = subs.remove(pos);
+        StompBroker::new(context.state, context.graph, actor)
+            .dispatch(crate::protocol::Method::UnbindQueue {
+                exchange: context.exchange.to_string(),
+                queue: s.queue.clone(),
+                routing_key: s.destination.clone(),
+            })
+            .await;
+    }
+    maybe_receipt(socket, frame).await
+}
+
+async fn handle_ack(
+    socket: &mut TcpStream,
+    context: &ConnectionContext<'_>,
+    actor: &str,
+    frame: &Frame,
+    unacked: &mut std::collections::HashMap<String, (String, String)>,
+) -> std::io::Result<()> {
+    // STOMP 1.2 ACK carries the message's `ack` id in the `id` header.
+    let ack_id = required_header(frame, "id")?;
+    if let Some((queue, node_id)) = unacked.remove(&ack_id) {
+        broker_wire::ack_message(
+            context.state,
+            context.graph,
+            actor,
+            next_req_id,
+            &queue,
+            &node_id,
+        )
+        .await;
+    }
+    maybe_receipt(socket, frame).await
+}
+
+async fn handle_nack(
+    socket: &mut TcpStream,
+    context: &ConnectionContext<'_>,
+    actor: &str,
+    frame: &Frame,
+    unacked: &mut std::collections::HashMap<String, (String, String)>,
+) -> std::io::Result<()> {
+    let ack_id = required_header(frame, "id")?;
+    if let Some((queue, node_id)) = unacked.remove(&ack_id) {
+        requeue_message(context.state, context.graph, actor, &queue, &node_id).await;
+    }
+    maybe_receipt(socket, frame).await
 }
 
 fn required_header(frame: &Frame, key: &str) -> std::io::Result<String> {
@@ -534,6 +634,14 @@ fn validate_stomp_frame_bounds(bytes: &[u8]) -> Result<(), &'static str> {
     }
     let frame = &bytes[start..bytes.len() - 1];
     let (head, body) = split_head_body(frame).ok_or("missing STOMP header terminator")?;
+    let content_length = validate_stomp_head(head)?;
+    if content_length.is_some_and(|declared| declared != body.len()) {
+        return Err("STOMP content length mismatch");
+    }
+    Ok(())
+}
+
+fn validate_stomp_head(head: &[u8]) -> Result<Option<usize>, &'static str> {
     let mut lines = head.split(|byte| *byte == b'\n');
     let command = trim_cr(lines.next().ok_or("missing STOMP command")?);
     if command.is_empty()
@@ -550,32 +658,38 @@ fn validate_stomp_frame_bounds(bytes: &[u8]) -> Result<(), &'static str> {
         if line.is_empty() {
             continue;
         }
-        header_count = header_count
-            .checked_add(1)
-            .ok_or("too many STOMP headers")?;
-        if header_count > MAX_STOMP_HEADERS || line.len() > MAX_STOMP_HEADER_LINE_BYTES {
-            return Err("STOMP header limit exceeded");
-        }
-        let colon = line
-            .iter()
-            .position(|byte| *byte == b':')
-            .ok_or("invalid STOMP header")?;
-        std::str::from_utf8(&line[..colon]).map_err(|_| "invalid STOMP header")?;
-        std::str::from_utf8(&line[colon + 1..]).map_err(|_| "invalid STOMP header")?;
-        if &line[..colon] == b"content-length" {
-            if content_length.is_some() {
-                return Err("duplicate STOMP content length");
-            }
-            let value = std::str::from_utf8(&line[colon + 1..])
-                .ok()
-                .and_then(|value| value.parse::<usize>().ok())
-                .filter(|value| *value <= MAX_STOMP_FRAME_BYTES)
-                .ok_or("invalid STOMP content length")?;
-            content_length = Some(value);
-        }
+        validate_stomp_header_line(line, &mut header_count, &mut content_length)?;
     }
-    if content_length.is_some_and(|declared| declared != body.len()) {
-        return Err("STOMP content length mismatch");
+    Ok(content_length)
+}
+
+fn validate_stomp_header_line(
+    line: &[u8],
+    header_count: &mut usize,
+    content_length: &mut Option<usize>,
+) -> Result<(), &'static str> {
+    *header_count = header_count
+        .checked_add(1)
+        .ok_or("too many STOMP headers")?;
+    if *header_count > MAX_STOMP_HEADERS || line.len() > MAX_STOMP_HEADER_LINE_BYTES {
+        return Err("STOMP header limit exceeded");
+    }
+    let colon = line
+        .iter()
+        .position(|byte| *byte == b':')
+        .ok_or("invalid STOMP header")?;
+    std::str::from_utf8(&line[..colon]).map_err(|_| "invalid STOMP header")?;
+    let value = std::str::from_utf8(&line[colon + 1..]).map_err(|_| "invalid STOMP header")?;
+    if &line[..colon] == b"content-length" {
+        if content_length.is_some() {
+            return Err("duplicate STOMP content length");
+        }
+        let parsed = value
+            .parse::<usize>()
+            .ok()
+            .filter(|value| *value <= MAX_STOMP_FRAME_BYTES)
+            .ok_or("invalid STOMP content length")?;
+        *content_length = Some(parsed);
     }
     Ok(())
 }

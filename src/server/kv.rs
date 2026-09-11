@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
-use eg_storage::{KvOwner, OwnedStoreHandle, PhysicalStoreIdentity, ScopedRead, StorageKernel};
+use eg_storage::{KvOwner, OwnedStoreHandle, ScopedRead, StorageKernel};
 use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
 use eg_types::MutationScopeIdentity;
 use parking_lot::Mutex;
@@ -142,14 +142,7 @@ type KvHandle = Arc<OwnedStoreHandle<KvOwner>>;
 /// Authenticate and bind ONE logical serving scope on `kv.redb`. The proof bytes are
 /// the composition root's; this module supplies only the identity and the layout.
 fn bind_scope(kernel: &StorageKernel, scope: &MutationScopeIdentity) -> Result<KvHandle, String> {
-    let authority = crate::store_authority::process_authority();
-    let grant = kernel.authenticate_scope::<KvOwner>(
-        authority.as_ref(),
-        scope.clone(),
-        authority.principal().to_string(),
-        &authority.proof(),
-    )?;
-    kernel.bind_serving_scope(grant, 0).map(Arc::new)
+    crate::redb_store::shard::bind_scope::<KvOwner>(kernel, scope)
 }
 
 /// Compare-and-swap `(namespace, key)` INSIDE one admitted owner write: the current
@@ -227,20 +220,18 @@ struct RedbBackend {
 }
 
 impl RedbBackend {
-    /// Open (creating if absent) the one owner file at `path`. `create_owner`
-    /// materializes the WHOLE declared `OwnerLayout::Kv` census — `kv` plus
-    /// eg-kvcache's `eg_kvcache_cold` — so the old bootstrap closure is gone.
-    fn open(path: &Path) -> Result<Self, String> {
-        let physical = PhysicalStoreIdentity::new(KV_PHYSICAL_STORE)?;
-        let kernel = if path.exists() {
-            StorageKernel::open_owner::<KvOwner>(path, physical, None)
-        } else {
-            StorageKernel::create_owner::<KvOwner>(path, physical, None)
-        }?;
-        let (kernel, authority) = kernel.into_read_and_mutation_authority()?;
-        let mutations = MutationKernel::new(authority);
-        let bootstrap = bind_scope(&kernel, &kv_bootstrap_identity()?)?;
-        mutations.bootstrap_ledger(&bootstrap)?;
+    /// Open one private adapter file with its own physical authority name.
+    ///
+    /// The KV substrate is shared by several adapters, but their files are not
+    /// interchangeable stores.  Keeping the physical name at the opener makes
+    /// an accidental adoption of (for example) an S3 index as the main KV
+    /// store fail at the storage manifest boundary before any scope is bound.
+    fn open_named(path: &Path, physical_name: &str) -> Result<Self, String> {
+        let (kernel, mutations, bootstrap) = crate::redb_store::shard::open_kernel_owned_store::<
+            KvOwner,
+        >(
+            path, physical_name, &kv_bootstrap_identity()?
+        )?;
         Ok(Self {
             kernel,
             mutations,
@@ -294,11 +285,9 @@ impl RedbBackend {
     {
         let write = MaintenanceBatch::new(DurabilityDomain::KvStore, event, subject);
         let bootstrap = self.bootstrap.as_ref();
-        let (txn, batch, begun) = self.mutations.admit_current(
-            bootstrap,
-            eg_storage::MutationClass::Maintenance,
-            |version| write.for_scope_version(bootstrap, version),
-        )?;
+        let (txn, batch, begun) = self.mutations.admit_current(bootstrap, |version| {
+            write.for_scope_version(bootstrap, version)
+        })?;
         let now = crate::server::dispatch::authoritative_now_ms();
         self.complete_write(bootstrap, txn, &batch, begun, now, apply)
     }
@@ -343,7 +332,7 @@ impl RedbBackend {
             // re-applying it would double the effect.
             Begin::Replay(record) => {
                 let replayed = decode_batch_result(&record)?;
-                write.abort()?;
+                self.mutations.commit(write, batch)?;
                 return Ok(replayed);
             }
             Begin::Apply { source_version } => source_version,
@@ -373,11 +362,24 @@ impl RedbBackend {
 impl KvStore {
     /// Open the KV store. `Some(dir)` ⇒ durable `{dir}/kv.redb`; `None` ⇒ in-memory.
     pub fn open(persist_dir: Option<&str>) -> Result<Self, String> {
+        Self::open_named(persist_dir, KV_PHYSICAL_STORE)
+    }
+
+    /// Open a private adapter KV file with an explicit physical authority name.
+    ///
+    /// This remains crate-private: public callers use [`Self::open`], while
+    /// Redis and S3 each select a distinct manifest identity for their own
+    /// subordinate file.  `None` is still process-local memory and therefore
+    /// has no physical identity to stamp.
+    pub(crate) fn open_named(
+        persist_dir: Option<&str>,
+        physical_name: &str,
+    ) -> Result<Self, String> {
         let backend = match persist_dir {
             Some(dir) => {
                 std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
                 let path = Path::new(dir).join("kv.redb");
-                Backend::Redb(Box::new(RedbBackend::open(&path)?))
+                Backend::Redb(Box::new(RedbBackend::open_named(&path, physical_name)?))
             }
             None => Backend::Memory(Mutex::new(BTreeMap::new())),
         };
@@ -767,18 +769,36 @@ fn compile_kv_batch(
         authority.owner_scope(),
         namespace,
     );
-    let batch_id = crate::server::mutation_batch::opaque_request_key("kv", &scope, req_id, method);
+    // The batch id is part of the canonical outbox key.  It must identify the
+    // verified operation across transport retries, while the request id and
+    // nonce identify only this attempt.  Derive it from the same authenticated
+    // tenant/scope/actor/idempotency tuple the mutation kernel uses for replay;
+    // a fresh nonce with the same stable key therefore replays the stored KV
+    // verdict instead of creating a second outbox event.
+    let batch_id = crate::server::mutation_batch::opaque_idempotency_key_for_context(
+        "kv",
+        authority.tenant_scope(),
+        &scope,
+        Some(authority.actor_scope()),
+        authority.idempotency_key(),
+    );
     let expected = store.mutation_version(authority.tenant_scope(), &scope)?;
     let now = crate::server::dispatch::authoritative_now_ms();
+    // CarrierAuthority is the verified request context's handoff into this
+    // self-routed surface. Preserve the transport nonce and stable caller key
+    // here so KV retries use the kernel's one operation replay authority. The
+    // batch id above intentionally has the same stable operation lifetime; the
+    // nonce remains the separate attempt-replay guard.
     let batch = crate::server::mutation_batch::compile_opaque_method(
         crate::server::mutation_batch::CompileBatch {
             batch_id: &batch_id,
             request_id: req_id,
+            attempt_nonce: authority.attempt_nonce(),
             principal: Some(authority.actor_scope()),
             tenant: authority.tenant_scope(),
             graph: &scope,
             placement_epoch: 0,
-            idempotency_key: &batch_id,
+            idempotency_key: authority.idempotency_key(),
             expected_graph_version: Some(expected),
             fencing_token: None,
             created_at_ms: now,
@@ -837,7 +857,7 @@ impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore 
         let counts = eg_storage::backup_recovery_store(&source.kernel, destination)?;
         Ok(rows
             .saturating_add(counts.batches)
-            .saturating_add(counts.idempotency)
+            .saturating_add(counts.maintenance_claims)
             .saturating_add(counts.versions)
             .saturating_add(counts.fences)
             .saturating_add(counts.outbox)

@@ -23,8 +23,8 @@ use regex::RegexBuilder;
 
 use crate::report::{NodeResult, ShexReport};
 use crate::schema::{
-    NodeConstraint, NodeKind, Schema, Shape, ShapeExpr, ShapeLabel, TripleExpr, ValueSetValue,
-    START,
+    NodeConstraint, NodeKind, NumericFacets, Schema, Shape, ShapeExpr, ShapeLabel, StringFacets,
+    TripleExpr, ValueSetValue, START,
 };
 
 /// One (focus node, shape label) association to validate.
@@ -142,23 +142,9 @@ impl Validator<'_> {
         match expr {
             ShapeExpr::NodeConstraint(nc) => self.check_node_constraint(node, nc),
             ShapeExpr::Shape(shape) => self.match_shape(node, shape, depth),
-            ShapeExpr::And(list) => {
-                for e in list {
-                    self.satisfies(node, e, depth)?;
-                }
-                Ok(())
-            }
-            ShapeExpr::Or(list) => {
-                if list.iter().any(|e| self.satisfies(node, e, depth).is_ok()) {
-                    Ok(())
-                } else {
-                    Err("node satisfies none of the ShapeOr branches".into())
-                }
-            }
-            ShapeExpr::Not(inner) => match self.satisfies(node, inner, depth) {
-                Ok(()) => Err("node satisfies a ShapeNot (negated) expression".into()),
-                Err(_) => Ok(()),
-            },
+            ShapeExpr::And(list) => satisfies_all(self, node, list, depth),
+            ShapeExpr::Or(list) => satisfies_any(self, node, list, depth),
+            ShapeExpr::Not(inner) => satisfies_not(self, node, inner, depth),
             ShapeExpr::Ref(label) => self.conforms_to_label(node, label, depth + 1),
         }
     }
@@ -188,11 +174,7 @@ impl Validator<'_> {
 
     fn check_string_facets(&self, node: &Term, nc: &NodeConstraint) -> Result<(), String> {
         let f = &nc.string_facets;
-        if f.length.is_none()
-            && f.minlength.is_none()
-            && f.maxlength.is_none()
-            && f.pattern.is_none()
-        {
+        if !has_string_facets(f) {
             return Ok(());
         }
         let Some(s) = lexical(node) else {
@@ -201,21 +183,7 @@ impl Validator<'_> {
             ));
         };
         let len = s.chars().count();
-        if let Some(n) = f.length {
-            if len != n {
-                return Err(format!("node {node} length {len} != {n}"));
-            }
-        }
-        if let Some(n) = f.minlength {
-            if len < n {
-                return Err(format!("node {node} shorter than minlength {n}"));
-            }
-        }
-        if let Some(n) = f.maxlength {
-            if len > n {
-                return Err(format!("node {node} longer than maxlength {n}"));
-            }
-        }
+        check_string_lengths(node, len, f)?;
         if let Some(pat) = &f.pattern {
             if !pattern_ok(&s, pat, f.flags.as_deref()) {
                 return Err(format!("node {node} does not match pattern {pat}"));
@@ -226,37 +194,13 @@ impl Validator<'_> {
 
     fn check_numeric_facets(&self, node: &Term, nc: &NodeConstraint) -> Result<(), String> {
         let f = &nc.numeric_facets;
-        if f.mininclusive.is_none()
-            && f.maxinclusive.is_none()
-            && f.minexclusive.is_none()
-            && f.maxexclusive.is_none()
-        {
+        if !has_numeric_facets(f) {
             return Ok(());
         }
         let Some(x) = lexical(node).and_then(|s| s.trim().parse::<f64>().ok()) else {
             return Err(format!("node {node} is not numeric for a numeric facet"));
         };
-        if let Some(b) = f.mininclusive {
-            if x < b {
-                return Err(format!("node {node} < mininclusive {b}"));
-            }
-        }
-        if let Some(b) = f.maxinclusive {
-            if x > b {
-                return Err(format!("node {node} > maxinclusive {b}"));
-            }
-        }
-        if let Some(b) = f.minexclusive {
-            if x <= b {
-                return Err(format!("node {node} <= minexclusive {b}"));
-            }
-        }
-        if let Some(b) = f.maxexclusive {
-            if x >= b {
-                return Err(format!("node {node} >= maxexclusive {b}"));
-            }
-        }
-        Ok(())
+        check_numeric_bounds(node, x, f)
     }
 
     // ── Shapes ─────────────────────────────────────────────────────────────
@@ -372,6 +316,46 @@ impl Validator<'_> {
     }
 }
 
+fn satisfies_all(
+    validator: &Validator<'_>,
+    node: &Term,
+    expressions: &[ShapeExpr],
+    depth: usize,
+) -> Result<(), String> {
+    for expression in expressions {
+        validator.satisfies(node, expression, depth)?;
+    }
+    Ok(())
+}
+
+fn satisfies_any(
+    validator: &Validator<'_>,
+    node: &Term,
+    expressions: &[ShapeExpr],
+    depth: usize,
+) -> Result<(), String> {
+    if expressions
+        .iter()
+        .any(|expression| validator.satisfies(node, expression, depth).is_ok())
+    {
+        Ok(())
+    } else {
+        Err("node satisfies none of the ShapeOr branches".into())
+    }
+}
+
+fn satisfies_not(
+    validator: &Validator<'_>,
+    node: &Term,
+    expression: &ShapeExpr,
+    depth: usize,
+) -> Result<(), String> {
+    match validator.satisfies(node, expression, depth) {
+        Ok(()) => Err("node satisfies a ShapeNot (negated) expression".into()),
+        Err(_) => Ok(()),
+    }
+}
+
 /// Check a `TripleConstraint`'s cardinality bounds against its greedy candidate set and,
 /// when they hold, mark those arcs consumed. `max == -1` is ShExC's unbounded `*`.
 fn take_within_bounds(
@@ -398,6 +382,63 @@ fn take_within_bounds(
     Ok(())
 }
 
+fn has_string_facets(facets: &StringFacets) -> bool {
+    facets.length.is_some()
+        || facets.minlength.is_some()
+        || facets.maxlength.is_some()
+        || facets.pattern.is_some()
+}
+
+fn check_string_lengths(node: &Term, length: usize, facets: &StringFacets) -> Result<(), String> {
+    if let Some(expected) = facets.length {
+        if length != expected {
+            return Err(format!("node {node} length {length} != {expected}"));
+        }
+    }
+    if let Some(minimum) = facets.minlength {
+        if length < minimum {
+            return Err(format!("node {node} shorter than minlength {minimum}"));
+        }
+    }
+    if let Some(maximum) = facets.maxlength {
+        if length > maximum {
+            return Err(format!("node {node} longer than maxlength {maximum}"));
+        }
+    }
+    Ok(())
+}
+
+fn has_numeric_facets(facets: &NumericFacets) -> bool {
+    facets.mininclusive.is_some()
+        || facets.maxinclusive.is_some()
+        || facets.minexclusive.is_some()
+        || facets.maxexclusive.is_some()
+}
+
+fn check_numeric_bounds(node: &Term, value: f64, facets: &NumericFacets) -> Result<(), String> {
+    if let Some(bound) = facets.mininclusive {
+        if value < bound {
+            return Err(format!("node {node} < mininclusive {bound}"));
+        }
+    }
+    if let Some(bound) = facets.maxinclusive {
+        if value > bound {
+            return Err(format!("node {node} > maxinclusive {bound}"));
+        }
+    }
+    if let Some(bound) = facets.minexclusive {
+        if value <= bound {
+            return Err(format!("node {node} <= minexclusive {bound}"));
+        }
+    }
+    if let Some(bound) = facets.maxexclusive {
+        if value >= bound {
+            return Err(format!("node {node} >= maxexclusive {bound}"));
+        }
+    }
+    Ok(())
+}
+
 // ── Term-level helpers ─────────────────────────────────────────────────────
 
 fn node_kind_ok(node: &Term, kind: NodeKind) -> bool {
@@ -416,26 +457,29 @@ fn value_set_matches(node: &Term, v: &ValueSetValue) -> bool {
             value,
             datatype,
             language,
-        } => match node {
-            Term::Literal(l) => {
-                if l.value() != value {
-                    return false;
-                }
-                if let Some(dt) = datatype {
-                    if l.datatype().as_str() != dt.as_str() {
-                        return false;
-                    }
-                }
-                if let Some(lang) = language {
-                    if l.language() != Some(lang.as_str()) {
-                        return false;
-                    }
-                }
-                true
-            }
-            _ => false,
-        },
+        } => literal_matches(node, value, datatype.as_deref(), language.as_deref()),
     }
+}
+
+fn literal_matches(
+    node: &Term,
+    value: &str,
+    datatype: Option<&str>,
+    language: Option<&str>,
+) -> bool {
+    let Term::Literal(literal) = node else {
+        return false;
+    };
+    if literal.value() != value {
+        return false;
+    }
+    if datatype.is_some_and(|expected| literal.datatype().as_str() != expected) {
+        return false;
+    }
+    if language.is_some_and(|expected| literal.language() != Some(expected)) {
+        return false;
+    }
+    true
 }
 
 /// The lexical form of a term for string/numeric facets; `None` for a blank node.

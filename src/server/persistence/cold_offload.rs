@@ -323,11 +323,10 @@ pub const DEFAULT_PRODUCTION_LAZY_OPEN_PAGE_SIZE: usize = 4096;
 
 /// The configured finite cap on resident hot-context graphs.
 pub fn max_resident_graphs() -> usize {
-    std::env::var("EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS")
-        .ok()
-        .and_then(|s| s.trim().parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_PRODUCTION_MAX_RESIDENT_GRAPHS)
+    crate::server::state::positive_runtime_limit_from_env(
+        "EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS",
+        DEFAULT_PRODUCTION_MAX_RESIDENT_GRAPHS,
+    )
 }
 
 /// Admit a new/lazily-opened graph into the bounded hot-context cache
@@ -386,11 +385,10 @@ pub fn admit_capacity(
 /// the graph's material is paged in by [`page_in_remaining`] as a background task;
 /// no incomplete whole-graph result is served in the interim.
 pub fn lazy_open_page_size() -> usize {
-    std::env::var("EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE")
-        .ok()
-        .and_then(|s| s.trim().parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_PRODUCTION_LAZY_OPEN_PAGE_SIZE)
+    crate::server::state::positive_runtime_limit_from_env(
+        "EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE",
+        DEFAULT_PRODUCTION_LAZY_OPEN_PAGE_SIZE,
+    )
 }
 
 /// Lazily materialize a catalog-known graph's resident `GraphCore` on first access
@@ -563,12 +561,10 @@ pub(crate) async fn test_redb_state(
     isolation: crate::isolation::IsolationLayer,
     page_size: usize,
 ) -> Arc<RwLock<ServerState>> {
-    use crate::durability::DurabilityPolicy;
     use crate::server::persistence::redb_backend::RedbBackend;
 
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, page_size).expect("open"),
-    );
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir_s.to_string(), page_size).expect("open"));
     test_state_with_backend(secret, dir_s, backend, isolation).await
 }
 
@@ -607,7 +603,6 @@ mod admission_tests {
     use super::*;
     #[cfg(feature = "security")]
     use crate::acl::{AgentIdentity, AgentRole};
-    use crate::durability::DurabilityPolicy;
     use crate::isolation::IsolationLayer;
     use crate::protocol::{GraphType, Method, Request};
     use crate::server::persistence::read_through::{
@@ -1081,7 +1076,7 @@ mod admission_tests {
 
         // ── reload side: fresh backend + fresh empty state, CATALOG-ONLY load ──
         let backend2: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("reopen"));
+            Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("reopen"));
         // RBAC (CONCEPT:EG-KG.compute.feature) is mandatory for every non-System
         // identity, so the reload fixture uses the same registered System agent
         // as the write-side state.
@@ -1160,9 +1155,8 @@ mod admission_tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().into_owned();
 
-        let backend1: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("open write side"),
-        );
+        let backend1: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open write side"));
         let state1 = state_with_backend(&dir_s, backend1.clone(), rls_isolation()).await;
 
         let public_id = "ne105-public";
@@ -1220,9 +1214,8 @@ mod admission_tests {
         drop(state1);
         drop(backend1);
 
-        let backend2: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("reopen read side"),
-        );
+        let backend2: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("reopen read side"));
         let state2 = state_with_backend(&dir_s, backend2.clone(), rls_isolation()).await;
         let loaded = backend2.load_catalog(&state2).await.expect("load catalog");
         assert_eq!(loaded, 1, "the commons metadata row must be recovered");

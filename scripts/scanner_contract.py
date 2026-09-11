@@ -300,6 +300,12 @@ def _matches_directory_suffix(value: str, pattern: str) -> bool:
 
 
 def _matches_path_pattern(value: str, pattern: str) -> bool:
+    # pathlib's ``match`` treats a pattern without a leading ``**/`` as
+    # matching at any path depth.  Scanner exclusions follow native walker
+    # semantics: ``contract/**`` and ``epistemic_graph/contract/**`` are
+    # root-anchored, while ``**/contract/**`` explicitly opts into depth.
+    if not pattern.startswith("**/"):
+        return False
     try:
         return PurePosixPath(value).match(pattern)
     except (TypeError, ValueError):

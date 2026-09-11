@@ -12,7 +12,11 @@ use eg_modality::{
     temporal_buckets, GovernedModality, NativePredicate, NativeProductionProbe, OpaqueRef,
 };
 
-use crate::{content_hash, read_wav_header, AudioData, AudioFeatureWindow, AudioSegment};
+use crate::header::parse_wav;
+use crate::{content_hash, AudioData, AudioFeatureWindow, AudioSegment, WavInfo};
+
+mod plugins;
+pub use plugins::{DiarizationPlugin, TranscriptAlignmentPlugin};
 
 const MAX_DECODED_SAMPLES: usize = 16_777_216;
 const MAX_SOURCE_BYTES: usize = 256 * 1024 * 1024;
@@ -76,19 +80,6 @@ pub trait VadPlugin {
     fn detect(&self, audio: &AudioData) -> Vec<VadSegment>;
 }
 
-pub trait DiarizationPlugin {
-    fn diarize(&self, audio: &AudioData) -> Vec<DiarizationSegment>;
-}
-
-pub trait TranscriptAlignmentPlugin {
-    fn align(
-        &self,
-        audio: &AudioData,
-        transcript_ref: &OpaqueRef,
-        unit_count: u32,
-    ) -> Vec<TranscriptAlignment>;
-}
-
 /// Concrete PCM runtime. Decoded samples are ephemeral and omitted from every
 /// governed snapshot; only `AudioData.blob_ref` is durable.
 #[derive(Clone, Debug)]
@@ -105,17 +96,14 @@ impl NativeAudioRuntime {
         if bytes.len() > MAX_SOURCE_BYTES {
             return None;
         }
-        let info = read_wav_header(bytes)?;
-        let (channels, bits_per_sample, pcm) = pcm_payload(bytes)?;
+        let (info, pcm) = pcm_payload(bytes)?;
+        let channels = info.channels;
+        let bits_per_sample = info.bits_per_sample;
         if channels == 0 || channels > MAX_CHANNELS || !matches!(bits_per_sample, 8 | 16) {
             return None;
         }
         let frame_bytes = usize::from(channels).checked_mul(usize::from(bits_per_sample / 8))?;
-        if info.channels != channels
-            || info.bits_per_sample != bits_per_sample
-            || pcm.len() % frame_bytes != 0
-            || pcm.len() / frame_bytes > MAX_DECODED_SAMPLES
-        {
+        if pcm.len() % frame_bytes != 0 || pcm.len() / frame_bytes > MAX_DECODED_SAMPLES {
             return None;
         }
         let samples = decode_mono(pcm, channels, bits_per_sample)?;
@@ -134,48 +122,31 @@ impl NativeAudioRuntime {
     /// Materialize the bounded, source-free normalized audio value used by the
     /// served runtime.
     pub fn normalized_data(&self) -> Option<AudioData> {
+        let duration_ms = self.duration_ms()?;
+        let windows = self.feature_windows(duration_ms)?;
+        let segments = self.speech_segments(&windows);
+        Some(
+            AudioData::new(self.sample_rate, duration_ms, self.content_ref.clone())
+                .with_native_features(self.channels, self.bits_per_sample, windows)
+                .with_segments(segments),
+        )
+    }
+
+    fn duration_ms(&self) -> Option<u64> {
         let duration_ms = self.samples.len() as u64 * 1_000 / u64::from(self.sample_rate);
-        if duration_ms == 0 {
-            return None;
-        }
-        let window_samples = self
+        (duration_ms > 0).then_some(duration_ms)
+    }
+
+    fn feature_windows(&self, duration_ms: u64) -> Option<Vec<AudioFeatureWindow>> {
+        let window_samples = self.window_samples();
+        let windows: Vec<_> = self
             .samples
-            .len()
-            .div_ceil(MAX_FEATURE_WINDOWS)
-            .max((self.sample_rate as usize / 50).max(1));
-        let mut windows = Vec::new();
-        for (index, samples) in self.samples.chunks(window_samples).enumerate() {
-            let start_sample = index.checked_mul(window_samples)?;
-            let end_sample = start_sample.checked_add(samples.len())?;
-            let start_ms = start_sample as u64 * 1_000 / u64::from(self.sample_rate);
-            let end_ms =
-                (end_sample as u64 * 1_000 / u64::from(self.sample_rate)).max(start_ms + 1);
-            let peak = samples
-                .iter()
-                .fold(0.0f32, |value, sample| value.max(sample.abs()));
-            let rms = (samples.iter().map(|sample| sample * sample).sum::<f32>()
-                / samples.len() as f32)
-                .sqrt();
-            let spectrum = bounded_spectral_bins(samples);
-            let magnitude = spectrum.iter().sum::<f32>();
-            let spectral_centroid_bin = if magnitude > 0.0 {
-                spectrum
-                    .iter()
-                    .enumerate()
-                    .map(|(bin, value)| bin as f32 * value)
-                    .sum::<f32>()
-                    / magnitude
-            } else {
-                0.0
-            };
-            windows.push(AudioFeatureWindow {
-                start_ms,
-                end_ms: end_ms.min(duration_ms),
-                peak,
-                rms,
-                spectral_centroid_bin,
-            });
-        }
+            .chunks(window_samples)
+            .enumerate()
+            .map(|(index, samples)| {
+                self.feature_window(index, samples, window_samples, duration_ms)
+            })
+            .collect::<Option<Vec<_>>>()?;
         if windows.is_empty()
             || windows
                 .iter()
@@ -183,20 +154,64 @@ impl NativeAudioRuntime {
         {
             return None;
         }
+        Some(windows)
+    }
+
+    fn window_samples(&self) -> usize {
+        self.samples
+            .len()
+            .div_ceil(MAX_FEATURE_WINDOWS)
+            .max((self.sample_rate as usize / 50).max(1))
+    }
+
+    fn feature_window(
+        &self,
+        index: usize,
+        samples: &[f32],
+        window_samples: usize,
+        duration_ms: u64,
+    ) -> Option<AudioFeatureWindow> {
+        let start_sample = index.checked_mul(window_samples)?;
+        let end_sample = start_sample.checked_add(samples.len())?;
+        let start_ms = start_sample as u64 * 1_000 / u64::from(self.sample_rate);
+        let end_ms = (end_sample as u64 * 1_000 / u64::from(self.sample_rate)).max(start_ms + 1);
+        let peak = samples
+            .iter()
+            .fold(0.0f32, |value, sample| value.max(sample.abs()));
+        let rms = (samples.iter().map(|sample| sample * sample).sum::<f32>()
+            / samples.len() as f32)
+            .sqrt();
+        let spectrum = bounded_spectral_bins(samples);
+        let magnitude = spectrum.iter().sum::<f32>();
+        let spectral_centroid_bin = if magnitude > 0.0 {
+            spectrum
+                .iter()
+                .enumerate()
+                .map(|(bin, value)| bin as f32 * value)
+                .sum::<f32>()
+                / magnitude
+        } else {
+            0.0
+        };
+        Some(AudioFeatureWindow {
+            start_ms,
+            end_ms: end_ms.min(duration_ms),
+            peak,
+            rms,
+            spectral_centroid_bin,
+        })
+    }
+
+    fn speech_segments(&self, windows: &[AudioFeatureWindow]) -> Vec<AudioSegment> {
         let whole_rms = (self.samples.iter().map(|value| value * value).sum::<f32>()
             / self.samples.len() as f32)
             .sqrt();
         let threshold = (whole_rms * 0.5).max(0.01);
-        let segments = windows
+        windows
             .iter()
             .filter(|window| window.rms >= threshold)
             .map(|window| AudioSegment::new(window.start_ms, window.end_ms))
-            .collect();
-        Some(
-            AudioData::new(self.sample_rate, duration_ms, self.content_ref.clone())
-                .with_native_features(self.channels, self.bits_per_sample, windows)
-                .with_segments(segments),
-        )
+            .collect()
     }
 
     fn is_bound_to(&self, audio: &AudioData) -> bool {
@@ -216,7 +231,7 @@ impl NativeAudioRuntime {
             usize::try_from(u128::from(start_ms) * u128::from(self.sample_rate) / 1_000).ok()?;
         let end =
             usize::try_from(u128::from(end_ms) * u128::from(self.sample_rate) / 1_000).ok()?;
-        (start < end && end <= self.samples.len()).then(|| &self.samples[start..end])
+        (start < end && end <= self.samples.len()).then(|| self.samples.get(start..end))?
     }
 
     fn stats(&self, start_ms: u64, end_ms: u64) -> Option<WaveformWindow> {
@@ -444,55 +459,9 @@ fn bounded_spectral_bins(samples: &[f32]) -> [f32; 8] {
     std::array::from_fn(|bin| dft_magnitude(&pooled, bin))
 }
 
-fn pcm_payload(bytes: &[u8]) -> Option<(u16, u16, &[u8])> {
-    if bytes.len() < 12
-        || &bytes[..4] != b"RIFF"
-        || &bytes[8..12] != b"WAVE"
-        || usize::try_from(u32::from_le_bytes(bytes[4..8].try_into().ok()?))
-            .ok()?
-            .checked_add(8)?
-            != bytes.len()
-    {
-        return None;
-    }
-    let mut pos = 12usize;
-    let mut format = None;
-    let mut data = None;
-    while pos + 8 <= bytes.len() {
-        let id = &bytes[pos..pos + 4];
-        let len = u32::from_le_bytes(bytes[pos + 4..pos + 8].try_into().ok()?) as usize;
-        let start = pos + 8;
-        let end = start.checked_add(len)?;
-        if end > bytes.len() {
-            return None;
-        }
-        if id == b"fmt " && len >= 16 {
-            if format.is_some() {
-                return None;
-            }
-            let encoding = u16::from_le_bytes(bytes[start..start + 2].try_into().ok()?);
-            if encoding != 1 {
-                return None;
-            }
-            let channels = u16::from_le_bytes(bytes[start + 2..start + 4].try_into().ok()?);
-            let bits = u16::from_le_bytes(bytes[start + 14..start + 16].try_into().ok()?);
-            format = Some((channels, bits));
-        } else if id == b"data" {
-            if data.is_some() {
-                return None;
-            }
-            data = Some(&bytes[start..end]);
-        }
-        pos = end.checked_add(len & 1)?;
-        if pos > bytes.len() {
-            return None;
-        }
-    }
-    if pos != bytes.len() {
-        return None;
-    }
-    let (channels, bits) = format?;
-    Some((channels, bits, data?))
+fn pcm_payload(bytes: &[u8]) -> Option<(WavInfo, &[u8])> {
+    let wav = parse_wav(bytes)?;
+    Some((wav.info, wav.payload))
 }
 
 fn decode_mono(bytes: &[u8], channels: u16, bits: u16) -> Option<Vec<f32>> {

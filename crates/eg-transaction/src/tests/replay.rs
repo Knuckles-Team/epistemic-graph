@@ -5,7 +5,10 @@
 //! outcomes are separated by construction rather than by coincidence.
 
 use super::*;
+use crate::tables::{OUTBOX, REPLAY_OPERATIONS};
 use crate::ReplayResolution;
+use eg_storage::RecordedOperation;
+use eg_types::MutationOutboxIntent;
 
 /// Record one committed attempt: consume its nonce and store its receipt in the
 /// same admitted write as the batch, then commit.
@@ -75,6 +78,45 @@ fn a_fresh_attempt_resolves_fresh() {
 }
 
 #[test]
+fn nonce_only_resolution_precedes_operation_lookup_and_is_abort_safe() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity = native_identity("tenant-a", "incarnation:nonce-only");
+    let (fixture, owner) = ledger_fixture(&dir.path().join("nonce-only.redb"), identity.clone());
+    let first = batch(identity, "nonce-only");
+    apply_batch(&fixture, &owner, &first);
+    let operation = first.envelope.operation().unwrap();
+    let consumed_nonce = operation.nonce_replay_key().unwrap();
+    let consumed_key = operation.operation_identity().unwrap().idempotency_key;
+
+    // A nonce-only check reports the consumed attempt without constructing or
+    // comparing any stable operation identity, so it remains the first guard
+    // even when a caller's eventual operation body would conflict.
+    let write = fixture.mutations.open_write(&owner).unwrap();
+    assert_eq!(
+        fixture
+            .mutations
+            .resolve_nonce(&write, &consumed_nonce)
+            .unwrap(),
+        Some(consumed_key.as_str().to_string())
+    );
+    write.abort().unwrap();
+
+    // A fresh attempt is a read-only `None`; aborting that probe leaves the
+    // nonce available for the full replay resolver and later finalization.
+    let retry = retry_of(&first);
+    let retry_nonce = retry.envelope.operation().unwrap().nonce_replay_key().unwrap();
+    let write = fixture.mutations.open_write(&owner).unwrap();
+    assert_eq!(
+        fixture.mutations.resolve_nonce(&write, &retry_nonce).unwrap(),
+        None
+    );
+    write.abort().unwrap();
+    let (write, begun) = fixture.mutations.admit(&owner, &retry).unwrap();
+    assert!(matches!(begun, Begin::Replay(_)));
+    write.abort().unwrap();
+}
+
+#[test]
 fn the_same_nonce_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
     let (fixture, owner, _, operation, nonce, _) = committed_fixture(dir.path());
@@ -101,7 +143,127 @@ fn a_fresh_nonce_over_the_same_stable_identity_replays_the_recorded_result() {
     assert_eq!(operation.digest().unwrap(), retried.digest().unwrap());
     assert_eq!(
         resolve(&fixture, &owner, &retried, &fresh_nonce),
-        ReplayResolution::ReplayedResult(Box::new(recorded))
+        ReplayResolution::ReplayedResult(Box::new(RecordedOperation::Receipt(Box::new(
+            recorded
+        ))))
+    );
+}
+
+#[test]
+fn replay_nonce_is_finalized_only_when_the_replay_write_commits() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("replay-finalize.redb");
+    let identity = native_identity("tenant-a", "incarnation:replay-finalize");
+    let (fixture, owner) = ledger_fixture(&path, identity.clone());
+    let first = batch(identity.clone(), "replay-finalize");
+    apply_batch(&fixture, &owner, &first);
+
+    let original_nonce = match fixture.mutations.admit(&owner, &first) {
+        Err(error) => error,
+        Ok((write, _)) => {
+            write
+                .abort()
+                .expect("unexpected successful replay admission aborts");
+            panic!("the original attempt nonce remains consumed");
+        }
+    };
+    assert!(
+        original_nonce.contains("REPLAY_NONCE_CONSUMED"),
+        "{original_nonce}"
+    );
+
+    // A fresh replay probe can be discarded without consuming its nonce.
+    let probe_batch = retry_of(&first);
+    let (probe, begun) = fixture.mutations.admit(&owner, &probe_batch).unwrap();
+    assert!(matches!(begun, Begin::Replay(_)));
+    probe.abort().unwrap();
+    let (probe, begun) = fixture.mutations.admit(&owner, &probe_batch).unwrap();
+    assert!(matches!(begun, Begin::Replay(_)));
+    probe.abort().unwrap();
+
+    // Committing the replay consumes only the fresh attempt nonce and leaves
+    // the original receipt and authoritative version unchanged.
+    let committed_retry = retry_of(&first);
+    let (write, begun) = fixture.mutations.admit(&owner, &committed_retry).unwrap();
+    assert!(matches!(begun, Begin::Replay(_)));
+    fixture.mutations.commit(write, &committed_retry).unwrap();
+    assert_eq!(
+        version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(),
+        1
+    );
+
+    let reused = match fixture.mutations.admit(&owner, &committed_retry) {
+        Err(error) => error,
+        Ok((write, _)) => {
+            write
+                .abort()
+                .expect("unexpected successful replay admission aborts");
+            panic!("a committed replay nonce cannot be reused");
+        }
+    };
+    assert!(reused.contains("REPLAY_NONCE_CONSUMED"), "{reused}");
+}
+
+#[test]
+fn concurrent_replays_have_one_nonce_winner() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity = native_identity("tenant-a", "incarnation:replay-concurrent");
+    let (fixture, owner) =
+        ledger_fixture(&dir.path().join("replay-concurrent.redb"), identity.clone());
+    let first = batch(identity.clone(), "replay-concurrent");
+    apply_batch(&fixture, &owner, &first);
+
+    // Both contenders share the one opened authority and scope handle. Opening
+    // the same redb path independently in each thread is invalid (redb rejects
+    // the second live Database handle), and can turn this test into a scheduler
+    // accident instead of a replay race.
+    let fixture = std::sync::Arc::new(fixture);
+    let owner = std::sync::Arc::new(owner);
+    let candidate = std::sync::Arc::new(retry_of(&first));
+    let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let run = |fixture: std::sync::Arc<Fixture>,
+               owner: std::sync::Arc<OwnedStoreHandle<LedgerOnlyOwner>>,
+               candidate: std::sync::Arc<MutationBatch>,
+               ready: std::sync::Arc<std::sync::Barrier>| {
+        ready.wait();
+        match fixture.mutations.admit(&owner, &candidate) {
+            Ok((write, Begin::Replay(_))) => fixture.mutations.commit(write, &candidate),
+            Ok((write, Begin::Apply { .. })) => {
+                write.abort()?;
+                Err("a replay candidate was admitted as fresh".to_string())
+            }
+            Err(error) => Err(error),
+        }
+    };
+    let (first_result, second_result) = std::thread::scope(|scope| {
+        let first = scope.spawn({
+            let fixture = std::sync::Arc::clone(&fixture);
+            let owner = std::sync::Arc::clone(&owner);
+            let candidate = std::sync::Arc::clone(&candidate);
+            let ready = std::sync::Arc::clone(&ready);
+            move || run(fixture, owner, candidate, ready)
+        });
+        let second = scope.spawn({
+            let fixture = std::sync::Arc::clone(&fixture);
+            let owner = std::sync::Arc::clone(&owner);
+            let candidate = std::sync::Arc::clone(&candidate);
+            let ready = std::sync::Arc::clone(&ready);
+            move || run(fixture, owner, candidate, ready)
+        });
+        (first.join().unwrap(), second.join().unwrap())
+    });
+    let results = [first_result, second_result];
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| {
+                result
+                    .as_ref()
+                    .is_err_and(|error| error.contains("REPLAY_NONCE_CONSUMED"))
+            })
+            .count(),
+        1
     );
 }
 
@@ -237,7 +399,9 @@ fn a_second_recording_of_the_same_operation_fails_closed() {
     // The originally recorded receipt is intact.
     assert_eq!(
         resolve(&fixture, &owner, &retried, &fresh_nonce),
-        ReplayResolution::ReplayedResult(Box::new(recorded))
+        ReplayResolution::ReplayedResult(Box::new(RecordedOperation::Receipt(Box::new(
+            recorded
+        ))))
     );
 }
 
@@ -262,5 +426,99 @@ fn a_receipt_naming_another_scope_is_refused() {
         .record_replay(&write, &operation, &nonce, &mismatched)
         .unwrap_err()
         .contains("names a different scope"));
+    write.abort().unwrap();
+}
+
+#[test]
+fn finalize_replay_receipt_rejects_persisted_operation_row_tampering() {
+    for tamper in ["idempotency", "nonce"] {
+        let dir = tempfile::tempdir().unwrap();
+        let (fixture, owner, _, operation, _, receipt) = committed_fixture(dir.path());
+        let scope_key = eg_storage::ledger_scope_key(owner.identity());
+        let write = fixture.mutations.open_write(&owner).unwrap();
+        let mut operations = write.scoped_table(REPLAY_OPERATIONS).unwrap();
+        let row_bytes = operations
+            .get((scope_key.as_str(), operation.idempotency_key.as_str()))
+            .unwrap()
+            .expect("committed operation replay row")
+            .value()
+            .to_vec();
+        let mut row: eg_storage::OperationReplayRow =
+            eg_storage::decode_ledger_record(&row_bytes).unwrap();
+        match tamper {
+            "idempotency" => row.idempotency_key = "tampered-key".to_string(),
+            "nonce" => row.nonce_replay_digest = digest_of(99),
+            _ => unreachable!(),
+        }
+        let encoded = eg_storage::encode_bounded(&row, "tampered operation replay row").unwrap();
+        operations
+            .insert(
+                (scope_key.as_str(), operation.idempotency_key.as_str()),
+                encoded.as_slice(),
+            )
+            .unwrap();
+        drop(operations);
+        write.commit().unwrap();
+
+        let retry = context(2, "request-2", "idem:stable");
+        let fresh_nonce = NonceReplayKey::from_context(&retry).unwrap();
+        let write = fixture.mutations.open_write(&owner).unwrap();
+        let error = fixture
+            .mutations
+            .finalize_replay_receipt(&write, &operation, &fresh_nonce, &receipt)
+            .unwrap_err();
+        assert!(
+            error.contains("typed replay receipt differs from durable row"),
+            "{tamper}: {error}"
+        );
+        write.abort().unwrap();
+    }
+}
+
+#[test]
+fn replay_evidence_rejects_a_persisted_outbox_key_mismatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let identity = native_identity("tenant-a", "incarnation:outbox-key");
+    let (fixture, owner) = ledger_fixture(&dir.path().join("outbox-key.redb"), identity.clone());
+    let mut candidate = batch(identity, "outbox-key");
+    candidate.outbox.push(MutationOutboxIntent {
+        topic: "agent-library.test".to_string(),
+        key: "outbox-key".to_string(),
+        payload: b"payload".to_vec(),
+        headers: Default::default(),
+    });
+    candidate.validate().unwrap();
+    apply_batch(&fixture, &owner, &candidate);
+
+    // Rewrite the persisted row under a different physical ordinal while
+    // retaining its encoded ordinal. The kernel must compare both key and row
+    // in the same write before a domain can treat the evidence as authoritative.
+    let scope_key = eg_storage::ledger_scope_key(owner.identity());
+    let write = fixture.mutations.open_write(&owner).unwrap();
+    let mut outbox = write.scoped_table(OUTBOX).unwrap();
+    let bytes = outbox
+        .get((scope_key.as_str(), candidate.batch_id.as_str(), 0))
+        .unwrap()
+        .expect("committed physical outbox row")
+        .value()
+        .to_vec();
+    outbox
+        .remove((scope_key.as_str(), candidate.batch_id.as_str(), 0))
+        .unwrap();
+    outbox
+        .insert(
+            (scope_key.as_str(), candidate.batch_id.as_str(), 1),
+            bytes.as_slice(),
+        )
+        .unwrap();
+    drop(outbox);
+    write.commit().unwrap();
+
+    let write = fixture.mutations.open_write(&owner).unwrap();
+    let error = fixture
+        .mutations
+        .read_replay_evidence(&write, &candidate.batch_id)
+        .unwrap_err();
+    assert!(error.contains("physical key"), "{error}");
     write.abort().unwrap();
 }

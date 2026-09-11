@@ -35,8 +35,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
 
 use pgwire::api::auth::sasl::scram::{gen_salted_password, ScramAuth, SCRAM_ITERATIONS};
 use pgwire::api::auth::sasl::SASLAuthStartupHandler;
@@ -62,20 +60,14 @@ impl PgWireAuthMode {
     /// Resolve the sole secure mode. Empty key material and every legacy or
     /// unknown value are startup errors rather than compatibility fallbacks.
     pub fn resolve(auth_secret: &str) -> std::io::Result<Self> {
-        if auth_secret.is_empty() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "pgwire requires non-empty authentication key material",
-            ));
-        }
-        match std::env::var(PGWIRE_AUTH_ENV) {
-            Err(std::env::VarError::NotPresent) => Ok(Self::Scram),
-            Ok(value) if value.trim().eq_ignore_ascii_case("scram") => Ok(Self::Scram),
-            Ok(_) | Err(std::env::VarError::NotUnicode(_)) => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "pgwire authentication mode must be scram",
-            )),
-        }
+        super::super::sql_wire_auth::resolve_mode(
+            auth_secret,
+            PGWIRE_AUTH_ENV,
+            "scram",
+            "pgwire requires non-empty authentication key material",
+            "pgwire authentication mode must be scram",
+        )
+        .map(|()| Self::Scram)
     }
 
     pub fn as_str(&self) -> &'static str {
@@ -92,26 +84,16 @@ impl PgWireAuthMode {
     }
 }
 
-type HmacSha256 = Hmac<Sha256>;
-
 /// `derived_password(user) = hex(HMAC-SHA256(secret, "pgwire:" || user))` — the
 /// per-user pg password an authorized operator computes from the engine secret.
 pub fn derive_pg_password(secret: &str, user: &str) -> String {
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"pgwire:");
-    mac.update(user.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
+    super::super::sql_wire_auth::derive_hmac_hex(secret, b"pgwire:", user)
 }
 
 /// A deterministic 16-byte SCRAM salt derived from the secret + user, so the same
 /// login re-validates without a stored salt table.
 fn derive_salt(secret: &str, user: &str) -> Vec<u8> {
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"pgwire-salt:");
-    mac.update(user.as_bytes());
-    mac.finalize().into_bytes()[..16].to_vec()
+    super::super::sql_wire_auth::derive_hmac_digest(secret, b"pgwire-salt:", user)[..16].to_vec()
 }
 
 /// `AuthSource` that yields the SCRAM-salted form of the derived per-user password

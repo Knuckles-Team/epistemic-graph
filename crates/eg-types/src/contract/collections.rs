@@ -89,6 +89,26 @@ impl<'de, T: Deserialize<'de>, const MAXIMUM: usize> Deserialize<'de> for Bounde
     }
 }
 
+/// A bounded array of `T`. The bound is part of the contract, so it is emitted
+/// as `maxItems` rather than left to prose.
+#[cfg(feature = "contract-schema")]
+impl<T: schemars::JsonSchema, const MAXIMUM: usize> schemars::JsonSchema
+    for BoundedVec<T, MAXIMUM>
+{
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Owned(format!("BoundedVec_{}_{}", T::schema_name(), MAXIMUM))
+    }
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let items = generator.subschema_for::<T>();
+        schemars::Schema::try_from(serde_json::json!({
+            "type": "array",
+            "items": items,
+            "maxItems": MAXIMUM,
+        }))
+        .expect("a JSON object is a valid schema")
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecordBytes(Vec<u8>);
 

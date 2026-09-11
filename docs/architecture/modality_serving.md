@@ -310,7 +310,7 @@ Arrow IPC is the sole result projection. Every result family uses
 cursor. There are no direct-query aliases or alternate family payloads.
 
 The Python `client.knowledge.pull(...)` binding fixes `schema_version` to `1` and
-projection to `arrow_ipc_v1`. Callers provide exactly one current typed family query,
+projection to `arrow_ipc`. Callers provide exactly one current typed family query,
 a batch size from 1 through 65,536, and optionally the cursor returned by the prior
 pull. The binding rejects unknown query fields, a cursor for another family or batch
 size, invalid opaque cursor references, non-finite vector values, and any response that

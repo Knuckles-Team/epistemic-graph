@@ -1,11 +1,11 @@
 use super::effects::MutationEffect;
-use super::envelope::MutationEnvelope;
+use super::envelope::MutationRequestEnvelope;
 use super::payload::{
     digest_sequence, recompute_canonical_payload_digest, recompute_egress_authorization_digest,
 };
 use crate::contract::Digest256;
 
-impl MutationEnvelope {
+impl MutationRequestEnvelope {
     pub fn recompute_canonical_payload_digest(&self) -> Result<Digest256, String> {
         recompute_canonical_payload_digest(
             &self.mutation_id,

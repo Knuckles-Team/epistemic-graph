@@ -41,7 +41,7 @@ pub fn apply_certification_fault(
         return Err("certification fault configuration is invalid".to_string());
     }
     if spec.phase != phase
-        || spec.request_id != batch.context.request_id
+        || !batch_matches_request(batch, spec.request_id)
         || !batch
             .operations
             .iter()
@@ -55,4 +55,18 @@ pub fn apply_certification_fault(
         phase, spec.domain, spec.request_id
     );
     std::process::abort();
+}
+
+/// Whether a batch was compiled for `request_id`.
+///
+/// The dispatch request number lives in the batch's authority context as its
+/// canonical `OpaqueId` spelling, so this reads it back through the one encoder
+/// (`request_opaque_id`) rather than re-deriving the format here. An
+/// owner-maintenance batch has no caller and therefore no request at all, so it
+/// never matches a certification fault keyed on one.
+fn batch_matches_request(batch: &MutationBatch, request_id: u64) -> bool {
+    batch.envelope.operation().is_some_and(|envelope| {
+        envelope.authority.request_id.as_str()
+            == crate::mutation_batch::request_opaque_id(request_id)
+    })
 }

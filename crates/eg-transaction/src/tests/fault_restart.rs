@@ -7,7 +7,10 @@
 
 use super::*;
 use crate::admitted::AdmittedMutation;
+use crate::tables::BATCHES;
 use crate::ReplayResolution;
+use eg_storage::RecordedOperation;
+use redb::ReadableTable;
 
 /// Reopen the same owner file and rebind its serving scope.
 fn reopen(
@@ -15,10 +18,8 @@ fn reopen(
     identity: MutationScopeIdentity,
 ) -> (Fixture, OwnedStoreHandle<LedgerOnlyOwner>) {
     let fixture = Fixture::open::<LedgerOnlyOwner>(path, "physical:test:ledger-only", None);
-    let owner = fixture.bind::<LedgerOnlyOwner>(
-        &verifier("tenant-a", OwnerLayout::LedgerOnly),
-        identity,
-    );
+    let owner =
+        fixture.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
     (fixture, owner)
 }
 
@@ -137,8 +138,182 @@ fn a_retry_after_the_crash_commits_once_and_then_replays() {
     let fresh_nonce = NonceReplayKey::from_context(&second).unwrap();
     assert_eq!(
         resolve(&fixture, &owner, &retried, &fresh_nonce),
-        ReplayResolution::ReplayedResult(Box::new(recorded))
+        ReplayResolution::ReplayedResult(Box::new(RecordedOperation::Receipt(Box::new(recorded))))
     );
+}
+
+/// A committed typed receipt keeps the owner batch link needed by recovery.
+/// Reopening must validate the row, and a fresh nonce must still resolve the
+/// exact typed receipt without executing a second owner mutation.
+#[test]
+fn a_committed_typed_receipt_reopens_and_replays_by_fresh_nonce() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("typed-replay.redb");
+    let identity = native_identity("tenant-a", "incarnation:fault:typed-replay");
+    let batch = batch(identity.clone(), "typed-replay-batch");
+    // The replay identity MUST be the batch's own envelope identity.
+    // `finish_with_replay` files the replay-operations row under the identity it
+    // is handed and skips the batch's own key row, so a hand-built context with
+    // a different idempotency key leaves the batch with no row at all -- which
+    // recovery then reports as "receipt is missing its replay operation row".
+    let envelope = batch
+        .envelope
+        .operation()
+        .expect("a typed replay fixture is an operation batch");
+    let operation = envelope.operation_identity().unwrap();
+    let nonce = envelope.nonce_replay_key().unwrap();
+    let idempotency_key = batch.idempotency_key().to_string();
+    let recorded = receipt("typed-receipt-1", &operation, &nonce);
+    {
+        let (fixture, owner) = ledger_fixture(&path, identity.clone());
+        let (write, begun) = fixture.mutations.admit(&owner, &batch).unwrap();
+        let source_version = match begun {
+            Begin::Apply { source_version } => source_version,
+            Begin::Replay(_) => panic!("unexpected replay"),
+        };
+        let result_msgpack =
+            eg_storage::encode_bounded(&recorded.result, "typed replay result").unwrap();
+        fixture
+            .mutations
+            .finish_with_replay(
+                &write,
+                &batch,
+                Some(result_msgpack),
+                2,
+                source_version,
+                (&operation, &nonce, &recorded),
+            )
+            .unwrap();
+        fixture.mutations.commit(write, &batch).unwrap();
+    }
+
+    let (fixture, owner) = reopen(&path, identity);
+    // A retry is a FRESH nonce over the UNCHANGED stable identity -- exactly
+    // what `retry_of` builds and what the kernel must resolve as a replay.
+    let retried_batch = retry_of(&batch);
+    let retried_envelope = retried_batch
+        .envelope
+        .operation()
+        .expect("a retried fixture is an operation batch");
+    let retried = retried_envelope.operation_identity().unwrap();
+    let fresh_nonce = retried_envelope.nonce_replay_key().unwrap();
+    assert_ne!(
+        fresh_nonce.digest().unwrap(),
+        nonce.digest().unwrap(),
+        "a retry must carry a fresh attempt nonce"
+    );
+    assert_eq!(
+        retried.digest().unwrap(),
+        operation.digest().unwrap(),
+        "a retry must keep the stable operation identity unchanged"
+    );
+    assert_eq!(
+        resolve(&fixture, &owner, &retried, &fresh_nonce),
+        ReplayResolution::ReplayedResult(Box::new(RecordedOperation::Receipt(Box::new(
+            recorded.clone(),
+        ))))
+    );
+
+    let write = fixture.mutations.open_write(&owner).unwrap();
+    fixture
+        .mutations
+        .finalize_replay_receipt(&write, &retried, &fresh_nonce, &recorded)
+        .unwrap();
+    fixture.mutations.commit_replay_receipt(write).unwrap();
+    assert_eq!(
+        resolve(&fixture, &owner, &retried, &fresh_nonce),
+        ReplayResolution::NonceRejected {
+            idempotency_key: idempotency_key.clone()
+        }
+    );
+    drop(fixture);
+
+    let (fixture, owner) = reopen(
+        &path,
+        native_identity("tenant-a", "incarnation:fault:typed-replay"),
+    );
+    assert_eq!(
+        resolve(&fixture, &owner, &retried, &fresh_nonce),
+        ReplayResolution::NonceRejected {
+            idempotency_key: idempotency_key.clone()
+        }
+    );
+}
+
+/// A typed replay row without the exact durable result is corrupt even when
+/// its operation and batch identities otherwise match.
+#[test]
+fn a_typed_replay_row_without_a_durable_result_refuses_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("typed-replay-missing-result.redb");
+    let identity = native_identity("tenant-a", "incarnation:fault:typed-missing-result");
+    let batch = batch(identity.clone(), "typed-missing-result-batch");
+    // As in `a_committed_typed_receipt_reopens_and_replays_by_fresh_nonce`, the
+    // replay identity has to be the batch's OWN envelope identity, or the batch
+    // key row is never written and recovery refuses the reopen for that reason
+    // instead of the stripped result this test is about.
+    let envelope = batch
+        .envelope
+        .operation()
+        .expect("a typed replay fixture is an operation batch");
+    let operation = envelope.operation_identity().unwrap();
+    let nonce = envelope.nonce_replay_key().unwrap();
+    let recorded = receipt("typed-missing-result-receipt", &operation, &nonce);
+    {
+        let (fixture, owner) = ledger_fixture(&path, identity.clone());
+        let (write, begun) = fixture.mutations.admit(&owner, &batch).unwrap();
+        let source_version = match begun {
+            Begin::Apply { source_version } => source_version,
+            Begin::Replay(_) => panic!("unexpected replay"),
+        };
+        let result_msgpack =
+            eg_storage::encode_bounded(&recorded.result, "typed replay result").unwrap();
+        fixture
+            .mutations
+            .finish_with_replay(
+                &write,
+                &batch,
+                Some(result_msgpack),
+                2,
+                source_version,
+                (&operation, &nonce, &recorded),
+            )
+            .unwrap();
+        fixture.mutations.commit(write, &batch).unwrap();
+    }
+    let scope_key = eg_storage::ledger_scope_key(&identity);
+    let database = redb::Database::open(&path).unwrap();
+    let write = database.begin_write().unwrap();
+    let mut batches = write.open_table(BATCHES).unwrap();
+    let bytes = batches
+        .get((scope_key.as_str(), batch.batch_id.as_str()))
+        .unwrap()
+        .expect("typed replay batch")
+        .value()
+        .to_vec();
+    let mut record = eg_storage::decode_batch_record(&bytes).unwrap();
+    record.result_msgpack = None;
+    let encoded = eg_storage::encode_bounded(&record, "missing typed replay result").unwrap();
+    batches
+        .insert(
+            (scope_key.as_str(), batch.batch_id.as_str()),
+            encoded.as_slice(),
+        )
+        .unwrap();
+    drop(batches);
+    write.commit().unwrap();
+    drop(database);
+    match StorageKernel::open_owner::<LedgerOnlyOwner>(
+        &path,
+        PhysicalStoreIdentity::new("physical:test:ledger-only").unwrap(),
+        None,
+    ) {
+        Ok(_) => panic!("a typed replay row without a durable result must not reopen"),
+        Err(error) => assert!(
+            error.contains("typed replay receipt differs from its committed result"),
+            "{error}"
+        ),
+    }
 }
 
 /// `bootstrap_ledger` is the one storage/ledger table-ownership seam: the
@@ -190,10 +365,8 @@ fn purging_a_scope_removes_its_replay_evidence() {
     fixture.mutations.commit(write, &batch).unwrap();
 
     fixture.mutations.purge_scope(&owner, &identity).unwrap();
-    let rebound = fixture.bind::<LedgerOnlyOwner>(
-        &verifier("tenant-a", OwnerLayout::LedgerOnly),
-        identity,
-    );
+    let rebound =
+        fixture.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
     assert_eq!(
         resolve(&fixture, &rebound, &operation, &nonce),
         ReplayResolution::Fresh
@@ -208,17 +381,14 @@ fn a_maintenance_write_is_ledgered_and_outside_operation_replay() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("native.redb");
     let identity = native_identity("tenant-a", "incarnation:maintenance");
-    let maintenance = batch(identity.clone(), "compaction");
+    let maintenance = maintenance_batch(identity.clone(), "compaction");
     let attempt = context(1, "request-1", "idem:stable");
     let operation = operation_identity(&attempt, "mutation.apply", digest_of(30));
     let nonce = NonceReplayKey::from_context(&attempt).unwrap();
     let recorded = receipt("receipt-1", &operation, &nonce);
     {
         let (fixture, owner) = ledger_fixture(&path, identity.clone());
-        let (write, begun) = fixture
-            .mutations
-            .admit_maintenance(&owner, &maintenance)
-            .unwrap();
+        let (write, begun) = fixture.mutations.admit(&owner, &maintenance).unwrap();
         let source_version = match begun {
             Begin::Apply { source_version } => source_version,
             Begin::Replay(_) => panic!("unexpected replay"),
@@ -276,13 +446,13 @@ fn every_admitted_batch_advances_the_scope_version() {
     let path = dir.path().join("native.redb");
     let identity = native_identity("tenant-a", "incarnation:versions");
     let (fixture, owner) = ledger_fixture(&path, identity.clone());
-    assert_eq!(version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(), 0);
+    assert_eq!(
+        version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(),
+        0
+    );
 
-    let maintenance = batch(identity.clone(), "compaction");
-    let (write, begun) = fixture
-        .mutations
-        .admit_maintenance(&owner, &maintenance)
-        .unwrap();
+    let maintenance = maintenance_batch(identity.clone(), "compaction");
+    let (write, begun) = fixture.mutations.admit(&owner, &maintenance).unwrap();
     let source_version = match begun {
         Begin::Apply { source_version } => source_version,
         Begin::Replay(_) => panic!("unexpected replay"),
@@ -292,12 +462,18 @@ fn every_admitted_batch_advances_the_scope_version() {
         .finish(&write, &maintenance, None, 2, source_version)
         .unwrap();
     fixture.mutations.commit(write, &maintenance).unwrap();
-    assert_eq!(version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(), 1);
+    assert_eq!(
+        version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(),
+        1
+    );
 
     let mut versioned = batch(identity, "caller-operation");
     versioned.version_expectation = VersionExpectation::Native(1);
     apply_batch(&fixture, &owner, &versioned);
-    assert_eq!(version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(), 2);
+    assert_eq!(
+        version(&fixture.kernel.read_scope(&owner).unwrap()).unwrap(),
+        2
+    );
 }
 
 /// A maintenance label and a recorded operation identity are contradictory, so
@@ -308,24 +484,34 @@ fn a_maintenance_batch_carrying_an_operation_identity_fails_to_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("native.redb");
     let identity = native_identity("tenant-a", "incarnation:mislabel");
-    let maintenance = batch(identity.clone(), "mislabelled");
-    let attempt = context(1, "request-1", &maintenance.idempotency_key);
+    let maintenance = maintenance_batch(identity.clone(), "mislabelled");
+    let attempt = context(1, "request-1", maintenance.idempotency_key());
     let operation = operation_identity(&attempt, "mutation.apply", digest_of(30));
     let nonce = NonceReplayKey::from_context(&attempt).unwrap();
     let recorded = receipt("receipt-1", &operation, &nonce);
     {
         let (fixture, owner) = ledger_fixture(&path, identity.clone());
-        let (write, begun) = fixture
-            .mutations
-            .admit_maintenance(&owner, &maintenance)
-            .unwrap();
+        let (write, begun) = fixture.mutations.admit(&owner, &maintenance).unwrap();
         let source_version = match begun {
             Begin::Apply { source_version } => source_version,
             Begin::Replay(_) => panic!("unexpected replay"),
         };
+        // The receipt planted below carries this result, and recovery checks a
+        // receipt against its linked batch's durable result. Give the batch the
+        // matching result so the ONE contradiction under test -- a maintenance
+        // label carrying an operation replay identity -- is what refuses the
+        // reopen, rather than an incidental result mismatch masking it.
+        let result_msgpack =
+            eg_storage::encode_bounded(&recorded.result, "mutation receipt result").unwrap();
         fixture
             .mutations
-            .finish(&write, &maintenance, None, 2, source_version)
+            .finish(
+                &write,
+                &maintenance,
+                Some(result_msgpack),
+                2,
+                source_version,
+            )
             .unwrap();
         fixture.mutations.commit(write, &maintenance).unwrap();
 
@@ -333,10 +519,11 @@ fn a_maintenance_batch_carrying_an_operation_identity_fails_to_reopen() {
         let write = AdmittedMutation::open(fixture.mutations_authority(), &owner).unwrap();
         let row = eg_storage::OperationReplayRow {
             identity: identity.clone(),
-            idempotency_key: maintenance.idempotency_key.clone(),
+            idempotency_key: maintenance.idempotency_key().to_string(),
             operation_replay_digest: operation.digest().unwrap(),
             nonce_replay_digest: nonce.digest().unwrap(),
-            receipt: recorded,
+            batch_id: maintenance.batch_id.clone(),
+            recorded: RecordedOperation::Receipt(Box::new(recorded)),
         };
         let bytes = eg_storage::encode_bounded(&row, "planted replay row").unwrap();
         let scope = eg_storage::ledger_scope_key(&identity);
@@ -344,7 +531,7 @@ fn a_maintenance_batch_carrying_an_operation_identity_fails_to_reopen() {
             .scoped_table(crate::tables::REPLAY_OPERATIONS)
             .unwrap()
             .insert(
-                (scope.as_str(), maintenance.idempotency_key.as_str()),
+                (scope.as_str(), maintenance.idempotency_key()),
                 bytes.as_slice(),
             )
             .unwrap();
@@ -356,6 +543,9 @@ fn a_maintenance_batch_carrying_an_operation_identity_fails_to_reopen() {
         None,
     ) {
         Ok(_) => panic!("a contradictory maintenance label must not reopen"),
-        Err(error) => assert!(error.contains("recorded operation replay identity"), "{error}"),
+        Err(error) => assert!(
+            error.contains("recorded operation replay identity"),
+            "{error}"
+        ),
     }
 }

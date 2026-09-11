@@ -13,7 +13,7 @@ use std::pin::Pin;
 use eg_modality::OpaqueRef;
 use serde::{Deserialize, Serialize};
 
-use crate::{ProgramError, ProgramModality};
+use crate::{ProgramError, ProgramModality, ProgramRevisionIdentity};
 
 pub const MAX_MODEL_INPUTS: usize = 256;
 pub const MAX_MODEL_OUTPUTS: usize = 128;
@@ -46,7 +46,10 @@ pub struct GovernedContentRef {
 pub struct ModelCallRequest {
     pub request_ref: OpaqueRef,
     pub program_ref: OpaqueRef,
+    pub program_revision_ref: OpaqueRef,
     pub model_profile_ref: OpaqueRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_policy_ref: Option<OpaqueRef>,
     pub tier: ModelTier,
     pub inputs: Vec<GovernedContentRef>,
     pub output_schema_refs: Vec<OpaqueRef>,
@@ -94,6 +97,36 @@ impl ModelCallRequest {
                 .inputs
                 .iter()
                 .any(|input| input.access_policy_ref != self.inputs[0].access_policy_ref)
+            || self.program_ref.namespace() != "program"
+            || self.program_revision_ref.namespace() != "program_revision"
+            || self
+                .tool_policy_ref
+                .as_ref()
+                .is_some_and(|reference| reference.namespace() != "tool_policy")
+            || self.model_profile_ref.namespace() != "model_profile"
+        {
+            return Err(ProgramError::InvalidProgram);
+        }
+        Ok(())
+    }
+
+    /// Validate the request against the durable revision row that will govern
+    /// resolution. A revision reference alone is insufficient: model, tool, and
+    /// access-policy bindings are all immutable parts of the promoted identity.
+    pub fn validate_for_revision(
+        &self,
+        revision: &ProgramRevisionIdentity,
+    ) -> Result<(), ProgramError> {
+        self.validate()?;
+        revision.validate()?;
+        if self.program_ref != revision.program_ref
+            || self.program_revision_ref != revision.revision_ref
+            || revision.model_profile_ref.as_ref() != Some(&self.model_profile_ref)
+            || self.tool_policy_ref.as_ref() != revision.tool_policy_ref.as_ref()
+            || self
+                .inputs
+                .iter()
+                .any(|input| input.access_policy_ref != revision.policy.access_policy_ref)
         {
             return Err(ProgramError::InvalidProgram);
         }
@@ -125,6 +158,7 @@ pub struct ModelCallResponse {
     pub response_ref: OpaqueRef,
     pub output_refs: Vec<OpaqueRef>,
     pub trace_ref: OpaqueRef,
+    pub program_revision_ref: OpaqueRef,
     pub usage: ModelUsage,
     pub finish_reason: ModelFinishReason,
 }
@@ -137,7 +171,35 @@ impl ModelCallResponse {
         if self.output_refs.iter().collect::<BTreeSet<_>>().len() != self.output_refs.len() {
             return Err(ProgramError::InvalidProgram);
         }
+        if self.program_revision_ref.namespace() != "program_revision" {
+            return Err(ProgramError::InvalidProgram);
+        }
         Ok(())
+    }
+
+    /// Validate the response against the request's immutable execution and
+    /// provenance binding. Shape validation alone is insufficient because a
+    /// provider response from another revision or trace is not reusable.
+    pub fn validate_for(&self, request: &ModelCallRequest) -> Result<(), ProgramError> {
+        request.validate()?;
+        self.validate()?;
+        if self.trace_ref != request.trace_ref
+            || self.program_revision_ref != request.program_revision_ref
+        {
+            return Err(ProgramError::InvalidProgram);
+        }
+        Ok(())
+    }
+
+    /// Validate response provenance after the request has been bound to the
+    /// durable promoted revision.
+    pub fn validate_for_revision(
+        &self,
+        request: &ModelCallRequest,
+        revision: &ProgramRevisionIdentity,
+    ) -> Result<(), ProgramError> {
+        request.validate_for_revision(revision)?;
+        self.validate_for(request)
     }
 }
 

@@ -174,7 +174,19 @@ cargo_deny_version = "0.20.2"
 # blocks as well as the config/template formats dupehound cannot parse.
 jscpd_formats = { rust = ["rs"], python = ["py", "pyi"], javascript = ["js", "cjs", "mjs"], typescript = ["ts", "tsx", "cts", "mts"], bash = ["sh", "bash"], css = ["css"], html = ["html", "htm"], json = ["json"], yaml = ["yaml", "yml"], toml = ["toml"], sql = ["sql"], markdown = ["md"] }
 jscpd_filenames = { docker = ["Dockerfile", "Containerfile"], makefile = ["Makefile", "GNUmakefile"] }
+# Exclusions are junk, vendored code, and GENERATED OUTPUT. A generated file is
+# not duplication debt: it has no author to refactor and no second copy to
+# delete -- its repetition is a property of the generator's template, and the
+# fix for a real duplication in it is a fix in the source of truth. `contract/`
+# is the engine contract `gen_contract` writes from the
+# `crates/eg-capabilities/src/domains/*` descriptor rows (RF-RULING-003), and
+# `contract/methods.json` alone accounted for 1,056 of the scanner's clone
+# pairs -- 408 structurally identical registry records -- which is the
+# generator working, not debt. The descriptor rows themselves stay in the
+# scanner's universe, so a genuine duplication in the SOURCE is still caught.
 jscpd_exclusions = [
+    "contract/**",
+    "epistemic_graph/contract/**",
     "**/.git/**",
     "**/.venv/**",
     "**/venv/**",

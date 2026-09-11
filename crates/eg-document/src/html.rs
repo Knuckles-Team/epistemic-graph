@@ -97,89 +97,132 @@ pub(crate) fn strip_to_text(bytes: &[u8]) -> Option<String> {
         return None;
     }
     let source = std::str::from_utf8(bytes).ok()?;
-    let mut output = String::with_capacity(source.len());
-    let mut skip_element: Option<String> = None;
-    let mut i = 0usize;
-    let total = source.len();
+    let mut scanner = HtmlScanner::new(source);
+    scanner.scan();
+    let decoded = decode_entities(&scanner.output);
+    (!decoded.trim().is_empty()).then_some(decoded)
+}
 
-    while i < total {
-        let rest = &source[i..];
-        let Some(ch) = rest.chars().next() else {
-            break;
-        };
-        if ch != '<' {
-            if skip_element.is_none() {
-                output.push(ch);
-            }
-            i += ch.len_utf8();
-            continue;
+struct HtmlScanner<'a> {
+    source: &'a str,
+    output: String,
+    skip_element: Option<String>,
+    index: usize,
+}
+
+impl<'a> HtmlScanner<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            source,
+            output: String::with_capacity(source.len()),
+            skip_element: None,
+            index: 0,
         }
-        if rest.starts_with("<!--") {
-            i = match rest.find("-->") {
-                Some(offset) => i + offset + 3,
-                None => total,
+    }
+
+    fn scan(&mut self) {
+        while self.index < self.source.len() {
+            let rest = &self.source[self.index..];
+            let Some(ch) = rest.chars().next() else {
+                break;
             };
-            continue;
-        }
-        let is_close = rest.as_bytes().get(1) == Some(&b'/');
-        let name_start = 1 + usize::from(is_close);
-        let name_rel_end = rest[name_start..]
-            .find(|c: char| c == '>' || c == '/' || c.is_ascii_whitespace())
-            .unwrap_or(rest.len() - name_start);
-        let Some(tag_name) = rest.get(name_start..name_start + name_rel_end) else {
-            // Non-char-boundary slice (never valid tag syntax): drop this `<`
-            // and keep scanning rather than fabricate a tag name.
-            i += ch.len_utf8();
-            continue;
-        };
-        let tag_name = tag_name.to_ascii_lowercase();
-        let Some(close_rel) = rest.find('>') else {
-            // Unterminated tag: nothing after it can be structured markup —
-            // stop rather than emit a dangling fragment as text.
-            break;
-        };
-        i += close_rel + 1;
-
-        if let Some(skipped) = &skip_element {
-            if is_close && &tag_name == skipped {
-                skip_element = None;
-            }
-            continue;
-        }
-        if !is_close && SKIPPED_ELEMENTS.contains(&tag_name.as_str()) {
-            skip_element = Some(tag_name);
-            continue;
-        }
-        // On open, `h1`..`h6`/`li` additionally emit the markdown-style
-        // prefix `decoder.rs::classify` already recognizes (`#`.."######"
-        // + space, `- `), so a rendered heading/list item survives as a
-        // *classified* Heading/ListItem block downstream, not just a bare
-        // paragraph line. The matching close tag still falls through to the
-        // plain newline below (both `h1`..`h6` and `li` are in `BLOCK_TAGS`),
-        // which ends the line without re-emitting the prefix.
-        if !is_close {
-            if let Some(level) = heading_level(&tag_name) {
-                output.push('\n');
-                output.extend(std::iter::repeat_n('#', level));
-                output.push(' ');
+            if ch != '<' {
+                if self.skip_element.is_none() {
+                    self.output.push(ch);
+                }
+                self.index += ch.len_utf8();
                 continue;
             }
-            if tag_name == "li" {
-                output.push('\n');
-                output.push_str("- ");
+            if rest.starts_with("<!--") {
+                self.index = match rest.find("-->") {
+                    Some(offset) => self.index + offset + 3,
+                    None => self.source.len(),
+                };
                 continue;
             }
-        }
-        if BLOCK_TAGS.contains(&tag_name.as_str()) {
-            output.push('\n');
+            if !self.scan_tag(rest, ch) {
+                break;
+            }
         }
     }
 
-    let decoded = decode_entities(&output);
-    if decoded.trim().is_empty() {
-        return None;
+    fn scan_tag(&mut self, rest: &str, ch: char) -> bool {
+        match parse_tag(rest) {
+            TagScan::Malformed => {
+                self.index += ch.len_utf8();
+                true
+            }
+            TagScan::Unterminated => false,
+            TagScan::Complete(tag) => {
+                self.index += tag.consumed;
+                self.emit_tag(&tag);
+                true
+            }
+        }
     }
-    Some(decoded)
+
+    fn emit_tag(&mut self, tag: &ParsedTag) {
+        if let Some(skipped) = &self.skip_element {
+            if tag.is_close && &tag.name == skipped {
+                self.skip_element = None;
+            }
+            return;
+        }
+        if !tag.is_close && SKIPPED_ELEMENTS.contains(&tag.name.as_str()) {
+            self.skip_element = Some(tag.name.clone());
+            return;
+        }
+        if !tag.is_close {
+            if let Some(level) = heading_level(&tag.name) {
+                self.output.push('\n');
+                self.output.extend(std::iter::repeat_n('#', level));
+                self.output.push(' ');
+                return;
+            }
+            if tag.name == "li" {
+                self.output.push('\n');
+                self.output.push_str("- ");
+                return;
+            }
+        }
+        if BLOCK_TAGS.contains(&tag.name.as_str()) {
+            self.output.push('\n');
+        }
+    }
+}
+
+struct ParsedTag {
+    is_close: bool,
+    name: String,
+    consumed: usize,
+}
+
+enum TagScan {
+    Malformed,
+    Unterminated,
+    Complete(ParsedTag),
+}
+
+fn parse_tag(rest: &str) -> TagScan {
+    let is_close = rest.as_bytes().get(1) == Some(&b'/');
+    let name_start = 1 + usize::from(is_close);
+    let Some(name_tail) = rest.get(name_start..) else {
+        return TagScan::Malformed;
+    };
+    let name_rel_end = name_tail
+        .find(|c: char| c == '>' || c == '/' || c.is_ascii_whitespace())
+        .unwrap_or(name_tail.len());
+    let Some(tag_name) = rest.get(name_start..name_start + name_rel_end) else {
+        return TagScan::Malformed;
+    };
+    let Some(close_rel) = rest.find('>') else {
+        return TagScan::Unterminated;
+    };
+    TagScan::Complete(ParsedTag {
+        is_close,
+        name: tag_name.to_ascii_lowercase(),
+        consumed: close_rel + 1,
+    })
 }
 
 /// Decodes the fixed named-entity set plus numeric (`&#NN;` / `&#xHH;`)

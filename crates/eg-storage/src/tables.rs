@@ -16,7 +16,7 @@
 //! [`eg_types::MutationScopeIdentity`] it was written under, either directly
 //! (`ledger_batches`, `ledger_outbox`, `ledger_fences` via
 //! [`ScopeFence`], `mutation_replay_operations`) or through the receipt its
-//! key points at (`ledger_idempotency`,
+//! key points at (`ledger_maintenance`,
 //! `ledger_private_payloads`, `mutation_replay_nonces`).
 //!
 //! Recovery validation therefore resolves a row's binding by the row's own key
@@ -39,8 +39,8 @@ pub(crate) const OWNER_MANIFEST: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("mutation_owner_manifest");
 pub(crate) const BATCHES: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("ledger_batches");
-pub(crate) const IDEMPOTENCY: TableDefinition<'static, (&str, &str), &str> =
-    TableDefinition::new("ledger_idempotency");
+pub(crate) const MAINTENANCE: TableDefinition<'static, (&str, &str), &str> =
+    TableDefinition::new("ledger_maintenance");
 pub(crate) const VERSIONS: TableDefinition<'static, &str, u64> =
     TableDefinition::new("ledger_versions");
 pub(crate) const FENCES: TableDefinition<'static, &str, &[u8]> =
@@ -133,7 +133,7 @@ pub struct MutationClassRow {
 /// the digest of the proposed [`eg_types::authority::OperationReplayIdentity`].
 /// `mutation_replay_nonces` maps one attempt nonce digest to the idempotency
 /// key it consumed, so the same nonce is always rejected while a fresh nonce
-/// over the same stable identity replays `receipt`.
+/// over the same stable identity replays `recorded`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OperationReplayRow {
@@ -141,7 +141,45 @@ pub struct OperationReplayRow {
     pub idempotency_key: String,
     pub operation_replay_digest: Digest256,
     pub nonce_replay_digest: Digest256,
-    pub receipt: MutationReceipt,
+    /// The owner batch whose committed effect produced this replay result.
+    ///
+    /// Every row written through an admitted operation carries this link,
+    /// including a typed receipt row. The default keeps older batch-shaped
+    /// rows decodable; recovery derives their id from `RecordedOperation::Batch`
+    /// while refusing a missing link for a typed receipt.
+    #[serde(default)]
+    pub batch_id: String,
+    /// The result this key already produced.
+    pub recorded: RecordedOperation,
+}
+
+/// What a recorded operation resolves to on replay.
+///
+/// One row, one comparison rule, two honest ways of naming the SAME recorded
+/// result. The retired `ledger_idempotency` table existed only to map an
+/// idempotency key to a batch id; keeping it beside this row would be two tables
+/// answering "was this key already used", which is the second replay authority
+/// RF-ADR-001 forbids. So the mapping moved here instead of being duplicated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecordedOperation {
+    /// The durable `MutationBatchRecord` committed under this batch id -- the
+    /// result of every batch the mutation kernel admits.
+    Batch(String),
+    /// The kernel-level receipt recorded through the authority-context path.
+    /// Its enclosing [`OperationReplayRow`] still names the committed owner
+    /// batch whose effect produced the receipt.
+    Receipt(Box<MutationReceipt>),
+}
+
+impl RecordedOperation {
+    /// The batch id this row replays to, or `None` for a receipt-only record.
+    pub fn batch_id(&self) -> Option<&str> {
+        match self {
+            Self::Batch(batch_id) => Some(batch_id.as_str()),
+            Self::Receipt(_) => None,
+        }
+    }
 }
 
 /// The one authoritative ledger-table list.
@@ -157,7 +195,7 @@ macro_rules! visit_ledger_tables {
         $visit!($crate::tables::SCOPE_BINDINGS);
         $visit!($crate::tables::OWNER_MANIFEST);
         $visit!($crate::tables::BATCHES);
-        $visit!($crate::tables::IDEMPOTENCY);
+        $visit!($crate::tables::MAINTENANCE);
         $visit!($crate::tables::VERSIONS);
         $visit!($crate::tables::FENCES);
         $visit!($crate::tables::OUTBOX);
@@ -179,7 +217,7 @@ macro_rules! visit_ledger_tables {
 macro_rules! visit_ledger_content_tables {
     ($visit:ident) => {{
         $visit!($crate::tables::BATCHES);
-        $visit!($crate::tables::IDEMPOTENCY);
+        $visit!($crate::tables::MAINTENANCE);
         $visit!($crate::tables::VERSIONS);
         $visit!($crate::tables::FENCES);
         $visit!($crate::tables::OUTBOX);
@@ -206,7 +244,7 @@ macro_rules! visit_scoped_ledger_tables {
         $visit!($crate::tables::VERSIONS);
         $visit!($crate::tables::FENCES);
         $visit!($crate::tables::BATCHES);
-        $visit!($crate::tables::IDEMPOTENCY);
+        $visit!($crate::tables::MAINTENANCE);
         $visit!($crate::tables::PRIVATE_PAYLOADS);
         $visit!($crate::tables::OUTBOX);
         $visit!($crate::tables::OUTBOX_TOPIC_INDEX);

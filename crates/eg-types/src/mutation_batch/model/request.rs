@@ -2,26 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::protocol::Method;
 
-/// Authenticated request facts copied into a durable batch.
-///
-/// Verification is deliberately performed above this pure-data crate. These are
-/// the facts that were verified, not caller-controlled replacements for them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct MutationRequestContext {
-    pub request_id: u64,
-    pub principal: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub purpose: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub policy_fingerprint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trace_id: Option<String>,
-    /// Capabilities verified at the authenticated admission boundary.
-    pub verified_capabilities: std::collections::BTreeSet<MutationCapability>,
-}
-
 /// Origin surface for an operation. The durable semantics never depend on this
 /// value; it exists for policy/audit/projection consumers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

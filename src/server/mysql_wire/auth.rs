@@ -27,9 +27,7 @@
 //! `SHA1(password) = client_response XOR SHA1(seed || stored)` and checking
 //! `SHA1(that) == stored`. No plaintext (nor `SHA1(password)`) is ever stored.
 
-use hmac::{Hmac, Mac};
 use sha1::{Digest, Sha1};
-use sha2::Sha256;
 
 /// Env var selecting the MySQL wire auth mode. Only `native` is accepted; unset
 /// also selects native authentication.
@@ -37,8 +35,6 @@ pub const MYSQL_AUTH_ENV: &str = "EPISTEMIC_GRAPH_MYSQL_AUTH";
 
 /// The name of the auth plugin the server advertises + validates.
 pub const MYSQL_NATIVE_PASSWORD: &str = "mysql_native_password";
-
-type HmacSha256 = Hmac<Sha256>;
 
 /// The resolved MySQL wire auth mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,20 +47,14 @@ impl MysqlAuthMode {
     /// Resolve the sole secure mode. Empty key material and every legacy or
     /// unknown value are startup errors rather than compatibility fallbacks.
     pub fn resolve(auth_secret: &str) -> std::io::Result<Self> {
-        if auth_secret.is_empty() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "mysql-wire requires non-empty authentication key material",
-            ));
-        }
-        match std::env::var(MYSQL_AUTH_ENV) {
-            Err(std::env::VarError::NotPresent) => Ok(Self::Native),
-            Ok(value) if value.trim().eq_ignore_ascii_case("native") => Ok(Self::Native),
-            Ok(_) | Err(std::env::VarError::NotUnicode(_)) => Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "mysql-wire authentication mode must be native",
-            )),
-        }
+        super::super::sql_wire_auth::resolve_mode(
+            auth_secret,
+            MYSQL_AUTH_ENV,
+            "native",
+            "mysql-wire requires non-empty authentication key material",
+            "mysql-wire authentication mode must be native",
+        )
+        .map(|()| Self::Native)
     }
 
     pub fn as_str(&self) -> &'static str {
@@ -85,11 +75,7 @@ impl MysqlAuthMode {
 /// MySQL password an authorized operator computes from the engine secret. Mirrors
 /// pgwire's `derive_pg_password` (different domain-separation prefix).
 pub fn derive_mysql_password(secret: &str, user: &str) -> String {
-    let mut mac =
-        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"mysql:");
-    mac.update(user.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
+    super::super::sql_wire_auth::derive_hmac_hex(secret, b"mysql:", user)
 }
 
 fn sha1(bytes: &[u8]) -> [u8; 20] {

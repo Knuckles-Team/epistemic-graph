@@ -50,6 +50,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::protocol::{GraphType, Method};
+use crate::server::http1::{self, RequestLimits};
 
 // ── CONCEPT:EG-KG.sharding.follower-pull-loop — the replication log + shipped op ────────────────────────
 
@@ -353,40 +354,28 @@ pub fn global_log() -> Option<&'static ReplicationLog> {
     .as_ref()
 }
 
-/// Serve the primary's `/replicate?since=<lsn>` endpoint (CONCEPT:EG-KG.sharding.follower-pull-loop) using the same
-/// hand-rolled dependency-free HTTP framing idiom as the CONCEPT:EG-KG.ontology.federation-client `/federated`
-/// listener. A follower GETs the ordered tail after its cursor; the body is a JSON array
+/// The follower-pull surface reads a `GET` and never a body.
+const HTTP_LIMITS: RequestLimits = RequestLimits {
+    max_head_bytes: 64 * 1024,
+    max_body_bytes: 0,
+};
+
+/// Serve the primary's `/replicate?since=<lsn>` endpoint (CONCEPT:EG-KG.sharding.follower-pull-loop) through the
+/// one [`crate::server::http1`] request-framing authority, the same reader the
+/// CONCEPT:EG-KG.ontology.federation-client `/federated` listener uses. A follower GETs the ordered tail after its cursor; the body is a JSON array
 /// of [`ReplicationOp`]. When the follower has fallen behind the retained ring the response
 /// carries an `x-replica-lag: behind` header so the follower knows to re-snapshot.
 pub async fn serve(listener: tokio::net::TcpListener) {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncWriteExt;
     loop {
         let Ok((mut stream, _)) = listener.accept().await else {
             continue;
         };
         tokio::spawn(async move {
-            // Read the request line (headers to blank line) — GET only, no body.
-            let mut buf = Vec::new();
-            let mut tmp = [0u8; 4096];
-            loop {
-                if buf.windows(4).any(|w| w == b"\r\n\r\n") {
-                    break;
-                }
-                match stream.read(&mut tmp).await {
-                    Ok(0) | Err(_) => return,
-                    Ok(n) => buf.extend_from_slice(&tmp[..n]),
-                }
-                if buf.len() > 64 * 1024 {
-                    return; // header flood guard
-                }
-            }
-            let head = String::from_utf8_lossy(&buf);
-            let target = head
-                .split("\r\n")
-                .next()
-                .and_then(|line| line.split_whitespace().nth(1))
-                .unwrap_or("/");
-            let (path, qs) = target.split_once('?').unwrap_or((target, ""));
+            let Some(request) = http1::read_request(&mut stream, HTTP_LIMITS).await else {
+                return;
+            };
+            let (path, qs) = request.path_and_query();
             let (status, ctype, extra, body) = if path != "/replicate" {
                 (
                     "404 Not Found",

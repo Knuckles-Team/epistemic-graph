@@ -22,10 +22,8 @@
 //! default `cargo check --benches` skips it.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::protocol::Method;
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
@@ -92,14 +90,7 @@ fn bench_group_commit(c: &mut Criterion) {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let backend = Arc::new(
-            RedbBackend::open(
-                dir.to_string_lossy().to_string(),
-                // Long interval so ONLY the barrier path (+ linger) commits a batch,
-                // never the timer — isolates the linger's effect on batch size.
-                DurabilityPolicy::Interval(Duration::from_millis(500)),
-                4096,
-            )
-            .expect("open redb backend"),
+            RedbBackend::open(dir.to_string_lossy().to_string(), 4096).expect("open redb backend"),
         );
         std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US");
         std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW");

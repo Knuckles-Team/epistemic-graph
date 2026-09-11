@@ -26,12 +26,10 @@ impl SemanticStore {
         rows
     }
 
-    /// Reject malformed data before touching either resident rows or the ANN.
-    pub fn add_embedding(
-        &mut self,
-        node_id: String,
-        embedding: Vec<f32>,
-    ) -> Result<(), EmbeddingDimensionError> {
+    /// Validate an embedding against this store's declared space and backend
+    /// width before any resident state is touched. Callers that already hold a
+    /// read guard can use this admission check without cloning the corpus.
+    pub fn validate_embedding(&self, embedding: &[f32]) -> Result<(), EmbeddingDimensionError> {
         let expected_dim = self
             .space
             .as_ref()
@@ -43,7 +41,16 @@ impl SemanticStore {
                 max: MAX_GENERIC_DIMENSION,
             });
         }
-        check_embedding_dimension(&embedding, expected_dim)?;
+        check_embedding_dimension(embedding, expected_dim).map(|_| ())
+    }
+
+    /// Reject malformed data before touching either resident rows or the ANN.
+    pub fn add_embedding(
+        &mut self,
+        node_id: String,
+        embedding: Vec<f32>,
+    ) -> Result<(), EmbeddingDimensionError> {
+        self.validate_embedding(&embedding)?;
         self.arena.insert(node_id.clone(), &embedding)?;
         let live_len = self.arena.len();
         self.maintain_incremental_index(&node_id, &embedding, live_len);

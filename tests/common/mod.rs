@@ -264,7 +264,6 @@ pub fn tempdir_persistence() -> (
         std::sync::Arc::new(
             epistemic_graph::server::persistence::redb_backend::RedbBackend::open(
                 dir_s.clone(),
-                epistemic_graph::durability::DurabilityPolicy::Each,
                 4096,
             )
             .expect("open tempdir redb backend"),

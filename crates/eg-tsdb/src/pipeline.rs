@@ -47,6 +47,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+mod columnar;
+mod json;
+mod stages;
+
 use crate::columnar::{CellValue, ColumnarSegment};
 
 /// A small JSON-ish value carried through the pipeline (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). Scalars
@@ -107,42 +111,7 @@ impl PipeValue {
     /// Render back to compact JSON text (used by `to_cell` for nested values and by
     /// `coerce`) (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
     pub fn to_json(&self) -> String {
-        let mut s = String::new();
-        self.write_json(&mut s);
-        s
-    }
-
-    fn write_json(&self, out: &mut String) {
-        match self {
-            PipeValue::Null => out.push_str("null"),
-            PipeValue::Bool(true) => out.push_str("true"),
-            PipeValue::Bool(false) => out.push_str("false"),
-            PipeValue::I64(n) => out.push_str(&n.to_string()),
-            PipeValue::F64(x) => out.push_str(&x.to_string()),
-            PipeValue::Str(s) => write_json_str(s, out),
-            PipeValue::Array(items) => {
-                out.push('[');
-                for (i, it) in items.iter().enumerate() {
-                    if i > 0 {
-                        out.push(',');
-                    }
-                    it.write_json(out);
-                }
-                out.push(']');
-            }
-            PipeValue::Object(map) => {
-                out.push('{');
-                for (i, (k, v)) in map.iter().enumerate() {
-                    if i > 0 {
-                        out.push(',');
-                    }
-                    write_json_str(k, out);
-                    out.push(':');
-                    v.write_json(out);
-                }
-                out.push('}');
-            }
-        }
+        json::to_json(self)
     }
 }
 
@@ -375,111 +344,14 @@ impl Pipeline {
         self
     }
 
-    // ---- fluent builder sugar (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook) ----
-
-    pub fn parse_json(self, field: impl Into<String>) -> Self {
-        self.push(Stage::ParseJson {
-            field: field.into(),
-        })
-    }
-    pub fn filter(self, pred: Predicate) -> Self {
-        self.push(Stage::Filter(pred))
-    }
-    pub fn drop_if(self, pred: Predicate) -> Self {
-        self.push(Stage::DropIf(pred))
-    }
-    pub fn set(self, field: impl Into<String>, value: PipeValue) -> Self {
-        self.push(Stage::Set {
-            field: field.into(),
-            value,
-        })
-    }
-    pub fn rename(self, from: impl Into<String>, to: impl Into<String>) -> Self {
-        self.push(Stage::Rename {
-            from: from.into(),
-            to: to.into(),
-        })
-    }
-    pub fn remove(self, field: impl Into<String>) -> Self {
-        self.push(Stage::Remove {
-            field: field.into(),
-        })
-    }
-    pub fn coerce(self, field: impl Into<String>, ty: CoerceType) -> Self {
-        self.push(Stage::Coerce {
-            field: field.into(),
-            ty,
-        })
-    }
-    pub fn route(
-        self,
-        field: impl Into<String>,
-        value: PipeValue,
-        stream: impl Into<String>,
-    ) -> Self {
-        self.push(Stage::Route {
-            field: field.into(),
-            value,
-            stream: stream.into(),
-        })
-    }
-    pub fn enrich<F>(self, source: impl Into<String>, target: impl Into<String>, lookup: F) -> Self
-    where
-        F: Fn(&PipeValue) -> Option<PipeValue> + Send + Sync + 'static,
-    {
-        self.push(Stage::enrich(source, target, lookup))
-    }
-
     /// Run the pipeline over ONE record, returning the transformed + routed record, or
     /// `None` if a `filter`/`drop_if` stage dropped it (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). Deterministic.
     pub fn run(&self, record: Record) -> Option<RoutedRecord> {
         let mut rec = record;
         let mut stream: Option<String> = None;
         for stage in &self.stages {
-            match stage {
-                Stage::Filter(p) => {
-                    if !p.eval(&rec) {
-                        return None;
-                    }
-                }
-                Stage::DropIf(p) => {
-                    if p.eval(&rec) {
-                        return None;
-                    }
-                }
-                Stage::ParseJson { field } => apply_parse_json(&mut rec, field),
-                Stage::Set { field, value } => {
-                    rec.insert(field.clone(), value.clone());
-                }
-                Stage::Rename { from, to } => {
-                    if let Some(v) = rec.remove(from) {
-                        rec.insert(to.clone(), v);
-                    }
-                }
-                Stage::Remove { field } => {
-                    rec.remove(field);
-                }
-                Stage::Coerce { field, ty } => apply_coerce(&mut rec, field, *ty),
-                Stage::Route {
-                    field,
-                    value,
-                    stream: s,
-                } => {
-                    if rec.get(field) == Some(value) {
-                        stream = Some(s.clone());
-                    }
-                }
-                Stage::Enrich {
-                    source,
-                    target,
-                    lookup,
-                } => {
-                    if let Some(v) = rec.get(source) {
-                        if let Some(out) = lookup.lookup(v) {
-                            rec.insert(target.clone(), out);
-                        }
-                    }
-                }
+            if !stages::apply_stage(stage, &mut rec, &mut stream) {
+                return None;
             }
         }
         Some(RoutedRecord {
@@ -526,16 +398,7 @@ impl Pipeline {
     /// `enrich` is deliberately NOT expressible in text (it needs a closure) — build it
     /// with [`Pipeline::enrich`].
     pub fn parse(text: &str) -> Result<Self, String> {
-        let mut pipe = Pipeline::new();
-        for (lineno, raw) in text.lines().enumerate() {
-            let line = raw.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let stage = parse_line(line).map_err(|e| format!("line {}: {e}", lineno + 1))?;
-            pipe.stages.push(stage);
-        }
-        Ok(pipe)
+        stages::parse_text(text)
     }
 }
 
@@ -545,471 +408,15 @@ impl Pipeline {
 /// NULL where absent), giving a deterministic schema. Nested `Array`/`Object` values
 /// land as their JSON text (see [`PipeValue::to_cell`]).
 pub fn stream_to_columnar(records: &[Record]) -> Result<ColumnarSegment, String> {
-    let mut names: Vec<String> = Vec::new();
-    {
-        let mut seen = std::collections::BTreeSet::new();
-        for rec in records {
-            for k in rec.keys() {
-                if seen.insert(k.clone()) {
-                    names.push(k.clone());
-                }
-            }
-        }
-        names.sort();
-    }
-    let rows: Vec<Vec<CellValue>> = records
-        .iter()
-        .map(|rec| {
-            names
-                .iter()
-                .map(|n| rec.get(n).map(|v| v.to_cell()).unwrap_or(CellValue::Null))
-                .collect()
-        })
-        .collect();
-    ColumnarSegment::from_rows_inferred(&names, &rows)
+    columnar::stream_to_columnar(records)
 }
 
 // ---------------------------------------------------------------------------
-// stage implementations
+// child phase owners
 // ---------------------------------------------------------------------------
 
-fn apply_parse_json(rec: &mut Record, field: &str) {
-    let Some(PipeValue::Str(s)) = rec.get(field) else {
-        return;
-    };
-    let Ok(parsed) = parse_json_value(s) else {
-        return; // leave the record unchanged on a parse error (deterministic no-op)
-    };
-    match parsed {
-        PipeValue::Object(map) => {
-            rec.remove(field);
-            for (k, v) in map {
-                rec.insert(k, v);
-            }
-        }
-        other => {
-            rec.insert(field.to_string(), other);
-        }
-    }
-}
-
-fn apply_coerce(rec: &mut Record, field: &str, ty: CoerceType) {
-    let Some(v) = rec.get(field) else {
-        return;
-    };
-    let coerced = match ty {
-        CoerceType::Str => Some(PipeValue::Str(match v {
-            PipeValue::Str(s) => s.clone(),
-            other => other.to_json(),
-        })),
-        CoerceType::I64 => match v {
-            PipeValue::I64(_) => Some(v.clone()),
-            PipeValue::F64(x) => Some(PipeValue::I64(*x as i64)),
-            PipeValue::Bool(b) => Some(PipeValue::I64(if *b { 1 } else { 0 })),
-            PipeValue::Str(s) => s.trim().parse::<i64>().ok().map(PipeValue::I64),
-            _ => None,
-        },
-        CoerceType::F64 => match v {
-            PipeValue::F64(_) => Some(v.clone()),
-            PipeValue::I64(n) => Some(PipeValue::F64(*n as f64)),
-            PipeValue::Bool(b) => Some(PipeValue::F64(if *b { 1.0 } else { 0.0 })),
-            PipeValue::Str(s) => s.trim().parse::<f64>().ok().map(PipeValue::F64),
-            _ => None,
-        },
-        CoerceType::Bool => match v {
-            PipeValue::Bool(_) => Some(v.clone()),
-            PipeValue::I64(n) => Some(PipeValue::Bool(*n != 0)),
-            PipeValue::Str(s) => match s.trim().to_ascii_lowercase().as_str() {
-                "true" | "1" | "yes" => Some(PipeValue::Bool(true)),
-                "false" | "0" | "no" => Some(PipeValue::Bool(false)),
-                _ => None,
-            },
-            _ => None,
-        },
-    };
-    if let Some(c) = coerced {
-        rec.insert(field.to_string(), c);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// textual form parsing
-// ---------------------------------------------------------------------------
-
-fn parse_line(line: &str) -> Result<Stage, String> {
-    let toks: Vec<&str> = line.split_whitespace().collect();
-    let op = toks[0];
-    match op {
-        "parse_json" => {
-            let field = toks.get(1).ok_or("parse_json needs a <field>")?;
-            Ok(Stage::ParseJson {
-                field: (*field).to_string(),
-            })
-        }
-        "filter" | "drop_if" => {
-            let pred = parse_predicate(&toks[1..])?;
-            Ok(if op == "filter" {
-                Stage::Filter(pred)
-            } else {
-                Stage::DropIf(pred)
-            })
-        }
-        "set" => {
-            let field = toks.get(1).ok_or("set needs <field> <value>")?;
-            let value = toks.get(2).ok_or("set needs <field> <value>")?;
-            Ok(Stage::Set {
-                field: (*field).to_string(),
-                value: parse_value_token(value),
-            })
-        }
-        "rename" => {
-            let from = toks.get(1).ok_or("rename needs <from> <to>")?;
-            let to = toks.get(2).ok_or("rename needs <from> <to>")?;
-            Ok(Stage::Rename {
-                from: (*from).to_string(),
-                to: (*to).to_string(),
-            })
-        }
-        "remove" => {
-            let field = toks.get(1).ok_or("remove needs a <field>")?;
-            Ok(Stage::Remove {
-                field: (*field).to_string(),
-            })
-        }
-        "coerce" => {
-            let field = toks.get(1).ok_or("coerce needs <field> <type>")?;
-            let ty = match *toks.get(2).ok_or("coerce needs <field> <type>")? {
-                "i64" | "int" => CoerceType::I64,
-                "f64" | "float" => CoerceType::F64,
-                "str" | "string" => CoerceType::Str,
-                "bool" => CoerceType::Bool,
-                other => return Err(format!("unknown coerce type '{other}'")),
-            };
-            Ok(Stage::Coerce {
-                field: (*field).to_string(),
-                ty,
-            })
-        }
-        "route" => {
-            // route <field> <value> -> <stream>
-            let arrow = toks
-                .iter()
-                .position(|t| *t == "->")
-                .ok_or("route needs '-> <stream>'")?;
-            if arrow < 3 {
-                return Err("route needs <field> <value> -> <stream>".into());
-            }
-            let field = toks[1];
-            let value = toks[2];
-            let stream = toks
-                .get(arrow + 1)
-                .ok_or("route needs a <stream> after '->'")?;
-            Ok(Stage::Route {
-                field: field.to_string(),
-                value: parse_value_token(value),
-                stream: (*stream).to_string(),
-            })
-        }
-        "enrich" => {
-            Err("enrich is not expressible in the textual form; use Pipeline::enrich".into())
-        }
-        other => Err(format!("unknown stage '{other}'")),
-    }
-}
-
-fn parse_predicate(toks: &[&str]) -> Result<Predicate, String> {
-    let field = toks.first().ok_or("predicate needs a <field>")?;
-    let op = match *toks.get(1).ok_or("predicate needs an <op>")? {
-        "eq" | "==" => CmpOp::Eq,
-        "ne" | "!=" => CmpOp::Ne,
-        "gt" | ">" => CmpOp::Gt,
-        "lt" | "<" => CmpOp::Lt,
-        "contains" => CmpOp::Contains,
-        "exists" => CmpOp::Exists,
-        other => return Err(format!("unknown predicate op '{other}'")),
-    };
-    let value = if op == CmpOp::Exists {
-        PipeValue::Null
-    } else {
-        parse_value_token(toks.get(2).ok_or("predicate needs a <value>")?)
-    };
-    Ok(Predicate {
-        field: (*field).to_string(),
-        op,
-        value,
-    })
-}
-
-/// Parse a bare token into a [`PipeValue`]: int, then float, then `true`/`false`/
-/// `null`, else a string (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
-fn parse_value_token(tok: &str) -> PipeValue {
-    if let Ok(n) = tok.parse::<i64>() {
-        return PipeValue::I64(n);
-    }
-    if let Ok(x) = tok.parse::<f64>() {
-        return PipeValue::F64(x);
-    }
-    match tok {
-        "true" => PipeValue::Bool(true),
-        "false" => PipeValue::Bool(false),
-        "null" => PipeValue::Null,
-        other => PipeValue::Str(other.to_string()),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// minimal hand-rolled JSON reader (no serde_json — the zero-new-dep contract)
-// ---------------------------------------------------------------------------
-
-/// Parse a JSON document into a [`PipeValue`] (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook). A tiny
-/// recursive-descent reader over `&[u8]` covering objects, arrays, strings (with the
-/// standard escapes), numbers (int vs float), and `true`/`false`/`null`. Deliberately
-/// dependency-free to hold the Pi contract the rest of eg-tsdb keeps.
 pub fn parse_json_value(s: &str) -> Result<PipeValue, String> {
-    let bytes = s.as_bytes();
-    let mut p = JsonParser { b: bytes, i: 0 };
-    p.skip_ws();
-    let v = p.parse_value()?;
-    p.skip_ws();
-    if p.i != bytes.len() {
-        return Err(format!("trailing bytes at offset {}", p.i));
-    }
-    Ok(v)
-}
-
-struct JsonParser<'a> {
-    b: &'a [u8],
-    i: usize,
-}
-
-impl JsonParser<'_> {
-    fn skip_ws(&mut self) {
-        while self.i < self.b.len() && matches!(self.b[self.i], b' ' | b'\t' | b'\n' | b'\r') {
-            self.i += 1;
-        }
-    }
-
-    fn peek(&self) -> Option<u8> {
-        self.b.get(self.i).copied()
-    }
-
-    fn parse_value(&mut self) -> Result<PipeValue, String> {
-        self.skip_ws();
-        match self.peek().ok_or("unexpected end of JSON")? {
-            b'{' => self.parse_object(),
-            b'[' => self.parse_array(),
-            b'"' => Ok(PipeValue::Str(self.parse_string()?)),
-            b't' | b'f' => self.parse_bool(),
-            b'n' => self.parse_null(),
-            _ => self.parse_number(),
-        }
-    }
-
-    fn parse_object(&mut self) -> Result<PipeValue, String> {
-        self.i += 1; // '{'
-        let mut map = BTreeMap::new();
-        self.skip_ws();
-        if self.peek() == Some(b'}') {
-            self.i += 1;
-            return Ok(PipeValue::Object(map));
-        }
-        loop {
-            self.skip_ws();
-            if self.peek() != Some(b'"') {
-                return Err("expected string key in object".into());
-            }
-            let key = self.parse_string()?;
-            self.skip_ws();
-            if self.peek() != Some(b':') {
-                return Err("expected ':' after object key".into());
-            }
-            self.i += 1;
-            let val = self.parse_value()?;
-            map.insert(key, val);
-            self.skip_ws();
-            match self.peek() {
-                Some(b',') => {
-                    self.i += 1;
-                }
-                Some(b'}') => {
-                    self.i += 1;
-                    break;
-                }
-                _ => return Err("expected ',' or '}' in object".into()),
-            }
-        }
-        Ok(PipeValue::Object(map))
-    }
-
-    fn parse_array(&mut self) -> Result<PipeValue, String> {
-        self.i += 1; // '['
-        let mut items = Vec::new();
-        self.skip_ws();
-        if self.peek() == Some(b']') {
-            self.i += 1;
-            return Ok(PipeValue::Array(items));
-        }
-        loop {
-            let val = self.parse_value()?;
-            items.push(val);
-            self.skip_ws();
-            match self.peek() {
-                Some(b',') => {
-                    self.i += 1;
-                }
-                Some(b']') => {
-                    self.i += 1;
-                    break;
-                }
-                _ => return Err("expected ',' or ']' in array".into()),
-            }
-        }
-        Ok(PipeValue::Array(items))
-    }
-
-    fn parse_string(&mut self) -> Result<String, String> {
-        self.i += 1; // opening quote
-        let mut out = String::new();
-        while let Some(c) = self.peek() {
-            self.i += 1;
-            match c {
-                b'"' => return Ok(out),
-                b'\\' => {
-                    let esc = self.peek().ok_or("unterminated escape")?;
-                    self.i += 1;
-                    match esc {
-                        b'"' => out.push('"'),
-                        b'\\' => out.push('\\'),
-                        b'/' => out.push('/'),
-                        b'n' => out.push('\n'),
-                        b't' => out.push('\t'),
-                        b'r' => out.push('\r'),
-                        b'b' => out.push('\u{0008}'),
-                        b'f' => out.push('\u{000C}'),
-                        b'u' => {
-                            let hex = self
-                                .b
-                                .get(self.i..self.i + 4)
-                                .ok_or("truncated \\u escape")?;
-                            let code = u32::from_str_radix(
-                                std::str::from_utf8(hex).map_err(|_| "bad \\u hex")?,
-                                16,
-                            )
-                            .map_err(|_| "bad \\u hex")?;
-                            self.i += 4;
-                            out.push(char::from_u32(code).unwrap_or('\u{FFFD}'));
-                        }
-                        other => return Err(format!("bad escape '\\{}'", other as char)),
-                    }
-                }
-                _ => {
-                    // Copy the raw UTF-8 byte(s). `c` is one byte of a (possibly multi-
-                    // byte) char; push it through a 1-byte buffer-safe path.
-                    out.push(c as char);
-                    // Fix up multi-byte UTF-8: if the byte was a lead byte, the naive
-                    // `c as char` above is wrong, so handle >=0x80 via the source slice.
-                    if c >= 0x80 {
-                        out.pop();
-                        let start = self.i - 1;
-                        let width = utf8_width(c);
-                        let end = (start + width).min(self.b.len());
-                        let chunk = std::str::from_utf8(&self.b[start..end])
-                            .map_err(|_| "invalid UTF-8 in string")?;
-                        out.push_str(chunk);
-                        self.i = end;
-                    }
-                }
-            }
-        }
-        Err("unterminated string".into())
-    }
-
-    fn parse_bool(&mut self) -> Result<PipeValue, String> {
-        if self.b[self.i..].starts_with(b"true") {
-            self.i += 4;
-            Ok(PipeValue::Bool(true))
-        } else if self.b[self.i..].starts_with(b"false") {
-            self.i += 5;
-            Ok(PipeValue::Bool(false))
-        } else {
-            Err("invalid literal (expected true/false)".into())
-        }
-    }
-
-    fn parse_null(&mut self) -> Result<PipeValue, String> {
-        if self.b[self.i..].starts_with(b"null") {
-            self.i += 4;
-            Ok(PipeValue::Null)
-        } else {
-            Err("invalid literal (expected null)".into())
-        }
-    }
-
-    fn parse_number(&mut self) -> Result<PipeValue, String> {
-        let start = self.i;
-        let mut is_float = false;
-        while let Some(c) = self.peek() {
-            match c {
-                b'0'..=b'9' | b'-' | b'+' => self.i += 1,
-                b'.' | b'e' | b'E' => {
-                    is_float = true;
-                    self.i += 1;
-                }
-                _ => break,
-            }
-        }
-        let tok = std::str::from_utf8(&self.b[start..self.i]).map_err(|_| "bad number")?;
-        if tok.is_empty() {
-            return Err(format!("unexpected byte at offset {start}"));
-        }
-        if is_float {
-            tok.parse::<f64>()
-                .map(PipeValue::F64)
-                .map_err(|_| format!("bad float '{tok}'"))
-        } else {
-            match tok.parse::<i64>() {
-                Ok(n) => Ok(PipeValue::I64(n)),
-                Err(_) => tok
-                    .parse::<f64>()
-                    .map(PipeValue::F64)
-                    .map_err(|_| format!("bad number '{tok}'")),
-            }
-        }
-    }
-}
-
-/// UTF-8 byte-width from a lead byte (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook JSON reader helper).
-fn utf8_width(lead: u8) -> usize {
-    if lead < 0x80 {
-        1
-    } else if lead >> 5 == 0b110 {
-        2
-    } else if lead >> 4 == 0b1110 {
-        3
-    } else if lead >> 3 == 0b11110 {
-        4
-    } else {
-        1
-    }
-}
-
-/// Write a JSON string literal (quoted + escaped) into `out` (CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook).
-fn write_json_str(s: &str, out: &mut String) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            '\r' => out.push_str("\\r"),
-            '\u{0008}' => out.push_str("\\b"),
-            '\u{000C}' => out.push_str("\\f"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
+    json::parse_json_value(s)
 }
 
 #[cfg(test)]
@@ -1055,6 +462,41 @@ mod tests {
             ]))
         );
         assert_eq!(map.get("s"), Some(&PipeValue::str("hi\n\"q\"")));
+    }
+
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — JSON emission keeps the
+    /// BTreeMap order, scalar spellings, nested structure, nulls, and string escapes stable.
+    #[test]
+    fn eg_165_json_emission_is_sorted_and_lossless() {
+        let mut fields = BTreeMap::new();
+        fields.insert(
+            "z".to_string(),
+            PipeValue::Array(vec![
+                PipeValue::Bool(true),
+                PipeValue::I64(-2),
+                PipeValue::F64(1.5),
+                PipeValue::str("line\n\"quote\""),
+            ]),
+        );
+        fields.insert("a".to_string(), PipeValue::Null);
+
+        assert_eq!(
+            PipeValue::Object(fields).to_json(),
+            r#"{"a":null,"z":[true,-2,1.5,"line\n\"quote\""]}"#
+        );
+    }
+
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — JSON string scanning preserves
+    /// UTF-8 and every supported escape while rejecting malformed escape boundaries.
+    #[test]
+    fn eg_165_json_string_escape_boundaries() {
+        assert_eq!(
+            parse_json_value(r#""café\/\b\f\r\t\u0041""#),
+            Ok(PipeValue::str("café/\u{0008}\u{000C}\r\tA"))
+        );
+        assert!(parse_json_value(r#""\q""#).is_err());
+        assert!(parse_json_value(r#""\u12""#).is_err());
+        assert!(parse_json_value(r#""unterminated"#).is_err());
     }
 
     /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — `filter` KEEPS records matching the predicate (drops the rest).
@@ -1142,6 +584,75 @@ mod tests {
         assert_eq!(out.fields.get("f"), Some(&PipeValue::F64(3.0)));
         assert_eq!(out.fields.get("b"), Some(&PipeValue::Bool(true)));
         assert_eq!(out.fields.get("n"), Some(&PipeValue::str("7")));
+    }
+
+    /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — each primitive coercion keeps
+    /// its existing trim, numeric, boolean, null, and unsupported-value boundaries.
+    #[test]
+    fn eg_165_coerce_primitive_boundaries() {
+        let mut object = BTreeMap::new();
+        object.insert("x".to_string(), PipeValue::I64(1));
+        let out = Pipeline::new()
+            .coerce("str_null", CoerceType::Str)
+            .coerce("str_array", CoerceType::Str)
+            .coerce("i_float", CoerceType::I64)
+            .coerce("i_bool", CoerceType::I64)
+            .coerce("i_text", CoerceType::I64)
+            .coerce("i_null", CoerceType::I64)
+            .coerce("f_int", CoerceType::F64)
+            .coerce("f_bool", CoerceType::F64)
+            .coerce("f_text", CoerceType::F64)
+            .coerce("f_null", CoerceType::F64)
+            .coerce("b_int", CoerceType::Bool)
+            .coerce("b_text", CoerceType::Bool)
+            .coerce("b_bad", CoerceType::Bool)
+            .coerce("b_float", CoerceType::Bool)
+            .run(rec(&[
+                ("str_null", PipeValue::Null),
+                (
+                    "str_array",
+                    PipeValue::Array(vec![PipeValue::I64(1), PipeValue::Bool(false)]),
+                ),
+                ("i_float", PipeValue::F64(3.75)),
+                ("i_bool", PipeValue::Bool(true)),
+                ("i_text", PipeValue::str(" -12 ")),
+                ("i_null", PipeValue::Null),
+                ("f_int", PipeValue::I64(-2)),
+                ("f_bool", PipeValue::Bool(false)),
+                ("f_text", PipeValue::str(" 4.5 ")),
+                ("f_null", PipeValue::Null),
+                ("b_int", PipeValue::I64(-1)),
+                ("b_text", PipeValue::str("YeS")),
+                ("b_bad", PipeValue::str("maybe")),
+                ("b_float", PipeValue::F64(1.0)),
+                ("obj", PipeValue::Object(object)),
+            ]))
+            .unwrap();
+
+        assert_eq!(out.fields.get("str_null"), Some(&PipeValue::str("null")));
+        assert_eq!(
+            out.fields.get("str_array"),
+            Some(&PipeValue::str("[1,false]"))
+        );
+        assert_eq!(out.fields.get("i_float"), Some(&PipeValue::I64(3)));
+        assert_eq!(out.fields.get("i_bool"), Some(&PipeValue::I64(1)));
+        assert_eq!(out.fields.get("i_text"), Some(&PipeValue::I64(-12)));
+        assert_eq!(out.fields.get("i_null"), Some(&PipeValue::Null));
+        assert_eq!(out.fields.get("f_int"), Some(&PipeValue::F64(-2.0)));
+        assert_eq!(out.fields.get("f_bool"), Some(&PipeValue::F64(0.0)));
+        assert_eq!(out.fields.get("f_text"), Some(&PipeValue::F64(4.5)));
+        assert_eq!(out.fields.get("f_null"), Some(&PipeValue::Null));
+        assert_eq!(out.fields.get("b_int"), Some(&PipeValue::Bool(true)));
+        assert_eq!(out.fields.get("b_text"), Some(&PipeValue::Bool(true)));
+        assert_eq!(out.fields.get("b_bad"), Some(&PipeValue::str("maybe")));
+        assert_eq!(out.fields.get("b_float"), Some(&PipeValue::F64(1.0)));
+        assert_eq!(
+            out.fields.get("obj"),
+            Some(&PipeValue::Object(BTreeMap::from([(
+                "x".to_string(),
+                PipeValue::I64(1),
+            )])))
+        );
     }
 
     /// CONCEPT:EG-KG.enrichment.cross-modal-enrichment-hook — `route` tags the destination stream when a field matches.

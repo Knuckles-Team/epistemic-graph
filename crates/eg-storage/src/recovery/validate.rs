@@ -1,6 +1,8 @@
 //! The one recovery-invariant content check for a physical owner file.
 
-use crate::codec::{decode_batch_record, decode_ledger_record, decode_outbox_record};
+use crate::codec::{
+    decode_batch_record, decode_ledger_record, decode_outbox_record, encode_bounded,
+};
 use crate::payload::recovery_plan_digest;
 use crate::physical::binding::{ledger_scope_key, ScopeBinding};
 use crate::physical::incarnation::{
@@ -9,9 +11,9 @@ use crate::physical::incarnation::{
 use crate::physical::read_only::ReadOnlyStore;
 use crate::physical::root::{reject_prototype_names, PhysicalStore};
 use crate::tables::{
-    visit_scoped_ledger_tables, LedgerRowScope, MutationClassRow, OperationReplayRow, ScopeFence,
-    BATCHES, CLASSES, FENCES, IDEMPOTENCY, OUTBOX, PRIVATE_PAYLOADS, REPLAY_NONCES,
-    REPLAY_OPERATIONS, SCOPE_BINDINGS, STORE_ROOT, VERSIONS,
+    visit_scoped_ledger_tables, LedgerRowScope, MutationClassRow, OperationReplayRow,
+    RecordedOperation, ScopeFence, BATCHES, CLASSES, FENCES, MAINTENANCE, OUTBOX, PRIVATE_PAYLOADS,
+    REPLAY_NONCES, REPLAY_OPERATIONS, SCOPE_BINDINGS, STORE_ROOT, VERSIONS,
 };
 use crate::StorageKernel;
 use eg_types::{MutationBatchRecord, MutationBatchStatus};
@@ -28,7 +30,7 @@ pub struct RecoveryStoreCounts {
     pub prepared: u64,
     pub committed: u64,
     pub aborted: u64,
-    pub idempotency: u64,
+    pub maintenance_claims: u64,
     pub versions: u64,
     pub fences: u64,
     pub outbox: u64,
@@ -102,7 +104,7 @@ pub(crate) fn validate_recovery_content(
     validate_bindings(rtx, &root, &mut counts)?;
     validate_versions(rtx, &tables, &root, &mut counts)?;
     validate_batches(rtx, &tables, &root, &mut counts)?;
-    validate_idempotency(rtx, &tables, &mut counts)?;
+    validate_maintenance_claims(rtx, &tables, &mut counts)?;
     validate_fences(rtx, &tables, &root, &mut counts)?;
     validate_outbox(rtx, &tables, &mut counts)?;
     validate_private(authenticate_private, rtx, &tables, &mut counts)?;
@@ -213,8 +215,11 @@ fn validate_batches(
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
     let table = rtx.open_table(BATCHES).map_err(|error| error.to_string())?;
-    let idempotency = rtx
-        .open_table(IDEMPOTENCY)
+    let maintenance = rtx
+        .open_table(MAINTENANCE)
+        .map_err(|error| error.to_string())?;
+    let operations = rtx
+        .open_table(REPLAY_OPERATIONS)
         .map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
@@ -224,12 +229,44 @@ fn validate_batches(
         if record.identity != binding.identity || record.batch.batch_id != batch_id {
             return Err("mutation batch key does not bind its receipt identity".to_string());
         }
-        let linked = idempotency
-            .get((identity_key, record.batch.idempotency_key.as_str()))
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| "mutation receipt is missing its idempotency row".to_string())?;
-        if linked.value() != batch_id {
-            return Err("mutation receipt idempotency row points elsewhere".to_string());
+        // The key row lives in exactly ONE table, chosen by the batch's own
+        // envelope: an operation's key is its `mutation_replay_operations` row
+        // -- the same row that decides replay-versus-conflict -- and a
+        // maintenance write's is its `ledger_maintenance` first-wins claim.
+        // No third table maps keys to batches any more; that table existed only
+        // to answer a question the replay row already answers, and two rows
+        // answering one question is the second authority RF-ADR-001 forbids.
+        let linked_batch_id = if record.batch.is_maintenance() {
+            maintenance
+                .get((identity_key, record.batch.idempotency_key()))
+                .map_err(|error| error.to_string())?
+                .map(|value| value.value().to_string())
+                .ok_or_else(|| "maintenance receipt is missing its claim row".to_string())?
+        } else {
+            let bytes = operations
+                .get((identity_key, record.batch.idempotency_key()))
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| {
+                    "mutation receipt is missing its replay operation row".to_string()
+                })?;
+            let replay: OperationReplayRow = decode_ledger_record(bytes.value())?;
+            if let Some(recorded_batch_id) = replay.recorded.batch_id() {
+                if !replay.batch_id.is_empty() && replay.batch_id != recorded_batch_id {
+                    return Err("mutation replay row names a different recorded batch".to_string());
+                }
+            }
+            if replay.batch_id.is_empty() {
+                replay
+                    .recorded
+                    .batch_id()
+                    .ok_or_else(|| "mutation receipt's replay row records no batch".to_string())?
+                    .to_string()
+            } else {
+                replay.batch_id
+            }
+        };
+        if linked_batch_id != batch_id {
+            return Err("mutation receipt key row points elsewhere".to_string());
         }
         if read_class_in(&tables.classes, identity_key, batch_id)?.identity != binding.identity {
             return Err("mutation batch class row is not bound to its receipt".to_string());
@@ -244,23 +281,26 @@ fn validate_batches(
     Ok(())
 }
 
-fn validate_idempotency(
+/// A maintenance claim row names exactly one committed maintenance batch.
+fn validate_maintenance_claims(
     rtx: &ReadTransaction,
     tables: &ValidationTables,
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
     let table = rtx
-        .open_table(IDEMPOTENCY)
+        .open_table(MAINTENANCE)
         .map_err(|error| error.to_string())?;
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
-        let (identity_key, idempotency_key) = key.value();
+        let (identity_key, maintenance_key) = key.value();
         let batch_id = value.value();
         let record = read_batch_in(&tables.batches, identity_key, batch_id)?;
-        if record.batch.idempotency_key != idempotency_key {
-            return Err("mutation idempotency row does not bind exactly one receipt".to_string());
+        if record.batch.idempotency_key() != maintenance_key || !record.batch.is_maintenance() {
+            return Err(
+                "maintenance claim row does not bind exactly one maintenance receipt".to_string(),
+            );
         }
-        increment(&mut counts.idempotency, "idempotency count")?;
+        increment(&mut counts.maintenance_claims, "maintenance claim count")?;
     }
     Ok(())
 }
@@ -305,6 +345,41 @@ fn validate_replay(
         if record.identity != binding.identity || record.idempotency_key != idempotency_key {
             return Err("mutation replay row is not bound to its exact scope".to_string());
         }
+        match (&record.recorded, record.batch_id.is_empty()) {
+            (RecordedOperation::Receipt(_), true) => {
+                return Err("mutation receipt's replay row records no batch".to_string());
+            }
+            (RecordedOperation::Batch(recorded_batch_id), false)
+                if recorded_batch_id != &record.batch_id =>
+            {
+                return Err("mutation replay row names a different recorded batch".to_string());
+            }
+            (RecordedOperation::Receipt(_), false) => {
+                let linked = read_batch_in(&tables.batches, scope_key, &record.batch_id)?;
+                if linked.status != MutationBatchStatus::Committed
+                    || linked.identity != record.identity
+                    || linked.batch.batch_id != record.batch_id
+                {
+                    return Err(
+                        "mutation typed replay row is not bound to a committed batch".to_string(),
+                    );
+                }
+                let RecordedOperation::Receipt(receipt) = &record.recorded else {
+                    unreachable!();
+                };
+                receipt.validate().map_err(|error| {
+                    format!("mutation typed replay receipt is invalid: {error}")
+                })?;
+                let result_bytes = encode_bounded(&receipt.result, "mutation receipt result")?;
+                if linked.result_msgpack.as_deref() != Some(result_bytes.as_slice()) {
+                    return Err(
+                        "mutation typed replay receipt differs from its committed result"
+                            .to_string(),
+                    );
+                }
+            }
+            _ => {}
+        }
         increment(&mut counts.replay_operations, "replay operation count")?;
     }
     let nonces = rtx
@@ -337,11 +412,23 @@ fn validate_outbox(
         let (identity_key, batch_id, ordinal) = key.value();
         let receipt = decode_outbox_record(value.value())?;
         let parent = read_batch_in(&tables.batches, identity_key, batch_id)?;
+        receipt
+            .validate()
+            .map_err(|error| format!("mutation outbox row is invalid: {error}"))?;
+        let sequence_matches = match (parent.committed_version.target(), receipt.commit_sequence) {
+            (Some(target), Some(sequence)) => target == sequence,
+            // ControlPlane/Lifecycle parents intentionally have no typed
+            // version. Their authoritative sequence is still preserved in the
+            // outbox row and is validated by the outbox/index recovery path.
+            _ => true,
+        };
         let bound = parent.status == MutationBatchStatus::Committed
             && receipt.identity == parent.identity
             && receipt.batch_id == batch_id
             && receipt.ordinal == ordinal
             && receipt.committed_version == parent.committed_version
+            && receipt.created_at_ms == parent.batch.created_at_ms
+            && sequence_matches
             && parent.batch.outbox.get(ordinal as usize) == Some(&receipt.intent);
         if !bound {
             return Err("mutation outbox row is not exactly bound to its parent".to_string());
@@ -422,7 +509,7 @@ fn validate_classes(
             if rtx
                 .open_table(REPLAY_OPERATIONS)
                 .map_err(|error| error.to_string())?
-                .get((identity_key, record.batch.idempotency_key.as_str()))
+                .get((identity_key, record.batch.idempotency_key()))
                 .map_err(|error| error.to_string())?
                 .is_some()
             {

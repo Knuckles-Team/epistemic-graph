@@ -178,6 +178,24 @@ pub struct ChangedBelief {
     pub reason: String,
 }
 
+fn belief_snapshot(
+    bg: &BeliefGraph,
+    id: &str,
+    policy: &AuthorityPolicy,
+    present: bool,
+) -> (bool, f64, Vec<String>) {
+    if !present {
+        return (false, 0.0, Vec::new());
+    }
+
+    let state = propagate_confidence(bg, id, policy);
+    (
+        is_believed(bg, id, policy),
+        state.confidence,
+        state.supporting,
+    )
+}
+
 /// **what_changed**(tx_from, tx_to) — between two transaction times, which beliefs
 /// changed and why? Narrows `bg` to each instant via [`BeliefGraph::at_instant`]
 /// (transaction axis only — valid time is left unfiltered, i.e. "everything valid as of
@@ -202,26 +220,10 @@ pub fn what_changed(
         let in_before = before_ids.contains(id);
         let in_after = after_ids.contains(id);
 
-        let (believed_before, confidence_before, supports_before) = if in_before {
-            let bs = propagate_confidence(&before, id, policy);
-            (
-                is_believed(&before, id, policy),
-                bs.confidence,
-                bs.supporting,
-            )
-        } else {
-            (false, 0.0, Vec::new())
-        };
-        let (believed_after, confidence_after, supports_after) = if in_after {
-            let bs = propagate_confidence(&after, id, policy);
-            (
-                is_believed(&after, id, policy),
-                bs.confidence,
-                bs.supporting,
-            )
-        } else {
-            (false, 0.0, Vec::new())
-        };
+        let (believed_before, confidence_before, supports_before) =
+            belief_snapshot(&before, id, policy, in_before);
+        let (believed_after, confidence_after, supports_after) =
+            belief_snapshot(&after, id, policy, in_after);
 
         let confidence_delta = (confidence_after - confidence_before).abs();
         if believed_before == believed_after && confidence_delta < 1e-9 && in_before == in_after {

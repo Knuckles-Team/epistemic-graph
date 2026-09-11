@@ -17,10 +17,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::super::state::ServerState;
-use crate::mutation_batch::{MutationBatch, DurabilityDomain, MutationSurface};
+use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::blob::{store, BlobCursors};
+use eg_types::contract::Nonce;
 
 /// Handle the blob methods. Returns `Err(method)` for any non-blob method so the
 /// dispatch chain falls through (routing convention). When the engine is built
@@ -30,6 +31,7 @@ pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
     method: Method,
 ) -> Result<Response, Method> {
     // Pull the cursors handle once (cheap clone of the Arc) so we don't hold the
@@ -82,13 +84,14 @@ pub(crate) async fn try_handle(
                 Err(error) => return Ok(Response::err(req_id, error)),
             };
             let now = crate::server::dispatch::authoritative_now_ms();
-            let (batch, now) = match compile_blob_batch_at(
+            let (batch, now) = match compile_blob_batch_at_with_nonce(
                 cursors.store.as_ref(),
                 proposed,
                 authority,
                 &original_method,
                 expected,
                 now,
+                attempt_nonce,
             ) {
                 Ok(value) => value,
                 Err(error) => return Ok(Response::err(req_id, error)),
@@ -125,11 +128,12 @@ pub(crate) async fn try_handle(
             if let Err(error) = ensure_upload_owner(&cursors, cursor, authority.owner_scope()) {
                 return Ok(Response::err(req_id, error));
             }
-            let (batch, now) = match compile_blob_batch(
+            let (batch, now) = match compile_blob_batch_with_nonce(
                 cursors.store.as_ref(),
                 req_id,
                 authority,
                 &original_method,
+                attempt_nonce,
             ) {
                 Ok(value) => value,
                 Err(error) => return Ok(Response::err(req_id, error)),
@@ -158,11 +162,12 @@ pub(crate) async fn try_handle(
             if let Err(error) = ensure_upload_owner(&cursors, cursor, authority.owner_scope()) {
                 return Ok(Response::err(req_id, error));
             }
-            let (batch, now) = match compile_blob_batch(
+            let (batch, now) = match compile_blob_batch_with_nonce(
                 cursors.store.as_ref(),
                 req_id,
                 authority,
                 &original_method,
+                attempt_nonce,
             ) {
                 Ok(value) => value,
                 Err(error) => return Ok(Response::err(req_id, error)),
@@ -244,11 +249,12 @@ pub(crate) async fn try_handle(
             if let Err(error) = ensure_blob_owner(&cursors, &digest, authority.owner_scope()) {
                 return Ok(Response::err(req_id, error));
             }
-            let (batch, now) = match compile_blob_batch(
+            let (batch, now) = match compile_blob_batch_with_nonce(
                 cursors.store.as_ref(),
                 req_id,
                 authority,
                 &original_method,
+                attempt_nonce,
             ) {
                 Ok(value) => value,
                 Err(error) => return Ok(Response::err(req_id, error)),
@@ -264,11 +270,12 @@ pub(crate) async fn try_handle(
             if let Err(error) = ensure_blob_owner(&cursors, &digest, authority.owner_scope()) {
                 return Ok(Response::err(req_id, error));
             }
-            let (batch, now) = match compile_blob_batch(
+            let (batch, now) = match compile_blob_batch_with_nonce(
                 cursors.store.as_ref(),
                 req_id,
                 authority,
                 &original_method,
+                attempt_nonce,
             ) {
                 Ok(value) => value,
                 Err(error) => return Ok(Response::err(req_id, error)),
@@ -284,11 +291,12 @@ pub(crate) async fn try_handle(
             if let Err(error) = authority.require_admin("blob garbage collection") {
                 return Ok(Response::err(req_id, error));
             }
-            let (batch, now) = match compile_blob_batch(
+            let (batch, now) = match compile_blob_batch_with_nonce(
                 cursors.store.as_ref(),
                 req_id,
                 authority,
                 &original_method,
+                attempt_nonce,
             ) {
                 Ok(value) => value,
                 Err(error) => return Ok(Response::err(req_id, error)),
@@ -345,10 +353,28 @@ pub(crate) fn compile_blob_batch(
     authority: &CarrierAuthority,
     method: &Method,
 ) -> Result<(MutationBatch, u64), String> {
+    compile_blob_batch_with_nonce(store, req_id, authority, method, None)
+}
+
+fn compile_blob_batch_with_nonce(
+    store: &dyn store::ChunkStore,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    method: &Method,
+    attempt_nonce: Option<Nonce>,
+) -> Result<(MutationBatch, u64), String> {
     let scope = authority.namespace("blob-cas", "control");
     let expected = store.mutation_version(authority.tenant_scope(), &scope)?;
     let now = crate::server::dispatch::authoritative_now_ms();
-    compile_blob_batch_at(store, req_id, authority, method, expected, now)
+    compile_blob_batch_at_with_nonce(
+        store,
+        req_id,
+        authority,
+        method,
+        expected,
+        now,
+        attempt_nonce,
+    )
 }
 
 /// Rebuild an exact blob child after a coordinator restart. The expected native
@@ -392,6 +418,18 @@ pub(crate) fn compile_blob_batch_at(
     expected: u64,
     now: u64,
 ) -> Result<(MutationBatch, u64), String> {
+    compile_blob_batch_at_with_nonce(_store, identity_id, authority, method, expected, now, None)
+}
+
+fn compile_blob_batch_at_with_nonce(
+    _store: &dyn store::ChunkStore,
+    identity_id: u64,
+    authority: &CarrierAuthority,
+    method: &Method,
+    expected: u64,
+    now: u64,
+    attempt_nonce: Option<Nonce>,
+) -> Result<(MutationBatch, u64), String> {
     let scope = authority.namespace("blob-cas", "control");
     let batch_id =
         crate::server::mutation_batch::opaque_request_key("blob", &scope, identity_id, method);
@@ -399,6 +437,7 @@ pub(crate) fn compile_blob_batch_at(
         crate::server::mutation_batch::CompileBatch {
             batch_id: &batch_id,
             request_id: identity_id,
+            attempt_nonce,
             principal: Some(authority.actor_scope()),
             tenant: authority.tenant_scope(),
             graph: &scope,

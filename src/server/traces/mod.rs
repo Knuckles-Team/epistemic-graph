@@ -27,6 +27,8 @@ use eg_tsdb::traces::{AssembledTrace, ServiceEdge, Span, SpanEvent, SpanNode, Tr
 
 use crate::server::obs::ObsState;
 
+type TraceResponse = (&'static str, &'static str, String);
+
 /// Route + execute a distributed-trace request → `(status, content_type, body)`.
 /// `method` is the request method, `path`/`query` the split target, `body` the request
 /// body (OTLP-JSON for ingest; optional JSON search predicate for `POST /api/traces`).
@@ -37,82 +39,20 @@ pub async fn handle(
     query: &str,
     body: &str,
 ) -> (&'static str, &'static str, String) {
-    // ── OTLP-JSON ingest ─────────────────────────────────────────────────────
     if path == "/v1/traces" {
-        if method != "POST" {
-            return (
-                "405 Method Not Allowed",
-                "text/plain",
-                "POST only".to_string(),
-            );
-        }
-        let spans = match parse_otlp_traces(body) {
-            Ok(s) => s,
-            Err(e) => return ("400 Bad Request", "text/plain", e),
-        };
-        let store = state.trace_store();
-        let accepted = tokio::task::spawn_blocking(move || store.add_spans(spans))
-            .await
-            .unwrap_or(0);
-        return (
-            "200 OK",
-            "application/json",
-            format!("{{\"partialSuccess\":{{}},\"accepted\":{accepted}}}"),
-        );
+        return handle_ingest(state, method, body).await;
     }
 
-    // ── service-dependency graph ─────────────────────────────────────────────
     if path == "/api/dependencies" || path == "/api/services/dependencies" {
-        let store = state.trace_store();
-        let edges = tokio::task::spawn_blocking(move || store.service_dependencies())
-            .await
-            .unwrap_or_default();
-        return ("200 OK", "application/json", dependencies_response(&edges));
+        return handle_dependencies(state).await;
     }
 
-    // ── single-trace assembly: /api/traces/<trace_id> ────────────────────────
     if let Some(trace_id) = path.strip_prefix("/api/traces/") {
-        if trace_id.is_empty() {
-            return (
-                "404 Not Found",
-                "text/plain",
-                "missing trace id".to_string(),
-            );
-        }
-        let trace_id = trace_id.to_string();
-        let store = state.trace_store();
-        let assembled = tokio::task::spawn_blocking(move || store.assemble(&trace_id))
-            .await
-            .ok()
-            .flatten();
-        return match assembled {
-            Some(t) => ("200 OK", "application/json", single_trace_response(&t)),
-            None => ("404 Not Found", "text/plain", "unknown trace".to_string()),
-        };
+        return handle_single_trace(state, trace_id).await;
     }
 
-    // ── trace search: /api/traces ────────────────────────────────────────────
     if path == "/api/traces" {
-        // Body (JSON) wins for POST; otherwise the query string carries the predicate.
-        let q = if method == "POST" && !body.trim().is_empty() {
-            match serde_json::from_str::<serde_json::Value>(body) {
-                Ok(v) => trace_query_from_json(&v),
-                Err(e) => {
-                    return (
-                        "400 Bad Request",
-                        "text/plain",
-                        format!("parse trace query JSON: {e}"),
-                    )
-                }
-            }
-        } else {
-            trace_query_from_query_string(query)
-        };
-        let store = state.trace_store();
-        let hits = tokio::task::spawn_blocking(move || store.search(&q))
-            .await
-            .unwrap_or_default();
-        return ("200 OK", "application/json", search_response(&hits));
+        return handle_search(state, method, query, body).await;
     }
 
     (
@@ -120,6 +60,74 @@ pub async fn handle(
         "text/plain",
         "unknown trace path".to_string(),
     )
+}
+
+async fn handle_ingest(state: &Arc<ObsState>, method: &str, body: &str) -> TraceResponse {
+    if method != "POST" {
+        return (
+            "405 Method Not Allowed",
+            "text/plain",
+            "POST only".to_string(),
+        );
+    }
+    let spans = match parse_otlp_traces(body) {
+        Ok(s) => s,
+        Err(e) => return ("400 Bad Request", "text/plain", e),
+    };
+    let store = state.trace_store();
+    let accepted = tokio::task::spawn_blocking(move || store.add_spans(spans))
+        .await
+        .unwrap_or(0);
+    (
+        "200 OK",
+        "application/json",
+        format!("{{\"partialSuccess\":{{}},\"accepted\":{accepted}}}"),
+    )
+}
+
+async fn handle_dependencies(state: &Arc<ObsState>) -> TraceResponse {
+    let store = state.trace_store();
+    let edges = tokio::task::spawn_blocking(move || store.service_dependencies())
+        .await
+        .unwrap_or_default();
+    ("200 OK", "application/json", dependencies_response(&edges))
+}
+
+async fn handle_single_trace(state: &Arc<ObsState>, trace_id: &str) -> TraceResponse {
+    if trace_id.is_empty() {
+        return (
+            "404 Not Found",
+            "text/plain",
+            "missing trace id".to_string(),
+        );
+    }
+    let trace_id = trace_id.to_string();
+    let store = state.trace_store();
+    let assembled = tokio::task::spawn_blocking(move || store.assemble(&trace_id))
+        .await
+        .ok()
+        .flatten();
+    match assembled {
+        Some(t) => ("200 OK", "application/json", single_trace_response(&t)),
+        None => ("404 Not Found", "text/plain", "unknown trace".to_string()),
+    }
+}
+
+async fn handle_search(
+    state: &Arc<ObsState>,
+    method: &str,
+    query: &str,
+    body: &str,
+) -> TraceResponse {
+    let q = match parse_search_query(method, query, body) {
+        Ok(q) => q,
+        Err(e) => return ("400 Bad Request", "text/plain", e),
+    };
+    let store = state.trace_store();
+    let hits = tokio::task::spawn_blocking(move || store.search(&q))
+        .await
+        .unwrap_or_default();
+    ("200 OK", "application/json", search_response(&hits))
 }
 
 // ── OTLP-JSON trace parsing ─────────────────────────────────────────────────────
@@ -291,6 +299,17 @@ fn otlp_anyvalue(v: &serde_json::Value) -> String {
 
 // ── trace-query parsing ─────────────────────────────────────────────────────────
 
+/// Select the search predicate source used by the HTTP surface: a non-empty POST
+/// body wins over the URL query, while every other request uses the query string.
+fn parse_search_query(method: &str, query: &str, body: &str) -> Result<TraceQuery, String> {
+    if method == "POST" && !body.trim().is_empty() {
+        let value = serde_json::from_str::<serde_json::Value>(body)
+            .map_err(|e| format!("parse trace query JSON: {e}"))?;
+        return Ok(trace_query_from_json(&value));
+    }
+    Ok(trace_query_from_query_string(query))
+}
+
 /// Build a [`TraceQuery`] from a JSON search body (POST `/api/traces`).
 fn trace_query_from_json(v: &serde_json::Value) -> TraceQuery {
     let str_of = |k: &str| {
@@ -339,39 +358,59 @@ fn trace_query_from_query_string(query: &str) -> TraceQuery {
         ..TraceQuery::default()
     };
     for (k, v) in parse_query_pairs(query) {
-        match k.as_str() {
-            "service" if !v.is_empty() => q.service = Some(v),
-            "operation" if !v.is_empty() => q.operation = Some(v),
-            "minDuration" | "min_duration" => {
-                q.min_duration = v.parse::<i64>().ok().or_else(|| parse_duration_ns(&v))
-            }
-            "maxDuration" | "max_duration" => {
-                q.max_duration = v.parse::<i64>().ok().or_else(|| parse_duration_ns(&v))
-            }
-            "start" | "from" => {
-                if let Ok(n) = v.parse::<i64>() {
-                    q.from = n;
-                }
-            }
-            "end" | "to" => {
-                if let Ok(n) = v.parse::<i64>() {
-                    q.to = n;
-                }
-            }
-            "limit" => {
-                if let Ok(n) = v.parse::<usize>() {
-                    q.limit = n;
-                }
-            }
-            "tag" | "tags" => {
-                if let Some((tk, tv)) = v.split_once(':').or_else(|| v.split_once('=')) {
-                    q.tags.push((tk.to_string(), tv.to_string()));
-                }
-            }
-            _ => {}
+        if apply_query_filter(&mut q, &k, &v) || apply_query_window(&mut q, &k, &v) {
+            continue;
         }
     }
     q
+}
+
+fn apply_query_filter(query: &mut TraceQuery, key: &str, value: &str) -> bool {
+    match key {
+        "service" if !value.is_empty() => query.service = Some(value.to_string()),
+        "operation" if !value.is_empty() => query.operation = Some(value.to_string()),
+        "tag" | "tags" => {
+            if let Some((tag, expected)) = value.split_once(':').or_else(|| value.split_once('=')) {
+                query.tags.push((tag.to_string(), expected.to_string()));
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn apply_query_window(query: &mut TraceQuery, key: &str, value: &str) -> bool {
+    match key {
+        "minDuration" | "min_duration" => {
+            query.min_duration = value
+                .parse::<i64>()
+                .ok()
+                .or_else(|| parse_duration_ns(value));
+        }
+        "maxDuration" | "max_duration" => {
+            query.max_duration = value
+                .parse::<i64>()
+                .ok()
+                .or_else(|| parse_duration_ns(value));
+        }
+        "start" | "from" => {
+            if let Ok(n) = value.parse::<i64>() {
+                query.from = n;
+            }
+        }
+        "end" | "to" => {
+            if let Ok(n) = value.parse::<i64>() {
+                query.to = n;
+            }
+        }
+        "limit" => {
+            if let Ok(n) = value.parse::<usize>() {
+                query.limit = n;
+            }
+        }
+        _ => return false,
+    }
+    true
 }
 
 /// Parse a Go-style duration (`1s`, `500ms`, `2m`, `100us`, `50ns`) into nanoseconds.
@@ -547,15 +586,38 @@ mod tests {
     /// tag, limit), tolerating percent/`+` encoding.
     #[test]
     fn eg163_trace_query_from_query_string() {
-        let q = trace_query_from_query_string("service=checkout&minDuration=500ms&tag=http.status_code:500&limit=5&operation=POST+%2Fcharge");
+        let q = trace_query_from_query_string(
+            "service=checkout&minDuration=500ms&max_duration=2s&from=100&to=200&tag=http.status_code:500&tags=db%3Aread&limit=5&operation=POST+%2Fcharge",
+        );
         assert_eq!(q.service.as_deref(), Some("checkout"));
         assert_eq!(q.min_duration, Some(500_000_000));
+        assert_eq!(q.max_duration, Some(2_000_000_000));
+        assert_eq!(q.from, 100);
+        assert_eq!(q.to, 200);
         assert_eq!(
             q.tags,
-            vec![("http.status_code".to_string(), "500".to_string())]
+            vec![
+                ("http.status_code".to_string(), "500".to_string()),
+                ("db".to_string(), "read".to_string()),
+            ]
         );
         assert_eq!(q.limit, 5);
         assert_eq!(q.operation.as_deref(), Some("POST /charge"));
+    }
+
+    #[test]
+    fn eg163_trace_query_body_precedes_url_only_for_nonempty_post() {
+        let body = parse_search_query("POST", "service=url", r#"{"service":"body"}"#).unwrap();
+        assert_eq!(body.service.as_deref(), Some("body"));
+
+        let get = parse_search_query("GET", "service=url", r#"{"service":"body"}"#).unwrap();
+        assert_eq!(get.service.as_deref(), Some("url"));
+
+        let empty_post = parse_search_query("POST", "service=url", "  ").unwrap();
+        assert_eq!(empty_post.service.as_deref(), Some("url"));
+        assert!(parse_search_query("POST", "", "{not-json}")
+            .unwrap_err()
+            .starts_with("parse trace query JSON: "));
     }
 
     /// CONCEPT:EG-OS.observability.trace-assembly — the full HTTP surface end-to-end over the SAME obs listener:

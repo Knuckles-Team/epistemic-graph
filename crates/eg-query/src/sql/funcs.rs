@@ -353,8 +353,9 @@ fn skip_literal(s: &str, i: usize) -> Option<usize> {
     }
 }
 
-/// Index past a `'…'` string (Postgres `''` escape).
-fn skip_single_quote(bytes: &[u8], start: usize) -> usize {
+/// Index past a `'…'` string (Postgres `''` escape). Shared with the PL/pgSQL
+/// scanner, which reads the same literal syntax.
+pub(super) fn skip_single_quote(bytes: &[u8], start: usize) -> usize {
     let mut i = start + 1;
     while i < bytes.len() {
         if bytes[i] == b'\'' {

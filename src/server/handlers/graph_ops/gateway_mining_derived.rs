@@ -1,9 +1,14 @@
+#[cfg(feature = "mining")]
+use super::super::mining::{
+    AssociationRequest, CommunityRequest, EntityResolutionRequest, ForecastRequest,
+    RiskPropagationRequest, RootCauseRequest, TextRequest, WritebackOptions,
+};
 use super::*;
 
 /// Generate the uniform method-destructure → mining-handler → response-result
 /// adapter used by the mining methods without duplicating that gateway glue.
 macro_rules! define_mining_apply {
-    ($name:ident, $method:ident { $($field:ident),* $(,)? }, $handler:ident) => {
+    ($name:ident, $method:ident { $($field:ident),* $(,)? }, $claim:ident, $handler:ident($($arg:tt)*)) => {
         #[cfg(feature = "mining")]
         pub(super) fn $name(
             core: &GraphCore,
@@ -13,7 +18,7 @@ macro_rules! define_mining_apply {
             let Method::$method {
                 $($field,)*
                 #[cfg(feature = "epistemic")]
-                as_claim,
+                $claim,
             } = method_owned
             else {
                 unreachable!()
@@ -21,9 +26,7 @@ macro_rules! define_mining_apply {
             let resp = super::super::mining::$handler(
                 req_id,
                 core,
-                $($field,)*
-                #[cfg(feature = "epistemic")]
-                as_claim,
+                $($arg)*
             );
             super::gateway::mining_response_to_gateway_result(resp)
         }
@@ -40,7 +43,19 @@ define_mining_apply!(
         algorithm,
         writeback,
     },
-    handle_associate
+    as_claim,
+    handle_associate(AssociationRequest {
+        transactions,
+        source,
+        min_support,
+        min_confidence,
+        algorithm,
+        writeback: WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    })
 );
 
 define_mining_apply!(
@@ -52,7 +67,18 @@ define_mining_apply!(
         algorithm,
         writeback,
     },
-    handle_sequence
+    as_claim,
+    handle_sequence(
+        sequences,
+        source,
+        min_support,
+        algorithm,
+        WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    )
 );
 
 define_mining_apply!(
@@ -72,7 +98,26 @@ define_mining_apply!(
         series_id,
         writeback,
     },
-    handle_forecast
+    as_claim,
+    handle_forecast(ForecastRequest {
+        values,
+        algorithm,
+        horizon,
+        p,
+        d,
+        q,
+        period,
+        alpha,
+        beta,
+        gamma,
+        confidence,
+        series_id,
+        writeback: WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    })
 );
 
 define_mining_apply!(
@@ -89,7 +134,23 @@ define_mining_apply!(
         top_n,
         writeback,
     },
-    handle_text
+    as_claim,
+    handle_text(TextRequest {
+        docs,
+        source,
+        algorithm,
+        k,
+        alpha,
+        beta,
+        iterations,
+        seed,
+        top_n,
+        writeback: WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    })
 );
 
 define_mining_apply!(
@@ -101,7 +162,18 @@ define_mining_apply!(
         algorithm,
         writeback,
     },
-    handle_subgraph
+    as_claim,
+    handle_subgraph(
+        label,
+        min_support,
+        max_edges,
+        algorithm,
+        WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    )
 );
 
 define_mining_apply!(
@@ -116,7 +188,21 @@ define_mining_apply!(
         threshold,
         writeback,
     },
-    handle_entity_resolve
+    as_claim,
+    handle_entity_resolve(EntityResolutionRequest {
+        records,
+        block_keys,
+        vectors,
+        source,
+        ids,
+        bucket_precision,
+        threshold,
+        writeback: WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    })
 );
 
 define_mining_apply!(
@@ -128,7 +214,18 @@ define_mining_apply!(
         series_id,
         writeback,
     },
-    handle_causal_impact
+    as_claim,
+    handle_causal_impact(
+        series,
+        control,
+        intervention_index,
+        series_id,
+        WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    )
 );
 
 define_mining_apply!(
@@ -138,7 +235,16 @@ define_mining_apply!(
         process_id,
         writeback,
     },
-    handle_process
+    as_claim,
+    handle_process(
+        traces,
+        process_id,
+        WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    )
 );
 
 define_mining_apply!(
@@ -152,7 +258,20 @@ define_mining_apply!(
         decay,
         writeback,
     },
-    handle_root_cause
+    as_claim,
+    handle_root_cause(RootCauseRequest {
+        nodes,
+        scores,
+        edges,
+        symptom,
+        max_hops,
+        decay,
+        writeback: WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    })
 );
 
 define_mining_apply!(
@@ -166,7 +285,20 @@ define_mining_apply!(
         max_iterations,
         writeback,
     },
-    handle_risk_propagation
+    as_claim,
+    handle_risk_propagation(RiskPropagationRequest {
+        nodes,
+        seed,
+        edges,
+        damping,
+        tolerance,
+        max_iterations,
+        writeback: WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    })
 );
 
 define_mining_apply!(
@@ -177,7 +309,17 @@ define_mining_apply!(
         query_id,
         writeback,
     },
-    handle_retrieval_quality
+    as_claim,
+    handle_retrieval_quality(
+        traces,
+        k,
+        query_id,
+        WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    )
 );
 
 define_mining_apply!(
@@ -191,5 +333,18 @@ define_mining_apply!(
         weighted,
         writeback,
     },
-    handle_community
+    as_claim,
+    handle_community(CommunityRequest {
+        label,
+        algorithm,
+        resolution,
+        max_iterations,
+        seed,
+        weighted,
+        writeback: WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
+    })
 );

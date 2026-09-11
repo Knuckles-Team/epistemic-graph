@@ -43,10 +43,12 @@ fn current_request(id: u64, method: Method) -> crate::protocol::Request {
         "__commons__",
         method,
         SECRET,
-        TEST_AGENT,
-        "placement",
-        "placement-request",
-        "epistemic-graph-unit-auth",
+        super::harness_support::HarnessLabels {
+            agent_id: TEST_AGENT,
+            nonce: "placement",
+            idempotency: "placement-request",
+            security_state: "epistemic-graph-unit-auth",
+        },
     )
 }
 
@@ -95,6 +97,120 @@ async fn write_via_owner(multi: &Arc<MultiRaft>, graph: &str, node_id: &str) -> 
         )?,
     };
     routed.handle.client_write(req).await.map(|_| ())
+}
+
+fn epoch_cas_request(
+    coordinator_id: &str,
+    nonce: u8,
+    method: Method,
+) -> Result<RaftRequest, String> {
+    let mut mutation = super::RaftMutationContext::internal(
+        "raft-placement-contention",
+        super::placement::PLACEMENT_GRAPH,
+        coordinator_id,
+        0,
+        0,
+    );
+    mutation.attempt_nonce = Some(eg_types::contract::Nonce::from_bytes([nonce; 32]));
+    Ok(RaftRequest {
+        graph_fname: crate::persist::sanitize(super::placement::PLACEMENT_GRAPH),
+        graph_name: super::placement::PLACEMENT_GRAPH.to_string(),
+        graph_type: GraphType::Commons,
+        committed_at_ms: 0,
+        mutation,
+        command: super::ReplicatedMutation::graph(method, SECRET)?,
+    })
+}
+
+fn bool_response(response: Result<super::RaftResponse, String>) -> bool {
+    let response = response.expect("placement CAS request should reach the state machine");
+    assert!(
+        response.native_error.is_none(),
+        "placement CAS returned an error: {:?}",
+        response.native_error
+    );
+    match response.native_result {
+        Some(crate::protocol::ResultPayload::Bool(value)) => value,
+        other => panic!("placement CAS returned an unexpected result: {other:?}"),
+    }
+}
+
+// A live state-machine contention check: two distinct plan authorities issue the
+// same epoch CAS concurrently. Exactly one receipt may be true. The winner's
+// stored boolean must be replayable with a fresh caller nonce, while reusing the
+// consumed nonce must fail before the replay shortcut can answer it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn placement_state_machine_binds_plan_identity_and_replay_nonce() {
+    let dir = fixture::fresh_dir("eg-placement", "cas-replay-integrity");
+    let backend = fixture::open_backend(&dir).expect("open redb");
+    let (multi, state) = bring_up(&dir, backend.clone()).await;
+    multi
+        .placement_assign(TENANT, GROUP_A)
+        .await
+        .expect("seed placement epoch");
+
+    let method = super::placement::PlacementCatalog::epoch_cas_method(1, 2);
+    let request_a = epoch_cas_request("plan-a", 11, method.clone()).expect("request a");
+    let request_b = epoch_cas_request("plan-b", 12, method).expect("request b");
+    assert_ne!(
+        request_a.mutation.batch_id, request_b.mutation.batch_id,
+        "distinct plans must not share a durable replay key"
+    );
+    let (response_a, response_b) = tokio::join!(
+        multi.client_write_group(super::DEFAULT_GROUP, request_a.clone()),
+        multi.client_write_group(super::DEFAULT_GROUP, request_b.clone()),
+    );
+    let applied_a = bool_response(response_a);
+    let applied_b = bool_response(response_b);
+    assert_ne!(applied_a, applied_b, "one competing CAS must win");
+
+    let counter = {
+        let guard = state.read().await;
+        let bytes = guard
+            .registry
+            .get(super::placement::PLACEMENT_GRAPH)
+            .and_then(|entry| {
+                entry
+                    .core
+                    .get_node_properties(super::placement::PLACEMENT_EPOCH_COUNTER_NODE)
+            })
+            .expect("epoch counter must remain present");
+        rmp_serde::from_slice::<serde_json::Value>(&bytes).expect("counter properties decode")
+    };
+    assert_eq!(
+        counter[super::placement::PLACEMENT_EPOCH_FIELD],
+        serde_json::json!(2)
+    );
+
+    let (loser, winner) = if applied_a {
+        (request_b, request_a)
+    } else {
+        (request_a, request_b)
+    };
+
+    let mut loser_retry = loser.clone();
+    loser_retry.mutation.attempt_nonce = Some(eg_types::contract::Nonce::from_bytes([14; 32]));
+    assert!(!bool_response(
+        multi
+            .client_write_group(super::DEFAULT_GROUP, loser_retry)
+            .await
+    ));
+
+    let mut fresh = winner.clone();
+    fresh.mutation.attempt_nonce = Some(eg_types::contract::Nonce::from_bytes([13; 32]));
+    assert!(bool_response(
+        multi.client_write_group(super::DEFAULT_GROUP, fresh).await
+    ));
+
+    let reused = multi
+        .client_write_group(super::DEFAULT_GROUP, winner)
+        .await
+        .expect_err("the exact caller nonce must be consumed by the replay probe");
+    assert!(reused.contains("REPLAY_NONCE_CONSUMED"), "{reused}");
+
+    multi.stop_listener();
+    backend.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 async fn has_node(

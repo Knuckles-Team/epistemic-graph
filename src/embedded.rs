@@ -60,7 +60,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 
 use crate::graph::{GraphCore, GraphView};
 use crate::protocol::{GraphType, Method};
@@ -107,6 +107,11 @@ struct Inner {
     /// lookup) are sub-microsecond, and per-graph topology mutation takes its own
     /// internal lock inside `GraphCore`, so this guards only the name→core map.
     registry: RwLock<GraphRegistry>,
+    /// Serializes durable admission with publication into the live graph image.
+    /// A redb commit must become durable before readers can observe its
+    /// in-memory effect; the same gate preserves durable order across cloned
+    /// embedded handles writing concurrently.
+    write_gate: Mutex<()>,
     /// Durable redb store, present when a persist dir is configured AND `durable`.
     #[cfg(feature = "redb")]
     store: Option<EmbeddedRedbStore>,
@@ -164,6 +169,56 @@ impl EmbeddedEngine {
                     {
                         let mut reg = registry.write();
                         for dump in dumps {
+                            // `GraphRegistry::new` seeds an in-memory
+                            // `__commons__` placeholder so in-memory callers
+                            // can use it immediately. A durable commons dump
+                            // is a committed image, however, and must replace
+                            // that placeholder so its authoritative
+                            // Graph(version) is adopted before publication.
+                            // Replaying rows into the bootstrap core leaves
+                            // its version at zero and makes the next
+                            // checkpoint look stale.
+                            if dump.name == "__commons__" {
+                                let semantic_store = if dump.semantic.is_empty() {
+                                    crate::compute::semantic::SemanticStore::new()
+                                } else {
+                                    rmp_serde::from_slice::<
+                                        crate::compute::semantic::SemanticStore,
+                                    >(&dump.semantic)
+                                    .map_err(|error| {
+                                        format!(
+                                            "failed to decode durable __commons__ semantic store: {error}"
+                                        )
+                                    })?
+                                };
+                                let snapshot = crate::graph::GraphSnapshot {
+                                    schema_version: crate::graph::GRAPH_SNAPSHOT_SCHEMA_VERSION,
+                                    integrity_policy: dump.integrity_policy,
+                                    nodes: dump
+                                        .nodes
+                                        .into_iter()
+                                        .map(|(id, properties)| (id, Arc::new(properties)))
+                                        .collect(),
+                                    edges: dump
+                                        .edges
+                                        .into_iter()
+                                        .map(|(source, target, properties)| {
+                                            (source, target, Arc::new(properties))
+                                        })
+                                        .collect(),
+                                    ledger: dump.ledger,
+                                    semantic_store,
+                                };
+                                reg.install_committed_graph(
+                                    "__commons__",
+                                    dump.graph_type,
+                                    None,
+                                    dump.incarnation_id,
+                                    snapshot,
+                                    dump.source_snapshot_version,
+                                )?;
+                                continue;
+                            }
                             if !reg.exists(&dump.name) {
                                 let _ = reg.create_graph_with_incarnation(
                                     &dump.name,
@@ -202,6 +257,7 @@ impl EmbeddedEngine {
             Ok(Self {
                 inner: Arc::new(Inner {
                     registry,
+                    write_gate: Mutex::new(()),
                     store,
                     _persist_lock: persist_lock,
                     #[cfg(feature = "query")]
@@ -219,6 +275,7 @@ impl EmbeddedEngine {
             Ok(Self {
                 inner: Arc::new(Inner {
                     registry: RwLock::new(GraphRegistry::new()),
+                    write_gate: Mutex::new(()),
                     _persist: persist_dir,
                     #[cfg(feature = "query")]
                     tables,
@@ -274,22 +331,43 @@ impl EmbeddedEngine {
 
     /// Create a named graph (durably registering its identity when authoritative).
     pub fn create_graph(&self, name: &str, graph_type: GraphType) -> Result<(), String> {
-        let incarnation_id = {
-            let mut registry = self.inner.registry.write();
-            registry.create_graph(name, graph_type, None)?;
-            registry
-                .catalog_record(name)
-                .map(|record| record.incarnation_id)
-                .ok_or_else(|| "created graph is absent from lifecycle catalog".to_string())?
-        };
+        let _write_gate = self.inner.write_gate.lock();
+        self.create_graph_inner(name, graph_type)
+    }
+
+    /// Create a graph while the caller already holds `write_gate`.
+    fn create_graph_inner(&self, name: &str, graph_type: GraphType) -> Result<(), String> {
+        // Keep the registry write guard through durable registration. The write
+        // gate serializes writers, but readers use the registry lock directly;
+        // dropping this guard before the shard commit would expose a transient
+        // RAM-only graph to a concurrent reader.
+        let mut registry = self.inner.registry.write();
+        registry.create_graph(name, graph_type, None)?;
+        let incarnation_id = registry
+            .catalog_record(name)
+            .map(|record| record.incarnation_id)
+            .ok_or_else(|| "created graph is absent from lifecycle catalog".to_string())?;
         #[cfg(feature = "redb")]
         if let Some(store) = &self.inner.store {
-            store.register_graph(
+            if let Err(error) = store.register_graph(
                 &crate::redb_store::sanitize(name),
                 name,
                 graph_type,
                 &incarnation_id,
-            )?;
+            ) {
+                // The registry is the live projection, while the shard is the
+                // durable authority. Registration can fail after the registry
+                // has admitted the name, so roll that projection back while the
+                // lifecycle write gate is still held. A failed create must be
+                // absent and retryable, rather than becoming a RAM-only graph.
+                let rollback = registry.delete_graph(name);
+                return match rollback {
+                    Ok(()) => Err(error),
+                    Err(rollback_error) => Err(format!(
+                        "{error}; failed to roll back in-memory graph registration: {rollback_error}"
+                    )),
+                };
+            }
         }
         Ok(())
     }
@@ -302,12 +380,25 @@ impl EmbeddedEngine {
     /// deleted incarnation's rows on the next `load_all` — the embedded analogue of
     /// the server's tenant-delete teardown.
     pub fn delete_graph(&self, name: &str) -> Result<(), String> {
-        self.inner.registry.write().delete_graph(name)?;
+        let _write_gate = self.inner.write_gate.lock();
+        // Validate the live projection before touching durable rows. Once the
+        // graph is known, purge the authoritative shard first; only then remove
+        // the registry entry. A failed purge therefore leaves both projections
+        // intact and the same delete can be retried.
+        {
+            let registry = self.inner.registry.read();
+            if name == "__commons__" {
+                return Err("Cannot delete the __commons__ graph".to_string());
+            }
+            if !registry.exists(name) {
+                return Err(format!("Graph '{name}' not found"));
+            }
+        }
         #[cfg(feature = "redb")]
         if let Some(store) = &self.inner.store {
             store.purge(&crate::redb_store::sanitize(name))?;
         }
-        Ok(())
+        self.inner.registry.write().delete_graph(name)
     }
 
     /// List `(name, type)` for every registered graph.
@@ -341,19 +432,54 @@ impl EmbeddedEngine {
 
     // ── writes (durable: commit-before-return) ───────────────────────────
 
-    /// Apply a durable mutation to `graph`: in-memory via `mutation_apply::apply` (the SAME
-    /// applier WAL replay + the Raft state machine use), then — when authoritative —
-    /// commit it to redb before returning (commit-before-return). The graph is
-    /// auto-created if it does not exist (matching the firehose ingestion path).
+    /// Apply a durable mutation to `graph`: admit and commit it through the
+    /// authoritative shard first, then publish it through the SAME
+    /// `mutation_apply::apply` path WAL replay and the Raft state machine use.
+    /// The graph is auto-created if it does not exist (matching the firehose
+    /// ingestion path), and the call returns only after the durable commit.
     fn apply_durable(&self, graph: &str, method: Method) -> Result<(), String> {
-        let core = self.core(graph, true)?;
-        // 1) In-memory apply — the canonical durable Method → GraphCore path.
-        crate::mutation_apply::apply(&core, &method);
-        // 2) Durable commit-before-return.
+        let _write_gate = self.inner.write_gate.lock();
+
+        // `mutation_apply::apply` is deliberately a void replay applier and
+        // logs an AddEmbedding validation error rather than returning it. Do
+        // the exact backend validation on a detached store before graph
+        // creation, durable admission, and the serving watermark can change.
+        // This keeps the embedded API's historical error surface while making
+        // an invalid vector atomic in both durable and in-memory modes.
+        if let Method::AddEmbedding { embedding, .. } = &method {
+            let validation = match self.core(graph, false) {
+                Ok(core) => core.semantic_store.read().validate_embedding(embedding),
+                Err(_) => {
+                    crate::compute::semantic::SemanticStore::new().validate_embedding(embedding)
+                }
+            };
+            validation.map_err(|error| error.to_string())?;
+        }
+
+        let core = match self.core(graph, false) {
+            Ok(core) => core,
+            Err(_) => {
+                self.create_graph_inner(graph, GraphType::Global)?;
+                self.core(graph, false)?
+            }
+        };
+        // 1) Durable typed admission/commit. The shard's graph member resolves
+        // its authoritative Graph(version) while the kernel write is held.
         #[cfg(feature = "redb")]
         if let Some(store) = &self.inner.store {
             store.commit(&crate::redb_store::sanitize(graph), &method)?;
         }
+        // 2) Publish only after the durable commit succeeds. This is the
+        // canonical durable Method → GraphCore applier used by WAL replay and
+        // the Raft state machine, so a failed admission never becomes visible.
+        crate::mutation_apply::apply(&core, &method);
+        // The replay applier deliberately only applies rows to a core; it does
+        // not advance the serving OCC clock. The embedded write gate owns the
+        // publication boundary, so advance that clock exactly once after the
+        // authoritative commit and projection apply. Keeping this watermark in
+        // step with the shard's Graph(version) is required for checkpoint
+        // images while retaining the durable stale-image refusal.
+        core.mark_dirty();
         Ok(())
     }
 
@@ -447,11 +573,13 @@ impl EmbeddedEngine {
         node_id: &str,
         embedding: Vec<f32>,
     ) -> Result<(), String> {
-        let core = self.core(graph, true)?;
-        let mut store = core.semantic_store.write();
-        store
-            .add_embedding(node_id.to_string(), embedding)
-            .map_err(|error| error.to_string())
+        self.apply_durable(
+            graph,
+            Method::AddEmbedding {
+                node_id: node_id.to_string(),
+                embedding,
+            },
+        )
     }
 
     /// k-NN semantic search over `graph`'s embeddings: `(node_id, similarity)`.
@@ -597,6 +725,7 @@ impl EmbeddedEngine {
     /// redb in one durable transaction per the server's checkpoint discipline. A
     /// no-op for an in-memory engine. Returns the number of graphs written.
     pub fn checkpoint(&self) -> Result<usize, String> {
+        let _write_gate = self.inner.write_gate.lock();
         #[cfg(feature = "redb")]
         if let Some(store) = &self.inner.store {
             let dumps = {
@@ -622,7 +751,18 @@ impl EmbeddedEngine {
                     })
                     .collect::<Vec<_>>()
             };
-            return store.checkpoint(dumps);
+            let count = store.checkpoint(dumps)?;
+            // The checkpoint itself is an admitted owner-maintenance write, so
+            // the shard advances every resident graph's authoritative version
+            // once after replacing its image. Keep the live projection's OCC
+            // watermark aligned with that maintenance commit; otherwise a
+            // second checkpoint on this handle would be rejected as stale even
+            // though its image was just written successfully.
+            let reg = self.inner.registry.read();
+            for entry in reg.all_entries() {
+                entry.core.mark_dirty();
+            }
+            return Ok(count);
         }
         Ok(0)
     }
@@ -713,3 +853,152 @@ fn count_result(n: usize) -> eg_query::TypedQueryResult {
 
 #[cfg(all(test, feature = "redb"))]
 mod tests;
+
+#[cfg(all(test, feature = "redb"))]
+mod lifecycle_failure_tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::mpsc::{self, TryRecvError};
+    use std::thread;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        crate::test_support::temp_dir("eg-embedded-lifecycle", tag)
+    }
+
+    fn has_graph(engine: &EmbeddedEngine, name: &str) -> bool {
+        engine.list_graphs().iter().any(|(graph, _)| graph == name)
+    }
+
+    #[test]
+    fn invalid_embedding_does_not_mutate_in_memory_projection_or_version() {
+        let engine =
+            EmbeddedEngine::open(None::<&std::path::Path>, EmbeddedOptions::in_memory()).unwrap();
+        engine.create_graph("g", GraphType::Global).unwrap();
+        engine.add_embedding("g", "n", vec![1.0, 0.0, 0.0]).unwrap();
+
+        let core = engine.inner.registry.read().get("g").unwrap().core.clone();
+        let version_before = core.version();
+        let embedding_before = core.semantic_store.read().get_embedding("n");
+        let error = engine.add_embedding("g", "n", vec![1.0, 0.0]).unwrap_err();
+
+        assert!(error.contains("embedding dimension mismatch"), "{error}");
+        assert_eq!(core.version(), version_before);
+        assert_eq!(
+            core.semantic_store.read().get_embedding("n"),
+            embedding_before
+        );
+    }
+
+    #[test]
+    fn checkpoint_reopen_checkpoint_adopts_commons_version() {
+        let dir = temp_dir("commons-checkpoint-reopen");
+        {
+            let engine = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+            engine
+                .add_node(
+                    "__commons__",
+                    "n",
+                    rmp_serde::to_vec_named(&serde_json::json!({"v": 1})).unwrap(),
+                )
+                .unwrap();
+            engine.checkpoint().unwrap();
+        }
+
+        let reopened = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+        reopened
+            .checkpoint()
+            .expect("a recovered commons image must be current for the next checkpoint");
+        drop(reopened);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_create_is_not_published_before_failure_and_retry_survives_reopen() {
+        let dir = temp_dir("create-register-failure");
+        let engine = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+        let (registration_entered, registration_release) = engine
+            .inner
+            .store
+            .as_ref()
+            .unwrap()
+            .block_next_register_failure();
+        let creator_engine = engine.clone();
+        let creator = thread::spawn(move || creator_engine.create_graph("g", GraphType::Global));
+        registration_entered.recv().unwrap();
+
+        let (reader_started_tx, reader_started_rx) = mpsc::sync_channel(1);
+        let (reader_done_tx, reader_done_rx) = mpsc::sync_channel(1);
+        let reader_engine = engine.clone();
+        let reader = thread::spawn(move || {
+            reader_started_tx.send(()).unwrap();
+            reader_done_tx.send(has_graph(&reader_engine, "g")).unwrap();
+        });
+        reader_started_rx.recv().unwrap();
+
+        // The registration hook is blocked while create_graph_inner holds the
+        // registry write guard. A reader cannot observe the uncommitted graph.
+        assert!(engine.inner.registry.try_read().is_none());
+        assert!(matches!(
+            reader_done_rx.try_recv(),
+            Err(TryRecvError::Empty)
+        ));
+
+        registration_release.send(()).unwrap();
+        let error = creator.join().unwrap().unwrap_err();
+        assert!(error.contains("injected embedded graph registration failure"));
+        assert!(!has_graph(&engine, "g"));
+        assert!(!reader_done_rx.recv().unwrap());
+        reader.join().unwrap();
+
+        // The failed admission left no live projection, so the exact same
+        // lifecycle request is still valid and can complete.
+        engine.create_graph("g", GraphType::Global).unwrap();
+        assert!(has_graph(&engine, "g"));
+        drop(engine);
+
+        let reopened = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+        assert!(has_graph(&reopened, "g"));
+        drop(reopened);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn failed_delete_keeps_projection_and_retry_purges_across_reopen() {
+        let dir = temp_dir("delete-purge-failure");
+        {
+            let engine = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+            engine.create_graph("g", GraphType::Global).unwrap();
+            engine
+                .add_node(
+                    "g",
+                    "n",
+                    rmp_serde::to_vec_named(&serde_json::json!({"v": 1})).unwrap(),
+                )
+                .unwrap();
+            engine.inner.store.as_ref().unwrap().fail_next_purge();
+
+            let error = engine.delete_graph("g").unwrap_err();
+            assert!(error.contains("injected embedded graph purge failure"));
+            assert!(has_graph(&engine, "g"));
+            assert!(engine.has_node("g", "n").unwrap());
+        }
+
+        // The failed purge did not remove the durable identity or payload.
+        {
+            let reopened = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+            assert!(has_graph(&reopened, "g"));
+            assert!(reopened.has_node("g", "n").unwrap());
+        }
+
+        {
+            let engine = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+            engine.delete_graph("g").unwrap();
+            assert!(!has_graph(&engine, "g"));
+        }
+
+        let reopened = EmbeddedEngine::open(Some(&dir), EmbeddedOptions::durable()).unwrap();
+        assert!(!has_graph(&reopened, "g"));
+        drop(reopened);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

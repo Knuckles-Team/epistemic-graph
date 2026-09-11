@@ -56,7 +56,7 @@ wire, policy, durability, and resource contracts.
 | Operation | Status | Feature | Evidence |
 |-----------|:------:|---------|----------|
 | `KnowledgeStream` | ✅ | `knowledge-batch` | One cursor-driven served method for graph, SQL, RDF, vector, time-series, analytics-job, and cross-modal query families; strict Python binding: `client.knowledge.pull(...)` |
-| Bounded Arrow pull | ✅ | `knowledge-batch` | Every family routes through its named `KnowledgeBatchStream` adapter and returns at most the requested/clamped batch size; the Python binding exposes only `arrow_ipc_v1` and validates the complete response/cursor shape |
+| Bounded Arrow pull | ✅ | `knowledge-batch` | Every family routes through its named `KnowledgeBatchStream` adapter and returns at most the requested/clamped batch size; the Python binding exposes only `arrow_ipc` and validates the complete response/cursor shape |
 | Cursor fencing | ✅ | `knowledge-batch` | Cursor binds schema, family, keyed tenant/policy authority, placement epoch/fence, complete result snapshot, query, derivation/evidence set, and batch size |
 | RLS and placement | ✅ | `security` / `raft` | Dispatch occurs after verified RequestContext scope, graph ACL, RLS filtering, materialization readiness, and authoritative placement resolution |
 

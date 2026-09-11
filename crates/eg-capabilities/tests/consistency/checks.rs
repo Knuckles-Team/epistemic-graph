@@ -242,8 +242,8 @@ fn generated_ledger_is_not_stale() {
 /// protocol edit that adds or removes variants is visible in the same policy parity check.
 #[test]
 fn method_policy_registry_has_the_expected_variant_count() {
-    // 401 unconditional rows plus one row for each optional feature surface.
-    let expected = 401
+    // 403 unconditional rows plus one row for each optional feature surface.
+    let expected = 403
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

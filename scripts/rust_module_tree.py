@@ -14,8 +14,14 @@ from pathlib import Path
 
 from rust_lexer import (
     _balanced_span_from,
+    _delimiter_depths,
+    _evaluate_cfg,
+    _item_end,
+    _macro_rule_template_attribute_starts,
+    _parse_cfg_expression,
     _rust_code_mask,
     _rust_comments_mask,
+    _top_level_parts,
     require,
 )
 
@@ -26,19 +32,11 @@ _MODULE_ITEM = re.compile(
 _MODULE_KEYWORD = re.compile(r"(?<!r#)\bmod\b")
 _INCLUDE_ITEM = re.compile(r"include\s*!\s*\(")
 _ATTRIBUTE_START = re.compile(r"#\s*(?P<inner>!)?\s*\[")
-_MACRO_RULES_START = re.compile(
-    r"\bmacro_rules\s*!\s*(?:r#)?[A-Za-z_][A-Za-z0-9_]*\s*(?P<opener>[{([])"
-)
-_CFG_TOKEN = re.compile(
-    r"\s*(?:(?P<ident>[A-Za-z_][A-Za-z0-9_]*)|"
-    r'(?P<string>"(?:\\.|[^"\\])*")|(?P<punct>[(),=]))'
-)
-# `derive`, like the lint attributes, takes a parenthesized path list and is
-# inert for module discovery: unlike `cfg`, `cfg_attr` and `path` it can neither
-# drop an item nor name a source file, so it cannot move a `mod` declaration.
-# Rejecting it made every eg-types module tree unreadable (195 occurrences of
-# `cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))`), which
-# is what kept four architecture gates pinned to single facade files.
+# The four derive paths used by this source tree expand to impls only, so their
+# conditional forms are inert for module discovery.  A proc-macro derive is
+# allowed to emit items, however; treating an arbitrary path as inert would let
+# an unknown derive add a `mod` or `include!` that this walk cannot see.  Keep
+# this audit list exact and fail closed when a new derive appears.
 _CFG_ATTR_INERT_ATTRIBUTES = {
     "allow",
     "deny",
@@ -46,8 +44,18 @@ _CFG_ATTR_INERT_ATTRIBUTES = {
     "doc",
     "forbid",
     "recursion_limit",
+    "schemars",
+    "serde",
     "warn",
 }
+_CFG_ATTR_KNOWN_DERIVES = frozenset(
+    {
+        "schemars::JsonSchema",
+        "serde::Serialize",
+        "serde::Deserialize",
+        "strum::IntoStaticStr",
+    }
+)
 
 
 _RustAttribute = namedtuple(
@@ -57,72 +65,6 @@ _RustSourceInput = namedtuple("_RustSourceInput", ("path", "module_dir", "predic
 _RustModuleFamily = namedtuple(
     "_RustModuleFamily", ("production", "with_tests", "production_paths", "all_paths")
 )
-
-
-def _macro_rule_template_attribute_starts(mask: str) -> set[int]:
-    """Return proven ``#[$meta]`` template positions inside ``macro_rules!``.
-
-    A dollar-prefixed bracket is not a Rust attribute at macro-definition time:
-    it is a token template. It is safe to skip only when the same macro arm's
-    matcher binds that metavariable with the ``meta`` fragment specifier. Arm
-    locality matters; a binding from a different rule must not legitimize an
-    otherwise malformed or unbound template.
-    """
-
-    templates: set[int] = set()
-    for macro in _MACRO_RULES_START.finditer(mask):
-        opener = macro.start("opener")
-        opening = mask[opener]
-        closing = {"{": "}", "(": ")", "[": "]"}[opening]
-        closer = _balanced_span_from(mask, opener, opening, closing)
-        body_start = opener + 1
-        body = mask[body_start:closer]
-        depths = _delimiter_depths(body)
-        arrows = [
-            position
-            for position in range(len(body) - 1)
-            if body.startswith("=>", position) and depths[position] == (0, 0, 0)
-        ]
-        require(arrows, "macro_rules definition has no top-level rule")
-        rule_start = 0
-        for arrow in arrows:
-            rule_end = len(body)
-            for position in range(arrow + 2, len(body)):
-                if body[position] in ";," and depths[position] == (0, 0, 0):
-                    rule_end = position
-                    break
-
-            parsed_templates: list[tuple[re.Match[str], re.Match[str]]] = []
-            for attribute in _ATTRIBUTE_START.finditer(body, rule_start, rule_end):
-                bracket = body.find("[", attribute.start(), attribute.end())
-                attribute_closer = _balanced_span_from(body, bracket, "[", "]")
-                template = re.fullmatch(
-                    r"\s*\$\s*(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
-                    r"(?:\s*:\s*(?P<fragment>[A-Za-z_][A-Za-z0-9_]*))?\s*",
-                    body[bracket + 1 : attribute_closer],
-                )
-                if template is None:
-                    continue
-                parsed_templates.append((attribute, template))
-
-            # A macro attribute is bound only by the exact matcher token
-            # `#[$name:meta]`. A standalone `$name:meta` elsewhere in the
-            # matcher cannot retroactively legitimize a bare `#[$name]` token.
-            bindings = {
-                template.group("name")
-                for attribute, template in parsed_templates
-                if attribute.start() < arrow and template.group("fragment") == "meta"
-            }
-            for attribute, template in parsed_templates:
-                name = template.group("name")
-                fragment = template.group("fragment")
-                in_matcher = attribute.start() < arrow
-                if (in_matcher and fragment == "meta" and name in bindings) or (
-                    not in_matcher and fragment is None and name in bindings
-                ):
-                    templates.add(body_start + attribute.start())
-            rule_start = rule_end + 1
-    return templates
 
 
 def _rust_attributes(mask: str) -> list[_RustAttribute]:
@@ -164,99 +106,6 @@ def _rust_attributes(mask: str) -> list[_RustAttribute]:
         )
         position = closer + 1
     return attributes
-
-
-def _cfg_tokens(expression: str) -> list[str]:
-    tokens: list[str] = []
-    position = 0
-    while position < len(expression):
-        if not expression[position:].strip():
-            break
-        match = _CFG_TOKEN.match(expression, position)
-        require(match is not None, f"unsupported Rust cfg expression: {expression}")
-        tokens.append(
-            match.group("ident") or match.group("string") or match.group("punct")
-        )
-        position = match.end()
-    return tokens
-
-
-def _parse_cfg_expression(expression: str) -> tuple:
-    tokens = _cfg_tokens(expression)
-    position = 0
-
-    def parse() -> tuple:
-        nonlocal position
-        require(position < len(tokens), f"incomplete Rust cfg expression: {expression}")
-        name = tokens[position]
-        require(
-            re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is not None,
-            f"invalid Rust cfg atom: {name}",
-        )
-        position += 1
-        if position < len(tokens) and tokens[position] == "(":
-            require(
-                name in {"all", "any", "not"}, f"unsupported Rust cfg operator: {name}"
-            )
-            position += 1
-            values: list[tuple] = []
-            if position < len(tokens) and tokens[position] != ")":
-                while True:
-                    values.append(parse())
-                    if position < len(tokens) and tokens[position] == ",":
-                        position += 1
-                        if position < len(tokens) and tokens[position] == ")":
-                            break
-                        continue
-                    break
-            require(
-                position < len(tokens) and tokens[position] == ")",
-                f"unclosed Rust cfg operator: {expression}",
-            )
-            position += 1
-            require(
-                name != "not" or len(values) == 1,
-                "Rust cfg not() must have one argument",
-            )
-            return (name, tuple(values))
-        value = name
-        if position < len(tokens) and tokens[position] == "=":
-            position += 1
-            require(
-                position < len(tokens) and tokens[position].startswith('"'),
-                f"Rust cfg value must be a string: {expression}",
-            )
-            value = f"{name}={tokens[position]}"
-            position += 1
-        return ("atom", value)
-
-    tree = parse()
-    require(position == len(tokens), f"trailing Rust cfg tokens: {expression}")
-    return tree
-
-
-def _top_level_parts(mask: str, start: int, end: int) -> list[tuple[int, int]]:
-    parts: list[tuple[int, int]] = []
-    part_start = start
-    parens = 0
-    brackets = 0
-    for position in range(start, end):
-        char = mask[position]
-        if char == "(":
-            parens += 1
-        elif char == ")":
-            parens -= 1
-        elif char == "[":
-            brackets += 1
-        elif char == "]":
-            brackets -= 1
-        elif char == "," and parens == 0 and brackets == 0:
-            parts.append((part_start, position))
-            part_start = position + 1
-        require(min(parens, brackets) >= 0, "unbalanced Rust attribute arguments")
-    require(parens == 0 and brackets == 0, "unbalanced Rust attribute arguments")
-    parts.append((part_start, end))
-    return parts
 
 
 def _conditional_cfg_trees(
@@ -322,6 +171,12 @@ def _validate_inert_conditional_attribute(
             is not None,
             failure,
         )
+        if name == "derive":
+            for candidate in mask[cursor + 1 : closer].split(","):
+                candidate = candidate.strip()
+                if candidate:
+                    canonical = re.sub(r"\s*::\s*", "::", candidate)
+                    require(canonical in _CFG_ATTR_KNOWN_DERIVES, failure)
         return
     if name == "doc":
         tail = mask[cursor:end]
@@ -372,21 +227,6 @@ def _predicates_possible_without_test(trees: tuple[tuple, ...]) -> bool:
         for child in tree[1]:
             collect(child)
 
-    def evaluate(tree: tuple, values: dict[str, bool]) -> bool | None:
-        kind, payload = tree
-        if kind == "atom":
-            return False if payload == "test" else values.get(payload)
-        evaluated = [evaluate(child, values) for child in payload]
-        if kind == "all":
-            if False in evaluated:
-                return False
-            return True if all(value is True for value in evaluated) else None
-        if kind == "any":
-            if True in evaluated:
-                return True
-            return False if all(value is False for value in evaluated) else None
-        return None if evaluated[0] is None else not evaluated[0]
-
     for tree in trees:
         collect(tree)
     require(
@@ -396,7 +236,7 @@ def _predicates_possible_without_test(trees: tuple[tuple, ...]) -> bool:
     names = sorted(atoms)
 
     def satisfiable(position: int, values: dict[str, bool]) -> bool:
-        evaluated = [evaluate(tree, values) for tree in trees]
+        evaluated = [_evaluate_cfg(tree, values) for tree in trees]
         if False in evaluated:
             return False
         if all(value is True for value in evaluated):
@@ -480,81 +320,6 @@ def _resolve_module_child(
     return _RustSourceInput(existing[0], child_module_dir, predicates)
 
 
-def _delimiter_depths(mask: str) -> list[tuple[int, int, int]]:
-    depths = [(0, 0, 0)] * (len(mask) + 1)
-    braces = 0
-    parens = 0
-    brackets = 0
-    for position, char in enumerate(mask):
-        depths[position] = (braces, parens, brackets)
-        if char == "{":
-            braces += 1
-        elif char == "}":
-            braces -= 1
-        elif char == "(":
-            parens += 1
-        elif char == ")":
-            parens -= 1
-        elif char == "[":
-            brackets += 1
-        elif char == "]":
-            brackets -= 1
-        require(
-            min(braces, parens, brackets) >= 0,
-            "unbalanced Rust module delimiters",
-        )
-    depths[len(mask)] = (braces, parens, brackets)
-    require(depths[-1] == (0, 0, 0), "unbalanced Rust module delimiters")
-    return depths
-
-
-def _item_end(mask: str, start: int, limit: int) -> int:
-    parens = 0
-    brackets = 0
-    position = start
-    while position < limit:
-        char = mask[position]
-        if char == "(":
-            parens += 1
-        elif char == ")":
-            parens -= 1
-        elif char == "[":
-            brackets += 1
-        elif char == "]":
-            brackets -= 1
-        elif char == ";" and parens == 0 and brackets == 0:
-            return position + 1
-        elif char == "{" and parens == 0 and brackets == 0:
-            header = mask[start:position]
-            item_kind = re.search(
-                r"\b(fn|struct|enum|union|impl|trait|mod|const|static|type|use|extern|macro_rules)\b",
-                header,
-            )
-            macro_item = re.search(
-                r"\b[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*!\s*$",
-                header,
-            )
-            if item_kind is None and macro_item is not None:
-                closer = _balanced_span_from(mask, position, "{", "}")
-                return closer + 2 if mask[closer + 1 :].startswith(";") else closer + 1
-            require(item_kind is not None, "unsupported cfg-disabled Rust item")
-            semicolon_bound = item_kind.group(1) in {"const", "static", "type", "use"}
-            if item_kind.group(1) == "const":
-                after_const = header[item_kind.end() :]
-                const_function = re.match(
-                    r'\s+(?:(?:unsafe|async)\s+)*(?:extern(?:\s+"[^"]*")?\s+)?fn\b',
-                    after_const,
-                )
-                semicolon_bound = const_function is None
-            closer = _balanced_span_from(mask, position, "{", "}")
-            if not semicolon_bound:
-                return closer + 1
-            position = closer
-        position += 1
-    require(False, "test-only Rust item has no terminator")
-    return -1
-
-
 def _include_path(
     path: Path,
     mask: str,
@@ -590,62 +355,87 @@ def _leading_inner_attributes(
     return selected
 
 
-def _production_source_and_children(
-    source_input: _RustSourceInput, source: str, include_tests: bool
-) -> tuple[str, list[_RustSourceInput]]:
-    path = source_input.path
-    mask = _rust_code_mask(source)
-    comments_mask = _rust_comments_mask(source)
-    depths = _delimiter_depths(mask)
-    attributes = _rust_attributes(mask)
-    excluded: list[tuple[int, int]] = []
-    children: list[_RustSourceInput] = []
-    consumed_modules: set[int] = set()
-    consumed_includes: set[int] = set()
+class _ProductionScopeWalker:
+    def __init__(
+        self,
+        path: Path,
+        mask: str,
+        comments_mask: str,
+        depths: list[tuple[int, int, int]],
+        attributes: list[_RustAttribute],
+        include_tests: bool,
+    ) -> None:
+        self.path = path
+        self.mask = mask
+        self.comments_mask = comments_mask
+        self.depths = depths
+        self.attributes = attributes
+        self.include_tests = include_tests
+        self.excluded: list[tuple[int, int]] = []
+        self.children: list[_RustSourceInput] = []
+        self.consumed_modules: set[int] = set()
+        self.consumed_includes: set[int] = set()
 
-    def visit_scope(
+    def _scope_context(
+        self,
         start: int,
         limit: int,
-        module_dir: Path,
-        path_base: Path,
         inherited_predicates: tuple[tuple, ...],
-    ) -> None:
-        scope_depth = depths[start]
-        inner = _leading_inner_attributes(attributes, mask, depths, start, limit)
+    ) -> tuple[tuple[int, int, int], tuple[tuple, ...], bool]:
+        scope_depth = self.depths[start]
+        inner = _leading_inner_attributes(
+            self.attributes, self.mask, self.depths, start, limit
+        )
         inner_predicates = (
-            () if include_tests else _cfg_predicates(comments_mask, mask, inner)
+            ()
+            if self.include_tests
+            else _cfg_predicates(self.comments_mask, self.mask, inner)
         )
         scope_predicates = (*inherited_predicates, *inner_predicates)
-        if not include_tests and not _predicates_possible_without_test(
+        production = self.include_tests or _predicates_possible_without_test(
             scope_predicates
-        ):
-            excluded.append((start, limit))
-            return
+        )
+        return scope_depth, scope_predicates, production
 
-        for attr in attributes:
+    def _exclude_inactive_attributes(
+        self,
+        start: int,
+        limit: int,
+        scope_depth: tuple[int, int, int],
+        scope_predicates: tuple[tuple, ...],
+    ) -> None:
+        for attr in self.attributes:
             if attr.inner or attr.start < start or attr.end > limit:
                 continue
-            if depths[attr.start] != scope_depth:
+            if self.depths[attr.start] != scope_depth:
                 continue
-            attrs = _attributes_before(attributes, mask, attr.end)
+            attrs = _attributes_before(self.attributes, self.mask, attr.end)
             item_predicates = (
                 *scope_predicates,
-                *_cfg_predicates(comments_mask, mask, attrs),
+                *_cfg_predicates(self.comments_mask, self.mask, attrs),
             )
-            if not include_tests and not _predicates_possible_without_test(
+            if not self.include_tests and not _predicates_possible_without_test(
                 item_predicates
             ):
-                excluded.append((attrs[0].start, _item_end(mask, attrs[-1].end, limit)))
+                self.excluded.append(
+                    (attrs[0].start, _item_end(self.mask, attrs[-1].end, limit))
+                )
 
+    def _scope_items(
+        self,
+        start: int,
+        limit: int,
+        scope_depth: tuple[int, int, int],
+    ) -> list[tuple[int, str, re.Match[str]]]:
         items: list[tuple[int, str, re.Match[str]]] = []
         modules: list[re.Match[str]] = []
-        for declaration in _MODULE_ITEM.finditer(mask, start, limit):
-            if depths[declaration.start()] != scope_depth:
+        for declaration in _MODULE_ITEM.finditer(self.mask, start, limit):
+            if self.depths[declaration.start()] != scope_depth:
                 continue
             modules.append(declaration)
             items.append((declaration.start(), "module", declaration))
-        for keyword in _MODULE_KEYWORD.finditer(mask, start, limit):
-            if depths[keyword.start()] != scope_depth:
+        for keyword in _MODULE_KEYWORD.finditer(self.mask, start, limit):
+            if self.depths[keyword.start()] != scope_depth:
                 continue
             require(
                 any(
@@ -654,68 +444,128 @@ def _production_source_and_children(
                 ),
                 "unsupported Rust module declaration",
             )
-        for inclusion in _INCLUDE_ITEM.finditer(mask, start, limit):
-            if depths[inclusion.start()] == scope_depth:
+        for inclusion in _INCLUDE_ITEM.finditer(self.mask, start, limit):
+            if self.depths[inclusion.start()] == scope_depth:
                 items.append((inclusion.start(), "include", inclusion))
+        return sorted(items, key=lambda value: value[0])
 
-        for _, kind, item in sorted(items, key=lambda value: value[0]):
-            attrs = _attributes_before(attributes, mask, item.start())
-            item_predicates = (
-                scope_predicates
-                if include_tests
-                else (
-                    *scope_predicates,
-                    *_cfg_predicates(comments_mask, mask, attrs),
-                )
+    def _item_predicates(
+        self,
+        scope_predicates: tuple[tuple, ...],
+        attrs: list[_RustAttribute],
+    ) -> tuple[tuple, ...]:
+        if self.include_tests:
+            return scope_predicates
+        return (*scope_predicates, *_cfg_predicates(self.comments_mask, self.mask, attrs))
+
+    def _visit_include(
+        self,
+        item: re.Match[str],
+        module_dir: Path,
+        item_predicates: tuple[tuple, ...],
+        production: bool,
+    ) -> None:
+        self.consumed_includes.add(item.start())
+        opener = item.end() - 1
+        closer = _balanced_span_from(self.mask, opener, "(", ")")
+        if production:
+            include_path, _ = _include_path(
+                self.path, self.mask, self.comments_mask, opener
             )
-            production = include_tests or _predicates_possible_without_test(
+            self.children.append(
+                _RustSourceInput(include_path, module_dir, item_predicates)
+            )
+        else:
+            self.excluded.append((item.start(), closer + 1))
+
+    def _visit_module(
+        self,
+        declaration: re.Match[str],
+        attrs: list[_RustAttribute],
+        module_dir: Path,
+        path_base: Path,
+        item_predicates: tuple[tuple, ...],
+        production: bool,
+    ) -> None:
+        self.consumed_modules.add(declaration.start())
+        name = declaration.group("name")
+        if declaration.group("term") == ";":
+            if production:
+                self.children.append(
+                    _resolve_module_child(
+                        self.path,
+                        module_dir,
+                        path_base,
+                        name,
+                        attrs,
+                        self.comments_mask,
+                        item_predicates,
+                    )
+                )
+            return
+        opener = declaration.start("term")
+        closer = _balanced_span_from(self.mask, opener, "{", "}")
+        if production:
+            child_module_dir = module_dir / name
+            self.visit_scope(
+                opener + 1,
+                closer,
+                child_module_dir,
+                child_module_dir,
+                item_predicates,
+            )
+        else:
+            self.excluded.append((declaration.start(), closer + 1))
+
+    def visit_scope(
+        self,
+        start: int,
+        limit: int,
+        module_dir: Path,
+        path_base: Path,
+        inherited_predicates: tuple[tuple, ...],
+    ) -> None:
+        scope_depth, scope_predicates, production = self._scope_context(
+            start, limit, inherited_predicates
+        )
+        if not production:
+            self.excluded.append((start, limit))
+            return
+        self._exclude_inactive_attributes(start, limit, scope_depth, scope_predicates)
+        for _, kind, item in self._scope_items(start, limit, scope_depth):
+            attrs = _attributes_before(self.attributes, self.mask, item.start())
+            item_predicates = self._item_predicates(scope_predicates, attrs)
+            production = self.include_tests or _predicates_possible_without_test(
                 item_predicates
             )
             if kind == "include":
-                consumed_includes.add(item.start())
-                opener = item.end() - 1
-                closer = _balanced_span_from(mask, opener, "(", ")")
-                if production:
-                    include_path, _ = _include_path(path, mask, comments_mask, opener)
-                    children.append(
-                        _RustSourceInput(include_path, module_dir, item_predicates)
-                    )
-                else:
-                    excluded.append((item.start(), closer + 1))
-                continue
-
-            declaration = item
-            consumed_modules.add(declaration.start())
-            name = declaration.group("name")
-            if declaration.group("term") == ";":
-                if production:
-                    children.append(
-                        _resolve_module_child(
-                            path,
-                            module_dir,
-                            path_base,
-                            name,
-                            attrs,
-                            comments_mask,
-                            item_predicates,
-                        )
-                    )
-                continue
-            opener = declaration.start("term")
-            closer = _balanced_span_from(mask, opener, "{", "}")
-            if production:
-                child_module_dir = module_dir / name
-                visit_scope(
-                    opener + 1,
-                    closer,
-                    child_module_dir,
-                    child_module_dir,
-                    item_predicates,
-                )
+                self._visit_include(item, module_dir, item_predicates, production)
             else:
-                excluded.append((declaration.start(), closer + 1))
+                self._visit_module(
+                    item,
+                    attrs,
+                    module_dir,
+                    path_base,
+                    item_predicates,
+                    production,
+                )
 
-    visit_scope(
+
+def _production_source_and_children(
+    source_input: _RustSourceInput, source: str, include_tests: bool
+) -> tuple[str, list[_RustSourceInput]]:
+    path = source_input.path
+    mask = _rust_code_mask(source)
+    comments_mask = _rust_comments_mask(source)
+    walker = _ProductionScopeWalker(
+        path,
+        mask,
+        comments_mask,
+        _delimiter_depths(mask),
+        _rust_attributes(mask),
+        include_tests,
+    )
+    walker.visit_scope(
         0,
         len(source),
         source_input.module_dir,
@@ -723,7 +573,7 @@ def _production_source_and_children(
         source_input.predicates,
     )
     sanitized = list(source)
-    for start, end in excluded:
+    for start, end in walker.excluded:
         for position in range(start, end):
             if sanitized[position] != "\n":
                 sanitized[position] = " "
@@ -739,14 +589,14 @@ def _production_source_and_children(
     active_modules = list(_MODULE_ITEM.finditer(active_mask))
     for declaration in active_modules:
         require(
-            declaration.start() in consumed_modules,
+            declaration.start() in walker.consumed_modules,
             "compiler-active Rust module declaration was not consumed by the "
             f"module-tree traversal: {path}",
         )
     for keyword in _MODULE_KEYWORD.finditer(active_mask):
         require(
             any(
-                declaration.start() in consumed_modules
+                declaration.start() in walker.consumed_modules
                 and declaration.start() <= keyword.start() < declaration.end()
                 for declaration in active_modules
             ),
@@ -755,11 +605,11 @@ def _production_source_and_children(
         )
     for inclusion in _INCLUDE_ITEM.finditer(active_mask):
         require(
-            inclusion.start() in consumed_includes,
+            inclusion.start() in walker.consumed_includes,
             "compiler-active Rust include was not consumed by the module-tree "
             f"traversal: {path}",
         )
-    return sanitized_source, children
+    return sanitized_source, walker.children
 
 
 def _visit_module_tree(

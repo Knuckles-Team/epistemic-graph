@@ -435,6 +435,7 @@ pub struct LoadReport {
 /// bool. Arrays, objects without `value`, and null yield `None`. The SPARQL read path
 /// and the SPARQL Update write path must agree on this exactly, so it lives with the
 /// cell shape rather than once per consumer.
+#[cfg(feature = "sparql")]
 pub(crate) fn cell_lexical(cell: &serde_json::Value) -> Option<String> {
     match cell {
         serde_json::Value::Object(m) => m.get("value").and_then(|v| v.as_str()).map(String::from),

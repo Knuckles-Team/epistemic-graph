@@ -95,10 +95,28 @@ wrapping either native domain in a second, non-atomic graph-snapshot commit.
   the same database that owns the table rows.
 - Durable methods fail closed when an authoritative backend is unavailable.
 
-The product opens only the v1 mutation-store tables. Unversioned prototype table
-names and the exact `*_v3` candidate table family are detected and quarantined
-before initialization or serving. They are never translated, interpreted as v1,
-or exposed through a current reader.
+The product wire remains `MutationBatch` v1 while the physical storage-kernel
+schema is format v2. The live table set uses bare physical identity names and
+ledger names, with no `_v1` suffix:
+
+`mutation_store_root`, `mutation_scope_bindings`, `mutation_owner_manifest`,
+`ledger_batches`, `ledger_maintenance`, `ledger_versions`, `ledger_fences`,
+`ledger_outbox`, `mutation_outbox_topic_index`, `ledger_private_payloads`,
+`mutation_outbox_consumers`, `mutation_outbox_deliveries`,
+`mutation_outbox_cursors`, `mutation_outbox_claim_cursors`,
+`mutation_outbox_fairness`, `mutation_replay_nonces`,
+`mutation_replay_operations`, and `mutation_classes`.
+
+The live table to retired candidate mapping is explicit: `mutation_store_root`
+maps to `mutation_store_root_v3`, `mutation_scope_bindings` to
+`mutation_scope_bindings_v3`, `ledger_batches` to `mutation_batches_v3`, the
+ledger idempotency/replay concept to `mutation_idempotency_v3`,
+`ledger_versions` to `mutation_versions_v3`, `ledger_fences` to
+`mutation_fences_v3`, `ledger_outbox` to `mutation_outbox_v3`, and
+`ledger_private_payloads` to `mutation_private_payloads_v3`. Unversioned
+prototype table names and this exact `*_v3` candidate table family are detected
+and quarantined before initialization or serving. They are never translated,
+interpreted as the live schema, or exposed through a current reader.
 
 The staged image limit is automatically sized from effective cgroup-aware RAM
 (bounded between 1 byte and 2 GiB). `EPISTEMIC_GRAPH_MUTATION_SNAPSHOT_MAX_BYTES`
@@ -169,7 +187,7 @@ identity and version contracts, strict watermarks, canonical wire names, and the
 closed Python MutationBatch serializer without opening a database. The companion
 `tests/test_mutation_batch_documentation_contract.py` gate requires this document,
 the Rust contract, and the store to agree on product v1, the typed identity/version
-shape, the v1 table family, and the v3 quarantine inventory. The persistence gate
+shape, the schema-v2 storage-kernel table set, and the v3 quarantine inventory. The persistence gate
 also parses the domain-owned canonical method-policy registry and iterator derived
 directly from the eleven current domain `ROWS` declarations, the real durable
 classifier and applier, the WorkItem and native-command owners, the gateway/native

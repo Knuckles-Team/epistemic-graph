@@ -64,6 +64,13 @@ use crate::server::ServerState;
 /// binds this address (documented loopback default `127.0.0.1:6379`, the Redis
 /// default port). Unset ⇒ no listener.
 pub const REDIS_ADDR_ENV: &str = "EPISTEMIC_GRAPH_REDIS_ADDR";
+/// Physical authority identity for the Redis adapter's private KV file.
+///
+/// Redis and the main namespaced KV surface both use `OwnerLayout::Kv`, but
+/// their files are separate authorities.  A distinct manifest name makes a
+/// copied or misrouted file fail closed at open instead of being adopted as a
+/// different service.
+pub(crate) const REDIS_KV_PHYSICAL_STORE: &str = "epistemic-graph:redis-kv";
 
 /// Derive the Redis credential for a principal from the deployment auth secret.
 /// Clients authenticate with `AUTH <principal> <credential>`; the principal is
@@ -107,7 +114,50 @@ enum RedisData {
     ZSet(Vec<(Vec<u8>, f64)>),
 }
 
+/// Which subscription table a pub/sub registration touches. Both are
+/// accounted against the SAME link and key-byte budgets, which is why one
+/// registrar owns them.
+#[derive(Clone, Copy)]
+enum SubscriptionKind {
+    /// `SUBSCRIBE`: an exact channel name.
+    Channel,
+    /// `PSUBSCRIBE`: a glob pattern matched against published channels.
+    Pattern,
+}
+
 impl RedisData {
+    /// The list payload, or `None` when this key holds another type.
+    fn into_list(self) -> Option<Vec<Vec<u8>>> {
+        match self {
+            Self::List(list) => Some(list),
+            _ => None,
+        }
+    }
+
+    /// The hash payload, or `None` when this key holds another type.
+    fn into_hash(self) -> Option<BytePairs> {
+        match self {
+            Self::Hash(hash) => Some(hash),
+            _ => None,
+        }
+    }
+
+    /// The set payload, or `None` when this key holds another type.
+    fn into_set(self) -> Option<Vec<Vec<u8>>> {
+        match self {
+            Self::Set(set) => Some(set),
+            _ => None,
+        }
+    }
+
+    /// The sorted-set payload, or `None` when this key holds another type.
+    fn into_zset(self) -> Option<Vec<(Vec<u8>, f64)>> {
+        match self {
+            Self::ZSet(zset) => Some(zset),
+            _ => None,
+        }
+    }
+
     /// The Redis `TYPE` name for this value.
     fn type_name(&self) -> &'static str {
         match self {
@@ -135,6 +185,15 @@ impl Entry {
 
 /// A set of `(field, value)` byte pairs (hash entries / bulk arg pairs).
 type BytePairs = Vec<(Vec<u8>, Vec<u8>)>;
+
+/// The value paired with `wanted` in a `(name, value)` collection — the lookup
+/// a hash field and a sorted-set member score are the same operation over.
+fn paired_value<V>(pairs: Vec<(Vec<u8>, V)>, wanted: &[u8]) -> Option<V> {
+    pairs
+        .into_iter()
+        .find(|(name, _)| name == wanted)
+        .map(|(_, value)| value)
+}
 /// The result of parsing one command out of the read buffer: `Ok(None)` ⇒
 /// incomplete (read more), `Ok(Some((args, consumed)))` ⇒ a complete command.
 type CommandParse = Result<Option<(Vec<Vec<u8>>, usize)>, String>;
@@ -208,7 +267,7 @@ impl RedisStore {
     /// `None` ⇒ in-memory scratch (CONCEPT:EG-KG.ontology.resp2-resp3-codec-round).
     fn open(persist_dir: Option<&str>) -> Result<Self, String> {
         let sub = persist_dir.map(|d| format!("{d}/redis-kv"));
-        let kv = KvStore::open(sub.as_deref())?;
+        let kv = KvStore::open_named(sub.as_deref(), REDIS_KV_PHYSICAL_STORE)?;
         Ok(Self {
             kv: Arc::new(kv),
             lock: Arc::new(Mutex::new(())),
@@ -448,28 +507,30 @@ impl RedisStore {
         Ok(added)
     }
 
-    fn hget(&self, key: &str, field: &[u8]) -> Result<Option<Vec<u8>>, String> {
+    /// Read one key expecting a particular value type. A key holding another
+    /// type is `WRONGTYPE`; a missing key is `None`. Every typed reader below
+    /// goes through here, so the type check and the `WRONGTYPE` wording are
+    /// stated once.
+    fn read_as<T>(
+        &self,
+        key: &str,
+        of_type: impl FnOnce(RedisData) -> Option<T>,
+    ) -> Result<Option<T>, String> {
         let _g = self.lock.lock();
         match self.load(key)? {
-            Some(Entry {
-                data: RedisData::Hash(h),
-                ..
-            }) => Ok(h.into_iter().find(|(f, _)| f == field).map(|(_, v)| v)),
-            Some(_) => Err(WRONGTYPE.into()),
+            Some(Entry { data, .. }) => of_type(data).map(Some).ok_or_else(|| WRONGTYPE.into()),
             None => Ok(None),
         }
     }
 
+    fn hget(&self, key: &str, field: &[u8]) -> Result<Option<Vec<u8>>, String> {
+        Ok(self
+            .read_as(key, RedisData::into_hash)?
+            .and_then(|hash| paired_value(hash, field)))
+    }
+
     fn hgetall(&self, key: &str) -> Result<BytePairs, String> {
-        let _g = self.lock.lock();
-        match self.load(key)? {
-            Some(Entry {
-                data: RedisData::Hash(h),
-                ..
-            }) => Ok(h),
-            Some(_) => Err(WRONGTYPE.into()),
-            None => Ok(Vec::new()),
-        }
+        Ok(self.read_as(key, RedisData::into_hash)?.unwrap_or_default())
     }
 
     fn hdel(&self, key: &str, fields: &[Vec<u8>]) -> Result<i64, String> {
@@ -541,15 +602,7 @@ impl RedisStore {
     }
 
     fn lrange(&self, key: &str, start: i64, stop: i64) -> Result<Vec<Vec<u8>>, String> {
-        let _g = self.lock.lock();
-        let list = match self.load(key)? {
-            Some(Entry {
-                data: RedisData::List(l),
-                ..
-            }) => l,
-            Some(_) => return Err(WRONGTYPE.into()),
-            None => return Ok(Vec::new()),
-        };
+        let list = self.read_as(key, RedisData::into_list)?.unwrap_or_default();
         Ok(range_slice(&list, start, stop).to_vec())
     }
 
@@ -597,15 +650,7 @@ impl RedisStore {
     }
 
     fn smembers(&self, key: &str) -> Result<Vec<Vec<u8>>, String> {
-        let _g = self.lock.lock();
-        match self.load(key)? {
-            Some(Entry {
-                data: RedisData::Set(s),
-                ..
-            }) => Ok(s),
-            Some(_) => Err(WRONGTYPE.into()),
-            None => Ok(Vec::new()),
-        }
+        Ok(self.read_as(key, RedisData::into_set)?.unwrap_or_default())
     }
 
     fn srem(&self, key: &str, members: &[Vec<u8>]) -> Result<i64, String> {
@@ -683,28 +728,14 @@ impl RedisStore {
 
     /// `ZRANGE key start stop` → members in rank order (already sorted on store).
     fn zrange(&self, key: &str, start: i64, stop: i64) -> Result<Vec<(Vec<u8>, f64)>, String> {
-        let _g = self.lock.lock();
-        let z = match self.load(key)? {
-            Some(Entry {
-                data: RedisData::ZSet(z),
-                ..
-            }) => z,
-            Some(_) => return Err(WRONGTYPE.into()),
-            None => return Ok(Vec::new()),
-        };
-        Ok(range_slice(&z, start, stop).to_vec())
+        let zset = self.read_as(key, RedisData::into_zset)?.unwrap_or_default();
+        Ok(range_slice(&zset, start, stop).to_vec())
     }
 
     fn zscore(&self, key: &str, member: &[u8]) -> Result<Option<f64>, String> {
-        let _g = self.lock.lock();
-        match self.load(key)? {
-            Some(Entry {
-                data: RedisData::ZSet(z),
-                ..
-            }) => Ok(z.into_iter().find(|(m, _)| m == member).map(|(_, s)| s)),
-            Some(_) => Err(WRONGTYPE.into()),
-            None => Ok(None),
-        }
+        Ok(self
+            .read_as(key, RedisData::into_zset)?
+            .and_then(|zset| paired_value(zset, member)))
     }
 }
 
@@ -819,6 +850,17 @@ struct PubSubInner {
     patterns: HashMap<String, HashSet<u64>>,
 }
 
+impl PubSubInner {
+    /// The subscription table `kind` names. One accessor, so the link and
+    /// key-byte accounting around it never has to branch on the kind twice.
+    fn table(&mut self, kind: SubscriptionKind) -> &mut HashMap<String, HashSet<u64>> {
+        match kind {
+            SubscriptionKind::Channel => &mut self.channels,
+            SubscriptionKind::Pattern => &mut self.patterns,
+        }
+    }
+}
+
 /// The per-listener publish/subscribe registry (CONCEPT:EG-KG.txn.pubsub-transactions). Shared (via `Arc`)
 /// across every connection the listener accepts; each connection registers an
 /// bounded mpsc mailbox on connect and drops it on disconnect. `PUBLISH` fans a
@@ -832,6 +874,53 @@ struct PubSub {
 }
 
 impl PubSub {
+    /// Register `id` under one scoped subscription key. `false` means the
+    /// registration was refused: an unknown connection, or the shared link /
+    /// key-byte budget is exhausted. `SUBSCRIBE` and `PSUBSCRIBE` differ only
+    /// in which table the key lands in, so both are this one rule.
+    fn add_subscription(&self, kind: SubscriptionKind, id: u64, scope: &str, key: &str) -> bool {
+        let mut g = self.inner.lock();
+        if !g.conns.contains_key(&id) {
+            return false;
+        }
+        let key = scoped_pubsub_key(scope, key);
+        let new_key = !g.table(kind).contains_key(&key);
+        let next_key_bytes = g.subscription_key_bytes.checked_add(key.len());
+        if g.subscription_links >= MAX_REDIS_PUBSUB_LINKS
+            || (new_key && next_key_bytes.is_none_or(|bytes| bytes > MAX_REDIS_PUBSUB_KEY_BYTES))
+        {
+            return false;
+        }
+        if g.table(kind).entry(key).or_default().insert(id) {
+            g.subscription_links += 1;
+            if new_key {
+                g.subscription_key_bytes = next_key_bytes.unwrap_or(g.subscription_key_bytes);
+            }
+        }
+        true
+    }
+
+    /// Drop `id` from one scoped subscription key, releasing its link and — once
+    /// the key has no subscribers left — the key's own byte budget.
+    fn remove_subscription(&self, kind: SubscriptionKind, id: u64, scope: &str, key: &str) {
+        let mut g = self.inner.lock();
+        let key = scoped_pubsub_key(scope, key);
+        let (removed, empty) = match g.table(kind).get_mut(&key) {
+            Some(ids) => {
+                let removed = ids.remove(&id);
+                (removed, ids.is_empty())
+            }
+            None => (false, false),
+        };
+        if removed {
+            g.subscription_links = g.subscription_links.saturating_sub(1);
+        }
+        if empty {
+            g.table(kind).remove(&key);
+            g.subscription_key_bytes = g.subscription_key_bytes.saturating_sub(key.len());
+        }
+    }
+
     /// Register a fresh connection mailbox, returning its unique connection id.
     fn register(&self, tx: mpsc::Sender<PubMessage>) -> Option<u64> {
         let mut g = self.inner.lock();
@@ -875,92 +964,6 @@ impl PubSub {
         g.subscription_key_bytes = g.subscription_key_bytes.saturating_sub(removed_key_bytes);
     }
 
-    fn subscribe(&self, id: u64, scope: &str, channel: &str) -> bool {
-        let mut g = self.inner.lock();
-        if !g.conns.contains_key(&id) {
-            return false;
-        }
-        let channel = scoped_pubsub_key(scope, channel);
-        let new_key = !g.channels.contains_key(&channel);
-        let next_key_bytes = g.subscription_key_bytes.checked_add(channel.len());
-        if g.subscription_links >= MAX_REDIS_PUBSUB_LINKS
-            || (new_key && next_key_bytes.is_none_or(|bytes| bytes > MAX_REDIS_PUBSUB_KEY_BYTES))
-        {
-            return false;
-        }
-        if g.channels.entry(channel).or_default().insert(id) {
-            g.subscription_links += 1;
-            if new_key {
-                g.subscription_key_bytes = next_key_bytes.unwrap_or(g.subscription_key_bytes);
-            }
-        }
-        true
-    }
-
-    fn unsubscribe(&self, id: u64, scope: &str, channel: &str) {
-        let mut g = self.inner.lock();
-        let channel = scoped_pubsub_key(scope, channel);
-        let (removed, empty) = match g.channels.get_mut(&channel) {
-            Some(ids) => {
-                let removed = ids.remove(&id);
-                (removed, ids.is_empty())
-            }
-            None => (false, false),
-        };
-        if removed {
-            g.subscription_links = g.subscription_links.saturating_sub(1);
-        }
-        if empty {
-            g.channels.remove(&channel);
-            g.subscription_key_bytes = g.subscription_key_bytes.saturating_sub(channel.len());
-        }
-    }
-
-    fn psubscribe(&self, id: u64, scope: &str, pattern: &str) -> bool {
-        let mut g = self.inner.lock();
-        if !g.conns.contains_key(&id) {
-            return false;
-        }
-        let pattern = scoped_pubsub_key(scope, pattern);
-        let new_key = !g.patterns.contains_key(&pattern);
-        let next_key_bytes = g.subscription_key_bytes.checked_add(pattern.len());
-        if g.subscription_links >= MAX_REDIS_PUBSUB_LINKS
-            || (new_key && next_key_bytes.is_none_or(|bytes| bytes > MAX_REDIS_PUBSUB_KEY_BYTES))
-        {
-            return false;
-        }
-        if g.patterns.entry(pattern).or_default().insert(id) {
-            g.subscription_links += 1;
-            if new_key {
-                g.subscription_key_bytes = next_key_bytes.unwrap_or(g.subscription_key_bytes);
-            }
-        }
-        true
-    }
-
-    fn punsubscribe(&self, id: u64, scope: &str, pattern: &str) {
-        let mut g = self.inner.lock();
-        let pattern = scoped_pubsub_key(scope, pattern);
-        let (removed, empty) = match g.patterns.get_mut(&pattern) {
-            Some(ids) => {
-                let removed = ids.remove(&id);
-                (removed, ids.is_empty())
-            }
-            None => (false, false),
-        };
-        if removed {
-            g.subscription_links = g.subscription_links.saturating_sub(1);
-        }
-        if empty {
-            g.patterns.remove(&pattern);
-            g.subscription_key_bytes = g.subscription_key_bytes.saturating_sub(pattern.len());
-        }
-    }
-
-    /// Fan `payload` out to every exact subscriber of `channel` and every pattern
-    /// subscriber whose glob matches it. Returns the number of deliveries (the
-    /// integer `PUBLISH` replies with). A dropped receiver (a connection that has
-    /// gone away but not yet unregistered) simply isn't counted.
     fn publish(&self, scope: &str, channel: &str, payload: &[u8]) -> i64 {
         let g = self.inner.lock();
         // Share one immutable payload allocation across every bounded subscriber
@@ -2184,10 +2187,10 @@ fn reset_connection(pubsub: &PubSub, conn: &mut ConnState) -> Vec<Resp> {
         return vec![Resp::Error("NOAUTH Authentication required.".into())];
     };
     for c in conn.sub_channels.drain().collect::<Vec<_>>() {
-        pubsub.unsubscribe(conn.id, &scope, &c);
+        pubsub.remove_subscription(SubscriptionKind::Channel, conn.id, &scope, &c);
     }
     for p in conn.sub_patterns.drain().collect::<Vec<_>>() {
-        pubsub.punsubscribe(conn.id, &scope, &p);
+        pubsub.remove_subscription(SubscriptionKind::Pattern, conn.id, &scope, &p);
     }
     conn.in_multi = false;
     conn.queued.clear();
@@ -2282,14 +2285,14 @@ fn subscribe_one(
     }
     if pattern {
         if !already_subscribed {
-            if !pubsub.psubscribe(conn.id, scope, &name) {
+            if !pubsub.add_subscription(SubscriptionKind::Pattern, conn.id, scope, &name) {
                 return Resp::Error("ERR global subscription resource limit exceeded".into());
             }
             conn.sub_patterns.insert(name.clone());
             conn.sub_bytes = next_sub_bytes.unwrap_or(conn.sub_bytes);
         }
     } else if !already_subscribed {
-        if !pubsub.subscribe(conn.id, scope, &name) {
+        if !pubsub.add_subscription(SubscriptionKind::Channel, conn.id, scope, &name) {
             return Resp::Error("ERR global subscription resource limit exceeded".into());
         }
         conn.sub_channels.insert(name.clone());
@@ -2374,11 +2377,11 @@ fn unsubscribe_one(
 ) -> Resp {
     let removed = if pattern {
         let removed = conn.sub_patterns.remove(&name);
-        pubsub.punsubscribe(conn.id, scope, &name);
+        pubsub.remove_subscription(SubscriptionKind::Pattern, conn.id, scope, &name);
         removed
     } else {
         let removed = conn.sub_channels.remove(&name);
-        pubsub.unsubscribe(conn.id, scope, &name);
+        pubsub.remove_subscription(SubscriptionKind::Channel, conn.id, scope, &name);
         removed
     };
     if removed {
@@ -2997,6 +3000,36 @@ mod tests {
             ),
             Resp::Error(_)
         ));
+    }
+
+    #[test]
+    fn durable_set_reopens_and_main_kv_cannot_adopt_redis_index() {
+        let dir = std::env::temp_dir().join(format!(
+            "eg-redis-durable-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let dir_string = dir.to_string_lossy().into_owned();
+        {
+            let store = RedisStore::open(Some(&dir_string)).unwrap().scoped("actor");
+            assert!(store
+                .set("key", b"value".to_vec(), None, false, false)
+                .unwrap());
+        }
+        {
+            let store = RedisStore::open(Some(&dir_string)).unwrap().scoped("actor");
+            assert_eq!(store.get("key").unwrap().as_deref(), Some(&b"value"[..]));
+        }
+
+        // The Redis file carries its own physical manifest identity.  Opening
+        // that path through the public/main KV identity is an adoption attempt
+        // and must fail before a logical Redis namespace is bound.
+        let redis_dir = format!("{dir_string}/redis-kv");
+        assert!(
+            KvStore::open(Some(&redis_dir)).is_err(),
+            "main KV must refuse a Redis-owned file"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

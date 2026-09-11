@@ -29,6 +29,12 @@ use crate::mutation_batch::{
 use crate::protocol::Method;
 use crate::server::ServerState;
 use eg_types::native_control::CapacityStatusResult;
+// The sweep-scoped claim budget carrying DESIGN.md's per-tenant weighted round
+// robin between graphs. It is a kernel type, so the claim it parameterises is
+// gated on `redb` exactly like the two WorkItem-capability methods below: the
+// durable outbox ledger only exists in that build.
+#[cfg(feature = "redb")]
+use eg_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
 
 pub mod read_through;
 
@@ -37,6 +43,11 @@ pub mod read_through;
 // Consumed by `backup` so a bundle is self-describing about what a restore restores.
 #[cfg(feature = "redb")]
 pub mod durable_stores;
+
+#[cfg(feature = "redb")]
+pub mod agent_component;
+pub mod agent_graph;
+pub mod agent_library;
 
 #[cfg(feature = "redb")]
 pub mod redb_backend;
@@ -322,37 +333,85 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(Vec::new())
     }
 
-    /// Atomically lease pending outbox rows for one projection consumer. The
-    /// default fails closed because a read-then-mark implementation can duplicate
-    /// or lose projection work under concurrency.
+    /// Durably subscribe this projection consumer to one outbox topic on
+    /// `graph_fname`'s scope.
+    ///
+    /// A subscription is a real precondition, not a formality: it is what bounds
+    /// the ordered stream the consumer's cursor names, so the kernel refuses a
+    /// claim by a consumer that has none. It is idempotent for the same topic and
+    /// refused for a different one, because changing it would move every position
+    /// the existing watermark already names. The default fails closed; only a
+    /// backend with the durable ledger can hold a subscription.
+    #[cfg(feature = "redb")]
+    async fn subscribe_mutation_outbox(
+        &self,
+        _graph_fname: &str,
+        _consumer: &str,
+        _topic: &str,
+    ) -> Result<(), String> {
+        Err("persistence backend does not support durable outbox subscriptions".to_string())
+    }
+
+    /// Atomically lease pending outbox rows of `graph_fname`'s scope for one
+    /// durable consumer. The default fails closed because a read-then-mark
+    /// implementation can duplicate or lose projection work under concurrency.
+    ///
+    /// `budget` is the caller's, and it is deliberately a `&mut` rather than a
+    /// `(now, lease, limit)` triple: a claim is bound to exactly ONE scope by
+    /// construction, so DESIGN.md's per-tenant weighted round robin and its 25%
+    /// consecutive-claim cap can only live in the value a sweep carries from
+    /// graph to graph. A budget rebuilt inside the call would cap nothing.
+    ///
+    /// A full in-flight queue or a spent allowance claims nothing, writes no
+    /// cursor and leaves every durable intention pending — the bounded queue's
+    /// backpressure, never a drop.
+    #[cfg(feature = "redb")]
     async fn claim_mutation_outbox(
         &self,
         _graph_fname: &str,
         _consumer: &str,
-        _now_ms: u64,
-        _lease_ms: u64,
-        _limit: usize,
-    ) -> Result<Vec<MutationOutboxLease>, String> {
+        _budget: &mut OutboxClaimBudget,
+    ) -> Result<OutboxClaimOutcome, String> {
         Err("persistence backend does not support durable outbox claims".to_string())
     }
 
-    /// Acknowledge an exact lease and advance the named projection cursor in one
-    /// durable transaction. A stale/expired lease must fail without advancing.
+    /// Acknowledge an exact lease and return the watermark it advanced to.
+    ///
+    /// The acknowledgement IS the cursor advance: the delivery row and the
+    /// `(scope, consumer)` cursor row are written in ONE transaction, so the
+    /// retired two-step's crash window — acknowledged but not advanced, or
+    /// advanced but not acknowledged — is not representable, and there is no
+    /// second call and nothing to re-read afterwards. A superseded, expired or
+    /// released lease fails `STALE_OUTBOX_LEASE` without advancing; an
+    /// acknowledgement that would skip an undelivered predecessor fails
+    /// `OUTBOX_ORDER_GAP`.
+    ///
+    /// There is no `projection` parameter. The lease carries the consumer it was
+    /// issued to, and under one scope key the consumer and the projection are the
+    /// same name — the retired ledger kept both only because its cursor key was
+    /// `(projection, tenant, graph)` while its lease key was
+    /// `(batch, ordinal, consumer)`.
     async fn ack_mutation_outbox(
         &self,
         _graph_fname: &str,
         _lease: &MutationOutboxLease,
-        _projection: &str,
         _now_ms: u64,
     ) -> Result<MutationProjectionCursor, String> {
         Err("persistence backend does not support durable outbox acknowledgements".to_string())
     }
 
+    /// One consumer's durable projection watermark on `graph_fname`'s scope, or
+    /// `None` when it has never acknowledged a row.
+    ///
+    /// The cursor key is `(scope, consumer)`. There is no `tenant` parameter:
+    /// a graph's ledger scope is `(GRAPH_SHARD_TENANT, graph)`, so the calling
+    /// tenant is not part of the key and passing one could only be ignored or
+    /// wrong. There is no separate `projection` name either, for the reason
+    /// [`Self::ack_mutation_outbox`] gives.
     async fn read_mutation_projection_cursor(
         &self,
         _graph_fname: &str,
-        _projection: &str,
-        _tenant: &str,
+        _consumer: &str,
     ) -> Result<Option<MutationProjectionCursor>, String> {
         Ok(None)
     }

@@ -117,7 +117,7 @@ pub fn sabr_calibrate(f: f64, t: f64, strikes: &[f64], market_vols: &[f64], beta
     // Nelder-Mead over (alpha, rho, nu).
     let obj = |p: [f64; 3]| rmse(p[0], p[1], p[2]);
     let x0 = [alpha0, 0.0, 0.5];
-    let (best, fbest, converged) = nelder_mead_3(&obj, x0, 400, 1e-10);
+    let (best, fbest, converged) = super::quant::nelder_mead_3(&obj, x0, 400, 1e-10, 0.05);
     SabrFit {
         alpha: best[0].max(1e-9),
         beta,
@@ -126,89 +126,6 @@ pub fn sabr_calibrate(f: f64, t: f64, strikes: &[f64], market_vols: &[f64], beta
         rmse: fbest,
         converged,
     }
-}
-
-/// Nelder-Mead simplex minimiser for a 3-parameter objective (local copy so this
-/// module is self-contained; mirrors the one used for Hawkes MLE).
-fn nelder_mead_3(
-    f: &dyn Fn([f64; 3]) -> f64,
-    x0: [f64; 3],
-    max_iter: usize,
-    tol: f64,
-) -> ([f64; 3], f64, bool) {
-    let (a, g, r, s) = (1.0, 2.0, 0.5, 0.5);
-    let mut simplex = [x0; 4];
-    for i in 0..3 {
-        let mut p = x0;
-        p[i] = if p[i].abs() > 1e-9 { p[i] * 1.05 } else { 0.05 };
-        simplex[i + 1] = p;
-    }
-    let mut fvals = [0.0; 4];
-    for i in 0..4 {
-        fvals[i] = f(simplex[i]);
-    }
-    let mut converged = false;
-    for _ in 0..max_iter {
-        let mut order = [0, 1, 2, 3];
-        order.sort_by(|&i, &j| fvals[i].partial_cmp(&fvals[j]).unwrap());
-        let best = order[0];
-        let worst = order[3];
-        let second_worst = order[2];
-        if (fvals[worst] - fvals[best]).abs() < tol {
-            converged = true;
-            break;
-        }
-        let mut cen = [0.0; 3];
-        for &i in order.iter().take(3) {
-            for d in 0..3 {
-                cen[d] += simplex[i][d] / 3.0;
-            }
-        }
-        let reflect = |coef: f64| {
-            let mut p = [0.0; 3];
-            for d in 0..3 {
-                p[d] = cen[d] + coef * (cen[d] - simplex[worst][d]);
-            }
-            p
-        };
-        let xr = reflect(a);
-        let fr = f(xr);
-        if fr < fvals[best] {
-            let xe = reflect(g);
-            let fe = f(xe);
-            if fe < fr {
-                simplex[worst] = xe;
-                fvals[worst] = fe;
-            } else {
-                simplex[worst] = xr;
-                fvals[worst] = fr;
-            }
-        } else if fr < fvals[second_worst] {
-            simplex[worst] = xr;
-            fvals[worst] = fr;
-        } else {
-            let xc = reflect(-r);
-            let fc = f(xc);
-            if fc < fvals[worst] {
-                simplex[worst] = xc;
-                fvals[worst] = fc;
-            } else {
-                for &i in order.iter().skip(1) {
-                    for d in 0..3 {
-                        simplex[i][d] = simplex[best][d] + s * (simplex[i][d] - simplex[best][d]);
-                    }
-                    fvals[i] = f(simplex[i]);
-                }
-            }
-        }
-    }
-    let mut bi = 0;
-    for i in 1..4 {
-        if fvals[i] < fvals[bi] {
-            bi = i;
-        }
-    }
-    (simplex[bi], fvals[bi], converged)
 }
 
 #[cfg(test)]

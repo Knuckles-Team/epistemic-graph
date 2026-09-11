@@ -1842,6 +1842,22 @@ wat = "1"
 # from an integration test (e.g. `tests/pgwire_roundtrip.rs` under `--features cluster`).
 parking_lot = "0.12"
 eg-wasm = { path = "crates/eg-wasm", features = ["wasm-udf"] }
+# `src/server/mutation_batch/tests.rs` calls `eg_query::TableStore::open_temp`,
+# which eg-query gates on `cfg(any(test, feature = "dev-scope-grant"))`.
+# `cfg(test)` does NOT cross a crate boundary -- it is set only while compiling
+# eg-query's OWN tests -- so a consumer needs the feature. No root feature
+# forwards it, which meant `cargo test -p epistemic-graph --all-features` could
+# not compile the root test suite at all: it built only under
+# `cargo test --workspace --all-features`, where the workspace-wide flag happens
+# to turn the feature on in eg-query directly. That is an invisible dependency
+# on how the suite is invoked, and it fails as a confusing "no associated
+# function `open_temp`" rather than as a missing feature.
+#
+# Declared as a DEV-dependency (same precedent as `eg-wasm` above) so the
+# feature is on for test/bench builds and stays off in the engine -- which is
+# what eg-query's gate is protecting: `open_temp` supplies its own dev scope
+# grant, and a production build must not be able to link one.
+eg-query = { path = "crates/eg-query", features = ["dev-scope-grant"] }
 # Criterion harness for the write-coalescer contention bench (CONCEPT:EG-012)
 # and the massive-scale core harness (CONCEPT:EG-096). DEV-only — never linked
 # into the engine binary; zero release-build impact.

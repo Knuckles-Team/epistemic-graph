@@ -1,9 +1,9 @@
 use crate::codec::{decode_ledger_record, encode_bounded};
 use crate::kernel::create_physical;
+use crate::owner::registry::copy_declared_owner_tables;
 use crate::physical::binding::ScopeBinding;
 use crate::physical::incarnation::StoreIncarnation;
 use crate::physical::root::PhysicalStore;
-use crate::owner::registry::copy_declared_owner_tables;
 use crate::recovery::evidence::{copy_table, HashSnapshot};
 use crate::recovery::validate::{validate_live_recovery_store, RecoveryStoreCounts};
 use crate::tables::{visit_ledger_content_tables, visit_ledger_tables, SCOPE_BINDINGS};

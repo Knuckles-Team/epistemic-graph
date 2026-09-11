@@ -586,15 +586,6 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "redb")]
     let persistence: Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>> =
         args.persist_dir.as_ref().map(|dir| {
-            let policy = epistemic_graph::durability::DurabilityPolicy::from_env(
-                std::env::var("EPISTEMIC_GRAPH_REDB_COMMIT_POLICY")
-                    .ok()
-                    .as_deref(),
-            )
-            .unwrap_or_else(|error| {
-                eprintln!("error: {error}");
-                std::process::exit(2);
-            });
             let automatic_writer_queue = host_capacity.writer_queue();
             let capacity = std::env::var("EPISTEMIC_GRAPH_REDB_WRITER_QUEUE")
                 .ok()
@@ -604,13 +595,9 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
                     epistemic_graph::autosize::bound_explicit(value, automatic_writer_queue)
                 })
                 .unwrap_or(automatic_writer_queue);
-            info!(
-                "Persistence: authoritative redb (fsync {:?}, queue {})",
-                policy, capacity
-            );
+            info!("Persistence: authoritative redb (queue {})", capacity);
             let backend = epistemic_graph::server::persistence::redb_backend::RedbBackend::open(
                 dir.clone(),
-                policy,
                 capacity,
             )
             .unwrap_or_else(|error| {
@@ -1243,8 +1230,14 @@ async fn spawn_obs_listener(
             .and_then(|v| v.parse().ok())
             .filter(|&n| n > 0)
             .unwrap_or(DEFAULT_FLUSH_RECORDS);
-        let persist_dir = state.read().await.persist_dir.clone();
-        match ObsState::open(persist_dir.as_deref(), flush).await {
+        let (persist_dir, selected_blob) = {
+            let server = state.read().await;
+            (
+                server.persist_dir.clone(),
+                server.blob.as_ref().map(|cursors| cursors.store.clone()),
+            )
+        };
+        match ObsState::open_with_blob_store(persist_dir.as_deref(), flush, selected_blob).await {
             Ok(obs_state) => {
                 let listener = tokio::net::TcpListener::bind(obs_addr).await?;
                 info!(
@@ -1865,9 +1858,20 @@ async fn spawn_s3_listener(
         "127.0.0.1:9000",
     ) {
         let s3_state = state.clone();
+        let selected_blob = {
+            state
+                .read()
+                .await
+                .blob
+                .as_ref()
+                .map(|cursors| cursors.store.clone())
+        };
         info!("s3-api: serving S3-compatible REST surface on {}", addr);
         tokio::spawn(async move {
-            if let Err(e) = epistemic_graph::server::s3::serve(&addr, s3_state).await {
+            if let Err(e) =
+                epistemic_graph::server::s3::serve_with_blob_store(&addr, s3_state, selected_blob)
+                    .await
+            {
                 tracing::error!("s3-api server error: {}", e);
             }
         });
@@ -2472,8 +2476,10 @@ async fn spawn_memory_and_lifecycle_sweeps(
 }
 
 async fn start_raft_and_matview_reload(
-    state: &Arc<tokio::sync::RwLock<ServerState>>,
+    _state: &Arc<tokio::sync::RwLock<ServerState>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(any(feature = "raft", feature = "compute-dist", feature = "matview"))]
+    let state = _state;
     // ── In-engine Raft replication (CONCEPT:AU-KG.ingest.source-sync-canonical) — cluster tier ──────
     // Only when built `--features raft` AND configured (EPISTEMIC_GRAPH_RAFT_NODE_ID
     // + EPISTEMIC_GRAPH_RAFT_PEERS). When the feature is off, OR on but unconfigured,

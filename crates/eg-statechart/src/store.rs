@@ -66,13 +66,13 @@ use eg_storage::{
 };
 use eg_transaction::{Begin, MutationKernel};
 use eg_types::mutation_batch::{
-    DurabilityDomain, MutationBatch, MutationBatchRecord, MutationOperation, MutationOutboxIntent,
-    MutationRequestContext, MutationScopeIdentity, MutationSurface, VersionExpectation,
+    DurabilityDomain, MutationBatch, MutationBatchRecord, MutationEnvelope, MutationOperation,
+    MutationOutboxIntent, MutationScopeIdentity, MutationSurface, VersionExpectation,
     MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
 use redb::{ReadableTable, TableDefinition};
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Serialize};
 
 mod batches;
 
@@ -179,11 +179,7 @@ fn valid_identifier(value: &str) -> bool {
 }
 
 fn encode_def(def: &StatechartDef) -> Result<Vec<u8>> {
-    let bytes = rmp_serde::to_vec_named(def).map_err(codec_err)?;
-    if bytes.len() > MAX_STORED_BYTES {
-        return Err(codec_err("statechart definition exceeds storage limits"));
-    }
-    Ok(bytes)
+    encode_bounded(def, "statechart definition exceeds storage limits")
 }
 
 fn encode_instance(instance: &MachineInstance) -> Result<Vec<u8>> {
@@ -201,11 +197,37 @@ fn encode_instance(instance: &MachineInstance) -> Result<Vec<u8>> {
             "statechart instance record exceeds storage limits",
         ));
     }
-    let bytes = rmp_serde::to_vec_named(instance).map_err(codec_err)?;
+    encode_bounded(instance, "statechart instance exceeds storage limits")
+}
+
+fn encode_bounded<T: Serialize>(value: &T, limit_error: &str) -> Result<Vec<u8>> {
+    let bytes = rmp_serde::to_vec_named(value).map_err(codec_err)?;
     if bytes.len() > MAX_STORED_BYTES {
-        return Err(codec_err("statechart instance exceeds storage limits"));
+        return Err(codec_err(limit_error));
     }
     Ok(bytes)
+}
+
+fn open_statechart_kernel(path: &Path, physical: PhysicalStoreIdentity) -> Result<StorageKernel> {
+    let kernel = if path.exists() {
+        StorageKernel::open_owner::<StatechartOwner>(path, physical, None)
+    } else {
+        StorageKernel::create_owner::<StatechartOwner>(path, physical, None)
+    };
+    kernel.map_err(redb_err)
+}
+
+fn read_stored_record<T: DeserializeOwned>(
+    read: &ScopedRead<'_, StatechartOwner>,
+    table_definition: TableDefinition<'static, &str, &[u8]>,
+    key: &str,
+) -> Result<T> {
+    let table = read.open_owner_table(table_definition).map_err(redb_err)?;
+    let row = table.get(key).map_err(redb_err)?;
+    row.map_or_else(
+        || Err(StatechartError::NotFound(key.to_string())),
+        |blob| decode_stored(blob.value()),
+    )
 }
 
 /// The outcome of a [`StatechartStore::send_event`] call: the (possibly unchanged)
@@ -255,12 +277,7 @@ impl StatechartStore {
     ) -> Result<Self> {
         let identity = instance_mutation_identity()?;
         let physical = PhysicalStoreIdentity::new(STATECHART_PHYSICAL_STORE).map_err(redb_err)?;
-        let kernel = if path.exists() {
-            StorageKernel::open_owner::<StatechartOwner>(path, physical, None)
-        } else {
-            StorageKernel::create_owner::<StatechartOwner>(path, physical, None)
-        }
-        .map_err(redb_err)?;
+        let kernel = open_statechart_kernel(path, physical)?;
         let (kernel, authority) = kernel
             .into_read_and_mutation_authority()
             .map_err(redb_err)?;
@@ -319,13 +336,11 @@ impl StatechartStore {
         validate(def).map_err(|report| StatechartError::InvalidDefinition(report.errors))?;
         let def_id = def.def_id();
         let blob = encode_def(def)?;
-        // Content-addressed idempotency, resolved by a read before any write:
+        // Content-addressed idempotency, resolved by a read before admission:
         // `def_id` is a pure hash of the definition, so a row already under that
-        // key holds byte-identical bytes and re-storing it is a no-op. Doing this
-        // as a read rather than by re-admitting the batch matters because a
-        // batch's identity includes its `version_expectation`, so a second
-        // `define` at a later scope version is a DIFFERENT batch reusing one
-        // idempotency key -- an `IDEMPOTENCY_CONFLICT`, not a replay.
+        // key holds byte-identical bytes and re-storing it is a no-op. The
+        // admitted path still mints its maintenance claim from the current
+        // version under the write lock.
         {
             let read = self.scoped_read()?;
             let table = read.open_owner_table(DEFS).map_err(redb_err)?;
@@ -333,16 +348,20 @@ impl StatechartStore {
                 return Ok(def_id);
             }
         }
-        let expected_version = self.mutation_version()?;
-        let batch = definition_batch(
-            def_id.as_str(),
-            self.owner.identity(),
-            self.owner.principal(),
-            expected_version,
-        )?;
-        let (write, begun) = self
+        // The definition's maintenance claim is minted from the authoritative
+        // version held by this admission.  The read above is only the cheap
+        // content-addressed fast path; it cannot supply the write's fence.
+        let (write, batch, begun) = self
             .mutations
-            .admit_maintenance(&self.owner, &batch)
+            .admit_current(&self.owner, |version| {
+                definition_batch(
+                    def_id.as_str(),
+                    self.owner.identity(),
+                    self.owner.principal(),
+                    version,
+                )
+                .map_err(|error| error.to_string())
+            })
             .map_err(redb_err)?;
         let source_version = match begun {
             // A concurrent writer committed this exact batch between the read
@@ -374,12 +393,7 @@ impl StatechartStore {
             return Err(codec_err("statechart definition id is invalid"));
         }
         let read = self.scoped_read()?;
-        let table = read.open_owner_table(DEFS).map_err(redb_err)?;
-        let blob = table
-            .get(def_id)
-            .map_err(redb_err)?
-            .ok_or_else(|| StatechartError::NotFound(def_id.to_string()))?;
-        decode_stored(blob.value())
+        read_stored_record(&read, DEFS, def_id)
     }
 
     /// List every stored definition id.
@@ -536,16 +550,21 @@ impl StatechartStore {
         match begun {
             Begin::Replay(record) => {
                 let replayed = decode_instance_result(&record)?;
-                write.abort().map_err(redb_err)?;
+                if replayed != *instance {
+                    write.abort().map_err(redb_err)?;
+                    return Err(codec_err(
+                        "replayed statechart instance differs from the requested image",
+                    ));
+                }
+                self.mutations.commit(write, batch).map_err(redb_err)?;
                 Ok((replayed, true))
             }
             Begin::Apply { source_version } => {
                 let owner_write = write.owner_rows(&self.owner, batch).map_err(redb_err)?;
-                owner_write
-                    .open_table(INSTANCES)
-                    .map_err(redb_err)?
-                    .insert(instance.instance_id.as_str(), blob)
-                    .map_err(redb_err)?;
+                {
+                    let mut table = owner_write.open_table(INSTANCES).map_err(redb_err)?;
+                    stage_instance_row(&mut table, &instance.instance_id, blob)?;
+                }
                 owner_write.finish_owner().map_err(redb_err)?;
                 self.mutations
                     .finish(
@@ -568,12 +587,7 @@ impl StatechartStore {
             return Err(codec_err("statechart instance id is invalid"));
         }
         let read = self.scoped_read()?;
-        let table = read.open_owner_table(INSTANCES).map_err(redb_err)?;
-        let blob = table
-            .get(instance_id)
-            .map_err(redb_err)?
-            .ok_or_else(|| StatechartError::NotFound(instance_id.to_string()))?;
-        decode_stored(blob.value())
+        read_stored_record(&read, INSTANCES, instance_id)
     }
 
     /// Deliver an event to an instance and durably persist the result
@@ -630,100 +644,17 @@ impl StatechartStore {
         // the exact bytes we will persist (the key that makes a replayed Raft proposal
         // an idempotent no-op). A well-defined no-op returned above; it never reaches
         // here.
-        let now = now_ms;
-        let mut next = instance.clone();
-        next.configuration = outcome.next.clone();
-        next.context = outcome.next_context.clone();
-        next.version = next.version.saturating_add(1);
-        next.transitions_fired = next.transitions_fired.saturating_add(1);
-        next.events_seen = next.events_seen.saturating_add(1);
-        next.status = if next.configuration.is_final(&def) {
-            InstanceStatus::Final
-        } else {
-            InstanceStatus::Active
-        };
-        next.updated_at_ms = now;
+        let next = transitioned_instance(&instance, &def, &outcome, now_ms);
         let blob = encode_instance(&next)?;
         let expected_version = self.mutation_version()?;
         let batch = instance_batch(&next, &blob, &self.owner, expected_version)?;
-        let committed_at_ms = now.max(0) as u64;
-
-        // Commit the row change and its terminal batch/version/fence/idempotency/
-        // outbox evidence through the `eg-transaction` gateway `eg-jobs` uses, on
-        // the one admitted write. Inside that write the row is re-read and its OCC
-        // `version` re-checked (compare-and-set) so a concurrent writer cannot be
-        // silently clobbered — the per-instance guard is preserved on top of the
-        // gateway.
-        let (write, begun) = self
-            .mutations
-            .admit(&self.owner, &batch)
-            .map_err(redb_err)?;
-        match begun {
-            Begin::Replay(_record) => {
-                // This exact resulting image already committed durably (idempotent
-                // replay of a re-proposed transition); the instance is already at
-                // `next`. Report it without writing again.
-                write.abort().map_err(redb_err)?;
-                Ok(SendOutcome {
-                    instance: next,
-                    outcome,
-                })
-            }
-            Begin::Apply { source_version } => {
-                // Re-open the row inside the admitted owner write and re-check the
-                // OCC version. The inner block owns every borrow of `INSTANCES` and
-                // yields a plain `Result<(), u64>` — `Ok(())` staged the write,
-                // `Err(actual)` found a compare-and-set conflict — so the table
-                // borrow is dropped before the owner capability is finished.
-                let owner_write = write.owner_rows(&self.owner, &batch).map_err(redb_err)?;
-                let occ: std::result::Result<(), u64> = {
-                    let mut table = owner_write.open_table(INSTANCES).map_err(redb_err)?;
-                    let current_bytes = {
-                        let guard = table
-                            .get(instance_id)
-                            .map_err(redb_err)?
-                            .ok_or_else(|| StatechartError::NotFound(instance_id.to_string()))?;
-                        guard.value().to_vec()
-                    };
-                    let current: MachineInstance = decode_stored(&current_bytes)?;
-                    if current.version != instance.version {
-                        // Someone advanced the instance between our read and our write.
-                        Err(current.version)
-                    } else {
-                        table
-                            .insert(instance_id, blob.as_slice())
-                            .map_err(redb_err)?;
-                        Ok(())
-                    }
-                };
-                // Always close the owner capability explicitly: dropping it
-                // unfinished poisons the write, which would mask the OCC conflict
-                // this method must report.
-                owner_write.finish_owner().map_err(redb_err)?;
-                match occ {
-                    Ok(()) => {
-                        self.mutations
-                            .finish(&write, &batch, Some(blob), committed_at_ms, source_version)
-                            .map_err(redb_err)?;
-                        self.mutations.commit(write, &batch).map_err(redb_err)?;
-                        Ok(SendOutcome {
-                            instance: next,
-                            outcome,
-                        })
-                    }
-                    Err(actual) => {
-                        // Nothing was staged; discard the whole admitted write so the
-                        // conflict costs no durable evidence.
-                        write.abort().map_err(redb_err)?;
-                        Err(StatechartError::VersionConflict {
-                            instance_id: instance_id.to_string(),
-                            expected: instance.version,
-                            actual,
-                        })
-                    }
-                }
-            }
-        }
+        commit_transition(
+            self,
+            instance_id,
+            (&instance, next, outcome),
+            (blob, batch),
+            now_ms.max(0) as u64,
+        )
     }
 
     /// The gateway's monotonic mutation-domain version for the statechart instance
@@ -786,6 +717,133 @@ impl StatechartStore {
             }
         }
         Ok(out)
+    }
+}
+
+fn stage_instance_row(
+    table: &mut redb::Table<'_, &str, &[u8]>,
+    instance_id: &str,
+    blob: &[u8],
+) -> Result<()> {
+    table.insert(instance_id, blob).map_err(redb_err)?;
+    Ok(())
+}
+
+fn transitioned_instance(
+    instance: &MachineInstance,
+    def: &StatechartDef,
+    outcome: &StepOutcome,
+    now_ms: i64,
+) -> MachineInstance {
+    let mut next = instance.clone();
+    next.configuration = outcome.next.clone();
+    next.context = outcome.next_context.clone();
+    next.version = next.version.saturating_add(1);
+    next.transitions_fired = next.transitions_fired.saturating_add(1);
+    next.events_seen = next.events_seen.saturating_add(1);
+    next.status = if next.configuration.is_final(def) {
+        InstanceStatus::Final
+    } else {
+        InstanceStatus::Active
+    };
+    next.updated_at_ms = now_ms;
+    next
+}
+
+fn commit_transition(
+    store: &StatechartStore,
+    instance_id: &str,
+    // `transition` groups the pre-transition instance, the computed resulting
+    // instance image, and the pure `step` outcome that produced it.
+    transition: (&MachineInstance, MachineInstance, StepOutcome),
+    // `payload` groups the encoded instance blob and the mutation batch built
+    // from it — the exact bytes this commit will persist.
+    payload: (Vec<u8>, MutationBatch),
+    committed_at_ms: u64,
+) -> Result<SendOutcome> {
+    let (previous, next, outcome) = transition;
+    let (blob, batch) = payload;
+    // Commit the row change and its terminal batch/version/fence/idempotency/
+    // outbox evidence through the `eg-transaction` gateway `eg-jobs` uses, on
+    // the one admitted write. Inside that write the row is re-read and its OCC
+    // `version` re-checked (compare-and-set) so a concurrent writer cannot be
+    // silently clobbered — the per-instance guard is preserved on top of the
+    // gateway.
+    let (write, begun) = store
+        .mutations
+        .admit(&store.owner, &batch)
+        .map_err(redb_err)?;
+    match begun {
+        Begin::Replay(record) => {
+            // This exact resulting image already committed durably. Validate
+            // the durable image before consuming the fresh replay nonce; a
+            // mismatch is corruption or an identity bug and must abort.
+            let replayed = decode_instance_result(&record)?;
+            if replayed != next {
+                write.abort().map_err(redb_err)?;
+                return Err(codec_err(
+                    "replayed statechart transition differs from the requested image",
+                ));
+            }
+            store.mutations.commit(write, &batch).map_err(redb_err)?;
+            Ok(SendOutcome {
+                instance: replayed,
+                outcome,
+            })
+        }
+        Begin::Apply { source_version } => {
+            // Re-open the row inside the admitted owner write and re-check the
+            // OCC version. The inner block owns every borrow of `INSTANCES` and
+            // yields a plain `Result<(), u64>` — `Ok(())` staged the write,
+            // `Err(actual)` found a compare-and-set conflict — so the table
+            // borrow is dropped before the owner capability is finished.
+            let owner_write = write.owner_rows(&store.owner, &batch).map_err(redb_err)?;
+            let occ: std::result::Result<(), u64> = {
+                let mut table = owner_write.open_table(INSTANCES).map_err(redb_err)?;
+                let current_bytes = {
+                    let guard = table
+                        .get(instance_id)
+                        .map_err(redb_err)?
+                        .ok_or_else(|| StatechartError::NotFound(instance_id.to_string()))?;
+                    guard.value().to_vec()
+                };
+                let current: MachineInstance = decode_stored(&current_bytes)?;
+                if current.version != previous.version {
+                    // Someone advanced the instance between our read and our write.
+                    Err(current.version)
+                } else {
+                    stage_instance_row(&mut table, instance_id, &blob)?;
+                    Ok(())
+                }
+            };
+            // Always close the owner capability explicitly: dropping it
+            // unfinished poisons the write, which would mask the OCC conflict
+            // this method must report.
+            owner_write.finish_owner().map_err(redb_err)?;
+            match occ {
+                Ok(()) => {
+                    store
+                        .mutations
+                        .finish(&write, &batch, Some(blob), committed_at_ms, source_version)
+                        .map_err(redb_err)?;
+                    store.mutations.commit(write, &batch).map_err(redb_err)?;
+                    Ok(SendOutcome {
+                        instance: next,
+                        outcome,
+                    })
+                }
+                Err(actual) => {
+                    // Nothing was staged; discard the whole admitted write so the
+                    // conflict costs no durable evidence.
+                    write.abort().map_err(redb_err)?;
+                    Err(StatechartError::VersionConflict {
+                        instance_id: instance_id.to_string(),
+                        expected: previous.version,
+                        actual,
+                    })
+                }
+            }
+        }
     }
 }
 
@@ -1101,6 +1159,47 @@ mod tests {
             v_after_fire,
             "a rejected OCC transition must commit no gateway batch"
         );
+    }
+
+    #[test]
+    fn mismatched_replay_aborts_before_nonce_consumption() {
+        let (store, _dir) = store();
+        let def_id = store.define(&turnstile()).unwrap();
+        let instance = store
+            .instantiate(&def_id, Context::new(), "t", "a")
+            .unwrap();
+        let out = store
+            .send_event(&instance.instance_id, &EventInput::new("coin"), None, 2_000)
+            .unwrap();
+        let blob = encode_instance(&out.instance).unwrap();
+        let mut mismatched = out.instance.clone();
+        mismatched.version += 1;
+        let mismatched_blob = encode_instance(&mismatched).unwrap();
+        let batch = instance_batch(
+            &out.instance,
+            &blob,
+            &store.owner,
+            store.mutation_version().unwrap(),
+        )
+        .unwrap();
+
+        let error = store
+            .commit_instance_blob(&mismatched, &mismatched_blob, &batch, 2_001)
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("replayed statechart instance differs"),
+            "{error}"
+        );
+
+        // The failed validation aborted the admitted replay write, so its
+        // fresh attempt nonce remains reusable for the exact durable image.
+        let (replayed, was_replay) = store
+            .commit_instance_blob(&out.instance, &blob, &batch, 2_002)
+            .unwrap();
+        assert!(was_replay);
+        assert_eq!(replayed, out.instance);
     }
 
     #[test]

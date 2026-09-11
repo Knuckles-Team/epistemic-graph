@@ -424,7 +424,7 @@ pub(crate) fn alter_txn_op(plan: AlterTablePlan) -> WireResult<TxnOp> {
 ///     cross-actor side effect the OLD per-owner-file layout never allowed at
 ///     all. A real per-object ownership model for these is a follow-up, not a
 ///     silent gap.
-fn authorize_table_txn(
+pub(crate) fn authorize_table_txn(
     source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
     table_store: &TableStore,
     txn: &mut TableTxn,
@@ -518,14 +518,57 @@ fn authorize_table_txn_op(
         | TxnOp::CreateExtension { .. }
         | TxnOp::DropExtension { .. }
         | TxnOp::CreateFunction { .. }
-        | TxnOp::DropFunction { .. }
-        // SQL/PGQ property-graph DDL is catalog-wide DDL over the SAME shared
-        // tenant catalog as a view, and is authorized by the SAME check.
-        | TxnOp::PropertyGraphDdl(_) => authority
+        | TxnOp::DropFunction { .. } => authority
             .require_admin(
                 "catalog-wide DDL (view/extension/function/property graph) over the shared tenant catalog",
             )
             .map_err(user_err),
+        TxnOp::PropertyGraphDdl(graph) => {
+            authorize_property_graph_op(authority, table_store, graph)
+        }
+    }
+}
+
+/// Property-graph DDL remains admin-only in the current single `public`
+/// schema. Graph `SELECT` GRANT/REVOKE is instead owned by the graph owner (or
+/// an administrator) and is bound to the exact object id persistence rechecks.
+fn authorize_property_graph_op(
+    authority: &CarrierAuthority,
+    table_store: &TableStore,
+    op: &PropertyGraphTxnOp,
+) -> WireResult<()> {
+    match op {
+        PropertyGraphTxnOp::Create { .. }
+        | PropertyGraphTxnOp::Alter { .. }
+        | PropertyGraphTxnOp::Drop { .. } => authority
+            .require_admin("property-graph DDL over the shared tenant catalog")
+            .map_err(user_err),
+        PropertyGraphTxnOp::GrantSelect {
+            tenant_scope,
+            name,
+            expected_object_id,
+            ..
+        }
+        | PropertyGraphTxnOp::RevokeSelect {
+            tenant_scope,
+            name,
+            expected_object_id,
+            ..
+        } => {
+            if tenant_scope != authority.tenant_scope() {
+                return Err(user_err(crate::server::sql_catalog_acl::ACCESS_DENIED));
+            }
+            let record = table_store
+                .property_graph(tenant_scope, name)
+                .map_err(user_err)?
+                .filter(|record| &record.object_id == expected_object_id)
+                .ok_or_else(|| user_err(crate::server::sql_catalog_acl::ACCESS_DENIED))?;
+            if authority.is_admin() || record.owner.value() == authority.agent_id() {
+                Ok(())
+            } else {
+                Err(user_err(crate::server::sql_catalog_acl::ACCESS_DENIED))
+            }
+        }
     }
 }
 
@@ -748,91 +791,52 @@ fn authorize_delete_op(
     Ok(())
 }
 
-/// Return the exact committed SQL receipt that authorizes owner repair for a
-/// crash replay. Every stable identity field and the opaque operation digest is
-/// checked; expected-version and timestamps are deliberately not recomputed.
-fn committed_sql_replay_receipt(
+/// The committed SQL receipt that authorizes owner repair for a crash replay.
+///
+/// This USED to be a hand-written narrow comparison -- "every stable identity
+/// field plus the outbox `actor` header, expected-version and timestamps
+/// deliberately not recomputed" -- one of three such private re-derivations of
+/// the question `OperationReplayIdentity` answers. It now compares exactly the
+/// value the mutation kernel compares, the stable operation identity digest, and
+/// reads the caller through the ONE checked accessor
+/// `MutationBatchRecord::committing_actor`. Nothing here decides replay by its
+/// own rule any more; it decides whether the kernel's answer is already durable,
+/// which is a different and strictly narrower question the authorization step
+/// needs before the commit.
+pub(crate) fn committed_sql_replay_receipt(
     store: &TableStore,
     authority: &CarrierAuthority,
-    graph: &str,
-    batch_id: &str,
-    request_id: u64,
-    operation: &crate::protocol::Method,
+    batch: &eg_types::MutationBatch,
 ) -> Result<Option<eg_types::mutation_batch::MutationBatchRecord>, String> {
-    use sha2::{Digest, Sha256};
-
-    // RF-RULING-006 moved the SQL receipt into the mutation kernel's ledger,
-    // which is scope-partitioned: a receipt is only readable through the scope
-    // it was committed under. That scope is the one `compile_opaque_method`
-    // below stamps on this very batch -- native `SqlCatalog`, keyed by
-    // `(tenant, graph)` at `COMPILED_BATCH_INCARNATION` -- so it is rebuilt
-    // here from the SAME two values the exactness check compares against, not
-    // from a second source that could drift from the committing path.
-    let scope = eg_types::mutation_batch::MutationScopeIdentity::fixed_native(
-        authority.tenant_scope(),
-        eg_types::mutation_batch::DurabilityDomain::SqlCatalog,
-        graph,
-        eg_types::mutation_batch::COMPILED_BATCH_INCARNATION,
-    )?;
-    let Some(record) = store.mutation_batch(&scope, batch_id)? else {
+    let Some(record) = store.mutation_batch(&batch.identity, &batch.batch_id)? else {
         return Ok(None);
     };
+    if record.status != eg_types::mutation_batch::MutationBatchStatus::Committed {
+        return Ok(None);
+    }
+    if sql_operation_digest(&record.batch)? != sql_operation_digest(batch)? {
+        return Err(SQL_REPLAY_OPERATION_CONFLICT.to_string());
+    }
+    // The identity already carries the actor, so an equal digest proves the same
+    // caller. This is the POSITIVE check RF-RULING-004's application note also
+    // requires: a refusal must NAME the owner rather than be anonymous.
     let caller = crate::server::mutation_batch::principal_fingerprint(authority.actor_scope())?;
-    // The caller is the outbox row's `actor` header, not `context.principal`.
-    // RF-RULING-006 made the SQL catalog a kernel-owned owner store, so
-    // `AdmittedMutation::owner_rows` requires `context.principal` to be the
-    // file's bound SERVING principal (`store_authority::ENGINE_PRINCIPAL`) and
-    // `mutation_batch::compile::finish_batch` stamps it there unconditionally,
-    // for every domain, as `ENGINE_LEDGER_PRINCIPAL`. Attribution
-    // has exactly one home for every compiled batch -- the `actor` header --
-    // so that is where this receipt reads the caller back from. Comparing
-    // `context.principal` would compare the engine against the caller and
-    // refuse EVERY replay of a SQL statement this engine itself committed.
-    let recorded_actor = record
-        .batch
-        .outbox
-        .iter()
-        .find_map(|intent| intent.headers.get("actor"))
-        .ok_or_else(|| {
-            "committed SQL MutationBatch carries no actor attribution".to_string()
-        })?;
-    let encoded = rmp_serde::to_vec_named(operation).map_err(|error| error.to_string())?;
-    let expected_query = format!("sha256:{}", hex::encode(Sha256::digest(encoded)));
-    let exact_operation = matches!(
-        record.batch.operations.as_slice(),
-        [eg_types::mutation_batch::MutationOperation {
-            surface: eg_types::mutation_batch::MutationSurface::Query,
-            domain: eg_types::mutation_batch::DurabilityDomain::SqlCatalog,
-            method: crate::protocol::Method::ApplyMutation { event_type, query },
-            ..
-        }] if event_type == "sql_catalog_operation" && query == &expected_query
-    );
-    let exact = record.status == eg_types::mutation_batch::MutationBatchStatus::Committed
-        && record.batch.batch_id == batch_id
-        && record.batch.idempotency_key == batch_id
-        && record.batch.context.request_id == request_id
-        && recorded_actor == &caller
-        && record.batch.identity.tenant().as_str() == authority.tenant_scope()
-        // A SQL-catalog batch is NATIVE-scoped by producer default
-        // (`DurabilityDomain::SqlCatalog` is in `requires_native_scope`), so it
-        // carries a `resource`, not a `graph_name`. Checking only `graph_name()`
-        // made this receipt unmatchable for the very batches it governs. Both
-        // scope kinds are matched explicitly and the logical name compared;
-        // there is no `_ =>` arm, so a future scope variant fails to compile
-        // rather than silently returning "not an exact match".
-        && match record.batch.identity.scope() {
-            eg_types::mutation_batch::MutationScope::Native { resource, .. } => {
-                resource.as_str() == graph
-            }
-            eg_types::mutation_batch::MutationScope::Graph { graph: scoped } => {
-                scoped.as_str() == graph
-            }
-        }
-        && exact_operation;
-    if !exact {
-        return Err("committed SQL replay receipt does not match owner-scoped intent".to_string());
+    if record.committing_actor()? != caller {
+        return Err(SQL_REPLAY_OWNER_CONFLICT.to_string());
     }
     Ok(Some(record))
+}
+
+/// The stable operation identity digest of one compiled SQL batch.
+fn sql_operation_digest(
+    batch: &eg_types::MutationBatch,
+) -> Result<eg_types::contract::Digest256, String> {
+    batch
+        .envelope
+        .operation()
+        .ok_or_else(|| "a served SQL batch is a caller operation, never maintenance".to_string())?
+        .operation_identity()?
+        .digest()
 }
 
 type SqlTableCommitIdentity = (
@@ -841,11 +845,22 @@ type SqlTableCommitIdentity = (
     String,
     crate::protocol::Method,
     String,
+    String,
     u64,
     uuid::Uuid,
+    Option<eg_types::contract::Nonce>,
 );
 type SqlTableCommit = (TableStore, TableTxn, SqlTableCommitIdentity);
 const SQL_OWNER_REPAIR_PENDING: &str = "SQL_OWNER_REPAIR_PENDING";
+const SQL_REPLAY_OPERATION_CONFLICT: &str =
+    "IDEMPOTENCY_CONFLICT: SQL batch identity was used by a different operation";
+const SQL_REPLAY_OWNER_CONFLICT: &str =
+    "IDEMPOTENCY_CONFLICT: SQL batch identity is owned by another actor";
+
+fn is_durable_sql_replay_conflict(error: &WireError) -> bool {
+    error.message.starts_with(SQL_REPLAY_OPERATION_CONFLICT)
+        || error.message.starts_with(SQL_REPLAY_OWNER_CONFLICT)
+}
 
 fn table_txn_contains_create(txn: &TableTxn) -> bool {
     txn.ops
@@ -880,29 +895,34 @@ fn commit_table_txn_under_source(
     txn: &mut TableTxn,
     identity: &SqlTableCommitIdentity,
 ) -> Result<usize, String> {
-    let (tenant, graph, principal, operation, batch_id, request_id, operation_id) = identity;
-    let committed_replay = committed_sql_replay_receipt(
-        store,
-        source.authority(),
+    let (
+        tenant,
         graph,
-        batch_id,
-        *request_id,
+        principal,
         operation,
-    )?
-    .is_some();
-    let created_tables =
-        authorize_table_txn(source, store, txn, committed_replay).map_err(|error| error.message)?;
+        batch_id,
+        idempotency_key,
+        request_id,
+        operation_id,
+        attempt_nonce,
+    ) = identity;
+    // The batch is compiled BEFORE the replay lookup now, because the lookup
+    // compares the stable operation identity this batch carries rather than a
+    // private re-derivation of its fields. Compiling is pure -- it writes
+    // nothing -- so the authorization step still sees the replay answer before
+    // the commit, which is the property it needs.
     let created_at_ms = crate::server::txn::now_ms();
     let expected_version = store.mutation_version(tenant, graph)?;
     let batch = crate::server::mutation_batch::compile_opaque_method(
         crate::server::mutation_batch::CompileBatch {
             batch_id,
             request_id: *request_id,
+            attempt_nonce: *attempt_nonce,
             principal: Some(principal),
             tenant,
             graph,
             placement_epoch: 0,
-            idempotency_key: batch_id,
+            idempotency_key,
             expected_graph_version: Some(expected_version),
             fencing_token: None,
             created_at_ms,
@@ -914,17 +934,15 @@ fn commit_table_txn_under_source(
         crate::mutation_batch::DurabilityDomain::SqlCatalog,
         "sql_catalog_operation",
     )?;
+    let committed_replay =
+        committed_sql_replay_receipt(store, source.authority(), &batch)?.is_some();
+    let created_tables =
+        authorize_table_txn(source, store, txn, committed_replay).map_err(|error| error.message)?;
     let committed = match store.commit_txn_batch(txn, &batch, created_at_ms) {
         Ok(committed) => committed.record,
-        Err(message) if message.contains("IDEMPOTENCY_CONFLICT") => committed_sql_replay_receipt(
-            store,
-            source.authority(),
-            graph,
-            batch_id,
-            *request_id,
-            operation,
-        )?
-        .ok_or(message)?,
+        Err(message) if message.contains("IDEMPOTENCY_CONFLICT") => {
+            committed_sql_replay_receipt(store, source.authority(), &batch)?.ok_or(message)?
+        }
         Err(message) => return Err(message),
     };
     for schema in &created_tables {
@@ -1025,20 +1043,6 @@ pub(crate) fn single_text_result(col: &str, val: &str) -> TypedQueryResult {
             ty: PgColType::Text,
         }],
         rows: vec![vec![serde_json::Value::String(val.to_string())]],
-    }
-}
-
-/// RAII cleanup for the ephemeral, per-call authorized-projection [`TableStore`]
-/// [`WireSession::authorized_read_store`] builds on disk via
-/// `store_authority::open_ephemeral_sql_store`
-/// (CONCEPT:NE-046 — EG-WIRE-CATALOG). Removes the backing temp file when the read
-/// completes (success OR error) so a request never leaks a physical redb file per
-/// SQL read.
-struct EphemeralStoreGuard(std::path::PathBuf);
-
-impl Drop for EphemeralStoreGuard {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
     }
 }
 
@@ -1169,6 +1173,10 @@ pub struct WireSession {
     /// Opaque tenant/principal authority derived from a current signed request or
     /// from a server-owned native SQL proxy context after cryptographic login.
     authority: parking_lot::Mutex<Option<CarrierAuthority>>,
+    /// The current request's authenticated transport nonce. Native SQL login
+    /// has no envelope nonce and leaves this empty; signed mutation requests
+    /// replace it before their statement is dispatched.
+    attempt_nonce: parking_lot::Mutex<Option<eg_types::contract::Nonce>>,
     /// The OPEN multi-statement transaction's buffered user-table ops (CONCEPT:EG-KG.query.register-each-user-table),
     /// or `None` when no `BEGIN` is active. `COMMIT` applies the buffer in ONE redb
     /// write txn; `ROLLBACK` drops it. Scoped per connection.
@@ -1334,6 +1342,7 @@ impl WireSession {
             startup_resolved: std::sync::atomic::AtomicBool::new(false),
             actor: parking_lot::Mutex::new(None),
             authority: parking_lot::Mutex::new(None),
+            attempt_nonce: parking_lot::Mutex::new(None),
             txn: parking_lot::Mutex::new(None),
             graph_txn: parking_lot::Mutex::new(GraphTxnBuffer::default()),
             txn_graph: parking_lot::Mutex::new(None),
@@ -1398,7 +1407,9 @@ impl WireSession {
         }
 
         let verified_actor = context.agent_id();
-        self.bind_authority(verified_authority, verified_actor)
+        self.bind_authority(verified_authority, verified_actor)?;
+        *self.attempt_nonce.lock() = context.attempt_nonce();
+        Ok(())
     }
 
     /// Bind the server-owned carrier for a native SQL connection after its
@@ -1420,7 +1431,13 @@ impl WireSession {
             code: "28000".to_string(),
             message,
         })?;
-        self.bind_authority(authority, context.agent_id())
+        self.bind_authority(authority, context.agent_id())?;
+        // A native SQL login has no signed request nonce. Clear a nonce left by
+        // an earlier signed request on a reused session before any SQL batch is
+        // compiled, so the next native operation cannot inherit another request's
+        // attempt identity.
+        *self.attempt_nonce.lock() = None;
+        Ok(())
     }
 
     fn bind_authority(
@@ -1438,13 +1455,16 @@ impl WireSession {
         {
             let mut authority = self.authority.lock();
             match authority.as_ref() {
-                Some(bound) if bound != &verified_authority => {
+                Some(bound) if !Self::same_stable_authority(bound, &verified_authority) => {
                     return Err(WireError {
                         code: "28000".to_string(),
                         message: "verified authority cannot change within a connection".to_string(),
                     })
                 }
-                Some(_) => {}
+                // Request nonce and idempotency key are attempt metadata. Keep
+                // the stable connection identity pinned, but replace the
+                // attempt-specific carrier for the operation being compiled.
+                Some(_) => *authority = Some(verified_authority),
                 None => *authority = Some(verified_authority),
             }
         }
@@ -1460,6 +1480,41 @@ impl WireSession {
                 Ok(())
             }
         }
+    }
+
+    /// Compare the authority fields that identify a connection. Request
+    /// nonce and idempotency key belong to one attempt and must refresh on a
+    /// persistent signed SQLite connection.
+    fn same_stable_authority(left: &CarrierAuthority, right: &CarrierAuthority) -> bool {
+        left.tenant_scope() == right.tenant_scope()
+            && left.actor_scope() == right.actor_scope()
+            && left.owner_scope() == right.owner_scope()
+            && left.agent_id() == right.agent_id()
+            && left.is_admin() == right.is_admin()
+            && left.can_read() == right.can_read()
+            && left.can_write() == right.can_write()
+    }
+
+    /// Return one stable opaque operation id for a signed request sequence.
+    /// Native sessions have no attempt nonce and retain fresh server ids; signed
+    /// explicit/mixed/CREATE commits use this derived id; mixed and CREATE
+    /// intents persist it so a reconnecting owner can replay the same operation
+    /// without the new request key changing the durable identity.
+    fn request_operation_id(&self) -> WireResult<uuid::Uuid> {
+        if self.attempt_nonce.lock().is_none() {
+            return Ok(uuid::Uuid::new_v4());
+        }
+        let authority = self.carrier_authority()?;
+        use sha2::{Digest, Sha256};
+        let mut digest = Sha256::new();
+        digest.update(b"epistemic-graph/wire-signed-operation\0");
+        digest.update(authority.owner_scope().as_bytes());
+        digest.update([0]);
+        digest.update(authority.idempotency_key().as_bytes());
+        let digest = digest.finalize();
+        let mut bytes = [0_u8; 16];
+        bytes.copy_from_slice(&digest[..16]);
+        Ok(uuid::Uuid::from_bytes(bytes))
     }
 
     fn carrier_authority(&self) -> WireResult<CarrierAuthority> {
@@ -1785,8 +1840,12 @@ impl WireSession {
         // per-call store instead of handing DataFusion the raw tenant-shared
         // catalog directly.
         let (authority, persist_dir) = self.catalog_authority().await?;
-        let (store, ephemeral_path) = self.authorized_read_store(&authority, &persist_dir).await?;
-        let _cleanup = EphemeralStoreGuard(ephemeral_path);
+        let projection = tokio::task::spawn_blocking(move || {
+            crate::server::sql_catalog_acl::authorized_read_store(&authority, &persist_dir)
+        })
+        .await
+        .map_err(|error| user_err(format!("authorized read-store build task failed: {error}")))?
+        .map_err(user_err)?;
 
         // The served whole-`SessionContext` cache (`sql_tables::sql_context_cache`)
         // is deliberately NOT used here: it is keyed by owner-hash and amortizes a
@@ -1801,79 +1860,11 @@ impl WireSession {
         // served-context cache anyway (its buffered writes aren't reflected in
         // `version()`).
         tokio::task::spawn_blocking(move || {
-            eg_query::exec_sql_typed_with_tables(&snap, &store, &sql)
+            eg_query::exec_sql_typed_with_tables(&snap, projection.store(), &sql)
         })
         .await
         .map_err(|e| user_err(format!("query task failed: {e}")))?
         .map_err(|msg| user_err(format!("SQL error: {msg}")))
-    }
-
-    /// Build an EPHEMERAL, per-call [`TableStore`] containing only the tables
-    /// `authority` may [`crate::server::sql_catalog_acl::SqlPrivilege::Select`]
-    /// from — schema plus RLS-filtered rows, copied out of the tenant-shared
-    /// catalog (CONCEPT:NE-046 — EG-WIRE-CATALOG).
-    ///
-    /// `run_read`'s free-form multi-table SQL has no per-statement table list the
-    /// way a single-table DML op or OBDA's `tables` param does.
-    /// `eg_query::materialize_user_tables` registers EVERY table in whatever store
-    /// it is handed as a DataFusion provider, unconditionally — a function this
-    /// track does not own (`crates/eg-query`) — so the only way to keep an
-    /// unauthorized table invisible to that planner without editing `eg-query` is
-    /// to hand it a store that PHYSICALLY does not contain that table at all. An
-    /// inaccessible table is therefore not merely denied but genuinely ABSENT
-    /// from this store, so DataFusion's own "table not found" is the SAME signal
-    /// a truly nonexistent table produces — the denial/absence
-    /// indistinguishability property holds by construction here, not by a
-    /// special-cased error mapping.
-    ///
-    /// Known limitation (reported, not hidden): this copies TABLE rows only.
-    /// Durable views/stored functions/ANN index registrations in
-    /// the tenant catalog are NOT carried into the ephemeral store, so a SELECT
-    /// referencing one of those over the shared catalog will not resolve it. This
-    /// also drops the served-context-cache amortization for every wire SQL read
-    /// (see the caller's own comment) — a real performance regression versus the
-    /// previously-unreachable direct-tenant-store read this replaces, traded
-    /// deliberately for correctness within this track's owned files. The
-    /// returned `PathBuf` is the ephemeral store's own temp file; the caller MUST
-    /// remove it once done (see [`EphemeralStoreGuard`]).
-    async fn authorized_read_store(
-        &self,
-        authority: &CarrierAuthority,
-        persist_dir: &std::path::Path,
-    ) -> WireResult<(TableStore, std::path::PathBuf)> {
-        let authority = authority.clone();
-        let persist_dir = persist_dir.to_path_buf();
-        tokio::task::spawn_blocking(
-            move || -> Result<(TableStore, std::path::PathBuf), String> {
-                let names =
-                    crate::server::sql_catalog_acl::selectable_tables(&authority, &persist_dir)?;
-                let (ephemeral, path) = crate::store_authority::open_ephemeral_sql_store()?;
-                for name in names {
-                    let authorized = crate::server::sql_catalog_acl::open_authorized_table(
-                        &authority,
-                        &persist_dir,
-                        &name,
-                        crate::server::sql_catalog_acl::SqlPrivilege::Select,
-                    )?;
-                    let schema = authorized.schema()?;
-                    let rows = authorized.select(None)?;
-                    ephemeral.create_table(&schema, true)?;
-                    if !rows.is_empty() {
-                        let col_order: Vec<String> =
-                            schema.columns().iter().map(|c| c.name.clone()).collect();
-                        let values: Vec<Vec<serde_json::Value>> = rows
-                            .iter()
-                            .map(|row| row.iter().map(eg_query::Cell::to_json).collect())
-                            .collect();
-                        ephemeral.insert_rows(&name, &col_order, &values)?;
-                    }
-                }
-                Ok((ephemeral, path))
-            },
-        )
-        .await
-        .map_err(|e| user_err(format!("authorized read-store build task failed: {e}")))?
-        .map_err(user_err)
     }
 
     /// Replay this connection's buffered graph-node ops onto `view` (CONCEPT:EG-KG.compute.kg-transaction-is-pinned),
@@ -2041,6 +2032,7 @@ impl WireSession {
     async fn try_buffer_transaction_table_statement(
         &self,
         graph: &str,
+        sql: &str,
         kind: &StatementKind,
     ) -> WireResult<Option<WireOutcome>> {
         if let StatementKind::InsertSelect(insert) = kind {
@@ -2059,6 +2051,17 @@ impl WireSession {
                 rows: result.rows,
             });
             return Ok(Some(WireOutcome::command_rows("INSERT", count)));
+        }
+        if matches!(
+            kind,
+            StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_)
+        ) {
+            let authority = self.carrier_authority()?;
+            let statement = eg_query::sql::parse_property_graph_ddl(sql, authority.tenant_scope())
+                .map_err(user_err)?;
+            let (op, tag) = PropertyGraphTxnOp::from_statement(statement, authority.agent_id());
+            self.buffer(TxnOp::PropertyGraphDdl(op));
+            return Ok(Some(WireOutcome::command(tag)));
         }
         if let Some(outcome) = self.try_buffer_table_statement(kind)? {
             return Ok(Some(outcome));
@@ -2154,6 +2157,7 @@ impl WireSession {
             | StatementKind::Commit
             | StatementKind::Rollback
             | StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_)
+            | StatementKind::PropertyGraphPrivilegeRequiresCatalogAdmission(_)
             | StatementKind::GraphTableReadRequiresCatalogAdmission(_) => {
                 self.dispatch_property_graph(graph, sql, kind, in_txn).await
             }
@@ -2179,12 +2183,15 @@ impl WireSession {
         kind: StatementKind,
         in_txn: bool,
     ) -> WireResult<WireOutcome> {
-        if let Some(rejection) = property_graph_ddl_txn_rejection(&kind, in_txn) {
+        if let Some(rejection) = property_graph_txn_rejection(&kind, in_txn) {
             return Err(user_err(rejection));
         }
         match kind {
             StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_) => {
                 self.run_property_graph_ddl(graph, sql).await
+            }
+            StatementKind::PropertyGraphPrivilegeRequiresCatalogAdmission(_) => {
+                self.run_property_graph_privilege(graph, sql).await
             }
             StatementKind::GraphTableReadRequiresCatalogAdmission(query) => {
                 let lowered = self.lower_graph_table_read(&query).await?;
@@ -2200,9 +2207,32 @@ impl WireSession {
     async fn run_property_graph_ddl(&self, graph: &str, sql: &str) -> WireResult<WireOutcome> {
         let authority = self.carrier_authority()?;
         let tenant = authority.tenant_scope().to_string();
-        let actor = authority.actor_scope().to_string();
+        let actor = authority.agent_id().to_string();
         let statement = eg_query::sql::parse_property_graph_ddl(sql, &tenant).map_err(user_err)?;
         let (op, tag) = PropertyGraphTxnOp::from_statement(statement, &actor);
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::PropertyGraphDdl(op));
+        self.commit_table_txn(graph, sql, txn).await?;
+        Ok(WireOutcome::command(tag))
+    }
+
+    /// `GRANT|REVOKE SELECT ON PROPERTY GRAPH`, bound to the exact current
+    /// object id before the ordinary SQL MutationBatch authorization/commit.
+    async fn run_property_graph_privilege(
+        &self,
+        graph: &str,
+        sql: &str,
+    ) -> WireResult<WireOutcome> {
+        let authority = self.carrier_authority()?;
+        let tenant = authority.tenant_scope().to_string();
+        let statement = eg_query::sql::parse_property_graph_privilege(sql).map_err(user_err)?;
+        let store = self.user_table_store().await?;
+        let record = store
+            .property_graph(&tenant, &statement.name)
+            .map_err(user_err)?
+            .ok_or_else(|| user_err(crate::server::sql_catalog_acl::ACCESS_DENIED))?;
+        let (op, tag) =
+            PropertyGraphTxnOp::from_privilege_statement(statement, tenant, record.object_id);
         let mut txn = TableTxn::new();
         txn.push(TxnOp::PropertyGraphDdl(op));
         self.commit_table_txn(graph, sql, txn).await?;
@@ -2246,7 +2276,7 @@ impl WireSession {
     ) -> WireResult<WireOutcome> {
         if in_txn {
             if let Some(outcome) = self
-                .try_buffer_transaction_table_statement(graph, &kind)
+                .try_buffer_transaction_table_statement(graph, sql, &kind)
                 .await?
             {
                 return Ok(outcome);
@@ -2299,9 +2329,10 @@ impl WireSession {
         self.commit_graph_methods_with_op(
             graph,
             methods,
-            uuid::Uuid::new_v4(),
+            self.request_operation_id()?,
             graph_isolation,
             begin_version,
+            false,
         )
         .await
     }
@@ -2524,10 +2555,12 @@ impl WireSession {
     ///      (the SAME coordinator/idempotency keys `commit_cross_modal_txn` /
     ///      `TableStore::commit_txn_batch` already dedupe commits on).
     ///   4. On full success, deletes the intent — nothing left to recover.
-    ///   5. On a CLEAN (non-crash) table-commit rejection, synchronously
-    ///      COMPENSATES (undoes the already-committed graph write) before
-    ///      returning the error, so the caller observes ZERO graph writes
-    ///      applied.
+    ///   5. On a CLEAN (non-crash) first-attempt table-commit rejection,
+    ///      synchronously COMPENSATES (undoes the already-committed graph
+    ///      write) before returning the error, so the caller observes ZERO
+    ///      graph writes applied. A durable same-key table replay conflict is
+    ///      returned without compensation because its graph phase may already
+    ///      be the successful original commit.
     ///   6. On a CRASH between the two commits, the intent survives on disk;
     ///      the next `WireSession::recover_owner_intents_once` on this owner
     ///      resolves it the SAME way (steps 3-5) — self-healing, no torn
@@ -2551,7 +2584,7 @@ impl WireSession {
         // MUST run before either commit: it reads the durable pre-txn state.
         let compensating = self.compensating_methods(graph, &methods).await?;
         let table_steps = std::mem::take(&mut *self.txn_replay_log.lock());
-        let operation_id = uuid::Uuid::new_v4();
+        let operation_id = self.request_operation_id()?;
         let intent = crate::server::txn_intent::CommitIntent::new(
             graph.to_string(),
             operation_id,
@@ -2586,14 +2619,15 @@ impl WireSession {
 
     /// Resolve one commit-intent to completion: replay the graph side
     /// (idempotent), then the table side (idempotent). On full success the
-    /// intent is deleted. On a table-commit rejection, synchronously
-    /// compensates the graph side (restores its pre-txn state) under a
-    /// DETERMINISTIC child operation id, then deletes the intent and returns
-    /// the ORIGINAL table error. Used by BOTH the live synchronous COMMIT
-    /// path ([`Self::commit_mixed_txn`]) and the lazy crash-recovery sweep
-    /// ([`Self::recover_owner_intents_once`]) — identically, since both are
-    /// simply "finish (or undo) a transaction whose graph side may already
-    /// be durably applied."
+    /// intent is deleted. On a genuine first-attempt table-commit rejection,
+    /// synchronously compensates the graph side (restores its pre-txn state)
+    /// under a DETERMINISTIC child operation id, then deletes the intent and
+    /// returns the ORIGINAL table error. A durable same-key table replay
+    /// conflict returns without compensation because the graph phase may be
+    /// the already-successful original commit. Used by BOTH the live
+    /// synchronous COMMIT path ([`Self::commit_mixed_txn`]) and the lazy
+    /// crash-recovery sweep ([`Self::recover_owner_intents_once`]), with
+    /// recovery retaining uncertain graph errors for a later retry.
     async fn resolve_commit_intent(
         &self,
         authority: &CarrierAuthority,
@@ -2604,6 +2638,7 @@ impl WireSession {
         live_table_txn: Option<TableTxn>,
     ) -> WireResult<()> {
         let operation_id = intent.operation_id();
+        let recovering = live_table_txn.is_none();
         let table_operation = intent.table_operation_descriptor().map_err(user_err)?;
         // Phase 1: graph side. Idempotent — a crash-recovery replay of an
         // ALREADY-applied write is a safe no-op (same coordinator key).
@@ -2614,14 +2649,19 @@ impl WireSession {
                 operation_id,
                 isolation,
                 begin_version,
+                false,
             )
             .await
         {
-            // `commit_cross_modal_txn` commits through ONE redb
-            // `WriteTransaction`: this failure means NOTHING landed on
-            // either store yet, so there is nothing to compensate — just
-            // discard the intent and surface the error.
-            let _ = crate::server::txn_intent::delete_intent(authority, persist_dir, operation_id);
+            // A live first attempt can discard its intent on a clean graph
+            // rejection. Recovery has no proof that an error occurred before
+            // the graph's durable commit boundary, so keep the intent for the
+            // next sweep and retry the exact recipe instead of losing repair
+            // state after an uncertain access/transient failure.
+            if !recovering {
+                let _ =
+                    crate::server::txn_intent::delete_intent(authority, persist_dir, operation_id);
+            }
             return Err(e);
         }
         // Phase 2: table side. Idempotent — same reasoning, keyed the same
@@ -2635,6 +2675,7 @@ impl WireSession {
                     &table_operation,
                     table_txn,
                     operation_id,
+                    false,
                 )
                 .await
             }
@@ -2647,6 +2688,20 @@ impl WireSession {
                 Ok(())
             }
             Err(table_err) => {
+                if is_durable_sql_replay_conflict(&table_err) {
+                    // The graph phase was an exact replay, but the table
+                    // receipt proves that this operation key belongs to a
+                    // different durable table payload/owner. Do not run the
+                    // compensating graph write: it would undo the already
+                    // successful original mixed commit. This newly-created
+                    // conflicting intent has no repair work of its own.
+                    let _ = crate::server::txn_intent::delete_intent(
+                        authority,
+                        persist_dir,
+                        operation_id,
+                    );
+                    return Err(table_err);
+                }
                 // The physical SQL receipt already committed, but its ACL
                 // owner repair did not. Keep the durable intent: deleting it
                 // here would turn a recoverable cross-redb interruption into
@@ -2665,6 +2720,7 @@ impl WireSession {
                         // BEGIN to protect; the current version is the only
                         // correct baseline (NE-071).
                         TxnBeginVersion::Autocommit,
+                        false,
                     )
                     .await
                 {
@@ -2708,8 +2764,14 @@ impl WireSession {
         replay_result?;
         let rebuilt = rebuilt.unwrap_or_default();
         let operation = intent.table_operation_descriptor().map_err(user_err)?;
-        self.commit_table_txn_with_op(&intent.graph, &operation, rebuilt, intent.operation_id())
-            .await
+        self.commit_table_txn_with_op(
+            &intent.graph,
+            &operation,
+            rebuilt,
+            intent.operation_id(),
+            false,
+        )
+        .await
     }
 
     /// Replay one recorded table-side step (CONCEPT:EG-TXN.mixed-commit-intent — NE-004) into the scratch `self.txn`
@@ -2737,7 +2799,7 @@ impl WireSession {
         match step {
             crate::server::txn_intent::ReplayStep::Sql(sql) => {
                 let kind = eg_query::classify(sql).map_err(user_err)?;
-                self.try_buffer_transaction_table_statement(graph, &kind)
+                self.try_buffer_transaction_table_statement(graph, sql, &kind)
                     .await?
                     .map(|_| ())
                     .ok_or_else(|| {
@@ -2772,7 +2834,13 @@ impl WireSession {
         {
             return Ok(());
         }
-        let Some(authority) = self.authority.lock().clone() else {
+        // Clone the verified carrier inside its own scope. A `parking_lot`
+        // guard is not `Send`; spelling the clone directly in the `let-else`
+        // scrutinee lets the temporary live across the later state-read await,
+        // which makes the `SqlExecutor::execute` future non-Send even though
+        // recovery needs only the owned authority value.
+        let authority = { self.authority.lock().clone() };
+        let Some(authority) = authority else {
             // Not yet authenticated: nothing owned to check yet. Un-latch so
             // the FIRST call after authentication still sweeps.
             self.recovered_intents
@@ -2793,15 +2861,21 @@ impl WireSession {
             // (the original session is gone, possibly crashed) — the current
             // version is the correct baseline for this idempotent replay
             // (NE-071).
-            self.resolve_commit_intent(
-                &authority,
-                persist_dir,
-                intent,
-                crate::server::txn::IsolationLevel::Snapshot,
-                TxnBeginVersion::Autocommit,
-                None,
-            )
-            .await?;
+            if let Err(error) = self
+                .resolve_commit_intent(
+                    &authority,
+                    persist_dir,
+                    intent,
+                    crate::server::txn::IsolationLevel::Snapshot,
+                    TxnBeginVersion::Autocommit,
+                    None,
+                )
+                .await
+            {
+                self.recovered_intents
+                    .store(false, std::sync::atomic::Ordering::Release);
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -3901,6 +3975,7 @@ impl WireSession {
         graph: &str,
         methods: Vec<crate::protocol::Method>,
     ) -> WireResult<()> {
+        let use_caller_key = { self.attempt_nonce.lock().is_some() };
         self.commit_graph_methods_with_op(
             graph,
             methods,
@@ -3909,6 +3984,7 @@ impl WireSession {
             // Off-txn single-statement autocommit — no earlier client-visible
             // BEGIN to protect (NE-071).
             TxnBeginVersion::Autocommit,
+            use_caller_key,
         )
         .await
     }
@@ -3917,11 +3993,11 @@ impl WireSession {
     /// The kernel stages against authority, commits graph rows/result/outbox in one
     /// redb transaction, and only then publishes the serving projection.
     ///
-    /// `operation_id` is the SAME id every retry of this exact commit must use
-    /// (CONCEPT:EG-TXN.mixed-commit-intent — NE-004): it seeds `commit_cross_modal_txn`'s dedup coordinator key, so
-    /// a caller that persisted `operation_id` durably before calling this (a
-    /// commit-intent record) can safely call it AGAIN after a crash — the
-    /// second call is a no-op replay of the first, never a double-apply.
+    /// Native retries use the SAME generated `operation_id`; signed explicit
+    /// and mixed retries use the deterministic id derived from their verified
+    /// commit key. Signed autocommit requests derive the coordinator key from
+    /// that caller key directly, so a fresh nonce replays without a second
+    /// apply.
     ///
     /// `isolation` (CONCEPT:EG-KG.txn.serializable-zero-cost — NE-005): when `Serializable`, this drains and
     /// attaches this connection's [`WireSession::serializable_predicate_reads`]
@@ -3944,6 +4020,7 @@ impl WireSession {
         operation_id: uuid::Uuid,
         isolation: crate::server::txn::IsolationLevel,
         begin_version: TxnBeginVersion,
+        use_caller_key: bool,
     ) -> WireResult<()> {
         if methods.is_empty() {
             return Ok(());
@@ -3963,6 +4040,7 @@ impl WireSession {
                 .try_into()
                 .expect("UUID prefix is eight bytes"),
         );
+        let attempt_nonce = *self.attempt_nonce.lock();
         let mut txn = crate::server::txn::GraphTxnState::new(
             &core,
             crate::server::txn::NewTxnArgs {
@@ -3986,10 +4064,18 @@ impl WireSession {
         for method in methods {
             txn.stage(&core, method, crate::server::txn::now_ms());
         }
+        // Signed autocommit requests carry the caller's stable retry key. Use
+        // it for direct signed autocommit; native SQL and explicit transaction
+        // intents use the operation id supplied by their caller.
+        let coordinator_seed = if use_caller_key {
+            authority.idempotency_key().to_string()
+        } else {
+            operation_id.simple().to_string()
+        };
         let coordinator_id = crate::server::mutation_batch::opaque_coordinator_key(
             "wire-graph-owner",
             authority.owner_scope(),
-            &operation_id.simple().to_string(),
+            &coordinator_seed,
         );
         // `commit_cross_modal_txn`'s "Re-check Write access at commit" evaluates
         // `caller` against `IsolationLayer::check_access`, which is keyed by
@@ -4001,12 +4087,13 @@ impl WireSession {
         // made every wire-native graph-node commit fail this recheck whenever
         // `security` is on and no raft consensus is active (`consensus_apply_is_authorized`
         // is false, so the recheck always runs).
-        match crate::server::handlers::txn::commit_cross_modal_txn(
+        match crate::server::handlers::txn::commit_cross_modal_txn_with_nonce(
             &self.state,
             request_id,
             Some(authority.agent_id()),
             &coordinator_id,
             txn,
+            attempt_nonce,
         )
         .await
         {
@@ -4015,30 +4102,11 @@ impl WireSession {
                 code: "40001".to_string(),
                 message: "wire graph transaction conflicted; retry the statement".to_string(),
             }),
-            Err(message) => {
-                // NE-004 replay safety: a caller that reuses THIS exact
-                // `operation_id` (never done except a deliberate retry — a
-                // fresh `Uuid::new_v4()` is generated for every ORIGINAL
-                // attempt, see `Self::commit_graph_methods`) is asking to
-                // idempotently redo a commit that may already have landed.
-                // `commit_cross_modal_txn`'s durable idempotency check
-                // recomputes `expected_graph_version` fresh from the CURRENT
-                // persisted version every call — which the original commit
-                // itself already advanced — so a REPLAY of an
-                // already-applied write fails the byte-for-byte
-                // `same_identity` comparison (`expected_graph_version`
-                // differs) and reports `IDEMPOTENCY_CONFLICT` instead of its
-                // normal `replayed: true` fast path. Since `coordinator_id`
-                // is unique to THIS operation (never shared by a different
-                // transaction), an idempotency conflict on THIS call can only
-                // mean this exact write already committed — treat it as
-                // success, never as a real conflict.
-                if message.contains("IDEMPOTENCY_CONFLICT") {
-                    Ok(())
-                } else {
-                    Err(user_err(message))
-                }
-            }
+            // The durable replay kernel already returns success for an exact
+            // prior operation. A conflict therefore means the same caller key
+            // was presented with a different payload or authority and must
+            // remain an error.
+            Err(message) => Err(user_err(message)),
         }
     }
 
@@ -4063,8 +4131,15 @@ impl WireSession {
         txn: TableTxn,
     ) -> WireResult<usize> {
         if !table_txn_contains_create(&txn) {
+            let use_caller_key = { self.attempt_nonce.lock().is_some() };
             return self
-                .commit_table_txn_with_op(graph, operation, txn, uuid::Uuid::new_v4())
+                .commit_table_txn_with_op(
+                    graph,
+                    operation,
+                    txn,
+                    uuid::Uuid::new_v4(),
+                    use_caller_key,
+                )
                 .await;
         }
         crate::server::sql_catalog_acl::require_source_authority().map_err(user_err)?;
@@ -4079,7 +4154,7 @@ impl WireSession {
         if table_steps.is_empty() {
             return Err(user_err("CREATE TABLE commit has no durable replay recipe"));
         }
-        let operation_id = uuid::Uuid::new_v4();
+        let operation_id = self.request_operation_id()?;
         let intent = crate::server::txn_intent::CommitIntent::new(
             graph.to_string(),
             operation_id,
@@ -4115,18 +4190,18 @@ impl WireSession {
     /// MutationBatch kernel. The supplied operation descriptor is hashed by the
     /// compiler and is never stored as plaintext coordinator metadata.
     ///
-    /// `operation_id` is the SAME id every retry of this exact commit must use
-    /// (CONCEPT:EG-TXN.mixed-commit-intent — NE-004): it seeds the `idempotency_key`
-    /// `TableStore::commit_txn_batch` already dedupes on, so a caller that
-    /// persisted `operation_id` durably before calling this can safely call it
-    /// AGAIN after a crash — the second call replays the stored result instead
-    /// of re-executing the mutation.
+    /// Native and recovery commits use the SAME `operation_id` on every retry
+    /// (CONCEPT:EG-TXN.mixed-commit-intent — NE-004). Signed direct autocommit
+    /// requests use their verified caller key; signed CREATE intents persist a
+    /// deterministic operation id derived from that key. Both paths feed the
+    /// `TableStore::commit_txn_batch` replay identity.
     async fn commit_table_txn_with_op(
         &self,
         graph: &str,
         operation: &str,
         txn: TableTxn,
         operation_id: uuid::Uuid,
+        use_caller_key: bool,
     ) -> WireResult<usize> {
         if txn.ops.is_empty() {
             return Ok(0);
@@ -4138,11 +4213,30 @@ impl WireSession {
                 .try_into()
                 .expect("UUID prefix is eight bytes"),
         );
+        let attempt_nonce = *self.attempt_nonce.lock();
+        let idempotency_key = if use_caller_key {
+            authority.idempotency_key().to_string()
+        } else {
+            // Native pgwire/mysql/mssql sessions use server-generated operation
+            // IDs. Their session-level carrier key cannot be reused per SQL
+            // statement, so preserve the existing generated identity.
+            String::new()
+        };
+        let batch_seed = if use_caller_key {
+            idempotency_key.clone()
+        } else {
+            operation_id.simple().to_string()
+        };
         let batch_id = crate::server::mutation_batch::opaque_coordinator_key(
             "wire-sql-owner",
             authority.owner_scope(),
-            &operation_id.simple().to_string(),
+            &batch_seed,
         );
+        let idempotency_key = if use_caller_key {
+            idempotency_key
+        } else {
+            batch_id.clone()
+        };
         let tenant = authority.tenant_scope().to_string();
         let graph = graph.to_string();
         let principal = authority.actor_scope().to_string();
@@ -4161,8 +4255,10 @@ impl WireSession {
                 principal,
                 operation,
                 batch_id,
+                idempotency_key,
                 request_id,
                 operation_id,
+                attempt_nonce,
             ),
         );
         let result = tokio::task::spawn_blocking(move || {
@@ -4643,12 +4739,17 @@ impl WireSession {
         );
         // See the identical note in `commit_graph_methods` above: the RBAC recheck
         // inside `commit_cross_modal_txn` is keyed by `agent_id`, not `actor_scope`.
-        let committed = crate::server::handlers::txn::commit_cross_modal_txn(
+        // Copy the nonce before constructing the async commit future. Passing a
+        // dereference of `attempt_nonce.lock()` directly into an awaited call
+        // retains the non-Send parking_lot guard for the duration of that await.
+        let attempt_nonce = { *self.attempt_nonce.lock() };
+        let committed = crate::server::handlers::txn::commit_cross_modal_txn_with_nonce(
             &self.state,
             0,
             Some(authority.agent_id()),
             &coordinator_id,
             ts,
+            attempt_nonce,
         )
         .await
         .map_err(user_err)?;
@@ -4845,19 +4946,15 @@ enum XmodalStmt {
     SparqlConstruct(String),
 }
 
-/// Why property-graph DDL cannot be buffered into an open transaction.
-///
-/// Neither buffering leaf recognises the kind, so it reaches dispatch with
-/// `in_txn` set and would otherwise COMMIT in the middle of a transaction that
-/// has not committed. It cannot simply be buffered instead: the classifier's
-/// admission value carries names and an operation, never the definition, so a
-/// buffered op could not be rebuilt from it without the statement text.
-/// Rejecting is the fail-closed half of that gap; carrying the text is Phase 2.
+/// Graph privilege DCL remains outside multi-statement transactions because
+/// its replay form must retain the object id resolved at authorization time;
+/// replaying raw name-only SQL could grant a DROP/recreated replacement.
+/// Property-graph DDL itself is buffered through the ordinary TableTxn path.
 #[cfg(feature = "query")]
-fn property_graph_ddl_txn_rejection(kind: &StatementKind, in_txn: bool) -> Option<&'static str> {
+fn property_graph_txn_rejection(kind: &StatementKind, in_txn: bool) -> Option<&'static str> {
     match (kind, in_txn) {
-        (StatementKind::PropertyGraphDdlRequiresCatalogAdmission(_), true) => {
-            Some("SQL/PGQ property-graph DDL cannot be buffered into a multi-statement transaction")
+        (StatementKind::PropertyGraphPrivilegeRequiresCatalogAdmission(_), true) => {
+            Some("SQL/PGQ property-graph privileges cannot be buffered into a multi-statement transaction")
         }
         _ => None,
     }
@@ -5424,7 +5521,14 @@ mod ne_004_ne_005_tests {
             .require_txn_begin_version()
             .expect("BEGIN captured a real begin-time version");
         session
-            .commit_graph_methods_with_op(graph, methods, operation_id, isolation, begin_version)
+            .commit_graph_methods_with_op(
+                graph,
+                methods,
+                operation_id,
+                isolation,
+                begin_version,
+                false,
+            )
             .await
             .expect("phase 1: graph commit");
         // `table_txn` is deliberately never committed and the intent is
@@ -5469,6 +5573,86 @@ mod ne_004_ne_005_tests {
             1,
             "recovery must complete the table side — no torn state survives"
         );
+    }
+
+    /// A recovery graph error is not proof that the graph side stayed clean:
+    /// the failure may have followed a durable graph commit. Keep the intent
+    /// and clear the once-per-connection latch so the same authenticated
+    /// connection retries after the transient graph fault is removed.
+    #[tokio::test]
+    async fn recovery_graph_error_retains_intent_for_same_connection_retry() {
+        let state = test_state();
+        let graph = "ne004-recovery-graph-error";
+        let table = format!("ne004_recovery_table_{}", uuid::Uuid::new_v4().simple());
+        let session = new_session(state.clone(), graph).await;
+        let authority = session.carrier_authority().expect("bound authority");
+        let persist_dir_buf = state
+            .read()
+            .await
+            .persist_dir
+            .clone()
+            .expect("persist dir configured");
+        let persist_dir = std::path::Path::new(&persist_dir_buf);
+        let operation_id = uuid::Uuid::new_v4();
+        let intent = crate::server::txn_intent::CommitIntent::new(
+            graph.to_string(),
+            operation_id,
+            vec![Method::AddNode {
+                node_id: "recovery-after-graph-fault".to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                    "phase": "recovery"
+                }))
+                .expect("encode recovery node properties"),
+            }],
+            vec![Method::RemoveNode {
+                node_id: "recovery-after-graph-fault".to_string(),
+            }],
+            vec![crate::server::txn_intent::ReplayStep::Sql(format!(
+                "CREATE TABLE {table} (id INT)"
+            ))],
+            crate::server::txn::now_ms(),
+        );
+        crate::server::txn_intent::write_intent(&authority, persist_dir, &intent)
+            .expect("persist phase-1 recovery intent");
+
+        // The first recovery attempt fails at graph lookup because the graph
+        // is temporarily absent. The durable intent must survive this
+        // uncertain phase-1 outcome.
+        let first = session
+            .execute("SELECT id FROM nodes")
+            .await
+            .expect_err("missing graph must fail the first recovery attempt");
+        assert!(first.message.contains("graph"), "{first}");
+        assert_eq!(
+            crate::server::txn_intent::list_intents(&authority, persist_dir).len(),
+            1,
+            "an uncertain recovery graph error must retain its intent"
+        );
+
+        // Remove the injected fault by making the graph available. The same
+        // session's next statement must retry because recovery reset its latch.
+        create_test_graph(&state, graph, 99).await;
+        session
+            .execute("SELECT id FROM nodes")
+            .await
+            .expect("the same connection retries retained recovery");
+        assert!(
+            crate::server::txn_intent::list_intents(&authority, persist_dir).is_empty(),
+            "successful retry must retire the recovered intent"
+        );
+        assert_eq!(
+            node_count(&session, graph, "recovery-after-graph-fault").await,
+            1,
+            "the retried graph phase must apply exactly once"
+        );
+        match session
+            .execute(&format!("SELECT id FROM {table}"))
+            .await
+            .expect("the recovery retry must create its table")
+        {
+            WireOutcome::Rows(result) => assert!(result.rows.is_empty()),
+            other => panic!("expected an empty recovered table, got {other:?}"),
+        }
     }
 
     /// `ROLLBACK` still drops everything, including a mixed graph+table
@@ -6028,8 +6212,9 @@ mod wired_catalog_tests {
         // A malformed owner table lets the physical CREATE commit but makes
         // owner registration fail. This is a deterministic storage fault at
         // the exact cross-redb boundary ordinary autocommit must recover.
-        let acl = crate::server::sql_tables::tenant_acl_table_store(tenant, &persist_dir)
-            .expect("open tenant ACL store");
+        let acl =
+            crate::server::sql_tables::tenant_acl_table_store(owner.tenant_scope(), &persist_dir)
+                .expect("open tenant ACL store");
         acl.create_table(
             &TableSchema::new(
                 "__eg_sql_owners__",
@@ -6045,8 +6230,9 @@ mod wired_catalog_tests {
             .await
             .expect_err("owner registration fault must surface");
         assert!(error.message.starts_with(SQL_OWNER_REPAIR_PENDING));
-        let store = crate::server::sql_tables::tenant_table_store(tenant, &persist_dir)
-            .expect("open tenant table store");
+        let store =
+            crate::server::sql_tables::tenant_table_store(owner.tenant_scope(), &persist_dir)
+                .expect("open tenant table store");
         assert!(store
             .get_schema("ordinary_repair")
             .expect("read physical create")
@@ -6191,22 +6377,24 @@ mod wired_catalog_tests {
             query: descriptor,
             params_msgpack: Vec::new(),
         };
-        let store = crate::server::sql_tables::tenant_table_store(tenant, &persist_dir)
-            .expect("open tenant table store");
+        let store =
+            crate::server::sql_tables::tenant_table_store(owner.tenant_scope(), &persist_dir)
+                .expect("open tenant table store");
         // Fabricate the recoverable crash shape directly: the durable table
         // batch landed while owner registration did not. Current production
         // retains this exact intent across that gap, and the exclusive
         // capability prevents any competing source decision during each attempt.
         let created_at_ms = crate::server::txn::now_ms();
         let expected_version = store
-            .mutation_version(tenant, graph)
+            .mutation_version(owner.tenant_scope(), graph)
             .expect("read SQL mutation version");
         let batch = crate::server::mutation_batch::compile_opaque_method(
             crate::server::mutation_batch::CompileBatch {
                 batch_id: &batch_id,
                 request_id,
+                attempt_nonce: None,
                 principal: Some(owner.actor_scope()),
-                tenant,
+                tenant: owner.tenant_scope(),
                 graph,
                 placement_epoch: 0,
                 idempotency_key: &batch_id,
@@ -6270,9 +6458,7 @@ mod wired_catalog_tests {
             .replay_table_steps_and_commit(&altered)
             .await
             .expect_err("the same operation id cannot authorize an altered recipe");
-        assert!(altered_error
-            .message
-            .contains("does not match owner-scoped intent"));
+        assert_eq!(altered_error.message, SQL_REPLAY_OPERATION_CONFLICT);
         assert!(store
             .get_schema("altered_replay_target")
             .expect("read altered-table absence")
@@ -6341,6 +6527,7 @@ mod wired_catalog_tests {
             crate::server::mutation_batch::CompileBatch {
                 batch_id: &batch_id,
                 request_id,
+                attempt_nonce: None,
                 principal: Some(owner.actor_scope()),
                 tenant: &tenant_scope,
                 graph,
@@ -6364,11 +6551,24 @@ mod wired_catalog_tests {
                 .expect("fingerprint the owner");
         // The ledger principal is the SQL owner file's, not the caller's.
         assert_eq!(
-            batch.context.principal,
+            batch.serving_principal(),
             crate::store_authority::ENGINE_PRINCIPAL,
             "a SqlCatalog batch must name the owner file's serving principal"
         );
-        assert_ne!(batch.context.principal, owner_fingerprint);
+        assert_ne!(batch.serving_principal(), owner_fingerprint);
+        // ... and the caller IS inside the stable replay identity, which is what
+        // makes a cross-actor replay a conflict rather than an anonymous match.
+        assert_eq!(
+            batch
+                .envelope
+                .operation()
+                .expect("a served SQL batch is a caller operation")
+                .authority
+                .actor
+                .as_str(),
+            owner_fingerprint,
+            "the verified caller must be inside the operation replay identity"
+        );
         // ... and the caller is not lost: it is the outbox row's actor header.
         assert_eq!(
             batch.outbox[0].headers.get("actor"),
@@ -6388,29 +6588,17 @@ mod wired_catalog_tests {
             .commit_txn_batch(&txn, &batch, created_at_ms)
             .expect("commit the SQL batch through the kernel ledger");
 
-        let matched = committed_sql_replay_receipt(
-            &store,
-            &owner,
-            graph,
-            &batch_id,
-            request_id,
-            &operation,
-        )
-        .expect("the owner's own receipt matches")
-        .expect("the receipt is present");
+        let matched = committed_sql_replay_receipt(&store, &owner, &batch)
+            .expect("the owner's own receipt matches")
+            .expect("the receipt is present");
         assert_eq!(matched.batch.batch_id, batch_id);
 
         // Planted known-bad input: a different actor, everything else identical.
-        let refused = committed_sql_replay_receipt(
-            &store,
-            &stranger,
-            graph,
-            &batch_id,
-            request_id,
-            &operation,
-        )
-        .expect_err("another actor may not claim this receipt");
-        assert!(refused.contains("does not match owner-scoped intent"));
+        // The refusal must be reached by the ACTOR, which is inside the stable
+        // operation identity, not by a timestamp or an OCC observation.
+        let refused = committed_sql_replay_receipt(&store, &stranger, &batch)
+            .expect_err("another actor may not claim this receipt");
+        assert!(refused.contains("IDEMPOTENCY_CONFLICT"), "{refused}");
     }
 
     // ── owner / grant / deny-indistinguishable-from-absence ────────────────
@@ -6782,6 +6970,166 @@ mod wired_catalog_tests {
             .await
             .expect("owner may DROP their own table");
     }
+
+    fn admin_session(
+        state: Arc<RwLock<ServerState>>,
+        graph: &str,
+        agent_id: &str,
+        tenant: &str,
+    ) -> WireSession {
+        let session = WireSession::new(state, graph.to_string());
+        let authority = CarrierAuthority::from_verified(
+            &VerifiedRequestContext::verified_for_test_with_scopes(agent_id, tenant, &["kg:admin"]),
+        )
+        .expect("build admin authority");
+        session
+            .bind_authority(authority, agent_id)
+            .expect("bind admin identity");
+        session
+    }
+
+    #[tokio::test]
+    async fn property_graph_ddl_commits_and_rolls_back_with_its_base_table() {
+        let tenant = "wired-catalog-tenant-pgq-txn";
+        let graph = "wired-catalog-pgq-txn-graph";
+        let state = test_state(&[CREATOR, "pgq-admin"]);
+        create_test_graph(&state, graph, 1).await;
+        let admin = admin_session(state.clone(), graph, "pgq-admin", tenant);
+
+        admin.execute("BEGIN").await.unwrap();
+        admin
+            .execute("CREATE TABLE people (person_id TEXT PRIMARY KEY, name TEXT)")
+            .await
+            .unwrap();
+        admin
+            .execute(
+                "CREATE PROPERTY GRAPH social VERTEX TABLES (\
+                 people KEY (person_id) LABEL person PROPERTIES (name))",
+            )
+            .await
+            .unwrap();
+        admin.execute("COMMIT").await.unwrap();
+
+        let persist_dir = test_persist_dir_of(&state).await;
+        let canonical_tenant = admin
+            .carrier_authority()
+            .unwrap()
+            .tenant_scope()
+            .to_string();
+        let store =
+            crate::server::sql_tables::tenant_table_store(&canonical_tenant, &persist_dir).unwrap();
+        assert!(store.get_schema("people").unwrap().is_some());
+        assert!(store
+            .property_graph(
+                &canonical_tenant,
+                &eg_query::tables::SqlName::new(vec![eg_query::tables::SqlIdentifier::unquoted(
+                    "social"
+                )
+                .unwrap(),])
+                .unwrap(),
+            )
+            .unwrap()
+            .is_some());
+
+        admin.execute("BEGIN").await.unwrap();
+        admin
+            .execute("CREATE TABLE places (place_id TEXT PRIMARY KEY)")
+            .await
+            .unwrap();
+        admin
+            .execute(
+                "CREATE PROPERTY GRAPH geography VERTEX TABLES (\
+                 places KEY (place_id) LABEL place PROPERTIES (place_id))",
+            )
+            .await
+            .unwrap();
+        admin.execute("ROLLBACK").await.unwrap();
+        assert!(store.get_schema("places").unwrap().is_none());
+        assert!(!store
+            .list_property_graphs()
+            .unwrap()
+            .contains(&"geography".to_string()));
+    }
+
+    #[tokio::test]
+    async fn graph_select_grant_and_revoke_gate_live_graph_table_reads() {
+        let tenant = "wired-catalog-tenant-pgq-grant";
+        let graph = "wired-catalog-pgq-grant-graph";
+        let state = test_state(&[CREATOR, "pgq-owner", "pgq-reader"]);
+        create_test_graph(&state, graph, 1).await;
+        let owner = admin_session(state.clone(), graph, "pgq-owner", tenant);
+        owner
+            .execute("CREATE TABLE people (person_id TEXT PRIMARY KEY, name TEXT)")
+            .await
+            .unwrap();
+        owner
+            .execute(
+                "CREATE PROPERTY GRAPH social VERTEX TABLES (\
+                 people KEY (person_id) LABEL person PROPERTIES (name))",
+            )
+            .await
+            .unwrap();
+        let persist_dir = test_persist_dir_of(&state).await;
+        sql_catalog_acl::grant(
+            &persist_dir,
+            &authority("pgq-owner", tenant),
+            "people",
+            "pgq-reader",
+            &[SqlPrivilege::Select],
+            uuid::Uuid::new_v4(),
+        )
+        .unwrap();
+        let reader = session_for(state, graph, "pgq-reader", tenant);
+        let graph_sql = "SELECT * FROM GRAPH_TABLE (social MATCH (p:person) COLUMNS (p.name))";
+        assert!(reader.execute(graph_sql).await.is_err());
+        assert!(read_rows(
+            &reader,
+            "SELECT property_graph_name FROM information_schema.property_graphs"
+        )
+        .await
+        .unwrap()
+        .rows
+        .is_empty());
+
+        owner
+            .execute("GRANT SELECT ON PROPERTY GRAPH social TO pgq_reader")
+            .await
+            .unwrap();
+        // Unquoted SQL identifiers fold to lowercase and preserve underscores;
+        // grant the exact verified id with quoting when punctuation differs.
+        owner
+            .execute("REVOKE SELECT ON PROPERTY GRAPH social FROM pgq_reader")
+            .await
+            .unwrap();
+        owner
+            .execute("GRANT SELECT ON PROPERTY GRAPH social TO \"pgq-reader\"")
+            .await
+            .unwrap();
+        assert!(reader.execute(graph_sql).await.is_ok());
+        assert_eq!(
+            read_rows(
+                &reader,
+                "SELECT property_graph_name FROM information_schema.property_graphs"
+            )
+            .await
+            .unwrap()
+            .rows,
+            vec![vec![serde_json::json!("social")]]
+        );
+        owner
+            .execute("REVOKE SELECT ON PROPERTY GRAPH social FROM \"pgq-reader\"")
+            .await
+            .unwrap();
+        assert!(reader.execute(graph_sql).await.is_err());
+        assert!(read_rows(
+            &reader,
+            "SELECT property_graph_name FROM information_schema.property_graphs"
+        )
+        .await
+        .unwrap()
+        .rows
+        .is_empty());
+    }
 }
 
 #[cfg(all(test, feature = "query"))]
@@ -6792,27 +7140,28 @@ mod property_graph_dispatch_tests {
         eg_query::classify(sql).expect("statement classifies")
     }
 
-    /// Property-graph DDL is neither buffered nor committed inside an open
-    /// `BEGIN` block: it is refused. A `GRAPH_TABLE` read is a read and is
-    /// unaffected, and outside a transaction the DDL routes normally.
+    /// Property-graph DDL now buffers inside `BEGIN`; privilege DCL stays
+    /// fail-closed because its durable replay would need the bound object id.
     #[test]
-    fn property_graph_ddl_is_refused_inside_an_open_transaction() {
+    fn only_graph_privilege_dcl_is_refused_inside_an_open_transaction() {
         let ddl =
             classify_kind("CREATE PROPERTY GRAPH shop VERTEX TABLES (customers KEY (customer_id))");
+        let privilege = classify_kind("GRANT SELECT ON PROPERTY GRAPH shop TO reader");
         let read =
             classify_kind("SELECT * FROM GRAPH_TABLE (shop MATCH (c:customer) COLUMNS (c.name))");
 
+        assert_eq!(property_graph_txn_rejection(&ddl, true), None);
         assert_eq!(
-            property_graph_ddl_txn_rejection(&ddl, true),
+            property_graph_txn_rejection(&privilege, true),
             Some(
-                "SQL/PGQ property-graph DDL cannot be buffered into a multi-statement transaction"
+                "SQL/PGQ property-graph privileges cannot be buffered into a multi-statement transaction"
             )
         );
-        assert_eq!(property_graph_ddl_txn_rejection(&ddl, false), None);
-        assert_eq!(property_graph_ddl_txn_rejection(&read, true), None);
-        assert_eq!(property_graph_ddl_txn_rejection(&read, false), None);
+        assert_eq!(property_graph_txn_rejection(&privilege, false), None);
+        assert_eq!(property_graph_txn_rejection(&read, true), None);
+        assert_eq!(property_graph_txn_rejection(&read, false), None);
         assert_eq!(
-            property_graph_ddl_txn_rejection(&classify_kind("SELECT 1"), true),
+            property_graph_txn_rejection(&classify_kind("SELECT 1"), true),
             None
         );
     }

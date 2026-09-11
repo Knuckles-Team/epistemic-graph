@@ -1,5 +1,5 @@
 use super::effects::MutationEffect;
-use super::envelope::MutationEnvelope;
+use super::envelope::MutationRequestEnvelope;
 use super::outbox_decode::ProvenanceBinding;
 use super::targets::MutationPrecondition;
 use super::{MAX_MUTATION_PRECONDITIONS, MAX_PROVENANCE_REFS};
@@ -11,7 +11,7 @@ use crate::contract::{
 };
 use crate::outbox::OutboxIntent;
 
-impl MutationEnvelope {
+impl MutationRequestEnvelope {
     pub fn schema_version(&self) -> &ResourceId {
         &self.schema_version
     }

@@ -102,20 +102,14 @@ impl SemanticGenerationAggregate {
             ),
             aggregate_receipt_digest: member_digest(
                 SEMANTIC_AGGREGATE_RECEIPT_DIGEST_DOMAIN,
-                binding_id,
-                binding_digest,
-                generation,
-                source_revision,
+                (binding_id, binding_digest, generation, source_revision),
                 stage,
                 &completed,
                 |member| member.receipt_digest,
             ),
             aggregate_artifact_digest: member_digest(
                 SEMANTIC_AGGREGATE_ARTIFACT_DIGEST_DOMAIN,
-                binding_id,
-                binding_digest,
-                generation,
-                source_revision,
+                (binding_id, binding_digest, generation, source_revision),
                 stage,
                 &completed,
                 |member| member.artifact_digest,
@@ -338,27 +332,31 @@ fn validate_dependency(
     stage: SemanticStage,
     dependency: &SemanticGenerationDependency,
 ) -> Result<(), SemanticIndexError> {
-    let valid = match (stage, dependency) {
-        (SemanticStage::LexicalIndex, SemanticGenerationDependency::None) => true,
+    // The four legal (stage, dependency) pairings, and nothing else: S3 opens a
+    // generation with no predecessor, S4 depends on the S3 checkpoint, S5 on the
+    // S4 checkpoint, and S6 on an activation proof.
+    let valid = matches!(
+        (stage, dependency),
         (
+            SemanticStage::LexicalIndex,
+            SemanticGenerationDependency::None
+        ) | (
             SemanticStage::Vector,
             SemanticGenerationDependency::Checkpoint {
                 stage: SemanticStage::LexicalIndex,
                 ..
             },
-        ) => true,
-        (
+        ) | (
             SemanticStage::AnnIndex,
             SemanticGenerationDependency::Checkpoint {
                 stage: SemanticStage::Vector,
                 ..
             },
-        ) => true,
-        (SemanticStage::ReconcileAndActivate, SemanticGenerationDependency::Activation { .. }) => {
-            true
-        }
-        _ => false,
-    };
+        ) | (
+            SemanticStage::ReconcileAndActivate,
+            SemanticGenerationDependency::Activation { .. },
+        )
+    );
     if valid {
         Ok(())
     } else {
@@ -497,12 +495,13 @@ fn entity_set_digest(
     domain_digest(SEMANTIC_ENTITY_SET_DIGEST_DOMAIN, subject)
 }
 
+/// `coordinates` is `(binding_id, binding_digest, generation, source_revision)`
+/// -- the four values that identify one generation, grouped the same way
+/// `checkpoint_digest_parts` groups its own, so the digest inputs stay readable
+/// as units rather than a flat argument list.
 fn member_digest<F>(
     domain: &[u8],
-    binding_id: &str,
-    binding_digest: SemanticDigest,
-    generation: u64,
-    source_revision: &str,
+    coordinates: (&str, SemanticDigest, u64, &str),
     stage: SemanticStage,
     completed: &[SemanticGenerationMember],
     select: F,
@@ -510,6 +509,7 @@ fn member_digest<F>(
 where
     F: Fn(&SemanticGenerationMember) -> SemanticDigest,
 {
+    let (binding_id, binding_digest, generation, source_revision) = coordinates;
     let members = completed.iter().map(|member| {
         cbor::map([
             ("source_entity_id", cbor::text(&member.source_entity_id)),

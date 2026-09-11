@@ -22,11 +22,11 @@ fn method_policy_registry_has_no_duplicates() {
         // classifier comparisons live in `tests/consistency.rs`.
         let _ = table_policy;
     }
-    // The ledger currently contains 408 rows: 401 unconditional rows plus one
+    // The ledger currently contains 410 rows: 403 unconditional rows plus one
     // row for each of the seven feature-gated surfaces below. Keep this formula
     // aligned with the cfg rows in the domain row inventory so every supported
     // feature combination checks the same coverage invariant.
-    let expected = 401
+    let expected = 403
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))

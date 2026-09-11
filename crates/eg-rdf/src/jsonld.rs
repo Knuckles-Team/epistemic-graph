@@ -412,7 +412,7 @@ pub fn from_jsonld(doc: &str) -> Result<Vec<Quad>, String> {
                             .as_ref()
                             .map(|c| expand_id(id, c))
                             .unwrap_or_else(|| id.to_string());
-                        graph_name(&expanded)?
+                        id_node(&expanded, "graph")?.into()
                     }
                     None => GraphName::DefaultGraph,
                 };
@@ -429,15 +429,17 @@ pub fn from_jsonld(doc: &str) -> Result<Vec<Quad>, String> {
 }
 
 /// A named-graph term from a graph IRI/bnode string.
-fn graph_name(id: &str) -> Result<GraphName, String> {
+/// The RDF node an expanded JSON-LD id denotes: `_:b` is a blank node, anything else an
+/// IRI. `role` names the position the id came from, for the error message.
+fn id_node(id: &str, role: &str) -> Result<NamedOrBlankNode, String> {
     if let Some(b) = id.strip_prefix("_:") {
-        Ok(GraphName::BlankNode(
-            BlankNode::new(b).map_err(|e| format!("bad graph bnode {b}: {e}"))?,
-        ))
+        BlankNode::new(b)
+            .map(NamedOrBlankNode::BlankNode)
+            .map_err(|e| format!("bad {role} bnode {b}: {e}"))
     } else {
-        Ok(GraphName::NamedNode(
-            NamedNode::new(id).map_err(|e| format!("bad graph iri {id}: {e}"))?,
-        ))
+        NamedNode::new(id)
+            .map(NamedOrBlankNode::NamedNode)
+            .map_err(|e| format!("bad {role} iri {id}: {e}"))
     }
 }
 
@@ -520,7 +522,7 @@ fn walk_node(
             format!("_:b{}", out.len())
         }
     };
-    let subject = make_subject(&subj_id)?;
+    let subject = id_node(&subj_id, "subject")?;
 
     for (k, v) in m {
         match k.as_str() {
@@ -546,7 +548,7 @@ fn walk_nested_graph(
             let e = ctx
                 .map(|c| expand_id(id, c))
                 .unwrap_or_else(|| id.to_string());
-            graph_name(&e)?
+            id_node(&e, "graph")?.into()
         }
         None => graph.clone(),
     };
@@ -604,19 +606,6 @@ fn push_predicate_quads(
     Ok(())
 }
 
-/// A subject/`NamedOrBlankNode` from an expanded id string.
-fn make_subject(id: &str) -> Result<NamedOrBlankNode, String> {
-    if let Some(b) = id.strip_prefix("_:") {
-        Ok(NamedOrBlankNode::BlankNode(
-            BlankNode::new(b).map_err(|e| format!("bad bnode {b}: {e}"))?,
-        ))
-    } else {
-        Ok(NamedOrBlankNode::NamedNode(
-            NamedNode::new(id).map_err(|e| format!("bad subject iri {id}: {e}"))?,
-        ))
-    }
-}
-
 /// Normalize an `@type` value (string or array of strings) to a Vec of IRIs/terms.
 fn type_values(v: &Value) -> Vec<String> {
     match v {
@@ -659,7 +648,7 @@ fn make_object_from_map(m: &Map<String, Value>, ctx: Option<&Context>) -> Result
         let e = ctx
             .map(|c| expand_id(id, c))
             .unwrap_or_else(|| id.to_string());
-        return make_resource(&e);
+        return Ok(id_node(&e, "object")?.into());
     }
     if let Some(val) = m.get("@value") {
         return make_value_literal(m, val, ctx);
@@ -701,7 +690,7 @@ fn make_object_from_string(
         let e = ctx
             .map(|c| expand_id(s, c))
             .unwrap_or_else(|| s.to_string());
-        make_resource(&e)
+        Ok(id_node(&e, "object")?.into())
     } else {
         Ok(Term::Literal(Literal::new_simple_literal(s)))
     }
@@ -725,19 +714,6 @@ fn value_lexical(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
         other => other.to_string(),
-    }
-}
-
-/// A resource object `Term` (IRI or `_:b` blank node).
-fn make_resource(id: &str) -> Result<Term, String> {
-    if let Some(b) = id.strip_prefix("_:") {
-        Ok(Term::BlankNode(
-            BlankNode::new(b).map_err(|e| format!("bad object bnode {b}: {e}"))?,
-        ))
-    } else {
-        Ok(Term::NamedNode(
-            NamedNode::new(id).map_err(|e| format!("bad object iri {id}: {e}"))?,
-        ))
     }
 }
 

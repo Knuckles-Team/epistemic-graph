@@ -1,3 +1,6 @@
+use super::super::mining::{
+    AnomalyRequest, ClassifyPredictRequest, ClusterRequest, ReduceRequest, WritebackOptions,
+};
 use super::*;
 
 use super::gateway_mining_derived::{
@@ -36,20 +39,24 @@ fn apply_mine_cluster(
     let resp = super::super::mining::handle_cluster(
         req_id,
         core,
-        features,
-        source,
-        #[cfg(feature = "query")]
-        plan,
-        algorithm,
-        eps,
-        min_pts,
-        k,
-        linkage,
-        max_iter,
-        seed,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
+        ClusterRequest {
+            features,
+            source,
+            #[cfg(feature = "query")]
+            plan,
+            algorithm,
+            eps,
+            min_pts,
+            k,
+            linkage,
+            max_iter,
+            seed,
+            writeback: WritebackOptions {
+                enabled: writeback,
+                #[cfg(feature = "epistemic")]
+                as_claim,
+            },
+        },
         #[cfg(all(feature = "query", feature = "tsdb"))]
         tsdb_bind,
     );
@@ -88,23 +95,27 @@ fn apply_mine_anomaly(
     let resp = super::super::mining::handle_anomaly(
         req_id,
         core,
-        features,
-        values,
-        source,
-        #[cfg(feature = "query")]
-        plan,
-        algorithm,
-        k,
-        n_trees,
-        sample_size,
-        seed,
-        nu,
-        gamma,
-        kernel,
-        threshold,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
+        AnomalyRequest {
+            features,
+            values,
+            source,
+            #[cfg(feature = "query")]
+            plan,
+            algorithm,
+            k,
+            n_trees,
+            sample_size,
+            seed,
+            nu,
+            gamma,
+            kernel,
+            threshold,
+            writeback: WritebackOptions {
+                enabled: writeback,
+                #[cfg(feature = "epistemic")]
+                as_claim,
+            },
+        },
         #[cfg(all(feature = "query", feature = "tsdb"))]
         tsdb_bind,
     );
@@ -134,14 +145,18 @@ fn apply_mine_classify_predict(
     let resp = super::super::mining::handle_classify_predict(
         req_id,
         core,
-        model,
-        x,
-        source,
-        #[cfg(feature = "query")]
-        plan,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
+        ClassifyPredictRequest {
+            model,
+            x,
+            source,
+            #[cfg(feature = "query")]
+            plan,
+            writeback: WritebackOptions {
+                enabled: writeback,
+                #[cfg(feature = "epistemic")]
+                as_claim,
+            },
+        },
         #[cfg(all(feature = "query", feature = "tsdb"))]
         tsdb_bind,
     );
@@ -179,22 +194,26 @@ fn apply_mine_reduce(
     let resp = super::super::mining::handle_reduce(
         req_id,
         core,
-        x,
-        source,
-        #[cfg(feature = "query")]
-        plan,
-        labels,
-        algorithm,
-        n_components,
-        n_neighbors,
-        min_dist,
-        perplexity,
-        epochs,
-        lr,
-        seed,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
+        ReduceRequest {
+            x,
+            source,
+            #[cfg(feature = "query")]
+            plan,
+            labels,
+            algorithm,
+            n_components,
+            n_neighbors,
+            min_dist,
+            perplexity,
+            epochs,
+            lr,
+            seed,
+            writeback: WritebackOptions {
+                enabled: writeback,
+                #[cfg(feature = "epistemic")]
+                as_claim,
+            },
+        },
         #[cfg(all(feature = "query", feature = "tsdb"))]
         tsdb_bind,
     );
@@ -220,9 +239,11 @@ fn apply_mine_ontology_gap(
         req_id,
         core,
         label,
-        writeback,
-        #[cfg(feature = "epistemic")]
-        as_claim,
+        WritebackOptions {
+            enabled: writeback,
+            #[cfg(feature = "epistemic")]
+            as_claim,
+        },
     );
     super::gateway::mining_response_to_gateway_result(resp)
 }

@@ -45,7 +45,6 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use epistemic_graph::crypto::{ENCRYPTION_KEY_ENV, TXN_RECOVERY_KEY_ENV};
-use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::protocol::{GraphType, Method, Request, Response, ResultPayload};
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
@@ -100,7 +99,7 @@ fn clear_key_envs() {
 /// Seed a throwaway plaintext store: no key configured, one node with a marker
 /// property, via the same `commit_crossmodal` write path production data went through.
 async fn seed_plaintext_store(dir_s: &str) {
-    let backend = RedbBackend::open(dir_s.to_string(), DurabilityPolicy::Each, 64).expect("open");
+    let backend = RedbBackend::open(dir_s.to_string(), 64).expect("open");
     backend
         .commit_crossmodal(
             PRE_EXISTING_GRAPH,
@@ -223,7 +222,7 @@ async fn reproduces_old_destructive_behavior_as_a_regression_guard() {
     // pre-existing plaintext node: this is the destructive-read bug, reproduced safely
     // against a throwaway directory.
     std::env::set_var(ENCRYPTION_KEY_ENV, "just-add-the-key");
-    let reopened = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("reopen");
+    let reopened = RedbBackend::open(dir_s.clone(), 64).expect("reopen");
     let read_result = reopened.read_node_blocking(PRE_EXISTING_GRAPH, PRE_EXISTING_NODE);
     reopened.shutdown();
     clear_key_envs();
@@ -272,8 +271,7 @@ async fn dedicated_recovery_key_unblocks_txn_commit_without_touching_existing_pl
         "test precondition: the data-at-rest key must be unset"
     );
 
-    let reopened = RedbBackend::open(work_s.clone(), DurabilityPolicy::Each, 64)
-        .expect("reopen with recovery key only");
+    let reopened = RedbBackend::open(work_s.clone(), 64).expect("reopen with recovery key only");
 
     // (a) Non-destructive: the pre-existing plaintext node is still readable, byte for
     // byte, exactly as it would be with no key at all.

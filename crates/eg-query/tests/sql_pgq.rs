@@ -4,11 +4,13 @@ use eg_core::graph::GraphCore;
 use eg_query::sql::{
     classify, exec_graph_table_typed_with_tables, lower_graph_table,
     lower_graph_table_to_datafusion, parse_graph_table, parse_graph_table_sql,
-    parse_property_graph_ddl, PropertyGraphDdlOperation, StatementKind,
+    parse_property_graph_ddl, parse_property_graph_privilege, PropertyGraphDdlOperation,
+    StatementKind,
 };
 use eg_query::tables::{
     decode_property_graph, AlterPropertyGraphAction, Column, ColumnType, DropBehavior,
-    PropertyGraphDefinition, PropertyGraphStatement, PropertySet, TableSchema, TableStore,
+    PropertyGraphDefinition, PropertyGraphPrivilegeOperation, PropertyGraphStatement, PropertySet,
+    TableSchema, TableStore,
 };
 use serde_json::json;
 
@@ -425,6 +427,48 @@ fn classifier_routes_pgq_to_explicit_catalog_admission() {
             .unwrap(),
         StatementKind::GraphTableReadRequiresCatalogAdmission(_)
     ));
+}
+
+#[test]
+fn graph_select_privileges_use_the_bounded_single_principal_grammar() {
+    let grant = parse_property_graph_privilege(
+        r#"GRANT SELECT ON PROPERTY GRAPH public.shop TO "Role/Analytics""#,
+    )
+    .unwrap();
+    assert_eq!(grant.operation, PropertyGraphPrivilegeOperation::Grant);
+    assert_eq!(grant.name.0.len(), 2);
+    assert_eq!(grant.name.leaf().value(), "shop");
+    assert_eq!(grant.principal, "Role/Analytics");
+    let long = format!("agent:sha256:{}", "a".repeat(64));
+    assert_eq!(
+        parse_property_graph_privilege(&format!(
+            "GRANT SELECT ON PROPERTY GRAPH shop TO \"{long}\""
+        ))
+        .unwrap()
+        .principal,
+        long
+    );
+    assert!(matches!(
+        classify("REVOKE SELECT ON PROPERTY GRAPH shop FROM reader").unwrap(),
+        StatementKind::PropertyGraphPrivilegeRequiresCatalogAdmission(_)
+    ));
+
+    for unsupported in [
+        "GRANT INSERT ON PROPERTY GRAPH shop TO reader",
+        "GRANT SELECT ON PROPERTY GRAPH shop TO reader, writer",
+        "GRANT SELECT ON PROPERTY GRAPH shop TO reader WITH GRANT OPTION",
+        "REVOKE SELECT ON PROPERTY GRAPH shop FROM reader CASCADE",
+        "GRANT SELECT ON PROPERTY GRAPH shop TO reader; DROP PROPERTY GRAPH shop",
+        "GRANT SELECT ON PROPERTY GRAPH shop TO reader -- comment",
+        "GRANT SELECT ON PROPERTY GRAPH shop TO PUBLIC",
+        "GRANT SELECT ON PROPERTY GRAPH shop TO ALL",
+        "GRANT SELECT ON PROPERTY GRAPH shop TO CURRENT_USER",
+    ] {
+        assert!(
+            parse_property_graph_privilege(unsupported).is_err(),
+            "accepted unsupported graph privilege: {unsupported}"
+        );
+    }
 }
 
 #[test]

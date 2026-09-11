@@ -395,6 +395,7 @@ macro_rules! assert_golden_round_trip {
 #[test]
 fn every_persisted_record_has_a_golden_canonical_round_trip() {
     let pending = binding();
+    let source_dirty = SemanticSourceDirtyIntent::new(digest(1), digest(2));
     let vector = SemanticVector::create(&pending, "article:1", "42", vec![1.0, 0.5, 0.0]).unwrap();
     let stage = stage_transition(&pending);
     let checkpoint_stage = checkpoint_transition(&pending);
@@ -448,6 +449,11 @@ fn every_persisted_record_has_a_golden_canonical_round_trip() {
         pending.clone(),
         SemanticBinding,
         "5c63cdb1c473ac09b8badfeb8ecf5e8f6e4cf1cd3fb196035bf333e0c7c354bb"
+    );
+    assert_golden_round_trip!(
+        source_dirty,
+        SemanticSourceDirtyIntent,
+        "20fae4c3a07779d3b1f5774f80b8e3a36dffa22f7c5593bbc6beb4bd114e1ef0"
     );
     assert_golden_round_trip!(
         vector,
@@ -539,6 +545,30 @@ fn every_persisted_record_has_a_golden_canonical_round_trip() {
         SemanticLineage,
         "53ba08d71c1eb170ffa6903066ffef2b9b25f880639d925ddb6e8aaf6636195d"
     );
+}
+
+#[test]
+fn source_dirty_intent_rejects_unknown_missing_and_wrong_schema_records() {
+    let intent = SemanticSourceDirtyIntent::new(digest(1), digest(2));
+
+    let mut unknown = serde_json::to_value(&intent).unwrap();
+    unknown["source_revision"] = serde_json::json!(7);
+    let unknown = encode_test_envelope(SEMANTIC_SOURCE_DIRTY_INTENT_SCHEMA, unknown);
+    assert!(SemanticSourceDirtyIntent::from_canonical_cbor(&unknown).is_err());
+
+    let mut missing = serde_json::to_value(&intent).unwrap();
+    missing
+        .as_object_mut()
+        .unwrap()
+        .remove("source_scope_digest");
+    let missing = encode_test_envelope(SEMANTIC_SOURCE_DIRTY_INTENT_SCHEMA, missing);
+    assert!(SemanticSourceDirtyIntent::from_canonical_cbor(&missing).is_err());
+
+    let wrong_schema = encode_test_envelope(
+        "semantic-source-dirty-intent/v2",
+        serde_json::to_value(intent).unwrap(),
+    );
+    assert!(SemanticSourceDirtyIntent::from_canonical_cbor(&wrong_schema).is_err());
 }
 
 #[test]
@@ -719,7 +749,7 @@ fn stage_artifacts_are_closed_and_receipt_bound() {
     let mut transition = stage_transition(&binding);
     transition.receipt.output_digest = vector.values_digest;
     let mutation = SemanticIndexMutation::RecordStageTransition {
-        transition: transition.clone(),
+        transition: Box::new(transition.clone()),
         artifact: SemanticStageArtifact::Vector {
             vector: Box::new(vector),
         },
@@ -732,7 +762,7 @@ fn stage_artifacts_are_closed_and_receipt_bound() {
     );
 
     let missing = SemanticIndexMutation::RecordStageTransition {
-        transition,
+        transition: Box::new(transition),
         artifact: SemanticStageArtifact::None,
     };
     assert_eq!(

@@ -78,6 +78,56 @@ impl Nonce {
         hex::encode(self.0)
     }
 }
+impl Nonce {
+    /// Mint one attempt nonce, server-side.
+    ///
+    /// `NonceReplayKey` is the ATTEMPT identity: it exists so a duplicated
+    /// attempt of one operation is refused while a fresh attempt of the same
+    /// operation replays. A nonce is therefore never accepted from a caller --
+    /// a caller-pinned value would let a caller make its own retry
+    /// undeliverable, and the caller's stable retry identity is the idempotency
+    /// key, which lives inside `OperationReplayIdentity`.
+    ///
+    /// The property this mint owes is UNIQUENESS PER ATTEMPT, not
+    /// unpredictability: the value is minted and consumed inside the engine,
+    /// compared only against the engine's own `mutation_replay_nonces` rows, and
+    /// never round-trips through anything a caller can influence. Guessing one
+    /// buys nothing, because there is no path that accepts a guessed value. The
+    /// nonce a caller DOES see -- the transport envelope's -- is authenticated
+    /// by its MAC at the request boundary and threaded in explicitly; it is not
+    /// this.
+    ///
+    /// Uniqueness comes from three independent sources folded together: this
+    /// process's `RandomState` (seeded by the OS at first use), a monotonic
+    /// per-process counter, and the wall clock. Two attempts in the same
+    /// process differ by the counter; two processes differ by the seed.
+    pub fn minted() -> Self {
+        use std::hash::{BuildHasher, Hasher};
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::OnceLock;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        static PROCESS_SEED: OnceLock<u64> = OnceLock::new();
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+        let seed = *PROCESS_SEED.get_or_init(|| {
+            let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+            hasher.write_u64(std::process::id().into());
+            hasher.finish()
+        });
+        let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let elapsed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_nanos() as u64);
+        let mut hasher = Sha256::new();
+        hasher.update(b"eg/attempt-nonce/v1\0");
+        hasher.update(seed.to_be_bytes());
+        hasher.update(sequence.to_be_bytes());
+        hasher.update(elapsed.to_be_bytes());
+        Self(hasher.finalize().into())
+    }
+}
+
 impl fmt::Debug for Nonce {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("Nonce([redacted])")
@@ -150,6 +200,38 @@ macro_rules! fixed_hex_serde {
 }
 fixed_hex_serde!(Digest256);
 fixed_hex_serde!(Nonce);
+
+/// JSON Schema for the two fixed-width hex scalars.
+///
+/// Both serialize as exactly 64 lowercase hex characters (see
+/// [`serialize_fixed_hex`]/[`parse_fixed_hex`]), so the schema states that shape
+/// rather than the private byte array the type stores. Hand-written because the
+/// serde impls are hand-written: a derive would describe the Rust field, not the
+/// wire value, and the generated contract must describe the wire.
+#[cfg(feature = "contract-schema")]
+macro_rules! fixed_hex_schema {
+    ($name:ident, $description:literal) => {
+        impl schemars::JsonSchema for $name {
+            fn schema_name() -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed(stringify!($name))
+            }
+            fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                schemars::Schema::try_from(serde_json::json!({
+                    "type": "string",
+                    "description": $description,
+                    "pattern": "^[0-9a-f]{64}$",
+                    "minLength": SHA256_HEX_BYTES,
+                    "maxLength": SHA256_HEX_BYTES,
+                }))
+                .expect("a JSON object is a valid schema")
+            }
+        }
+    };
+}
+#[cfg(feature = "contract-schema")]
+fixed_hex_schema!(Digest256, "32 bytes of SHA-256 as lowercase hexadecimal");
+#[cfg(feature = "contract-schema")]
+fixed_hex_schema!(Nonce, "32 bytes of attempt nonce as lowercase hexadecimal");
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Ed25519Signature([u8; ED25519_SIGNATURE_BYTES]);

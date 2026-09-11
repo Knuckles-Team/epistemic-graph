@@ -255,6 +255,8 @@ mod tests {
     use super::*;
 
     use crate::isolation::{AgentIdentity, AgentRole, IsolationLayer};
+    #[cfg(feature = "redb")]
+    use crate::server::persistence::{redb_backend::RedbBackend, PersistenceBackend};
 
     /// A minimal `ServerState` with a pre-created `__commons__` graph (the registry
     /// creates it), mirroring `tests/pgwire_roundtrip.rs::state_with`. Feature-gated
@@ -284,6 +286,60 @@ mod tests {
 
     fn test_session(state: &Arc<RwLock<ServerState>>) -> WireSession {
         WireSession::new(state.clone(), "__commons__".to_string())
+    }
+
+    #[cfg(feature = "redb")]
+    async fn durable_test_state() -> (
+        Arc<RwLock<ServerState>>,
+        Arc<RedbBackend>,
+        std::path::PathBuf,
+    ) {
+        let state = test_state();
+        let persist_dir = state
+            .read()
+            .await
+            .persist_dir
+            .as_deref()
+            .map(std::path::PathBuf::from)
+            .expect("SQLite durability fixture has a persistence directory");
+        std::fs::create_dir_all(&persist_dir).expect("create SQLite durability directory");
+        let backend = Arc::new(
+            RedbBackend::open_with_shards(persist_dir.to_string_lossy().into_owned(), 64, 1)
+                .expect("open SQLite durability backend"),
+        );
+        backend
+            .register_graph(
+                "__commons__",
+                "__commons__",
+                crate::protocol::GraphType::Commons,
+            )
+            .await
+            .expect("register SQLite durability graph");
+        state.write().await.persistence = Some(backend.clone());
+        (state, backend, persist_dir)
+    }
+
+    #[cfg(feature = "redb")]
+    async fn reopen_durable_test_backend(
+        state: &Arc<RwLock<ServerState>>,
+        backend: Arc<RedbBackend>,
+        persist_dir: &std::path::Path,
+    ) -> Arc<RedbBackend> {
+        backend.shutdown();
+        state.write().await.persistence = None;
+        drop(backend);
+
+        for _ in 0..50 {
+            match RedbBackend::open_with_shards(persist_dir.to_string_lossy().into_owned(), 64, 1) {
+                Ok(reopened) => {
+                    let reopened = Arc::new(reopened);
+                    state.write().await.persistence = Some(reopened.clone());
+                    return reopened;
+                }
+                Err(_) => tokio::task::yield_now().await,
+            }
+        }
+        panic!("reopen SQLite durability backend");
     }
 
     /// A unique user-table name — the user-table SQL store is a process-global
@@ -321,6 +377,58 @@ mod tests {
             "sql": sql,
         })
         .to_string()
+    }
+
+    #[cfg(feature = "redb")]
+    fn signed_req(sql: &str, id: u64, agent: &str, nonce: &str, idempotency_key: &str) -> String {
+        let context = crate::acl::RequestContextClaims {
+            principal: agent.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: agent.to_string(),
+            roles: vec!["test".to_string()],
+            scopes: vec!["*".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+            node: None,
+            priority: None,
+        };
+        let mut signed = Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: String::new(),
+            agent_id: Some(agent.to_string()),
+            method: Method::Sql {
+                query: sql.to_string(),
+                params_msgpack: Vec::new(),
+            },
+        };
+        signed.auth_token = crate::server::compute_verified_envelope_token(
+            "test-sqlite-wire-secret",
+            &signed,
+            &crate::server::VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .expect("system clock")
+                    .as_secs(),
+                nonce,
+                idempotency_key,
+            },
+        );
+        serde_json::json!({
+            "id": signed.id,
+            "graph": signed.graph,
+            "auth_token": signed.auth_token,
+            "agent_id": signed.agent_id,
+            "sql": sql,
+        })
+        .to_string()
+    }
+
+    #[cfg(feature = "redb")]
+    fn response(line: &str) -> serde_json::Value {
+        serde_json::from_str(line).expect("SQLite wire response is JSON")
     }
 
     #[tokio::test]
@@ -450,6 +558,619 @@ mod tests {
 
         // Cleanup: the user-table store is process-global.
         let _ = execute_request(&session, &req(&format!("DROP TABLE {table}"))).await;
+    }
+
+    #[cfg(feature = "redb")]
+    #[tokio::test]
+    async fn signed_sqlite_requests_pin_identity_and_replay_by_caller_key() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let (state, backend, persist_dir) = durable_test_state().await;
+        let session = test_session(&state);
+        let table = unique_table();
+        let node_id = format!("sqlite_replay_node_{table}");
+
+        // Graph DML uses the same signed carrier. A fresh nonce with the same
+        // key replays, while a changed payload under that key is a conflict.
+        let graph_sql = format!("INSERT INTO nodes (id, type) VALUES ('{node_id}', 'first')");
+        let graph_first = response(
+            &execute_request(
+                &session,
+                &signed_req(&graph_sql, 10, "system", "graph-nonce-1", "graph-key"),
+            )
+            .await,
+        );
+        assert_eq!(graph_first["rows_affected"], 1, "{graph_first}");
+
+        // Close and reopen the authoritative backend before simulating the
+        // lost acknowledgement. The fresh nonce must reach the durable replay
+        // authority; an in-memory response cache cannot satisfy this attempt.
+        let backend = reopen_durable_test_backend(&state, backend, &persist_dir).await;
+        let graph_replay = response(
+            &execute_request(
+                &session,
+                &signed_req(&graph_sql, 11, "system", "graph-nonce-2", "graph-key"),
+            )
+            .await,
+        );
+        assert_eq!(graph_replay["rows_affected"], 1, "{graph_replay}");
+        let graph_changed = response(
+            &execute_request(
+                &session,
+                &signed_req(
+                    &format!("INSERT INTO nodes (id, type) VALUES ('{node_id}', 'changed')"),
+                    12,
+                    "system",
+                    "graph-nonce-3",
+                    "graph-key",
+                ),
+            )
+            .await,
+        );
+        assert!(
+            graph_changed["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("IDEMPOTENCY_CONFLICT")),
+            "changed graph payload must conflict: {graph_changed}"
+        );
+
+        let create = response(
+            &execute_request(
+                &session,
+                &signed_req(
+                    &format!("CREATE TABLE {table} (id INTEGER PRIMARY KEY, value TEXT)"),
+                    20,
+                    "system",
+                    "table-create-nonce",
+                    "table-create-key",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(create["tag"], "CREATE TABLE", "{create}");
+
+        // Two fresh attempts with the same stable authority but distinct keys
+        // both execute on one persistent session.
+        for (id, nonce, key, value) in [
+            (21, "distinct-nonce-1", "distinct-key-1", "one"),
+            (22, "distinct-nonce-2", "distinct-key-2", "two"),
+        ] {
+            let result = response(
+                &execute_request(
+                    &session,
+                    &signed_req(
+                        &format!("INSERT INTO {table} (id, value) VALUES ({id}, '{value}')"),
+                        id,
+                        "system",
+                        nonce,
+                        key,
+                    ),
+                )
+                .await,
+            );
+            assert_eq!(result["rows_affected"], 1, "{result}");
+        }
+
+        // A different verified actor cannot take over the already-bound
+        // connection, even when its envelope is otherwise valid.
+        let identity_change = response(
+            &execute_request(
+                &session,
+                &signed_req(
+                    "PRAGMA foreign_keys = ON",
+                    23,
+                    "peer",
+                    "identity-change-nonce",
+                    "identity-change-key",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(
+            identity_change["error"]["code"], "28000",
+            "{identity_change}"
+        );
+
+        let exact = signed_req(
+            &format!("INSERT INTO {table} (id, value) VALUES (24, 'exact')"),
+            24,
+            "system",
+            "exact-nonce",
+            "exact-key",
+        );
+        let exact_first = response(&execute_request(&session, &exact).await);
+        assert_eq!(exact_first["rows_affected"], 1, "{exact_first}");
+        let exact_replay = response(&execute_request(&session, &exact).await);
+        assert!(
+            exact_replay["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("REPLAY_NONCE_CONSUMED")),
+            "exact nonce replay must be rejected: {exact_replay}"
+        );
+
+        let lost_ack_sql = format!("INSERT INTO {table} (id, value) VALUES (25, 'lost-ack')");
+        let lost_ack_first = response(
+            &execute_request(
+                &session,
+                &signed_req(
+                    &lost_ack_sql,
+                    25,
+                    "system",
+                    "lost-ack-nonce-1",
+                    "lost-ack-key",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(lost_ack_first["rows_affected"], 1, "{lost_ack_first}");
+        let lost_ack_retry = response(
+            &execute_request(
+                &session,
+                &signed_req(
+                    &lost_ack_sql,
+                    26,
+                    "system",
+                    "lost-ack-nonce-2",
+                    "lost-ack-key",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(lost_ack_retry["rows_affected"], 1, "{lost_ack_retry}");
+
+        let changed_key_sql = format!("INSERT INTO {table} (id, value) VALUES (27, 'changed')");
+        let changed_key_first = response(
+            &execute_request(
+                &session,
+                &signed_req(
+                    &changed_key_sql,
+                    27,
+                    "system",
+                    "changed-key-nonce-1",
+                    "changed-key",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(changed_key_first["rows_affected"], 1, "{changed_key_first}");
+        let changed_key_conflict = response(
+            &execute_request(
+                &session,
+                &signed_req(
+                    &format!("INSERT INTO {table} (id, value) VALUES (28, 'different')"),
+                    28,
+                    "system",
+                    "changed-key-nonce-2",
+                    "changed-key",
+                ),
+            )
+            .await,
+        );
+        assert!(
+            changed_key_conflict["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("IDEMPOTENCY_CONFLICT")),
+            "changed table payload must conflict: {changed_key_conflict}"
+        );
+
+        let rows = response(
+            &execute_request(
+                &session,
+                &signed_req(
+                    &format!("SELECT id, value FROM {table} ORDER BY id"),
+                    29,
+                    "system",
+                    "select-nonce",
+                    "select-key",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(
+            rows["rows"].as_array().map(|rows| rows.len()),
+            Some(5),
+            "{rows}"
+        );
+
+        let _ = execute_request(
+            &session,
+            &signed_req(
+                &format!("DROP TABLE {table}"),
+                30,
+                "system",
+                "drop-nonce",
+                "drop-key",
+            ),
+        )
+        .await;
+        backend.shutdown();
+        state.write().await.persistence = None;
+    }
+
+    #[cfg(feature = "redb")]
+    #[tokio::test]
+    async fn signed_sqlite_explicit_commits_replay_by_commit_key_after_reconnect() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let (state, backend, persist_dir) = durable_test_state().await;
+        let table = unique_table();
+        let graph_node = format!("sqlite_explicit_graph_{table}");
+        let mixed_node = format!("sqlite_explicit_mixed_{table}");
+        let changed_node = format!("sqlite_explicit_changed_{table}");
+
+        let first = test_session(&state);
+        let begin = response(
+            &execute_request(
+                &first,
+                &signed_req("BEGIN", 100, "system", "explicit-begin-1", "begin-1"),
+            )
+            .await,
+        );
+        assert_eq!(begin["tag"], "BEGIN", "{begin}");
+        let staged = response(
+            &execute_request(
+                &first,
+                &signed_req(
+                    &format!("INSERT INTO nodes (id, type) VALUES ('{graph_node}', 'first')"),
+                    101,
+                    "system",
+                    "explicit-statement-1",
+                    "statement-1",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(staged["rows_affected"], 1, "{staged}");
+        let committed = response(
+            &execute_request(
+                &first,
+                &signed_req("COMMIT", 102, "system", "explicit-commit-1", "commit-key"),
+            )
+            .await,
+        );
+        assert_eq!(committed["tag"], "COMMIT", "{committed}");
+
+        // Reopen the authoritative store, then rebuild the transaction on a
+        // fresh signed SQLite session. Fresh nonce and statement keys change
+        // attempt metadata, while the COMMIT key reconstructs the same durable
+        // operation id and must replay from the persistence kernel.
+        let backend = reopen_durable_test_backend(&state, backend, &persist_dir).await;
+        let retry = test_session(&state);
+        let _ = execute_request(
+            &retry,
+            &signed_req("BEGIN", 110, "system", "explicit-begin-2", "begin-2"),
+        )
+        .await;
+        let _ = execute_request(
+            &retry,
+            &signed_req(
+                &format!("INSERT INTO nodes (id, type) VALUES ('{graph_node}', 'first')"),
+                111,
+                "system",
+                "explicit-statement-2",
+                "statement-2",
+            ),
+        )
+        .await;
+        let replay = response(
+            &execute_request(
+                &retry,
+                &signed_req("COMMIT", 112, "system", "explicit-commit-2", "commit-key"),
+            )
+            .await,
+        );
+        assert_eq!(replay["tag"], "COMMIT", "{replay}");
+
+        // A changed graph payload with the same commit key is a durable
+        // conflict, so reconnect cannot silently apply a second operation.
+        let changed = test_session(&state);
+        let _ = execute_request(
+            &changed,
+            &signed_req("BEGIN", 120, "system", "explicit-begin-3", "begin-3"),
+        )
+        .await;
+        let _ = execute_request(
+            &changed,
+            &signed_req(
+                &format!("INSERT INTO nodes (id, type) VALUES ('{graph_node}', 'changed')"),
+                121,
+                "system",
+                "explicit-statement-3",
+                "statement-3",
+            ),
+        )
+        .await;
+        let changed_commit = response(
+            &execute_request(
+                &changed,
+                &signed_req("COMMIT", 122, "system", "explicit-commit-3", "commit-key"),
+            )
+            .await,
+        );
+        assert!(
+            changed_commit["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("IDEMPOTENCY_CONFLICT")),
+            "changed explicit graph payload must conflict: {changed_commit}"
+        );
+
+        let setup = test_session(&state);
+        let create = response(
+            &execute_request(
+                &setup,
+                &signed_req(
+                    &format!("CREATE TABLE {table} (id INTEGER PRIMARY KEY, note TEXT)"),
+                    130,
+                    "system",
+                    "explicit-create-1",
+                    "create-key",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(create["tag"], "CREATE TABLE", "{create}");
+
+        let mixed = test_session(&state);
+        let _ = execute_request(
+            &mixed,
+            &signed_req("BEGIN", 140, "system", "mixed-begin-1", "mixed-begin-1"),
+        )
+        .await;
+        let _ = execute_request(
+            &mixed,
+            &signed_req(
+                &format!("INSERT INTO nodes (id, type) VALUES ('{mixed_node}', 'first')"),
+                141,
+                "system",
+                "mixed-node-1",
+                "mixed-node-key-1",
+            ),
+        )
+        .await;
+        let _ = execute_request(
+            &mixed,
+            &signed_req(
+                &format!("INSERT INTO {table} (id, note) VALUES (1, 'paired')"),
+                142,
+                "system",
+                "mixed-table-1",
+                "mixed-table-key-1",
+            ),
+        )
+        .await;
+        let mixed_commit = response(
+            &execute_request(
+                &mixed,
+                &signed_req(
+                    "COMMIT",
+                    143,
+                    "system",
+                    "mixed-commit-1",
+                    "mixed-commit-key",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(mixed_commit["tag"], "COMMIT", "{mixed_commit}");
+
+        // The same graph+table recipe on a new connection reuses the persisted
+        // operation identity. This is the reconnect analogue of recovery after
+        // the intent's table phase has already landed.
+        let mixed_retry = test_session(&state);
+        let _ = execute_request(
+            &mixed_retry,
+            &signed_req("BEGIN", 150, "system", "mixed-begin-2", "mixed-begin-2"),
+        )
+        .await;
+        let _ = execute_request(
+            &mixed_retry,
+            &signed_req(
+                &format!("INSERT INTO nodes (id, type) VALUES ('{mixed_node}', 'first')"),
+                151,
+                "system",
+                "mixed-node-2",
+                "mixed-node-key-2",
+            ),
+        )
+        .await;
+        let _ = execute_request(
+            &mixed_retry,
+            &signed_req(
+                &format!("INSERT INTO {table} (id, note) VALUES (1, 'paired')"),
+                152,
+                "system",
+                "mixed-table-2",
+                "mixed-table-key-2",
+            ),
+        )
+        .await;
+        let mixed_replay = response(
+            &execute_request(
+                &mixed_retry,
+                &signed_req(
+                    "COMMIT",
+                    153,
+                    "system",
+                    "mixed-commit-2",
+                    "mixed-commit-key",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(mixed_replay["tag"], "COMMIT", "{mixed_replay}");
+
+        // Rebuild the same graph recipe but change only the table payload
+        // under the same commit key. The graph phase is an exact durable
+        // replay; the table phase must report the conflict without running
+        // graph compensation, which would remove the original graph result.
+        let mixed_table_changed = test_session(&state);
+        let _ = execute_request(
+            &mixed_table_changed,
+            &signed_req(
+                "BEGIN",
+                154,
+                "system",
+                "mixed-begin-table-change",
+                "mixed-begin-table-change",
+            ),
+        )
+        .await;
+        let _ = execute_request(
+            &mixed_table_changed,
+            &signed_req(
+                &format!("INSERT INTO nodes (id, type) VALUES ('{mixed_node}', 'first')"),
+                155,
+                "system",
+                "mixed-node-table-change",
+                "mixed-node-table-change",
+            ),
+        )
+        .await;
+        let _ = execute_request(
+            &mixed_table_changed,
+            &signed_req(
+                &format!("INSERT INTO {table} (id, note) VALUES (2, 'different')"),
+                156,
+                "system",
+                "mixed-table-change",
+                "mixed-table-change",
+            ),
+        )
+        .await;
+        let mixed_table_conflict = response(
+            &execute_request(
+                &mixed_table_changed,
+                &signed_req(
+                    "COMMIT",
+                    157,
+                    "system",
+                    "mixed-commit-table-change",
+                    "mixed-commit-key",
+                ),
+            )
+            .await,
+        );
+        assert!(
+            mixed_table_conflict["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("IDEMPOTENCY_CONFLICT")),
+            "same graph plus changed table payload must conflict: {mixed_table_conflict}"
+        );
+        let mixed_after_conflict = test_session(&state);
+        let graph_after_conflict = response(
+            &execute_request(
+                &mixed_after_conflict,
+                &signed_req(
+                    &format!("SELECT id, type FROM nodes WHERE id = '{mixed_node}'"),
+                    158,
+                    "system",
+                    "mixed-after-graph",
+                    "mixed-after-graph",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(
+            graph_after_conflict["rows"]
+                .as_array()
+                .map(|rows| rows.len()),
+            Some(1),
+            "same graph replay must remain committed: {graph_after_conflict}"
+        );
+        assert_eq!(
+            graph_after_conflict["rows"][0][1], "first",
+            "same graph replay must preserve its original payload: {graph_after_conflict}"
+        );
+        let table_after_conflict = response(
+            &execute_request(
+                &mixed_after_conflict,
+                &signed_req(
+                    &format!("SELECT id, note FROM {table} ORDER BY id"),
+                    159,
+                    "system",
+                    "mixed-after-table",
+                    "mixed-after-table",
+                ),
+            )
+            .await,
+        );
+        assert_eq!(
+            table_after_conflict["rows"]
+                .as_array()
+                .map(|rows| rows.len()),
+            Some(1),
+            "changed table payload must not be applied: {table_after_conflict}"
+        );
+        assert_eq!(
+            table_after_conflict["rows"][0][0], 1,
+            "the original table row must remain: {table_after_conflict}"
+        );
+        assert_eq!(
+            table_after_conflict["rows"][0][1], "paired",
+            "the original table payload must remain: {table_after_conflict}"
+        );
+
+        let mixed_changed = test_session(&state);
+        let _ = execute_request(
+            &mixed_changed,
+            &signed_req("BEGIN", 160, "system", "mixed-begin-3", "mixed-begin-3"),
+        )
+        .await;
+        let _ = execute_request(
+            &mixed_changed,
+            &signed_req(
+                &format!("INSERT INTO nodes (id, type) VALUES ('{changed_node}', 'changed')"),
+                161,
+                "system",
+                "mixed-node-3",
+                "mixed-node-key-3",
+            ),
+        )
+        .await;
+        let _ = execute_request(
+            &mixed_changed,
+            &signed_req(
+                &format!("INSERT INTO {table} (id, note) VALUES (2, 'different')"),
+                162,
+                "system",
+                "mixed-table-3",
+                "mixed-table-key-3",
+            ),
+        )
+        .await;
+        let mixed_conflict = response(
+            &execute_request(
+                &mixed_changed,
+                &signed_req(
+                    "COMMIT",
+                    163,
+                    "system",
+                    "mixed-commit-3",
+                    "mixed-commit-key",
+                ),
+            )
+            .await,
+        );
+        assert!(
+            mixed_conflict["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("IDEMPOTENCY_CONFLICT")),
+            "changed explicit mixed payload must conflict: {mixed_conflict}"
+        );
+
+        let _ = execute_request(
+            &setup,
+            &signed_req(
+                &format!("DROP TABLE {table}"),
+                170,
+                "system",
+                "explicit-drop",
+                "explicit-drop-key",
+            ),
+        )
+        .await;
+        backend.shutdown();
+        state.write().await.persistence = None;
     }
 
     /// A malformed request and an engine error both surface as `{"error":{code,message}}`.

@@ -102,15 +102,15 @@ fn translate_pragma(sql: &str) -> Translated {
         .map(|a| unquote_ident(a.trim()))
         .filter(|a| !a.is_empty());
 
-    match name.to_ascii_lowercase().as_str() {
-        "table_info" => match arg {
-            Some(table) => Translated::Sql(table_info_sql(&table, false)),
-            None => Translated::Noop { tag: "PRAGMA" },
-        },
-        "table_xinfo" => match arg {
-            Some(table) => Translated::Sql(table_info_sql(&table, true)),
-            None => Translated::Noop { tag: "PRAGMA" },
-        },
+    let normalized = name.to_ascii_lowercase();
+    match normalized.as_str() {
+        "table_info" | "table_xinfo" => {
+            let xinfo = normalized == "table_xinfo";
+            match arg {
+                Some(table) => Translated::Sql(table_info_sql(&table, xinfo)),
+                None => Translated::Noop { tag: "PRAGMA" },
+            }
+        }
         "table_list" => Translated::Sql(table_list_sql()),
         "index_list" => Translated::Sql(INDEX_LIST_SQL.to_string()),
         "foreign_key_list" => Translated::Sql(FOREIGN_KEY_LIST_SQL.to_string()),
@@ -378,6 +378,94 @@ fn is_ident_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
+#[derive(Clone, Copy)]
+enum OperandDirection {
+    Backward,
+    Forward,
+}
+
+fn is_quote_byte(b: u8) -> bool {
+    matches!(b, b'\'' | b'"' | b'`')
+}
+
+fn scan_quoted_operand(
+    bytes: &[u8],
+    position: usize,
+    quote: u8,
+    direction: OperandDirection,
+) -> Option<usize> {
+    match direction {
+        OperandDirection::Backward => (0..position).rev().find(|&i| bytes[i] == quote),
+        OperandDirection::Forward => ((position + 1)..bytes.len())
+            .find(|&i| bytes[i] == quote)
+            .map(|i| i + 1),
+    }
+}
+
+fn scan_parenthesized_operand(
+    bytes: &[u8],
+    position: usize,
+    direction: OperandDirection,
+) -> Option<usize> {
+    match direction {
+        OperandDirection::Backward => {
+            scan_parenthesized_range(bytes, (0..=position).rev(), b')', b'(', 0)
+        }
+        OperandDirection::Forward => {
+            scan_parenthesized_range(bytes, position..bytes.len(), b'(', b')', 1)
+        }
+    }
+}
+
+fn scan_parenthesized_range<I>(
+    bytes: &[u8],
+    indices: I,
+    increase: u8,
+    decrease: u8,
+    result_offset: usize,
+) -> Option<usize>
+where
+    I: Iterator<Item = usize>,
+{
+    let mut depth = 0i32;
+    for i in indices {
+        match bytes[i] {
+            byte if byte == increase => depth += 1,
+            byte if byte == decrease => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i + result_offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn scan_identifier_operand(
+    bytes: &[u8],
+    position: usize,
+    direction: OperandDirection,
+) -> Option<usize> {
+    match direction {
+        OperandDirection::Backward => {
+            let mut i = position;
+            while i > 0 && (is_ident_byte(bytes[i - 1]) || bytes[i - 1] == b'.') {
+                i -= 1;
+            }
+            Some(i)
+        }
+        OperandDirection::Forward => {
+            let mut i = position;
+            while i < bytes.len() && (is_ident_byte(bytes[i]) || bytes[i] == b'.') {
+                i += 1;
+            }
+            Some(i)
+        }
+    }
+}
+
 /// Scan backward from byte offset `from` (skipping whitespace first) for the single
 /// operand token ending there; returns its start offset, or `None` if `from` is not
 /// preceded by a recognizable operand.
@@ -391,41 +479,14 @@ fn scan_operand_backward(sql: &str, from: usize) -> Option<usize> {
         return None;
     }
     let last = bytes[end - 1];
-    if last == b'\'' || last == b'"' || last == b'`' {
-        let quote = last;
-        let mut i = end - 1;
-        while i > 0 {
-            i -= 1;
-            if bytes[i] == quote {
-                return Some(i);
-            }
-        }
-        return None;
+    if is_quote_byte(last) {
+        return scan_quoted_operand(bytes, end - 1, last, OperandDirection::Backward);
     }
     if last == b')' {
-        let mut depth = 0i32;
-        let mut i = end;
-        while i > 0 {
-            i -= 1;
-            match bytes[i] {
-                b')' => depth += 1,
-                b'(' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(i);
-                    }
-                }
-                _ => {}
-            }
-        }
-        return None;
+        return scan_parenthesized_operand(bytes, end - 1, OperandDirection::Backward);
     }
     if is_ident_byte(last) {
-        let mut i = end;
-        while i > 0 && (is_ident_byte(bytes[i - 1]) || bytes[i - 1] == b'.') {
-            i -= 1;
-        }
-        return Some(i);
+        return scan_identifier_operand(bytes, end, OperandDirection::Backward);
     }
     None
 }
@@ -443,41 +504,14 @@ fn scan_operand_forward(sql: &str, from: usize) -> Option<usize> {
         return None;
     }
     let first = bytes[start];
-    if first == b'\'' || first == b'"' || first == b'`' {
-        let quote = first;
-        let mut i = start + 1;
-        while i < bytes.len() {
-            if bytes[i] == quote {
-                return Some(i + 1);
-            }
-            i += 1;
-        }
-        return None;
+    if is_quote_byte(first) {
+        return scan_quoted_operand(bytes, start, first, OperandDirection::Forward);
     }
     if first == b'(' {
-        let mut depth = 0i32;
-        let mut i = start;
-        while i < bytes.len() {
-            match bytes[i] {
-                b'(' => depth += 1,
-                b')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(i + 1);
-                    }
-                }
-                _ => {}
-            }
-            i += 1;
-        }
-        return None;
+        return scan_parenthesized_operand(bytes, start, OperandDirection::Forward);
     }
     if is_ident_byte(first) {
-        let mut i = start;
-        while i < bytes.len() && (is_ident_byte(bytes[i]) || bytes[i] == b'.') {
-            i += 1;
-        }
-        return Some(i);
+        return scan_identifier_operand(bytes, start, OperandDirection::Forward);
     }
     None
 }
@@ -751,6 +785,41 @@ mod tests {
             sql,
             "SELECT * FROM t WHERE regexp_match((a || b), t.pattern)"
         );
+    }
+
+    #[test]
+    fn infix_regexp_keeps_quoted_and_nested_operands_directional() {
+        let quoted = match translate_sqlite_sql("SELECT * FROM t WHERE 'left' REGEXP `right`") {
+            Translated::Sql(s) => s,
+            other => panic!("expected SQL: {other:?}"),
+        };
+        assert_eq!(
+            quoted,
+            "SELECT * FROM t WHERE regexp_match('left', `right`)"
+        );
+
+        let nested =
+            match translate_sqlite_sql("SELECT * FROM t WHERE ((a || b)) REGEXP (t.pattern)") {
+                Translated::Sql(s) => s,
+                other => panic!("expected SQL: {other:?}"),
+            };
+        assert_eq!(
+            nested,
+            "SELECT * FROM t WHERE regexp_match(((a || b)), (t.pattern))"
+        );
+    }
+
+    #[test]
+    fn regexp_operand_scanners_leave_unmatched_delimiters_unrecognized() {
+        assert_eq!(scan_operand_forward("'unterminated", 0), None);
+        assert_eq!(
+            scan_operand_backward("unterminated'", "unterminated'".len()),
+            None
+        );
+        assert_eq!(scan_operand_forward("(nested", 0), None);
+        assert_eq!(scan_operand_backward("nested)", "nested)".len()), None);
+        assert_eq!(scan_operand_backward("name\t", "name\t".len()), None);
+        assert_eq!(scan_operand_forward("\tname", 0), None);
     }
 
     #[test]

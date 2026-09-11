@@ -11,12 +11,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, top_level_fns
+from rust_module_tree import read_module_tree
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def compiler_source(relative: str) -> str:
+    """Return a Rust module's compiler-reachable source tree."""
+
+    return read_module_tree(relative, root_dir=ROOT, include_tests=True)
 
 
 def knowledge_stream_handler_source() -> str:
@@ -40,24 +47,61 @@ def knowledge_stream_handler_source() -> str:
 def require_knowledge_stream_authority(handler: str) -> None:
     """Pin the sole lease-bound served authority and page fences."""
 
-    dispatch = read("src/server/dispatch.rs")
+    router = read("src/server/dispatch/router.rs")
+    authority_path = reachable_source(router, "dispatch_governed_stream_write_methods")
     require(
-        "KnowledgeStreamAuthority::from_verified_with_lease(" in dispatch
+        all(
+            marker in authority_path
+            for marker in (
+                "KnowledgeStreamAuthority::from_verified_with_lease(",
+                "auth_secret",
+                "verified_context.claims()",
+                "MintAuthorization::compute_mac",
+                "MintAuthorization::new",
+                "CarrierAuthority::from_verified",
+                "mint_policy_decision_lease(",
+                "AccessLevel::Read",
+                "policy_store()",
+            )
+        )
         and "keyed_ref(server_secret" in handler,
         "served wire authority is not bound to a durable policy lease",
     )
     require(
-        "pub(crate) fn from_verified(" not in handler
-        and "validate_if_bound" not in handler
-        and "authority.validate_before()?" in handler
-        and "authority.validate_after()?" in handler,
-        "KnowledgeStream retains a claims-only or conditionally fenced served path",
+        all(
+            marker in handler
+            for marker in (
+                "pub(crate) fn from_verified_with_lease(",
+                "authority.policy_lease = Some(lease)",
+                "authority.policy_store = Some(policy_store)",
+                "fn validate_stream_preflight(",
+                "validate_stream_preflight(authority, caller, graph_name, carrier, &request)",
+                "authority.validate_before()",
+                "authority.validate_after()",
+            )
+        ),
+        "KnowledgeStream lacks a lease-bound constructor or strict pre/post page fences",
     )
 
 
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise SystemExit(f"P2 architecture gate failed: {message}")
+
+
+def require_native_runtime_contract(modality: str, runtime: str) -> None:
+    """Require the concrete runtime's executed production probe contract."""
+
+    require("Noop" not in runtime, f"{modality} runtime still contains a no-op")
+    require(
+        f"Native{modality.title()}Runtime" in runtime,
+        f"{modality} lacks a concrete native runtime",
+    )
+    require(
+        "production_probe" in runtime
+        and "malformed_and_resource_bounds" in runtime,
+        f"{modality} lacks an executed native production probe",
+    )
 
 
 def call_offset(body: str, name: str) -> int:
@@ -161,17 +205,8 @@ def require_modality_governed_contracts() -> None:
         require("serving =" in cargo, f"{modality} has no served runtime feature")
 
     for modality in ("document", "image", "audio", "video"):
-        runtime = read(f"crates/eg-{modality}/src/runtime.rs")
-        require("Noop" not in runtime, f"{modality} runtime still contains a no-op")
-        require(
-            f"Native{modality.title()}Runtime" in runtime,
-            f"{modality} lacks a concrete native runtime",
-        )
-        require(
-            "production_probe" in runtime
-            and "malformed_and_resource_bounds" in runtime,
-            f"{modality} lacks an executed native production probe",
-        )
+        runtime = compiler_source(f"crates/eg-{modality}/src/runtime.rs")
+        require_native_runtime_contract(modality, runtime)
         cargo = read(f"crates/eg-{modality}/Cargo.toml")
         require('sha2 = "0.10"' in cargo, f"{modality} content identity is not SHA-256")
         require(
@@ -205,7 +240,7 @@ def require_modality_native_runtimes() -> None:
         and "MAX_DECODED_SAMPLES" in audio,
         "audio runtime lacks bounded waveform/spectral extraction",
     )
-    video = read("crates/eg-video/src/runtime.rs")
+    video = compiler_source("crates/eg-video/src/runtime.rs")
     for marker in (
         "parse_sample_description",
         "parse_time_to_sample",
@@ -302,7 +337,7 @@ def require_served_knowledge_stream_wire() -> None:
         "CrossModal",
     ):
         require(f"Self::{family}" in wire, f"wire query omits {family}")
-    require("ArrowIpcV1" in wire, "native KnowledgeStream projection is not Arrow IPC")
+    require("ArrowIpc" in wire, "native KnowledgeStream projection is not Arrow IPC")
     require(
         "CompatibilityMsgpackV1" not in wire,
         "retired KnowledgeStream compatibility projection is still present",
@@ -340,14 +375,19 @@ def require_served_knowledge_stream_wire() -> None:
         and 'keyed_opaque(authority, "result"' in handler,
         "query/result identifiers are not privacy-safe keyed references",
     )
-    dispatch = read("src/server/dispatch.rs")
+    dispatch = read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
     require_graph_dispatch_ordering(dispatch)
 
 
 def require_served_modality_plane() -> None:
     """Served modalities: unsafe-payload rejection, filtered replay, native postings."""
 
-    served = read("crates/eg-modality/src/served.rs")
+    # `served.rs` was split into a `served/` module tree (error/mutation/query/
+    # records/indexes/protocol/recovery), so reading the parent file alone saw
+    # only its `mod` declarations and reported every property below as missing
+    # -- `UnsafePayload` lives in `served/error.rs` now. Read the whole
+    # compiler-reachable tree, which is what these assertions have always meant.
+    served = compiler_source("crates/eg-modality/src/served.rs")
     require(
         "UnsafePayload" in served, "served modalities do not reject unsafe payloads"
     )
@@ -425,10 +465,21 @@ def require_modality_request_handler() -> None:
     )
 
 
+def require_target_bound_ingest(handler: str) -> None:
+    """Require certified target closure and content binding before native decode."""
+
+    require(
+        "ResourceClosure::resolve(&bundle, &target)?" in handler
+        and 'artifact.content_ref.namespace() != "content"' in handler
+        and ".validate_certified()" in handler,
+        "native modality ingest is not target-bound and certified before decoding",
+    )
+
+
 def require_modality_resource_bounds() -> None:
     """Configurable hard resource ceilings and authority-keyed native predicates."""
 
-    handler = read("src/server/handlers/modality.rs")
+    handler = compiler_source("src/server/handlers/modality.rs")
     wire_types = read("crates/eg-types/src/modality.rs")
     require(
         "EPISTEMIC_GRAPH_MODALITY_MAX_SOURCE_BYTES" in handler
@@ -441,12 +492,7 @@ def require_modality_resource_bounds() -> None:
         and "query_native" in handler,
         "server does not authority-key and execute native predicates",
     )
-    require(
-        "target_resource_closure" in handler
-        and 'artifact.content_ref.namespace() != "content"' in handler
-        and ".validate_certified()" in handler,
-        "native modality ingest is not target-bound and certified before decoding",
-    )
+    require_target_bound_ingest(handler)
     require(
         "store_runtime_excluding_sources" in handler
         and "raw source would enter modality snapshot" in handler,
@@ -490,7 +536,7 @@ def require_modality_transport_path() -> None:
         "server modality resource/correctness gate is absent",
     )
 
-    dispatch = read("src/server/dispatch.rs")
+    dispatch = read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
     require(
         "dispatch_served_modality" in dispatch
         and "commit_conditional_mutation" in dispatch,
@@ -538,7 +584,8 @@ def require_modality_raft_replication() -> None:
     """Raft replication of sanitized served-modality commands."""
 
     raft = read("src/raft/mod.rs")
-    command_start = raft.find("pub struct SanitizedModalityRaftCommand")
+    command_name = raft.find("pub struct SanitizedModalityRaftCommand")
+    command_start = raft.rfind("#[serde(deny_unknown_fields)]", 0, command_name)
     command_end = raft.find("/// The application request replicated through Raft")
     require(
         0 <= command_start < command_end,
@@ -569,7 +616,7 @@ def require_modality_raft_replication() -> None:
 def require_modality_replication_dispatch() -> None:
     """The dispatch path that sanitizes and submits a modality replication."""
 
-    dispatch = read("src/server/dispatch.rs")
+    dispatch = read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
     # Same repair as the ordering check above: `replicate_served_modality` was
     # decomposed into `decode_modality_replication_inputs` ->
     # `build_modality_raft_command` -> `submit_modality_replication`, all

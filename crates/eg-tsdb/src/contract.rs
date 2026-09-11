@@ -24,7 +24,7 @@ use eg_modality::{
 use crate::store::SeriesMeta;
 use crate::traces::Span;
 
-const SERIES_META_TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+const SERIES_META_TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &str)] = &[
     (
         TckPoint::CdcDeleteRetentionGc,
         "CDC applies to series points, not metadata — the metadata container is immutable once created; point append/delete is CDC-observable separately",
@@ -39,7 +39,7 @@ const SERIES_META_TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
     ),
 ];
 
-const SPAN_TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &'static str)] = &[
+const SPAN_TCK_NOT_APPLICABLE_REASONS: &[(TckPoint, &str)] = &[
     (
         TckPoint::CdcDeleteRetentionGc,
         "CDC is implicit in OTLP ingest; span observation is append-only and immutable at the trace-store level",

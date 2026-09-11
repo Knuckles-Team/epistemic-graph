@@ -19,15 +19,16 @@ use std::sync::{Arc, RwLock};
 
 use eg_storage::{
     ledger_scope_key, OwnedStoreHandle, PhysicalStoreIdentity, ScopeGrantVerifier, ScopedRead,
-    SqlOwner, StorageKernel,
+    SqlOwner, StorageKernel, SQL_SOURCE_AUTHORITY,
 };
 use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite, Begin, MutationKernel};
 use eg_types::mutation_batch::{
-    DurabilityDomain, MutationBatch, MutationBatchRecord, MutationOperation,
-    MutationRequestContext, MutationScopeIdentity, MutationSurface, VersionExpectation,
-    COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
+    DurabilityDomain, MutationBatch, MutationBatchRecord, MutationEnvelope, MutationOperation,
+    MutationScopeIdentity, MutationSurface, VersionExpectation, COMPILED_BATCH_INCARNATION,
+    MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
+use redb::ReadableTable;
 
 /// Operator-facing identity of the ONE physical SQL owner file. It names the
 /// physical authority boundary the storage kernel stamps into the owner
@@ -41,6 +42,9 @@ pub(crate) const SQL_PHYSICAL_STORE: &str = "eg-query:sql-user-tables";
 /// physical file still have distinct bootstrap identities.
 pub(crate) const SQL_BOOTSTRAP_RESOURCE: &str = "sql-user-tables";
 
+const SQL_SOURCE_AUTHORITY_KEY: &str = "current";
+const SQL_SOURCE_AUTHORITY_RECORD_BYTES: usize = 32 + 8;
+
 /// The only owner-row write handle for the SQL layout. Reachable solely between
 /// `AdmittedMutation::owner_rows` and `finish_owner`, and bounded to the tables
 /// `owner_table_names(OwnerLayout::Sql)` declares.
@@ -48,6 +52,12 @@ pub(crate) type SqlWrite<'a> = AdmittedOwnerWrite<'a, SqlOwner>;
 
 /// One kernel-issued scoped read over the SQL owner file.
 pub(crate) type SqlRead<'a> = ScopedRead<'a, SqlOwner>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SqlSourceSnapshot {
+    pub(crate) authority_digest: [u8; 32],
+    pub(crate) epoch: u64,
+}
 
 /// The typed identity of one SQL mutation scope.
 ///
@@ -124,20 +134,17 @@ fn maintenance_batch(
     let batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch_id.clone(),
-        context: MutationRequestContext {
-            request_id: 0,
-            principal: principal.to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // A maintenance mutation claims no capability: it is a plain
-            // `Native`-versioned write, not the reserved-system `Unversioned`
-            // path. Empty is the true fact here, not a placeholder.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
+        // See this function's own doc comment: a direct `TableStore` write has
+        // no caller identity to derive an operation identity from, so it is a
+        // MAINTENANCE envelope and says so structurally at construction time.
+        envelope: MutationEnvelope::maintenance_for_scope(
+            identity,
+            principal,
+            &format!("sql_{kind}"),
+            &batch_id,
+        )?,
         identity: identity.clone(),
         placement_epoch: 0,
-        idempotency_key: batch_id,
         version_expectation: VersionExpectation::Native(expected_version),
         fencing_token: None,
         authoritative_state: None,
@@ -174,6 +181,7 @@ pub(crate) struct SqlAuthority {
     grants: Arc<dyn ScopeGrantVerifier>,
     principal: String,
     proof: Vec<u8>,
+    source_authority_digest: [u8; 32],
     bootstrap: Arc<OwnedStoreHandle<SqlOwner>>,
     /// Bound serving scopes, keyed by `(ledger scope key, principal)`.
     ///
@@ -224,6 +232,7 @@ impl SqlAuthority {
         } else {
             StorageKernel::create_owner::<SqlOwner>(path, physical, None)
         }?;
+        let source_authority_digest = kernel.owner_authority_digest()?;
         let (kernel, authority) = kernel.into_read_and_mutation_authority()?;
         let mutations = MutationKernel::new(authority);
         let bootstrap = Arc::new(bind_serving_scope(
@@ -240,6 +249,7 @@ impl SqlAuthority {
             grants: verifier,
             principal: principal.to_string(),
             proof: proof.to_vec(),
+            source_authority_digest,
             bootstrap,
             scopes: RwLock::new(BTreeMap::new()),
         })
@@ -289,6 +299,53 @@ impl SqlAuthority {
     /// mutation and the reader of every scoped read it takes on its own behalf.
     pub(crate) fn principal(&self) -> &str {
         &self.principal
+    }
+
+    /// Stable identity of this tenant's physical SQL source authority. It is
+    /// anchored to the owner manifest and store incarnation, so an adopted or
+    /// replaced file cannot accept a cursor minted for the prior authority.
+    pub(crate) fn source_authority_digest(&self) -> [u8; 32] {
+        self.source_authority_digest
+    }
+
+    /// Read the tenant-wide SQL source epoch from the same owner snapshot as
+    /// catalog schema and rows. A missing row is the pre-epoch state of a
+    /// fresh/legacy file and is represented as epoch zero; the current physical
+    /// authority digest is always returned so a reopen on a new incarnation
+    /// invalidates old cursors immediately.
+    pub(crate) fn source_snapshot(&self, read: &SqlRead<'_>) -> Result<SqlSourceSnapshot, String> {
+        let live_authority_digest = self.source_authority_digest();
+        let table = read.open_owner_table(SQL_SOURCE_AUTHORITY)?;
+        let Some(value) = table
+            .get(SQL_SOURCE_AUTHORITY_KEY)
+            .map_err(|error| error.to_string())?
+        else {
+            return Ok(SqlSourceSnapshot {
+                authority_digest: live_authority_digest,
+                epoch: 0,
+            });
+        };
+        let bytes = value.value();
+        if bytes.len() != SQL_SOURCE_AUTHORITY_RECORD_BYTES {
+            return Err("SQL source authority record has an invalid length".to_string());
+        }
+        let mut authority_digest = [0_u8; 32];
+        authority_digest.copy_from_slice(&bytes[..32]);
+        let epoch = u64::from_be_bytes(
+            bytes[32..]
+                .try_into()
+                .map_err(|_| "SQL source authority epoch is invalid".to_string())?,
+        );
+        Ok(SqlSourceSnapshot {
+            // The stored digest is retained for forensic continuity, but the
+            // live authority is the cursor identity after a physical reopen.
+            authority_digest: if authority_digest == live_authority_digest {
+                authority_digest
+            } else {
+                live_authority_digest
+            },
+            epoch,
+        })
     }
 
     /// One kernel-issued scoped read over an exact bound scope -- the only way
@@ -379,16 +436,17 @@ impl SqlAuthority {
         kind: &str,
         subject: &str,
     ) -> Result<SqlMutation<'_>, String> {
-        let expected_version = self.scope_version(owner.as_ref())?;
-        let batch = maintenance_batch(
-            kind,
-            subject,
-            owner.identity(),
-            &self.principal,
-            expected_version,
-            unix_ms(),
-        )?;
-        let (write, begun) = self.mutations.admit_maintenance(owner.as_ref(), &batch)?;
+        let created_at_ms = unix_ms();
+        let (write, batch, begun) = self.mutations.admit_current(owner.as_ref(), |version| {
+            maintenance_batch(
+                kind,
+                subject,
+                owner.identity(),
+                &self.principal,
+                version,
+                created_at_ms,
+            )
+        })?;
         let source_version = match begun {
             Begin::Replay(_) => {
                 write.abort()?;
@@ -411,16 +469,18 @@ impl SqlAuthority {
     /// Admit one caller-originated SQL statement batch on the scope its own
     /// identity names.
     ///
-    /// This is `MutationClass::Operation`: the kernel's ledger decides
-    /// idempotency, OCC and route fencing for it, and writes its receipt, class
-    /// row, version bump, fence and outbox rows on `finish`. A returned
+    /// This is an operation envelope: the kernel's ledger decides idempotency,
+    /// OCC and route fencing for it, and writes its receipt, class row, version
+    /// bump, fence and outbox rows on `finish`. A returned
     /// [`Begin::Replay`] means the idempotency key already names a terminally
-    /// committed receipt and the caller must abort rather than reapply.
+    /// committed receipt. The caller must not reapply owner rows: it commits
+    /// when acknowledging the replay so the fresh attempt nonce is consumed,
+    /// and aborts only when probing or rejecting an invalid stored result.
     pub(crate) fn begin_operation(
         &self,
         batch: &MutationBatch,
     ) -> Result<(SqlMutation<'_>, Begin), String> {
-        let owner = self.scope_handle(&batch.identity, &batch.context.principal)?;
+        let owner = self.scope_handle(&batch.identity, batch.serving_principal())?;
         let (write, begun) = self.mutations.admit(owner.as_ref(), batch)?;
         let mutation = SqlMutation {
             authority: self,
@@ -481,7 +541,13 @@ impl SqlMutation<'_> {
     {
         let owner_write = self.write.owner_rows(self.owner.as_ref(), &self.batch)?;
         let outcome = apply(&owner_write);
+        let source_epoch = if outcome.is_ok() {
+            advance_source_epoch(&owner_write, self.authority.source_authority_digest)
+        } else {
+            Ok(())
+        };
         owner_write.finish_owner()?;
+        source_epoch?;
         outcome
     }
 
@@ -516,4 +582,34 @@ impl SqlMutation<'_> {
     pub(crate) fn abort(self) -> Result<(), String> {
         self.write.abort()
     }
+}
+
+fn advance_source_epoch(write: &SqlWrite<'_>, authority_digest: [u8; 32]) -> Result<(), String> {
+    let mut table = write
+        .open_table(SQL_SOURCE_AUTHORITY)
+        .map_err(|error| error.to_string())?;
+    let current_epoch = table
+        .get(SQL_SOURCE_AUTHORITY_KEY)
+        .map_err(|error| error.to_string())?
+        .map(|value| {
+            let bytes = value.value();
+            if bytes.len() != SQL_SOURCE_AUTHORITY_RECORD_BYTES {
+                return Err("SQL source authority record has an invalid length".to_string());
+            }
+            Ok(u64::from_be_bytes(bytes[32..].try_into().map_err(
+                |_| "SQL source authority epoch is invalid".to_string(),
+            )?))
+        })
+        .transpose()?
+        .unwrap_or(0);
+    let epoch = current_epoch
+        .checked_add(1)
+        .ok_or_else(|| "SQL source authority epoch exhausted".to_string())?;
+    let mut bytes = [0_u8; SQL_SOURCE_AUTHORITY_RECORD_BYTES];
+    bytes[..32].copy_from_slice(&authority_digest);
+    bytes[32..].copy_from_slice(&epoch.to_be_bytes());
+    table
+        .insert(SQL_SOURCE_AUTHORITY_KEY, bytes.as_slice())
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }

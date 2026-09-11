@@ -54,7 +54,9 @@ use eg_types::wire::{JsonPathOp, Pred};
 use serde_json::{Map, Value};
 
 use super::pgq::GraphTableQuery;
-use crate::tables::property_graph::{PropertyGraphStatement, SqlName};
+use crate::tables::property_graph::{
+    PropertyGraphPrivilegeStatement, PropertyGraphStatement, SqlName,
+};
 use crate::tables::schema::{
     CheckExpr, CmpOp, ColCheck, ColumnType, FunctionArg as CatalogArg, FunctionLanguage,
     FunctionReturns, RefAction, StoredFunction, TableConstraint, MAX_TABLE_COLUMNS,
@@ -144,6 +146,10 @@ pub enum StatementKind {
     /// This is a typed stop at the authority boundary, not an executable DDL
     /// plan: catalog tenant resolution and ACL admission are still required.
     PropertyGraphDdlRequiresCatalogAdmission(PropertyGraphCatalogAdmission),
+    /// A syntactically valid, single-principal graph `SELECT` GRANT/REVOKE.
+    /// Stable-object resolution and owner/admin authorization remain at the
+    /// serving authority boundary.
+    PropertyGraphPrivilegeRequiresCatalogAdmission(PropertyGraphPrivilegeStatement),
     /// A bounded fixed-pattern `GRAPH_TABLE` read whose catalog definition must
     /// be resolved by the authority layer before the existing executor can lower
     /// and run it.
@@ -638,7 +644,7 @@ fn classify_textual_precheck(sql: &str) -> Option<Result<StatementKind, String>>
     // CONCEPT:EG-KG.query.real-ann-top-k — pgvector `CREATE INDEX … USING hnsw|ivfflat (col opclass)`. The
     // opclass (and `IF NOT EXISTS` on an index) does not parse in `sqlparser` 0.51, so
     // recognize the ANN-index shape textually. A non-ANN `CREATE INDEX` returns `None`.
-    if let Some(plan) = super::pgfamily::parse_create_ann_index(sql) {
+    if let Some(plan) = super::pgvector_ddl::parse_create_ann_index(sql) {
         return Some(Ok(StatementKind::CreateAnnIndex(plan)));
     }
     // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB continuous aggregate. The dotted
@@ -656,6 +662,12 @@ fn classify_pgq_precheck(sql: &str) -> Option<Result<StatementKind, String>> {
     // catalog-admission outcome; it never executes or persists the statement.
     if super::pgq::is_property_graph_ddl(sql) {
         return Some(classify_property_graph_ddl(sql));
+    }
+    if super::pgq::is_property_graph_privilege(sql) {
+        return Some(
+            super::pgq::parse_property_graph_privilege(sql)
+                .map(StatementKind::PropertyGraphPrivilegeRequiresCatalogAdmission),
+        );
     }
     // GRAPH_TABLE likewise has no sqlparser 0.51 AST. Parse the intentionally
     // bounded `SELECT * FROM GRAPH_TABLE (...)` (or direct composition form),
@@ -1905,13 +1917,26 @@ fn index_columns_to_names(cols: &[IndexColumn]) -> Result<Vec<String>, String> {
 /// A plain column identifier from an `Expr` (CONCEPT:EG-KG.query.table-schema-constraints/NE-001) — rejects
 /// anything but a bare (possibly table-qualified) identifier.
 fn ident_from_expr(expr: &Expr) -> Result<String, String> {
+    column_ident(expr, "empty compound identifier", || {
+        format!("expected a plain column name, got `{expr}`")
+    })
+}
+
+/// The bare column name an `Expr` denotes: an identifier, or the last segment of a
+/// qualified one. Both error contracts are the caller's — the two sites name the same
+/// two failures differently.
+fn column_ident(
+    expr: &Expr,
+    empty: &str,
+    not_a_column: impl FnOnce() -> String,
+) -> Result<String, String> {
     match expr {
         Expr::Identifier(id) => Ok(id.value.clone()),
         Expr::CompoundIdentifier(parts) => parts
             .last()
             .map(|i| i.value.clone())
-            .ok_or_else(|| "empty compound identifier".to_string()),
-        other => Err(format!("expected a plain column name, got `{other}`")),
+            .ok_or_else(|| empty.to_string()),
+        _ => Err(not_a_column()),
     }
 }
 
@@ -2046,14 +2071,20 @@ fn decode_check_comparison(
 /// Resolve a comparison `BinaryOperator` to a [`CmpOp`] for a general CHECK leaf
 /// (CONCEPT:EG-KG.query.table-schema-constraints/NE-001), rejecting anything else with an explicit error.
 fn cmp_op_from_check_binary(op: BinaryOperator) -> Result<CmpOp, String> {
+    cmp_op(&op).ok_or_else(|| format!("unsupported CHECK comparison operator `{op}`"))
+}
+
+/// The six scalar comparisons a CHECK constraint may use. `None` for anything else; the
+/// caller owns the error, because the two CHECK spellings name it differently.
+fn cmp_op(op: &BinaryOperator) -> Option<CmpOp> {
     match op {
-        BinaryOperator::Eq => Ok(CmpOp::Eq),
-        BinaryOperator::NotEq => Ok(CmpOp::Ne),
-        BinaryOperator::Lt => Ok(CmpOp::Lt),
-        BinaryOperator::LtEq => Ok(CmpOp::Le),
-        BinaryOperator::Gt => Ok(CmpOp::Gt),
-        BinaryOperator::GtEq => Ok(CmpOp::Ge),
-        other => Err(format!("unsupported CHECK comparison operator `{other}`")),
+        BinaryOperator::Eq => Some(CmpOp::Eq),
+        BinaryOperator::NotEq => Some(CmpOp::Ne),
+        BinaryOperator::Lt => Some(CmpOp::Lt),
+        BinaryOperator::LtEq => Some(CmpOp::Le),
+        BinaryOperator::Gt => Some(CmpOp::Gt),
+        BinaryOperator::GtEq => Some(CmpOp::Ge),
+        _ => None,
     }
 }
 
@@ -2118,17 +2149,9 @@ fn decode_check(expr: &Expr, col: &str) -> Result<ColCheck, String> {
 /// [`decode_check`]'s operator resolution: the six scalar comparisons, else an
 /// explicit error naming `col`.
 fn cmp_op_from_simple_check(op: &BinaryOperator, col: &str) -> Result<CmpOp, String> {
-    match op {
-        BinaryOperator::Eq => Ok(CmpOp::Eq),
-        BinaryOperator::NotEq => Ok(CmpOp::Ne),
-        BinaryOperator::Lt => Ok(CmpOp::Lt),
-        BinaryOperator::LtEq => Ok(CmpOp::Le),
-        BinaryOperator::Gt => Ok(CmpOp::Gt),
-        BinaryOperator::GtEq => Ok(CmpOp::Ge),
-        other => Err(format!(
-            "CHECK on `{col}` supports only a simple comparison, got operator `{other}`"
-        )),
-    }
+    cmp_op(op).ok_or_else(|| {
+        format!("CHECK on `{col}` supports only a simple comparison, got operator `{op}`")
+    })
 }
 
 /// [`decode_check`]'s operand resolution: accept `col OP literal` (the literal
@@ -3029,14 +3052,9 @@ fn decode_binary_predicate(
 /// Extract the bare column name from the left side of a WHERE equality. Accepts
 /// an unqualified `col` or a qualified `nodes.col` (last segment wins).
 fn ident_column(expr: &Expr) -> Result<String, String> {
-    match expr {
-        Expr::Identifier(id) => Ok(id.value.clone()),
-        Expr::CompoundIdentifier(parts) => parts
-            .last()
-            .map(|i| i.value.clone())
-            .ok_or_else(|| "empty qualified column in WHERE".to_string()),
-        other => Err(format!("WHERE left side must be a column, got `{other}`")),
-    }
+    column_ident(expr, "empty qualified column in WHERE", || {
+        format!("WHERE left side must be a column, got `{expr}`")
+    })
 }
 
 /// The last segment of a (possibly qualified) object name.

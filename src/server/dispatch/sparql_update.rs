@@ -1,4 +1,6 @@
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 use super::request_boundary::dispatch_with_context;
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 use super::*;
 
 #[cfg(all(feature = "redb", feature = "security"))]
@@ -302,10 +304,11 @@ fn begin_sealed_sparql_saga(
         Ok(value) => value,
         Err(error) => return Err(Response::err(coord.req_id, error)),
     };
-    handlers::admin::begin_named_admin_saga_with_private_payload(
+    handlers::admin::begin_named_admin_saga_with_private_payload_and_nonce(
         coord.redb,
         coord.req_id,
         Some(coord.verified_actor),
+        coord.verified_context.attempt_nonce(),
         handlers::admin::AdminSagaPayload {
             domain: crate::mutation_batch::DurabilityDomain::MultiGraph,
             batch_id,
@@ -497,12 +500,13 @@ async fn try_sparql_forward_commit(
     if let Err(response) = create_missing_sparql_graphs(coord, plan).await {
         return SparqlForwardOutcome::Settled(Box::new(response));
     }
-    let forward = handlers::txn::commit_coordinated_graph_methods(
+    let forward = handlers::txn::commit_coordinated_graph_methods_with_nonce(
         coord.state,
         coord.req_id,
         Some(coord.verified_actor),
         coord.parent_id,
         sparql_forward_methods(plan),
+        coord.verified_context.attempt_nonce(),
     )
     .await;
     if forward.error.is_none() && !matches!(forward.result, Some(ResultPayload::Bool(false))) {
@@ -535,12 +539,13 @@ async fn apply_sparql_rollback(
     if rollback_methods.is_empty() {
         return Ok(());
     }
-    let rollback = handlers::txn::commit_coordinated_graph_methods(
+    let rollback = handlers::txn::commit_coordinated_graph_methods_with_nonce(
         coord.state,
         coord.req_id,
         Some(coord.verified_actor),
         coord.compensation_id,
         rollback_methods,
+        coord.verified_context.attempt_nonce(),
     )
     .await;
     if let Some(error) = rollback.error {
@@ -749,7 +754,7 @@ pub(super) async fn coordinated_sparql_http_update(
 #[cfg(all(test, feature = "redb", feature = "security", feature = "sparql-http"))]
 mod coordinator_restart_tests {
     use super::*;
-    use crate::mutation_batch::{MutationBatchStatus, DurabilityDomain, MutationSurface};
+    use crate::mutation_batch::{DurabilityDomain, MutationBatchStatus, MutationSurface};
     use eg_transaction::{read_ledger, read_private_payload};
 
     /// The coordinator owner file is ledger-only: receipts and sealed payloads.
@@ -856,6 +861,7 @@ mod coordinator_restart_tests {
             crate::server::mutation_batch::CompileBatch {
                 batch_id: id,
                 request_id: 41,
+                attempt_nonce: None,
                 principal: Some("system"),
                 tenant: "native",
                 graph: "cluster-admin",

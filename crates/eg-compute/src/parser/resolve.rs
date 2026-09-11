@@ -583,16 +583,17 @@ fn append_import_edge(
     });
 }
 
+type SimilaritySignature<'a> = (&'a str, [u32; super::tree_sitter::MINHASH_K]);
+
 /// LSH-band the per-symbol MinHash signatures into `similar_to` edges. Symbols
 /// whose signatures collide in any band become candidate pairs; a pair is linked
 /// when its estimated Jaccard ≥ [`SIMILAR_THRESHOLD`]. Edges are symmetric
 /// (emitted once with sorted endpoints), scored, and capped per node so a big
 /// clone family doesn't explode the edge set. Returns the edge count.
 fn similarity_edges(nodes: &[ExtractedNode], edges: &mut Vec<ExtractedEdge>) -> usize {
-    use super::tree_sitter::{decode_minhash, minhash_jaccard, MINHASH_K};
+    use super::tree_sitter::decode_minhash;
 
-    // (node_id, signature) for every code symbol with a usable signature.
-    let sigs: Vec<(&str, [u32; MINHASH_K])> = nodes
+    let sigs: Vec<SimilaritySignature<'_>> = nodes
         .iter()
         .filter(|n| n.node_type == "SYMBOL")
         .filter_map(|n| {
@@ -605,62 +606,9 @@ fn similarity_edges(nodes: &[ExtractedNode], edges: &mut Vec<ExtractedEdge>) -> 
     if sigs.len() < 2 {
         return 0;
     }
+    let scored = similarity_scored_pairs(&sigs);
 
-    // LSH banding: BANDS bands of ROWS rows (BANDS*ROWS == MINHASH_K).
-    const BANDS: usize = 8;
-    const ROWS: usize = MINHASH_K / BANDS;
-    let mut buckets: HashMap<(usize, u64), Vec<usize>> = HashMap::new();
-    for (idx, (_, sig)) in sigs.iter().enumerate() {
-        for band in 0..BANDS {
-            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-            for row in 0..ROWS {
-                h ^= sig[band * ROWS + row] as u64;
-                h = h.wrapping_mul(0x0000_0100_0000_01b3);
-            }
-            buckets.entry((band, h)).or_default().push(idx);
-        }
-    }
-
-    // Candidate pairs (deduped) from co-bucketed symbols.
-    let mut candidates: HashSet<(usize, usize)> = HashSet::new();
-    for members in buckets.values() {
-        if members.len() < 2 || members.len() > 256 {
-            continue; // skip degenerate mega-buckets (all-identical tiny symbols)
-        }
-        for i in 0..members.len() {
-            for j in (i + 1)..members.len() {
-                let (a, b) = (members[i], members[j]);
-                candidates.insert((a.min(b), a.max(b)));
-            }
-        }
-    }
-
-    let mut per_node: HashMap<usize, usize> = HashMap::new();
-    let mut count = 0;
-    let mut scored: Vec<(usize, usize, f64)> = candidates
-        .into_iter()
-        .filter_map(|(a, b)| {
-            let s = minhash_jaccard(&sigs[a].1, &sigs[b].1);
-            (s >= SIMILAR_THRESHOLD).then_some((a, b, s))
-        })
-        .collect();
-    // Strongest links first so the per-node cap keeps the best neighbours.
-    // The comparator must be a TOTAL order: `sort_by` is stable, so ordering by
-    // score alone leaves equal-score pairs in `candidates`' `HashSet` iteration
-    // order — which is per-process — and the greedy `SIMILAR_CAP_PER_NODE` loop
-    // below then admits a different edge set on every run. The pair's `sigs`
-    // indices break every tie: `sigs` is built from `nodes` in order, so they
-    // are stable across runs. (`buckets` iteration order is irrelevant: it only
-    // feeds `candidates`, a `HashSet` whose membership is order-independent —
-    // each bucket's member list is built by ascending `idx`, the skip rule reads
-    // only `members.len()`, and every pair is normalised to (min, max).)
-    scored.sort_by(|x, y| {
-        y.2.partial_cmp(&x.2)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| x.0.cmp(&y.0))
-            .then_with(|| x.1.cmp(&y.1))
-    });
-
+    let (mut per_node, mut count) = (HashMap::new(), 0);
     for (a, b, score) in scored {
         if *per_node.get(&a).unwrap_or(&0) >= SIMILAR_CAP_PER_NODE
             || *per_node.get(&b).unwrap_or(&0) >= SIMILAR_CAP_PER_NODE
@@ -680,6 +628,46 @@ fn similarity_edges(nodes: &[ExtractedNode], edges: &mut Vec<ExtractedEdge>) -> 
     count
 }
 
+fn similarity_scored_pairs(sigs: &[SimilaritySignature<'_>]) -> Vec<(usize, usize, f64)> {
+    use super::tree_sitter::{minhash_jaccard, MINHASH_K};
+
+    // LSH banding: BANDS bands of ROWS rows (BANDS*ROWS == MINHASH_K).
+    const BANDS: usize = 8;
+    const ROWS: usize = MINHASH_K / BANDS;
+    let mut buckets: HashMap<(usize, u64), Vec<usize>> = HashMap::new();
+    for (idx, (_, sig)) in sigs.iter().enumerate() {
+        for (band, rows) in sig.chunks_exact(ROWS).enumerate().take(BANDS) {
+            let h = rows.iter().fold(0xcbf2_9ce4_8422_2325, |h, row| {
+                (h ^ *row as u64).wrapping_mul(0x0000_0100_0000_01b3)
+            });
+            buckets.entry((band, h)).or_default().push(idx);
+        }
+    }
+
+    // Candidate pairs (deduped) from co-bucketed symbols.
+    let mut candidates: HashSet<(usize, usize)> = HashSet::new();
+    for members in buckets.values().filter(|m| (2..=256).contains(&m.len())) {
+        for (i, &a) in members.iter().enumerate() {
+            candidates.extend(members[i + 1..].iter().map(|&b| (a.min(b), a.max(b))));
+        }
+    }
+    let mut scored: Vec<(usize, usize, f64)> = candidates
+        .into_iter()
+        .filter_map(|(a, b)| {
+            let s = minhash_jaccard(&sigs[a].1, &sigs[b].1);
+            (s >= SIMILAR_THRESHOLD).then_some((a, b, s))
+        })
+        .collect();
+    // Total tie order keeps the greedy per-node cap deterministic across HashSet iteration.
+    scored.sort_by(|x, y| {
+        y.2.partial_cmp(&x.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| x.0.cmp(&y.0))
+            .then_with(|| x.1.cmp(&y.1))
+    });
+    scored
+}
+
 /// Minimum estimated Jaccard for a `similar_to` edge.
 const SIMILAR_THRESHOLD: f64 = 0.5;
 /// Max `similar_to` edges per symbol (keeps a clone family bounded).
@@ -696,8 +684,6 @@ fn resolve_site(
     caller_lang: &str,
     context: &ResolutionContext<'_>,
 ) -> Option<(String, &'static str, f64)> {
-    let callee = site.callee.as_str();
-    let recv = site.receiver.as_str();
     // 0. Confine every candidate below to the CALLER's language family. A
     //    same-named definition in another family is not a weaker match, it is a
     //    wrong one -- Python cannot call a Rust `fn` by name. Both maps are keyed
@@ -708,40 +694,46 @@ fn resolve_site(
     let index = context.families.get(family)?;
     let bases_of = context.bases_of.get(family)?;
 
-    // 1. `self`/`this`/`super` receiver (or an implicit-this language's bare call)
-    //    → a method of the caller's own class or an inherited one.
-    let implicit_this = matches!(caller_lang, "java" | "cpp" | "csharp");
-    let self_recv = matches!(recv, "self" | "this" | "super") || (recv.is_empty() && implicit_this);
-    if self_recv && !caller_scope.is_empty() {
-        if let Some(id) = lookup_method(caller_scope, callee, &index.scoped, bases_of) {
-            return Some((id, "scoped", 0.95));
-        }
+    if let Some(resolved) = resolve_scoped_site(site, caller_scope, caller_lang, index, bases_of) {
+        return Some(resolved);
     }
-    // 2. Explicit receiver naming a known class (static call / typed receiver)
-    //    → a method of that class or an inherited one.
-    if !recv.is_empty() && index.class_by_name.contains_key(recv) {
-        if let Some(id) = lookup_method(recv, callee, &index.scoped, bases_of) {
-            return Some((id, "scoped", 0.9));
-        }
-    }
-
-    let defs = index.def_index.get(callee)?;
-    // 3. A definition in the caller's own file.
+    let defs = index.def_index.get(site.callee.as_str())?;
     if let Some(d) = defs.iter().find(|d| d.file_path == caller_file) {
         return Some((d.id.clone(), "same_file", 0.9));
     }
-    // 4. Disambiguate same-name defs by argument count.
     if let Some(argc) = site.argc {
         let matches: Vec<&Def> = defs.iter().filter(|d| d.arity == Some(argc)).collect();
-        if let [only] = matches.as_slice() {
-            return Some((only.id.clone(), "arity", 0.7));
+        if matches.len() == 1 {
+            return Some((matches[0].id.clone(), "arity", 0.7));
         }
     }
-    // 5. A unique definition anywhere in the batch, within this family.
-    if let [only] = defs.as_slice() {
-        return Some((only.id.clone(), "unique", 0.6));
+    (defs.len() == 1).then(|| (defs[0].id.clone(), "unique", 0.6))
+}
+
+fn resolve_scoped_site(
+    site: &DecodedSite,
+    caller_scope: &str,
+    caller_lang: &str,
+    index: &LangIndex,
+    bases_of: &HashMap<String, Vec<String>>,
+) -> Option<(String, &'static str, f64)> {
+    let (callee, recv) = (site.callee.as_str(), site.receiver.as_str());
+
+    // 1. `self`/`this`/`super` receiver (or an implicit-this language's bare call)
+    //    → a method of the caller's own class or an inherited one.
+    let self_recv = matches!(recv, "self" | "this" | "super")
+        || (recv.is_empty() && matches!(caller_lang, "java" | "cpp" | "csharp"));
+    if let Some(id) = (self_recv && !caller_scope.is_empty())
+        .then(|| lookup_method(caller_scope, callee, &index.scoped, bases_of))
+        .flatten()
+    {
+        return Some((id, "scoped", 0.95));
     }
-    None
+    // 2. Explicit receiver naming a known class (static call / typed receiver).
+    (!recv.is_empty() && index.class_by_name.contains_key(recv))
+        .then(|| lookup_method(recv, callee, &index.scoped, bases_of))
+        .flatten()
+        .map(|id| (id, "scoped", 0.9))
 }
 
 /// Find a method `name` defined on `class` or any of its (transitive) ancestors.
@@ -843,99 +835,16 @@ fn resolve_import(importer: &str, module: &str, files: &HashSet<&str>) -> Option
         return match_with_extensions(&joined, files, importer, false).filter(|f| f != importer);
     }
 
-    // The directory a Rust file's module OWNS. A crate/module root — `mod.rs`,
-    // `lib.rs`, `main.rs` — owns its own directory; any other `a/b.rs` owns the
-    // sibling directory `a/b/` (the non-`mod.rs` layout, 943 of 992 `.rs` files
-    // in this workspace). `self::` resolves there; each `super::` climbs one
-    // level, so `super::x` from `a/b.rs` is the sibling `a/x`, not `a/../x`.
-    let module_dir = |path: &str| -> String {
-        let dir = dir_of(path);
-        let file = path.rsplit('/').next().unwrap_or(path);
-        let Some(stem) = file.strip_suffix(".rs") else {
-            return dir;
-        };
-        if matches!(stem, "mod" | "lib" | "main") {
-            dir
-        } else if dir.is_empty() {
-            stem.to_string()
-        } else {
-            format!("{dir}/{stem}")
+    let anchor = rust_import_anchor(importer, m).or_else(|| {
+        if !m.starts_with('.') {
+            return None;
         }
-    };
-
-    // (anchor dir, module path relative to it) for an importer-relative form;
-    // `None` leaves an absolute/dotted path to the suffix matcher below.
-    let mut anchor: Option<(String, String)> = None;
-    if let Some(rest) = m
-        .strip_prefix("crate::")
-        .or_else(|| (m == "crate").then_some(""))
-    {
-        // Crate root: the path up to and including the importer's last `src`
-        // segment (this workspace's layout). No `src` segment — a single-file
-        // example/bench crate — falls back to the importer's own directory.
-        let segs: Vec<&str> = importer.split('/').collect();
-        let root = match segs.iter().rposition(|s| *s == "src") {
-            Some(i) => segs[..=i].join("/"),
-            None => dir_of(importer),
-        };
-        anchor = Some((root, rest.to_string()));
-    } else if m.starts_with("self::") || m.starts_with("super::") || m == "self" || m == "super" {
-        let mut base = module_dir(importer);
-        let mut rest = m;
-        loop {
-            if let Some(r) = rest.strip_prefix("self::") {
-                rest = r;
-            } else if let Some(r) = rest.strip_prefix("super::") {
-                base = dir_of(&base);
-                rest = r;
-            } else if rest == "self" || rest == "super" {
-                if rest == "super" {
-                    base = dir_of(&base);
-                }
-                rest = "";
-                break;
-            } else {
-                break;
-            }
-        }
-        anchor = Some((base, rest.to_string()));
-    } else if m.starts_with('.') {
-        // Python relative import: the first dot is the importer's own package,
-        // each further dot climbs one package.
         let dots = m.len() - m.trim_start_matches('.').len();
-        let mut base = dir_of(importer);
-        for _ in 1..dots {
-            base = dir_of(&base);
-        }
-        anchor = Some((base, m[dots..].to_string()));
-    }
-
+        let base = (1..dots).fold(dir_of(importer), |base, _| dir_of(&base));
+        Some((base, m[dots..].to_string()))
+    });
     if let Some((base, rest)) = anchor {
-        // A file never depends on itself: `from . import x` inside a package's
-        // own `__init__.py` anchors back onto the importer.
-        let not_self = |hit: Option<String>| hit.filter(|f| f != importer);
-        let join = |b: &str, r: &str| -> String {
-            match (b.is_empty(), r.is_empty()) {
-                (_, true) => b.to_string(),
-                (true, false) => r.to_string(),
-                _ => format!("{b}/{r}"),
-            }
-        };
-        let rel = rest.replace("::", "/").replace('.', "/");
-        let segs: Vec<&str> = rel.split('/').filter(|s| !s.is_empty()).collect();
-        if segs.is_empty() {
-            // `from . import x` / bare `crate` — the anchor dir IS the package.
-            return not_self(match_with_extensions(&base, files, importer, true));
-        }
-        // A Rust `use` path ends in the ITEM (`crate::a::b::Thing`), so try the
-        // longest module path first and drop one trailing segment at a time.
-        for take in (1..=segs.len()).rev() {
-            let stem = join(&base, &segs[..take].join("/"));
-            if let Some(hit) = not_self(match_with_extensions(&stem, files, importer, true)) {
-                return Some(hit);
-            }
-        }
-        return None;
+        return resolve_anchored_import(importer, &base, &rest, files);
     }
 
     // Absolute dotted (Python `a.b.c`, Java `com.foo.Bar`) or `::` (Rust) module
@@ -945,6 +854,94 @@ fn resolve_import(importer: &str, module: &str, files: &HashSet<&str>) -> Option
         return None;
     }
     match_with_extensions(&stem, files, importer, false).filter(|f| f != importer)
+}
+
+fn rust_module_dir(path: &str) -> String {
+    let (dir, file) = (dir_of(path), path.rsplit('/').next().unwrap_or(path));
+    let Some(stem) = file.strip_suffix(".rs") else {
+        return dir;
+    };
+    match (matches!(stem, "mod" | "lib" | "main"), dir.is_empty()) {
+        (true, _) => dir,
+        (false, true) => stem.to_string(),
+        (false, false) => format!("{dir}/{stem}"),
+    }
+}
+
+fn rust_import_anchor(importer: &str, module: &str) -> Option<(String, String)> {
+    if let Some(rest) = module
+        .strip_prefix("crate::")
+        .or_else(|| (module == "crate").then_some(""))
+    {
+        // Crate root: the path up to and including the importer's last `src`
+        // segment. Without `src`, a single-file crate falls back to its directory.
+        let segs: Vec<&str> = importer.split('/').collect();
+        let root = segs
+            .iter()
+            .rposition(|s| *s == "src")
+            .map(|i| segs[..=i].join("/"))
+            .unwrap_or_else(|| dir_of(importer));
+        return Some((root, rest.to_string()));
+    }
+    if !module.starts_with("self::")
+        && !module.starts_with("super::")
+        && module != "self"
+        && module != "super"
+    {
+        return None;
+    }
+
+    let (mut base, mut rest) = (rust_module_dir(importer), module);
+    loop {
+        if let Some(r) = rest.strip_prefix("self::") {
+            rest = r;
+        } else if let Some(r) = rest.strip_prefix("super::") {
+            base = dir_of(&base);
+            rest = r;
+        } else if rest == "self" || rest == "super" {
+            if rest == "super" {
+                base = dir_of(&base);
+            }
+            rest = "";
+            break;
+        } else {
+            break;
+        }
+    }
+    Some((base, rest.to_string()))
+}
+
+fn resolve_anchored_import(
+    importer: &str,
+    base: &str,
+    rest: &str,
+    files: &HashSet<&str>,
+) -> Option<String> {
+    // A file never depends on itself: `from . import x` inside a package's own
+    // `__init__.py` anchors back onto the importer.
+    let not_self = |hit: Option<String>| hit.filter(|f| f != importer);
+    let join = |b: &str, r: &str| -> String {
+        match (b.is_empty(), r.is_empty()) {
+            (_, true) => b.to_string(),
+            (true, false) => r.to_string(),
+            _ => format!("{b}/{r}"),
+        }
+    };
+    let rel = rest.replace("::", "/").replace('.', "/");
+    let segs: Vec<&str> = rel.split('/').filter(|s| !s.is_empty()).collect();
+    if segs.is_empty() {
+        // `from . import x` / bare `crate` — the anchor dir IS the package.
+        return not_self(match_with_extensions(base, files, importer, true));
+    }
+    // A Rust `use` path ends in the ITEM (`crate::a::b::Thing`), so try the
+    // longest module path first and drop one trailing segment at a time.
+    for take in (1..=segs.len()).rev() {
+        let stem = join(base, &segs[..take].join("/"));
+        if let Some(hit) = not_self(match_with_extensions(&stem, files, importer, true)) {
+            return Some(hit);
+        }
+    }
+    None
 }
 
 /// Directory portion of a file path (`a/b/c.py` → `a/b`), empty for a bare name.

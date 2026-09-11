@@ -82,6 +82,7 @@ pub const DURABLE_STORES: &[DurableStore] = &[
     bundled("catalog.redb"),
     bundled("kv.redb"),
     bundled("node_info.redb"),
+    bundled("agent_library.redb"),
     bundled("rbac.redb"),
     // ── deliberately excluded, declared in the manifest ─────────────────────────
     excluded(
@@ -183,6 +184,10 @@ pub(crate) fn bundled_store_authority(
         "node_info.redb" => Some((
             super::node_info_store::NODE_INFO_PHYSICAL_STORE,
             eg_storage::OwnerLayout::NodeInfo,
+        )),
+        "agent_library.redb" => Some((
+            super::agent_library::AGENT_LIBRARY_PHYSICAL_STORE,
+            eg_storage::OwnerLayout::AgentLibrary,
         )),
         "rbac.redb" => Some((
             "eg-core:rbac-security-control",
@@ -293,6 +298,63 @@ mod tests {
     /// unclassified new store and fail.
     const NOT_A_PERSIST_DIR_STORE: &[(&str, &str)] = &[
         (
+            "control-plane.redb",
+            "eg-transaction outbox lease unit-test fixture (tempdir)",
+        ),
+        (
+            "dest.redb",
+            "eg-transaction graft destination unit-test fixture (tempdir)",
+        ),
+        (
+            "loser.redb",
+            "eg-transaction competing graft loser unit-test fixture (tempdir)",
+        ),
+        (
+            "native-current.redb",
+            "eg-transaction mixed current/scoped group unit-test fixture (tempdir)",
+        ),
+        (
+            "nonce-only.redb",
+            "eg-transaction replay unit-test fixture (tempdir): a batch whose only difference \
+             from its predecessor is a fresh attempt nonce",
+        ),
+        (
+            "outbox-key.redb",
+            "eg-transaction replay unit-test fixture (tempdir): outbox idempotency-key reuse",
+        ),
+        (
+            "replay-concurrent.redb",
+            "eg-transaction replay unit-test fixture (tempdir): two concurrent replays of one \
+             admitted batch",
+        ),
+        (
+            "replay-finalize.redb",
+            "eg-transaction replay unit-test fixture (tempdir): replay sealed by the commit \
+             finalizer without reapplying owner rows",
+        ),
+        (
+            "same.redb",
+            "eg-transaction same-root graft refusal unit-test fixture (tempdir)",
+        ),
+        (
+            "scope.redb",
+            "eg-transaction graft scope-fence unit-test fixture (tempdir)",
+        ),
+        (
+            "typed-replay.redb",
+            "eg-transaction fault/restart unit-test fixture (tempdir): a typed result survives \
+             restart and replays once",
+        ),
+        (
+            "typed-replay-missing-result.redb",
+            "eg-transaction fault/restart unit-test fixture (tempdir): replay of a typed batch \
+             whose stored result is absent",
+        ),
+        (
+            "winner.redb",
+            "eg-transaction competing graft winner unit-test fixture (tempdir)",
+        ),
+        (
             "native.redb",
             "storage/mutation kernel unit-test fixture (tempdir)",
         ),
@@ -319,6 +381,114 @@ mod tests {
         (
             "not-in-the-registry.redb",
             "backup.rs's negative fixture proving an unregistered store is refused",
+        ),
+        (
+            "changed-after-inspection.redb",
+            "eg-storage physical-backup unit-test fixture (tempdir)",
+        ),
+        (
+            "closed-world.redb",
+            "eg-storage owner-adoption unit-test fixture (tempdir)",
+        ),
+        (
+            "decide-then-write.redb",
+            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+        ),
+        (
+            "destination-kv-epoch-two.redb",
+            "eg-storage physical-backup unit-test fixture (tempdir)",
+        ),
+        (
+            "destination-kv.redb",
+            "eg-storage physical-backup unit-test fixture (tempdir)",
+        ),
+        (
+            "destination-many-bindings.redb",
+            "eg-storage physical-backup unit-test fixture (tempdir)",
+        ),
+        (
+            "destination.redb",
+            "eg-storage physical-backup unit-test fixture (tempdir)",
+        ),
+        (
+            "empty-private-source.redb",
+            "eg-storage physical-backup unit-test fixture (tempdir)",
+        ),
+        (
+            "empty-private-target.redb",
+            "eg-storage physical-backup unit-test fixture (tempdir)",
+        ),
+        (
+            "ledger.redb",
+            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+        ),
+        (
+            "missing-owner.redb",
+            "eg-storage physical-backup negative unit-test fixture (tempdir)",
+        ),
+        (
+            "other.redb",
+            "eg-storage owner/blob-sharing unit-test fixture (tempdir)",
+        ),
+        (
+            "owner-backup.redb",
+            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+        ),
+        (
+            "owner-rows.redb",
+            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+        ),
+        (
+            "owner-source.redb",
+            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+        ),
+        (
+            "replay.redb",
+            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+        ),
+        (
+            "semantic.redb",
+            "eg-storage owner-adoption unit-test fixture (tempdir)",
+        ),
+        (
+            "shared-read-tamper.redb",
+            "eg-storage physical-backup negative unit-test fixture (tempdir)",
+        ),
+        (
+            "shared.redb",
+            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+        ),
+        (
+            "source-kv.redb",
+            "eg-storage physical-backup unit-test fixture (tempdir)",
+        ),
+        (
+            "source-many-bindings.redb",
+            "eg-storage physical-backup unit-test fixture (tempdir)",
+        ),
+        (
+            "staged-source.redb",
+            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+        ),
+        (
+            "staged-target.redb",
+            "eg-transaction atomic-commit unit-test fixture (tempdir)",
+        ),
+        (
+            "stale-manifest.redb",
+            "eg-storage physical-backup negative unit-test fixture (tempdir)",
+        ),
+        (
+            "statechart-staged.redb",
+            "eg-storage physical-backup unit-test fixture (tempdir)",
+        ),
+        (
+            "strict.redb",
+            "eg-storage/eg-transaction strict-authority unit-test fixture (tempdir)",
+        ),
+        (
+            "wrong-table.redb",
+            "eg-storage owner-adoption negative unit-test fixture (tempdir)",
         ),
     ];
 

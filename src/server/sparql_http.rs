@@ -26,14 +26,29 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
 use crate::graph::GraphCore;
+use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
 use eg_rdf::sparql::{Binding, Dataset, Projection, QueryOutcome, SparqlResult};
-use eg_rdf::update::GraphStore;
+
+mod graph_store;
+mod negotiation;
+mod route;
+mod update_plan;
+
+use graph_store::handle_graph_store;
+#[cfg(test)]
+use graph_store::{export_graph, gsp_default_graph, gsp_target, parse_rdf_body};
+#[cfg(test)]
+use negotiation::negotiate;
+use negotiation::{choose_ct, serialize_graph, GRAPH_FORMS, SELECT_FORMS};
+pub(crate) use update_plan::{
+    plan_update, update_graphs, update_uses_variable_graph, PlannedGraphUpdate,
+};
 
 /// Env var naming the default-graph the endpoint resolves a bare query against.
 pub const DEFAULT_GRAPH_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_DEFAULT_GRAPH";
@@ -57,8 +72,10 @@ pub const SERVICE_ALLOW_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_SERVICE_ALLOW";
 /// `crate::server::oidc::JwtValidator::from_env_sparql`); unset with no JWT
 /// issuer ⇒ the read leg has no credential to check and stays denied.
 pub const SPARQL_BEARER_TOKEN_ENV: &str = "EPISTEMIC_GRAPH_SPARQL_BEARER_TOKEN";
-const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
-const MAX_HTTP_BODY_BYTES: usize = 8 * 1024 * 1024;
+const HTTP_LIMITS: RequestLimits = RequestLimits {
+    max_head_bytes: 64 * 1024,
+    max_body_bytes: 8 * 1024 * 1024,
+};
 const HTTP_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// Resolve the `/sparql` read leg's bearer/JWT credential from the
@@ -136,141 +153,31 @@ pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
     }
 }
 
-/// A parsed HTTP request: method, raw target (`/sparql?…`), headers, body.
-struct HttpRequest {
-    method: String,
-    target: String,
-    content_type: String,
-    accept: String,
-    origin: String,
-    authorization: String,
-    request_id: Option<u64>,
-    body: String,
-}
-
-/// Read one HTTP/1.1 request: headers up to the blank line, then `Content-Length` body.
-async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest> {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 4096];
-    // Read until the header terminator is seen (bounded).
-    let header_end = loop {
-        if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
-            break pos;
-        }
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > MAX_HTTP_HEADER_BYTES {
-            return None; // header flood guard
-        }
-    };
-    let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
-    let mut lines = head.split("\r\n");
-    let request_line = lines.next()?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next()?.to_string();
-    let target = parts.next()?.to_string();
-    let version = parts.next()?;
-    if !version.starts_with("HTTP/1.") || parts.next().is_some() {
+/// Read one framed HTTP/1.1 request for the SPARQL surface. Beyond [`http1`]'s
+/// framing this rejects a present-but-unparseable `X-Epistemic-Request-Id`:
+/// the `eg2.` signing leg requires it to be a request number, and a caller
+/// that sent a malformed one is refused here rather than served a read and
+/// denied an update.
+async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpMessage> {
+    let request = http1::read_request(stream, HTTP_LIMITS).await?;
+    let id = request.header("x-epistemic-request-id");
+    if !id.is_empty() && id.parse::<u64>().is_err() {
         return None;
     }
-
-    let mut content_length: Option<usize> = None;
-    let mut content_type = String::new();
-    let mut accept = String::new();
-    let mut origin = String::new();
-    let mut authorization = String::new();
-    let mut request_id: Option<u64> = None;
-    let mut content_type_seen = false;
-    let mut accept_seen = false;
-    let mut origin_seen = false;
-    let mut authorization_seen = false;
-    let mut request_id_seen = false;
-    for line in lines {
-        let (k, v) = line.split_once(':')?;
-        let key = k.trim().to_ascii_lowercase();
-        let val = v.trim();
-        if key.is_empty() {
-            return None;
-        }
-        match key.as_str() {
-            "content-length" => {
-                if content_length.is_some() {
-                    return None;
-                }
-                content_length = Some(val.parse().ok()?);
-            }
-            "transfer-encoding" => return None,
-            "content-type" if !content_type_seen => {
-                content_type_seen = true;
-                content_type = val.to_ascii_lowercase();
-            }
-            "accept" if !accept_seen => {
-                accept_seen = true;
-                accept = val.to_string();
-            }
-            "origin" if !origin_seen => {
-                origin_seen = true;
-                origin = val.to_string();
-            }
-            "authorization" if !authorization_seen => {
-                authorization_seen = true;
-                authorization = val.to_string();
-            }
-            "x-epistemic-request-id" if !request_id_seen => {
-                request_id_seen = true;
-                request_id = Some(val.parse().ok()?);
-            }
-            "content-type" | "accept" | "origin" | "authorization" | "x-epistemic-request-id" => {
-                return None
-            }
-            _ => {}
-        }
-    }
-    let content_length = content_length.unwrap_or(0);
-    if content_length > MAX_HTTP_BODY_BYTES {
-        return None;
-    }
-
-    // Body: whatever followed the header terminator, plus any remaining Content-Length.
-    let mut body = buf[header_end + 4..].to_vec();
-    if body.len() > content_length || body.len() > MAX_HTTP_BODY_BYTES {
-        return None;
-    }
-    while body.len() < content_length {
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            break;
-        }
-        body.extend_from_slice(&tmp[..n]);
-    }
-    if body.len() != content_length {
-        return None;
-    }
-    Some(HttpRequest {
-        method,
-        target,
-        content_type,
-        accept,
-        origin,
-        authorization,
-        request_id,
-        body: String::from_utf8_lossy(&body).to_string(),
-    })
+    Some(request)
 }
 
 fn signed_request(
-    req: &HttpRequest,
+    req: &HttpMessage,
     graph: String,
     method: crate::protocol::Method,
 ) -> Result<crate::protocol::Request, String> {
     let id = req
-        .request_id
-        .ok_or_else(|| "missing X-Epistemic-Request-Id".to_string())?;
+        .header("x-epistemic-request-id")
+        .parse::<u64>()
+        .map_err(|_| "missing X-Epistemic-Request-Id".to_string())?;
     let auth_token = req
-        .authorization
+        .header("authorization")
         .strip_prefix("Bearer ")
         .filter(|token| token.starts_with("eg2."))
         .ok_or_else(|| "Authorization must be Bearer eg2.<verified-envelope>".to_string())?
@@ -288,134 +195,34 @@ fn signed_request(
 async fn handle(
     state: &Arc<RwLock<ServerState>>,
     bearer: &Option<crate::server::auth::BearerCredential>,
-    req: HttpRequest,
+    req: HttpMessage,
 ) -> (&'static str, &'static str, String) {
-    // Browser-originated requests are rejected at the data plane. CORS headers
-    // alone do not stop a cross-origin form POST from triggering an update.
-    if !req.origin.is_empty() {
+    if !req.header("origin").is_empty() {
         return (
             "403 Forbidden",
             "text/plain",
             "browser origin denied".to_string(),
         );
     }
-    let (path, query_string) = match req.target.split_once('?') {
-        Some((p, q)) => (p, q),
-        None => (req.target.as_str(), ""),
-    };
+    let (path, query_string) = req.path_and_query();
+    let content_type = req.header("content-type").to_ascii_lowercase();
+    let body = req.text();
     if req.method == "OPTIONS"
         && (path.starts_with("/sparql") || path.starts_with("/rdf-graphs") || path == "/nl")
     {
         return ("204 No Content", "text/plain", String::new());
     }
-    // A18: there is no longer a single blanket carrier gate here. SPARQL Update
-    // (below) and the Graph Store PUT/POST/DELETE legs (`handle_graph_store`)
-    // already build a real `eg2.`-verified `Request` (`signed_request`) and run
-    // it through `dispatch()`, which mints and checks a genuine `CarrierAuthority`
-    // itself — an outer stub gate only ever stood redundantly in front of that.
-    // `run_query` (SELECT/CONSTRUCT/ASK) now authenticates the SAME way the
-    // KV-cache HTTP surface does — a configured bearer/JWT credential
-    // (`bearer`, resolved once at `serve()` startup) — and mints a
-    // `CarrierAuthority` through the shared `server::auth::mint_fixed_service_carrier`
-    // helper. `handle_nl` and the Graph Store GET/HEAD leg still have no
-    // per-request credential shape to verify at all yet; each denies
-    // explicitly at its own call site below rather than behind one
-    // easily-bypassed shared stub.
-    // Natural-language query facade route (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`): POST
-    // `{text, graph}` → the NL planner → UQL → executed rows as JSON. Served on the SAME
-    // hand-rolled HTTP facade listener as `/sparql` (no new HTTP dep). A build without
-    // `nl-query` has no `/nl` route (it 404s below like any other unknown path).
     #[cfg(feature = "nl-query")]
     if path == "/nl" {
         return handle_nl(state, &req).await;
     }
-    // W3C SPARQL 1.1 Graph Store HTTP Protocol (CONCEPT:EG-KG.query.graph-store-http-protocol) — direct graph management.
     if path.starts_with("/rdf-graphs") {
         return handle_graph_store(state, &req, path, query_string).await;
     }
     if !path.starts_with("/sparql") {
         return ("404 Not Found", "text/plain", "not found".to_string());
     }
-    let params = parse_form(query_string);
-
-    // Decide query vs update + extract the text and the default-graph hint.
-    let (is_update, text) = if req.method == "GET" {
-        (false, params.get("query").cloned().unwrap_or_default())
-    } else if req.method == "POST" {
-        if req.content_type.contains("application/sparql-update") {
-            (true, req.body.clone())
-        } else if req.content_type.contains("application/sparql-query") {
-            (false, req.body.clone())
-        } else if req
-            .content_type
-            .contains("application/x-www-form-urlencoded")
-        {
-            let form = parse_form(&req.body);
-            if let Some(u) = form.get("update") {
-                (true, u.clone())
-            } else {
-                (false, form.get("query").cloned().unwrap_or_default())
-            }
-        } else {
-            return (
-                "415 Unsupported Media Type",
-                "text/plain",
-                "use application/sparql-query, application/sparql-update or form-encoded"
-                    .to_string(),
-            );
-        }
-    } else {
-        return ("405 Method Not Allowed", "text/plain", "method".to_string());
-    };
-
-    if text.trim().is_empty() {
-        return (
-            "400 Bad Request",
-            "text/plain",
-            "empty query/update".to_string(),
-        );
-    }
-
-    let default_graph = params
-        .get("default-graph-uri")
-        .cloned()
-        .or_else(|| std::env::var(DEFAULT_GRAPH_ENV).ok())
-        .unwrap_or_else(|| "__commons__".to_string());
-
-    if is_update {
-        let method = crate::protocol::Method::ApplyMutation {
-            event_type: SPARQL_HTTP_UPDATE_EVENT.to_string(),
-            query: text,
-        };
-        let request = match signed_request(&req, default_graph, method) {
-            Ok(request) => request,
-            Err(error) => return ("401 Unauthorized", "text/plain", error),
-        };
-        let response = crate::server::dispatch::dispatch(state, request).await;
-        match response.error {
-            None => ("204 No Content", "text/plain", String::new()),
-            Some(error) if error.starts_with("ACCESS_DENIED") => {
-                ("403 Forbidden", "text/plain", error)
-            }
-            Some(error) => ("400 Bad Request", "text/plain", error),
-        }
-    } else {
-        // `output=`/`format=` query-param override wins over the Accept header (EG-050).
-        let fmt_override = params
-            .get("output")
-            .or_else(|| params.get("format"))
-            .map(|s| s.as_str());
-        run_query(
-            state,
-            &text,
-            &default_graph,
-            &req.accept,
-            fmt_override,
-            bearer.as_ref(),
-            &req.authorization,
-        )
-        .await
-    }
+    route::handle_sparql(state, bearer, &req, query_string, &content_type, &body).await
 }
 
 /// Natural-language query facade route (CONCEPT:EG-KG.query.fence-stripper). Accepts a JSON body
@@ -427,7 +234,7 @@ async fn handle(
 #[cfg(feature = "nl-query")]
 async fn handle_nl(
     state: &Arc<RwLock<ServerState>>,
-    req: &HttpRequest,
+    req: &HttpMessage,
 ) -> (&'static str, &'static str, String) {
     // A18: `/nl` runs under a FIXED engine-owned service identity
     // (`dispatch_authenticated_local_query`), not a per-caller verified one —
@@ -452,7 +259,7 @@ async fn handle_nl(
             r#"{"error":"POST a JSON body {\"text\":\"…\",\"graph\":\"…\"} to /nl"}"#.to_string(),
         );
     }
-    let body: serde_json::Value = match serde_json::from_str(&req.body) {
+    let body: serde_json::Value = match serde_json::from_str(&req.text()) {
         Ok(v) => v,
         Err(e) => {
             return (
@@ -854,355 +661,6 @@ fn json_term_to_binding(term: &serde_json::Value) -> Option<Binding> {
     })
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct PlannedGraphUpdate {
-    pub graph: String,
-    pub graph_type: crate::protocol::GraphType,
-    pub existed_before: bool,
-    pub before_msgpack: Vec<u8>,
-    pub after_msgpack: Vec<u8>,
-}
-
-/// Return the complete graph set an update may address. Lifecycle creation stays
-/// in dispatch so it uses the verified caller and durable graph coordinator.
-pub(crate) fn update_graphs(update_text: &str, default_graph: &str) -> Result<Vec<String>, String> {
-    let parsed = eg_rdf::update::parse_update(update_text)?;
-    let mut graphs = eg_rdf::update::referenced_named_graphs(&parsed);
-    graphs.push(default_graph.to_string());
-    graphs.sort();
-    graphs.dedup();
-    Ok(graphs)
-}
-
-pub(crate) fn update_uses_variable_graph(update_text: &str) -> bool {
-    let tokens = update_text.split_whitespace().collect::<Vec<_>>();
-    tokens.windows(2).any(|pair| {
-        pair[0].eq_ignore_ascii_case("graph")
-            && (pair[1].starts_with('?') || pair[1].starts_with('$'))
-    })
-}
-
-/// Plan a SPARQL UPDATE entirely on detached graph images. The returned before/
-/// after images are consumed by dispatch's per-graph MutationBatch coordinator;
-/// this function never exposes or mutates a live registry core.
-pub(crate) async fn plan_update(
-    state: &Arc<RwLock<ServerState>>,
-    update_text: &str,
-    default_graph: &str,
-    authorized_graphs: &[String],
-) -> Result<Vec<PlannedGraphUpdate>, String> {
-    #[cfg(not(feature = "shacl"))]
-    return Err("SPARQL UPDATE requires the shacl integrity-guard feature".to_string());
-
-    #[cfg(feature = "shacl")]
-    {
-        let parsed = eg_rdf::update::parse_update(update_text)?;
-        let live = {
-            let s = state.read().await;
-            let mut values = Vec::new();
-            for name in authorized_graphs {
-                values.push((
-                    name.clone(),
-                    s.registry
-                        .get(name)
-                        .map(|entry| (entry.graph_type, entry.core.clone())),
-                ));
-            }
-            values
-        };
-        let default_graph = default_graph.to_string();
-        tokio::task::spawn_blocking(move || -> Result<Vec<PlannedGraphUpdate>, String> {
-            let mut before = HashMap::new();
-            let mut staged_by_name = HashMap::new();
-            let mut existed = HashMap::new();
-            let mut graph_types = HashMap::new();
-            for (name, existing) in live {
-                let (graph_type, core, existed_before) = match existing {
-                    Some((graph_type, core)) => (graph_type, core, true),
-                    None => (
-                        crate::protocol::GraphType::Global,
-                        Arc::new(GraphCore::new()),
-                        false,
-                    ),
-                };
-                let bytes = core.to_msgpack()?;
-                let staged = Arc::new(GraphCore::from_snapshot(core.snapshot(), core.version())?);
-                before.insert(name.clone(), bytes);
-                existed.insert(name.clone(), existed_before);
-                graph_types.insert(name.clone(), graph_type);
-                staged_by_name.insert(name, staged);
-            }
-            let default = staged_by_name
-                .get(&default_graph)
-                .cloned()
-                .ok_or_else(|| format!("Graph '{default_graph}' not found"))?;
-            let mut graphs = staged_by_name.clone();
-            graphs.insert(String::new(), default);
-            let store = EndpointStore { graphs };
-            let guard = crate::server::icv_guard::CoreIcvGuard::routed(&store.graphs);
-            eg_rdf::update::execute(&parsed, &store, &Projection::raw(), &guard)
-                .map_err(|error| error.to_string())?;
-            let mut planned = Vec::new();
-            for (graph, core) in staged_by_name {
-                let after_msgpack = core.to_msgpack()?;
-                let before_msgpack = before
-                    .remove(&graph)
-                    .ok_or_else(|| "SPARQL planner lost a graph pre-image".to_string())?;
-                let existed_before = existed
-                    .remove(&graph)
-                    .ok_or_else(|| "SPARQL planner lost graph existence state".to_string())?;
-                if !existed_before || before_msgpack != after_msgpack {
-                    planned.push(PlannedGraphUpdate {
-                        graph_type: graph_types
-                            .remove(&graph)
-                            .ok_or_else(|| "SPARQL planner lost graph type".to_string())?,
-                        graph,
-                        existed_before,
-                        before_msgpack,
-                        after_msgpack,
-                    });
-                }
-            }
-            planned.sort_by(|left, right| left.graph.cmp(&right.graph));
-            Ok(planned)
-        })
-        .await
-        .map_err(|error| format!("compute task failed: {error}"))?
-    }
-}
-
-// ── W3C SPARQL 1.1 Graph Store HTTP Protocol (CONCEPT:EG-KG.query.graph-store-http-protocol) ─────────────────────
-//
-// Direct RDF-graph management over HTTP, DISTINCT from the query/update `/sparql`
-// endpoint: the resource IS the graph, addressed by its name.
-//
-//   * `GET`  /rdf-graphs/service?graph=<iri>   → serialize the graph (EG-050 nego)
-//   * `PUT`  …                                  → replace the graph with the posted RDF
-//   * `POST` …                                  → merge the posted RDF into the graph
-//   * `DELETE` …                                → empty the graph
-//   * `HEAD` …                                  → as GET, headers only
-//
-// Naming follows the spec's two forms: INDIRECT `/rdf-graphs/service?graph=<iri>` (or
-// `?default` for the default graph) and DIRECT `/rdf-graphs/<name>`. It reuses the SAME
-// registry, RDF parsers (`parse_turtle`/`parse_ntriples`), the merge-aware
-// `insert_triples` write op, and the `export_triples` + Turtle/N-Triples serializers the
-// query endpoint already uses. Writes use the same signed multi-graph coordinator
-// as `/sparql` UPDATE; this carrier owns no direct graph mutation path.
-async fn handle_graph_store(
-    state: &Arc<RwLock<ServerState>>,
-    req: &HttpRequest,
-    path: &str,
-    query_string: &str,
-) -> (&'static str, &'static str, String) {
-    let params = parse_form(query_string);
-    let Some(graph) = gsp_target(path, &params) else {
-        return (
-            "400 Bad Request",
-            "text/plain",
-            "graph store protocol: name the graph via /rdf-graphs/service?graph=<iri> \
-             (or ?default) or /rdf-graphs/<name>"
-                .to_string(),
-        );
-    };
-
-    match req.method.as_str() {
-        "GET" | "HEAD" => {
-            // A18: unlike PUT/POST/DELETE below (which build a real, verified
-            // `eg2.`-signed `Request` via `signed_request`+`dispatch()`), this
-            // read leg calls the registry directly with no credential check of
-            // its own — the single-graph `Method::GetRdf` exists but only
-            // serializes N-Triples, narrower than the `GRAPH_FORMS`-negotiated
-            // output this route already offers, so swapping it in would silently
-            // regress format negotiation rather than just add real auth. No
-            // `CarrierAuthority` can be minted for this route yet; deny
-            // explicitly (real, not the old blanket stub).
-            if crate::server::access::unauthenticated_carrier_denied(None) {
-                crate::metrics::access_denied();
-                return (
-                    "403 Forbidden",
-                    "text/plain",
-                    "ACCESS_DENIED: Graph Store HTTP GET/HEAD has no verified \
-                     request-carrier mechanism yet"
-                        .to_string(),
-                );
-            }
-            let core = {
-                let s = state.read().await;
-                s.registry.get(&graph).map(|e| e.core.clone())
-            };
-            let Some(core) = core else {
-                return (
-                    "404 Not Found",
-                    "text/plain",
-                    format!("no such graph: {graph}"),
-                );
-            };
-            let ct = choose_ct(
-                &req.accept,
-                params
-                    .get("output")
-                    .or_else(|| params.get("format"))
-                    .map(|s| s.as_str()),
-                GRAPH_FORMS,
-            );
-            let head_only = req.method == "HEAD";
-            let g = graph.clone();
-            let out = tokio::task::spawn_blocking(move || {
-                let triples = export_graph(&core, &g)?;
-                serialize_graph(ct, &triples)
-            })
-            .await;
-            match out {
-                Ok(Ok(body)) => ("200 OK", ct, if head_only { String::new() } else { body }),
-                Ok(Err(e)) => ("500 Internal Server Error", "text/plain", e),
-                Err(e) => (
-                    "500 Internal Server Error",
-                    "text/plain",
-                    format!("compute task failed: {e}"),
-                ),
-            }
-        }
-        "PUT" | "POST" => {
-            let triples = match parse_rdf_body(&req.content_type, &req.body) {
-                Ok(t) => t,
-                Err(e) => {
-                    return (
-                        "400 Bad Request",
-                        "text/plain",
-                        format!("parse RDF body: {e}"),
-                    )
-                }
-            };
-            let ntriples = match eg_rdf::mapping::to_ntriples(&triples) {
-                Ok(value) => value,
-                Err(error) => return ("400 Bad Request", "text/plain", error),
-            };
-            let created = !state.read().await.registry.exists(&graph);
-            let query = if req.method == "PUT" {
-                format!("CLEAR DEFAULT; INSERT DATA {{\n{ntriples}}}")
-            } else {
-                format!("INSERT DATA {{\n{ntriples}}}")
-            };
-            let method = crate::protocol::Method::ApplyMutation {
-                event_type: SPARQL_HTTP_UPDATE_EVENT.to_string(),
-                query,
-            };
-            let request = match signed_request(req, graph, method) {
-                Ok(request) => request,
-                Err(error) => return ("401 Unauthorized", "text/plain", error),
-            };
-            let response = crate::server::dispatch::dispatch(state, request).await;
-            match response.error {
-                None if created => ("201 Created", "text/plain", String::new()),
-                None => ("204 No Content", "text/plain", String::new()),
-                Some(error) if error.starts_with("ACCESS_DENIED") => {
-                    ("403 Forbidden", "text/plain", error)
-                }
-                Some(error) => ("400 Bad Request", "text/plain", error),
-            }
-        }
-        "DELETE" => {
-            if !state.read().await.registry.exists(&graph) {
-                return (
-                    "404 Not Found",
-                    "text/plain",
-                    format!("no such graph: {graph}"),
-                );
-            }
-            let method = crate::protocol::Method::ApplyMutation {
-                event_type: SPARQL_HTTP_UPDATE_EVENT.to_string(),
-                query: "CLEAR DEFAULT".to_string(),
-            };
-            let request = match signed_request(req, graph, method) {
-                Ok(request) => request,
-                Err(error) => return ("401 Unauthorized", "text/plain", error),
-            };
-            let response = crate::server::dispatch::dispatch(state, request).await;
-            match response.error {
-                None => ("204 No Content", "text/plain", String::new()),
-                Some(error) if error.starts_with("ACCESS_DENIED") => {
-                    ("403 Forbidden", "text/plain", error)
-                }
-                Some(error) => ("400 Bad Request", "text/plain", error),
-            }
-        }
-        _ => (
-            "405 Method Not Allowed",
-            "text/plain",
-            "graph store protocol: use GET/PUT/POST/DELETE/HEAD".to_string(),
-        ),
-    }
-}
-
-/// Resolve the Graph-Store-Protocol target graph name from the request path + params.
-/// Indirect `/rdf-graphs/service?graph=<iri>` (or `?default` ⇒ the configured default
-/// graph); direct `/rdf-graphs/<name>` (the trailing, percent-decoded path segment).
-fn gsp_target(path: &str, params: &HashMap<String, String>) -> Option<String> {
-    if path == "/rdf-graphs/service" || path == "/rdf-graphs/service/" {
-        if params.contains_key("default") {
-            return Some(gsp_default_graph());
-        }
-        return params.get("graph").filter(|g| !g.is_empty()).cloned();
-    }
-    let name = path.strip_prefix("/rdf-graphs/")?;
-    if name.is_empty() {
-        return None;
-    }
-    Some(percent_decode(name))
-}
-
-/// The configured default-graph name (shared with the query/update endpoint default).
-fn gsp_default_graph() -> String {
-    std::env::var(DEFAULT_GRAPH_ENV).unwrap_or_else(|_| "__commons__".to_string())
-}
-
-/// Parse an RDF request body per its `Content-Type` (N-Triples when so typed, else Turtle
-/// — a superset that also parses N-Triples), reusing the endpoint's existing parsers.
-fn parse_rdf_body(content_type: &str, body: &str) -> Result<Vec<eg_rdf::oxrdf::Triple>, String> {
-    if content_type.contains("n-triples") || content_type.contains("ntriples") {
-        eg_rdf::mapping::parse_ntriples(body)
-    } else {
-        eg_rdf::mapping::parse_turtle(body)
-    }
-}
-
-/// Export a graph core to RDF triples for GSP `GET` through the single
-/// authoritative inverse mapping.
-fn export_graph(core: &GraphCore, name: &str) -> Result<Vec<eg_rdf::oxrdf::Triple>, String> {
-    eg_rdf::mapping::export_triples(core, name)
-}
-
-/// The registry-backed store the endpoint UPDATE writes through (pre-seeded cores).
-struct EndpointStore {
-    /// `"" ⇒ default graph`, else the named-graph IRI → its live core.
-    graphs: HashMap<String, Arc<GraphCore>>,
-}
-
-impl GraphStore for EndpointStore {
-    fn core(&self, graph: Option<&str>) -> Option<Arc<GraphCore>> {
-        self.graphs.get(graph.unwrap_or("")).cloned()
-    }
-    fn named(&self) -> Vec<(String, Arc<GraphCore>)> {
-        self.graphs
-            .iter()
-            .filter(|(k, _)| !k.is_empty())
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    }
-    fn clear(&self, graph: Option<&str>) -> Result<(), String> {
-        if let Some(c) = self.core(graph) {
-            c.clear();
-        }
-        Ok(())
-    }
-    // DROP keeps the registry entry addressable (clears content) — matches the engine's
-    // `DropNamedGraph` op rather than a registry eviction.
-    fn drop_graph(&self, graph: Option<&str>) -> Result<(), String> {
-        self.clear(graph)
-    }
-}
-
 // ── result serialization ────────────────────────────────────────────────────────
 
 /// SPARQL 1.1 Query Results JSON for a SELECT solution table.
@@ -1246,122 +704,6 @@ fn term_json(b: &Binding) -> serde_json::Value {
         }
         Binding::Literal(v) => serde_json::json!({ "type": "literal", "value": v }),
     }
-}
-
-// ── content negotiation (CONCEPT:EG-KG.ontology.content-negotiation-serializers) ─────────────────────────────────────────
-
-/// Candidate SELECT/ASK output media types, DEFAULT (SPARQL-results JSON) first.
-const SELECT_FORMS: &[&str] = &[
-    "application/sparql-results+json",
-    "application/sparql-results+xml",
-    "text/csv",
-    "text/tab-separated-values",
-];
-/// Candidate CONSTRUCT/DESCRIBE output media types, DEFAULT (N-Triples) first.
-/// Beyond N-Triples/Turtle (EG-050), the RDF 1.1 concrete-syntax matrix (CONCEPT:EG-KG.ontology.eg-concrete-syntax-matrix/
-/// EG-137) adds N-Quads + TriG (quad forms, always available under `rdf`) and the
-/// dependency-light hand-rolled JSON-LD (`application/ld+json`, via `eg_rdf::jsonld`,
-/// needs no extra feature). RDF/XML rides the out-of-pi `rdf-xml` feature so it is only
-/// offered when that is compiled in.
-#[cfg(feature = "rdf-xml")]
-const GRAPH_FORMS: &[&str] = &[
-    "application/n-triples",
-    "text/turtle",
-    "application/n-quads",
-    "application/trig",
-    "application/ld+json",
-    "application/rdf+xml",
-];
-#[cfg(not(feature = "rdf-xml"))]
-const GRAPH_FORMS: &[&str] = &[
-    "application/n-triples",
-    "text/turtle",
-    "application/n-quads",
-    "application/trig",
-    "application/ld+json",
-];
-
-/// Serialize a CONSTRUCT/DESCRIBE / Graph-Store-Protocol result to the negotiated graph
-/// media type (CONCEPT:EG-KG.ontology.content-negotiation-serializers/EG-136/EG-137). N-Quads/TriG place the triples in the
-/// default graph (`None`); JSON-LD emits the expanded form; RDF/XML rides `rdf-xml`.
-fn serialize_graph(ct: &str, triples: &[eg_rdf::oxrdf::Triple]) -> Result<String, String> {
-    match ct {
-        "text/turtle" => eg_rdf::mapping::to_turtle(triples),
-        "application/n-quads" => eg_rdf::mapping::to_nquads(triples, None),
-        "application/trig" => eg_rdf::mapping::to_trig(triples, None),
-        "application/ld+json" => eg_rdf::jsonld::to_jsonld(triples, None, None),
-        #[cfg(feature = "rdf-xml")]
-        "application/rdf+xml" => eg_rdf::mapping::to_rdfxml(triples),
-        _ => eg_rdf::mapping::to_ntriples(triples),
-    }
-}
-
-/// Resolve the response media type (CONCEPT:EG-KG.ontology.content-negotiation-serializers): an `output=`/`format=` override
-/// (constrained to this form's candidates) wins; otherwise negotiate the `Accept` header.
-fn choose_ct(accept: &str, fmt_override: Option<&str>, forms: &[&'static str]) -> &'static str {
-    if let Some(tok) = fmt_override {
-        if let Some(ct) = override_ct(tok, forms) {
-            return ct;
-        }
-    }
-    negotiate(accept, forms)
-}
-
-/// Map a short `output=`/`format=` token (or a full media type) to one of `forms`, or
-/// `None` if it names nothing valid for this query form (so the caller falls back).
-fn override_ct(token: &str, forms: &[&'static str]) -> Option<&'static str> {
-    let t = token.trim().to_ascii_lowercase();
-    let want: &str = match t.as_str() {
-        "json" | "srj" => "application/sparql-results+json",
-        "xml" | "srx" => "application/sparql-results+xml",
-        "csv" => "text/csv",
-        "tsv" => "text/tab-separated-values",
-        "nt" | "ntriples" | "n-triples" => "application/n-triples",
-        "ttl" | "turtle" => "text/turtle",
-        // EG-136/EG-137 concrete-syntax matrix short tokens.
-        "nq" | "nquads" | "n-quads" => "application/n-quads",
-        "trig" => "application/trig",
-        "jsonld" | "json-ld" | "ld+json" => "application/ld+json",
-        "rdfxml" | "rdf+xml" | "rdf/xml" => "application/rdf+xml",
-        s => s,
-    };
-    forms.iter().copied().find(|&f| f == want)
-}
-
-/// Pick the best media type among `forms` for an `Accept` header (CONCEPT:EG-KG.ontology.content-negotiation-serializers).
-/// Empty / `*/*` / no acceptable match → the per-form default (`forms[0]`). Honors
-/// q-values and `type/*` wildcards; on a q-tie the client's listed order is respected.
-fn negotiate(accept: &str, forms: &[&'static str]) -> &'static str {
-    let accept = accept.trim();
-    if accept.is_empty() {
-        return forms[0];
-    }
-    let mut best: Option<(&'static str, f32)> = None;
-    for part in accept.split(',') {
-        let mut segs = part.split(';');
-        let media = segs.next().unwrap_or("").trim().to_ascii_lowercase();
-        let mut q = 1.0f32;
-        for seg in segs {
-            if let Some(v) = seg.trim().strip_prefix("q=") {
-                q = v.parse().unwrap_or(1.0);
-            }
-        }
-        if q <= 0.0 {
-            continue;
-        }
-        for &f in forms {
-            let matches = media == f
-                || media == "*/*"
-                || (media.ends_with("/*") && f.starts_with(&media[..media.len() - 1]));
-            if matches {
-                if best.map(|(_, bq)| q > bq).unwrap_or(true) {
-                    best = Some((f, q));
-                }
-                break;
-            }
-        }
-    }
-    best.map(|(f, _)| f).unwrap_or(forms[0])
 }
 
 // ── hand-written SPARQL 1.1 Query Results serializers (CONCEPT:EG-KG.ontology.content-negotiation-serializers) ────────────
@@ -1502,10 +844,6 @@ fn xml_escape(s: &str) -> String {
 }
 
 // ── tiny HTTP helpers (no external dep) ──────────────────────────────────────────
-
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
 
 /// Parse an `&`-separated `k=v` form (query string or urlencoded body), percent- and
 /// `+`-decoding both sides.

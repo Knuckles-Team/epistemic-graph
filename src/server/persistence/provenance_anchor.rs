@@ -43,11 +43,10 @@ pub const DEFAULT_MAX_WINDOW_NODES: usize = 50_000;
 /// `EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_MAX_NODES`. Zero, absent, and
 /// non-parsable values resolve to [`DEFAULT_MAX_WINDOW_NODES`].
 pub fn max_window_nodes() -> usize {
-    std::env::var("EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_MAX_NODES")
-        .ok()
-        .and_then(|s| s.trim().parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_MAX_WINDOW_NODES)
+    crate::server::state::positive_runtime_limit_from_env(
+        "EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_MAX_NODES",
+        DEFAULT_MAX_WINDOW_NODES,
+    )
 }
 
 /// Provenance-node label vocabulary this sweep anchors. Matches `GraphCore`'s own
@@ -92,18 +91,41 @@ pub async fn sweep(state: &Arc<RwLock<ServerState>>) -> u64 {
             .collect();
         (entries, s.persistence.clone())
     };
-    let Some(redb) = persistence.as_ref().and_then(|p| p.as_redb()) else {
+    let Some(persistence) = persistence else {
+        return 0;
+    };
+    let Some(redb) = persistence.as_redb() else {
         return 0;
     };
 
     let max_nodes = max_window_nodes();
     let mut anchored = 0u64;
     for (name, core) in entries {
+        // Serialize the maintenance commit and its serving-version publication
+        // with ordinary graph writes. The captured entry may have been retired
+        // while this sweep waited for the lane.
+        let _mutation_guard = crate::server::mutation_batch::lock_graph(&name).await;
+        if !state
+            .read()
+            .await
+            .registry
+            .get(&name)
+            .is_some_and(|entry| Arc::ptr_eq(&entry.core, &core))
+        {
+            continue;
+        }
         let ids = candidate_ids(&core, max_nodes);
         if ids.is_empty() {
             continue;
         }
         let fname = crate::persist::sanitize(&name);
+        if let Err(error) =
+            crate::server::mutation_batch::authoritative_graph_version(&persistence, &fname, &core)
+                .await
+        {
+            tracing::warn!(graph = %name, %error, "provenance anchor: version preflight failed");
+            continue;
+        }
         let members = match redb.provenance_leaf_hashes_blocking(&fname, &ids) {
             Ok(m) => m,
             Err(error) => {
@@ -122,6 +144,10 @@ pub async fn sweep(state: &Arc<RwLock<ServerState>>) -> u64 {
         let root = crate::audit::mth_from_hashes(&leaf_hashes);
         match redb.provenance_anchor_commit_blocking(&fname, root, members.clone()) {
             Ok(Some(seq)) => {
+                // The admitted maintenance group advances this graph exactly
+                // once. Publish only after that transaction is durable; an
+                // unchanged root or failed commit must not move the RAM fence.
+                core.mark_dirty();
                 anchored += 1;
                 tracing::info!(
                     graph = %name,

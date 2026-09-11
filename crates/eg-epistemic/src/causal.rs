@@ -49,6 +49,14 @@ use eg_types::Distribution;
 /// `crate::propagate`'s `DEFAULT_CALIBRATION_LEVEL`.
 const DEFAULT_CAUSAL_LEVEL: f64 = 0.95;
 
+fn require_variable<T>(equations: &HashMap<String, T>, id: &str) -> Result<(), String> {
+    if equations.contains_key(id) {
+        Ok(())
+    } else {
+        Err(format!("unknown variable '{id}'"))
+    }
+}
+
 /// One variable's structural equation: `X = bias + Σ weight·parent + noise`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StructuralEquation {
@@ -148,14 +156,6 @@ impl CausalGraph {
         self.equations.contains_key(id)
     }
 
-    fn require(&self, id: &str) -> Result<(), String> {
-        if self.contains(id) {
-            Ok(())
-        } else {
-            Err(format!("unknown variable '{id}'"))
-        }
-    }
-
     /// The exact joint mean vector + covariance matrix over ALL variables, in
     /// `self.order`. Computed by a single forward pass in topological order using
     /// the closed-form linear-SCM recursion (no matrix inversion needed for the
@@ -240,7 +240,7 @@ impl CausalGraph {
         do_: &HashMap<String, f64>,
     ) -> Result<HashMap<String, CausalEstimate>, String> {
         for id in do_.keys() {
-            self.require(id)?;
+            require_variable(&self.equations, id)?;
         }
         let mutilated = self.mutilate(do_);
         let (mean, cov, idx) = mutilated.joint();
@@ -270,7 +270,7 @@ impl CausalGraph {
         evidence: &HashMap<String, f64>,
     ) -> Result<HashMap<String, CausalEstimate>, String> {
         for id in evidence.keys() {
-            self.require(id)?;
+            require_variable(&self.equations, id)?;
         }
         let (mean, cov, idx) = self.joint();
         if evidence.is_empty() {
@@ -351,7 +351,7 @@ impl CausalGraph {
         do_: &HashMap<String, f64>,
     ) -> Result<HashMap<String, f64>, String> {
         for id in do_.keys() {
-            self.require(id)?;
+            require_variable(&self.equations, id)?;
         }
         for id in &self.order {
             if !actual.contains_key(id) {
@@ -591,6 +591,87 @@ impl CategoricalEstimate {
 /// Tolerance a CPT row's probabilities may deviate from summing to 1.
 const CPT_SUM_TOL: f64 = 1e-9;
 
+fn validate_cpt_row(
+    id: &str,
+    parents: &[String],
+    parent_cards: &[usize],
+    cardinality: usize,
+    key: &[usize],
+    row: &[f64],
+) -> Result<(), String> {
+    if key.len() != parents.len() {
+        return Err(format!(
+            "variable '{id}': CPT key {key:?} has {} entries but the variable has {} parents",
+            key.len(),
+            parents.len()
+        ));
+    }
+    for (pos, &kv) in key.iter().enumerate() {
+        if kv >= parent_cards[pos] {
+            return Err(format!(
+                "variable '{id}': CPT key {key:?} value {kv} out of range for parent \
+                 '{}' (cardinality {})",
+                parents[pos], parent_cards[pos]
+            ));
+        }
+    }
+    if row.len() != cardinality {
+        return Err(format!(
+            "variable '{id}': CPT row for key {key:?} has length {} but cardinality is {cardinality}",
+            row.len()
+        ));
+    }
+    let mut sum = 0.0;
+    for &probability in row {
+        if probability < 0.0 {
+            return Err(format!(
+                "variable '{id}': CPT row for key {key:?} has a negative probability"
+            ));
+        }
+        sum += probability;
+    }
+    if (sum - 1.0).abs() > CPT_SUM_TOL {
+        return Err(format!(
+            "variable '{id}': CPT row for key {key:?} sums to {sum}, not 1"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_cpt_table(
+    id: &str,
+    parents: &[String],
+    parent_cards: &[usize],
+    cardinality: usize,
+    table: Vec<(Vec<usize>, Vec<f64>)>,
+) -> Result<HashMap<Vec<usize>, Vec<f64>>, String> {
+    let mut map: HashMap<Vec<usize>, Vec<f64>> = HashMap::with_capacity(table.len());
+    for (key, row) in table {
+        validate_cpt_row(id, parents, parent_cards, cardinality, &key, &row)?;
+        if map.insert(key.clone(), row).is_some() {
+            return Err(format!("variable '{id}': duplicate CPT key {key:?}"));
+        }
+    }
+
+    // Every parent-value combination must be covered (a total CPT).
+    let expected = parent_cards.iter().product::<usize>().max(1);
+    if map.len() != expected {
+        return Err(format!(
+            "variable '{id}': CPT has {} rows but needs {expected} (one per parent-value \
+             combination)",
+            map.len()
+        ));
+    }
+    for combo in cartesian(parent_cards) {
+        if !map.contains_key(&combo) {
+            return Err(format!(
+                "variable '{id}': CPT is missing a row for parent-value combination {combo:?}"
+            ));
+        }
+    }
+    Ok(map)
+}
+
 impl DiscreteCausalGraph {
     pub fn new() -> Self {
         DiscreteCausalGraph::default()
@@ -629,67 +710,8 @@ impl DiscreteCausalGraph {
             parent_cards.push(*pc);
         }
 
-        // Index the supplied rows and validate each is a proper probability
-        // vector over `cardinality` categories.
-        let mut map: HashMap<Vec<usize>, Vec<f64>> = HashMap::with_capacity(table.len());
-        for (key, row) in table {
-            if key.len() != owned_parents.len() {
-                return Err(format!(
-                    "variable '{id}': CPT key {key:?} has {} entries but the variable has {} parents",
-                    key.len(),
-                    owned_parents.len()
-                ));
-            }
-            for (pos, &kv) in key.iter().enumerate() {
-                if kv >= parent_cards[pos] {
-                    return Err(format!(
-                        "variable '{id}': CPT key {key:?} value {kv} out of range for parent \
-                         '{}' (cardinality {})",
-                        owned_parents[pos], parent_cards[pos]
-                    ));
-                }
-            }
-            if row.len() != cardinality {
-                return Err(format!(
-                    "variable '{id}': CPT row for key {key:?} has length {} but cardinality is {cardinality}",
-                    row.len()
-                ));
-            }
-            let mut sum = 0.0;
-            for &p in &row {
-                if p < 0.0 {
-                    return Err(format!(
-                        "variable '{id}': CPT row for key {key:?} has a negative probability"
-                    ));
-                }
-                sum += p;
-            }
-            if (sum - 1.0).abs() > CPT_SUM_TOL {
-                return Err(format!(
-                    "variable '{id}': CPT row for key {key:?} sums to {sum}, not 1"
-                ));
-            }
-            if map.insert(key.clone(), row).is_some() {
-                return Err(format!("variable '{id}': duplicate CPT key {key:?}"));
-            }
-        }
-
-        // Every parent-value combination must be covered (a total CPT).
-        let expected = parent_cards.iter().product::<usize>().max(1);
-        if map.len() != expected {
-            return Err(format!(
-                "variable '{id}': CPT has {} rows but needs {expected} (one per parent-value \
-                 combination)",
-                map.len()
-            ));
-        }
-        for combo in cartesian(&parent_cards) {
-            if !map.contains_key(&combo) {
-                return Err(format!(
-                    "variable '{id}': CPT is missing a row for parent-value combination {combo:?}"
-                ));
-            }
-        }
+        // Index the supplied rows and validate the complete probability table.
+        let map = validate_cpt_table(&id, &owned_parents, &parent_cards, cardinality, table)?;
 
         self.cardinality.insert(id.clone(), cardinality);
         self.equations.insert(
@@ -706,14 +728,6 @@ impl DiscreteCausalGraph {
 
     pub fn contains(&self, id: &str) -> bool {
         self.equations.contains_key(id)
-    }
-
-    fn require(&self, id: &str) -> Result<(), String> {
-        if self.contains(id) {
-            Ok(())
-        } else {
-            Err(format!("unknown variable '{id}'"))
-        }
     }
 
     /// The exact joint distribution over ALL variables as `(assignment, prob)`
@@ -820,7 +834,7 @@ impl DiscreteCausalGraph {
         do_: &HashMap<String, usize>,
     ) -> Result<HashMap<String, CategoricalEstimate>, String> {
         for (id, &v) in do_ {
-            self.require(id)?;
+            require_variable(&self.equations, id)?;
             let card = self.equations[id].cardinality;
             if v >= card {
                 return Err(format!(
@@ -843,7 +857,7 @@ impl DiscreteCausalGraph {
         evidence: &HashMap<String, usize>,
     ) -> Result<HashMap<String, CategoricalEstimate>, String> {
         for (id, &v) in evidence {
-            self.require(id)?;
+            require_variable(&self.equations, id)?;
             let card = self.equations[id].cardinality;
             if v >= card {
                 return Err(format!(
@@ -892,7 +906,7 @@ impl DiscreteCausalGraph {
         do_: &HashMap<String, usize>,
     ) -> Result<HashMap<String, usize>, String> {
         for (id, &v) in do_ {
-            self.require(id)?;
+            require_variable(&self.equations, id)?;
             let card = self.equations[id].cardinality;
             if v >= card {
                 return Err(format!(
@@ -1220,6 +1234,36 @@ mod tests {
         // wrong row length for the cardinality
         assert!(g
             .add_variable("c", vec![], 3, vec![(vec![], vec![0.5, 0.5])])
+            .is_err());
+        // zero cardinality, negative probabilities, malformed keys, and duplicate keys
+        // are rejected by the same CPT validation path.
+        assert!(g.add_variable("zero", vec![], 0, Vec::new()).is_err());
+        assert!(g
+            .add_variable("negative", vec![], 2, vec![(vec![], vec![-0.1, 1.1])])
+            .is_err());
+        assert!(g
+            .add_variable(
+                "wrong_key_arity",
+                vec![],
+                2,
+                vec![(vec![0], vec![0.5, 0.5])]
+            )
+            .is_err());
+        assert!(g
+            .add_variable(
+                "out_of_range",
+                vec!["z"],
+                2,
+                vec![(vec![2], vec![0.5, 0.5])]
+            )
+            .is_err());
+        assert!(g
+            .add_variable(
+                "duplicate_key",
+                vec![],
+                2,
+                vec![(vec![], vec![0.5, 0.5]), (vec![], vec![0.5, 0.5])],
+            )
             .is_err());
     }
 

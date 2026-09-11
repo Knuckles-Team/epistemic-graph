@@ -35,9 +35,9 @@ use eg_query::{
     TxnOp, TypedQueryResult,
 };
 use eg_types::mutation_batch::{
-    DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationOperation,
-    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface,
-    ScopeTenantId, VersionExpectation, COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
+    IncarnationId, LogicalName, MutationBatch, DurabilityDomain, MutationOperation,
+    MutationEnvelope, MutationOutboxIntent, MutationScopeIdentity, MutationSurface, ScopeTenantId,
+    VersionExpectation, COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
 };
 use serde_json::json;
 
@@ -76,36 +76,29 @@ fn commit(store: &TableStore, tenant: &str, graph: &str, seq: &mut u64, txn: Tab
     // Live read, taken fresh for every call so a sequence of commits (including
     // the cross-scope one in property 5) never trips STALE_VERSION.
     let expected = store.mutation_version(tenant, graph).unwrap();
-    let batch = MutationBatch {
+    // `DurabilityDomain::SqlCatalog` is a non-graph domain -> native scope
+    // (mirrors `commit_txn_batch_inner.rs`'s `batch()` fixture, the SAME crate's
+    // identical shape). `graph` here is the native `resource` name, not a graph
+    // name -- property 5 deliberately passes
+    // `"sqlite-import:global-user-tables"`, a non-graph string, through this
+    // exact parameter to prove a commit under a DIFFERENT scope than the literal
+    // `(TENANT, GRAPH)` pair still invalidates the cache. A fixed, deterministic
+    // incarnation id keyed by (tenant, graph) keeps repeat commits to the SAME
+    // scope within one test binding to the SAME identity while still giving each
+    // distinct scope its own.
+    let identity = MutationScopeIdentity::native(
+        ScopeTenantId::new(tenant).expect("valid tenant id"),
+        DurabilityDomain::SqlCatalog,
+        LogicalName::new(graph).expect("valid resource name"),
+        IncarnationId::new(COMPILED_BATCH_INCARNATION).expect("valid incarnation id"),
+    )
+    .expect("sql-catalog native scope identity is valid");
+    let mut batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch_id.clone(),
-        context: MutationRequestContext {
-            request_id: *seq,
-            principal: format!("principal:sha256:{}", "a".repeat(64)),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            verified_capabilities: Default::default(),
-        },
-        // `DurabilityDomain::SqlCatalog` is a non-graph domain -> native scope
-        // (mirrors `commit_txn_batch_inner.rs`'s `batch()` fixture, the SAME
-        // crate's identical shape). `graph` here is the native `resource` name,
-        // not a graph name -- property 5 deliberately passes
-        // `"sqlite-import:global-user-tables"`, a non-graph string, through this
-        // exact parameter to prove a commit under a DIFFERENT scope than the
-        // literal `(TENANT, GRAPH)` pair still invalidates the cache. A fixed,
-        // deterministic incarnation id keyed by (tenant, graph) keeps repeat
-        // commits to the SAME scope within one test binding to the SAME identity
-        // while still giving each distinct scope its own.
-        identity: MutationScopeIdentity::native(
-            ScopeTenantId::new(tenant).expect("valid tenant id"),
-            DurabilityDomain::SqlCatalog,
-            LogicalName::new(graph).expect("valid resource name"),
-            IncarnationId::new(COMPILED_BATCH_INCARNATION).expect("valid incarnation id"),
-        )
-        .expect("sql-catalog native scope identity is valid"),
+        envelope: fixture_envelope(&identity, *seq, &format!("idem-{batch_id}")),
+        identity,
         placement_epoch: 0,
-        idempotency_key: format!("idem-{batch_id}"),
         version_expectation: VersionExpectation::Native(expected),
         fencing_token: None,
         authoritative_state: None,
@@ -127,6 +120,9 @@ fn commit(store: &TableStore, tenant: &str, graph: &str, seq: &mut u64, txn: Tab
         }],
         created_at_ms: 100 + *seq,
     };
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+        .expect("a fixture batch reseals its envelope over its final body");
     store
         .commit_txn_batch(&txn, &batch, 100 + *seq)
         .unwrap_or_else(|e| panic!("commit {batch_id} failed: {e}"));
@@ -835,4 +831,38 @@ fn node_batch_reused_across_non_node_write_and_matches_uncached() {
         (1, 2),
         "a node write re-infers the node batch"
     );
+}
+
+/// The operation envelope a fixture SQL batch carries.
+///
+/// A served SQL statement HAS a caller, so it is an operation envelope: the
+/// actor is the caller's fingerprint, the serving principal is the SQL owner
+/// file's, and the attempt nonce is server-minted -- rebuilding this fixture for
+/// the same key is a FRESH attempt over the same stable operation, which is
+/// exactly the case the kernel must replay.
+fn fixture_envelope(
+    identity: &MutationScopeIdentity,
+    request_id: u64,
+    idempotency_key: &str,
+) -> MutationEnvelope {
+    let actor = format!("principal:sha256:{}", "a".repeat(64));
+    let method = eg_types::contract::MethodId::new("sql_catalog_operation").unwrap();
+    MutationEnvelope::for_scope(
+        eg_types::mutation_batch::CompiledScope {
+            identity,
+            actor: &actor,
+            serving_principal: &actor,
+            request_id,
+            idempotency_key,
+            nonce: eg_types::contract::Nonce::minted(),
+            now_ms: 0,
+        },
+        eg_types::mutation_batch::CompiledOperation {
+            method_schema_id: eg_types::mutation_batch::method_schema_id(&method).unwrap(),
+            method,
+            method_schema_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
+            canonical_payload_digest: eg_types::contract::Digest256::from_bytes([1_u8; 32]),
+        },
+    )
+    .unwrap()
 }

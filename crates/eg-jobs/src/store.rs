@@ -40,8 +40,8 @@ use eg_storage::{
 };
 use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite, Begin, MutationKernel};
 use eg_types::mutation_batch::{
-    DurabilityDomain, MutationBatch, MutationBatchRecord, MutationOperation, MutationOutboxIntent,
-    MutationRequestContext, MutationScope, MutationScopeIdentity, MutationSurface,
+    DurabilityDomain, MutationBatch, MutationBatchRecord, MutationEnvelope, MutationOperation,
+    MutationOutboxIntent, MutationScope, MutationScopeIdentity, MutationSurface,
     VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
@@ -453,16 +453,15 @@ impl JobStore {
     where
         F: FnOnce(&AdmittedOwnerWrite<'_, JobsOwner>) -> Result<T>,
     {
-        let expected_version = self.live_version()?;
-        let batch = maintenance_batch(
-            kind,
-            self.owner.identity(),
-            self.owner.principal(),
-            expected_version,
-        )?;
-        let (write, begun) = self
+        // Resolve the maintenance version and mint its claim while the same
+        // exclusive write is held.  A pre-lock read can make two concurrent
+        // scheduler maintenance calls share one batch and silently replay.
+        let (write, batch, begun) = self
             .mutations
-            .admit_maintenance(&self.owner, &batch)
+            .admit_current(&self.owner, |version| {
+                maintenance_batch(kind, self.owner.identity(), self.owner.principal(), version)
+                    .map_err(|error| error.to_string())
+            })
             .map_err(redb_err)?;
         let source_version = match begun {
             Begin::Replay(_) => {
@@ -545,7 +544,7 @@ impl JobStore {
         match write.begin(batch).map_err(redb_err)? {
             Begin::Replay(record) => {
                 let replayed = decode_job_result(&record)?;
-                write.abort().map_err(redb_err)?;
+                self.mutations.commit(write, batch).map_err(redb_err)?;
                 Ok(replayed)
             }
             Begin::Apply { source_version } => {
@@ -605,7 +604,7 @@ impl JobStore {
         match write.begin(batch).map_err(redb_err)? {
             Begin::Replay(record) => {
                 let replayed = decode_job_result(&record)?;
-                write.abort().map_err(redb_err)?;
+                self.mutations.commit(write, batch).map_err(redb_err)?;
                 Ok((replayed, true))
             }
             Begin::Apply { source_version } => {
@@ -1257,7 +1256,7 @@ impl JobStore {
         match write.begin(batch).map_err(redb_err)? {
             Begin::Replay(record) => {
                 let replayed = decode_job_result(&record)?;
-                write.abort().map_err(redb_err)?;
+                self.mutations.commit(write, batch).map_err(redb_err)?;
                 Ok((replayed, true))
             }
             Begin::Apply { source_version } => {
@@ -2452,6 +2451,43 @@ pub fn analytics_job_scope_identity() -> Result<MutationScopeIdentity> {
 /// independent of the logical serving scope.
 const JOBS_PHYSICAL_STORE: &str = "eg-jobs:analytics-jobs";
 
+/// The operation envelope for one caller-identified analytics-job write.
+///
+/// `actor` is the worker's or the job policy actor's fingerprint;
+/// `serving_principal` is the principal the storage kernel authenticated this
+/// store's scope for. The attempt nonce is server-minted, because a nonce is the
+/// ATTEMPT identity and a caller-supplied one would let a caller make its own
+/// retry undeliverable; the caller's stable retry identity is `batch_id`, which
+/// is this transition's content address.
+fn job_operation_envelope(
+    identity: &MutationScopeIdentity,
+    actor: &str,
+    serving_principal: &str,
+    batch_id: &str,
+) -> Result<MutationEnvelope> {
+    let method =
+        eg_types::contract::MethodId::new("analytics_job_transition").map_err(codec_err)?;
+    MutationEnvelope::for_scope(
+        eg_types::mutation_batch::CompiledScope {
+            identity,
+            actor,
+            serving_principal,
+            request_id: 0,
+            idempotency_key: batch_id,
+            nonce: eg_types::contract::Nonce::minted(),
+            now_ms: 0,
+        },
+        eg_types::mutation_batch::CompiledOperation {
+            method_schema_id: eg_types::mutation_batch::method_schema_id(&method)
+                .map_err(codec_err)?,
+            method,
+            method_schema_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
+            canonical_payload_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
+        },
+    )
+    .map_err(codec_err)
+}
+
 /// The batch for one store-level maintenance mutation (RF-RULING-005).
 ///
 /// The scheduler index rebuild, the two idempotency ledgers and the intent
@@ -2468,23 +2504,22 @@ fn maintenance_batch(
     expected_version: u64,
 ) -> Result<MutationBatch> {
     let batch_id = format!("analytics-job-{kind}:v{expected_version}");
-    let batch = MutationBatch {
+    let mut batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch_id.clone(),
-        context: MutationRequestContext {
-            request_id: 0,
-            principal: principal.to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // A maintenance mutation claims no capability: a plain
-            // `Native`-versioned write, not the reserved-system `Unversioned`
-            // path. Empty is the true fact here, not a placeholder.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
+        // See this function's own doc comment: an index rebuild, an idempotency
+        // ledger write and the intent registry carry no caller identity, so
+        // they are MAINTENANCE envelopes with no operation replay identity and
+        // no attempt nonce (RF-RULING-005).
+        envelope: MutationEnvelope::maintenance_for_scope(
+            identity,
+            principal,
+            &format!("analytics_job_{kind}"),
+            &batch_id,
+        )
+        .map_err(codec_err)?,
         identity: identity.clone(),
         placement_epoch: 0,
-        idempotency_key: batch_id.clone(),
         version_expectation: VersionExpectation::Native(expected_version),
         fencing_token: None,
         authoritative_state: None,
@@ -2500,6 +2535,9 @@ fn maintenance_batch(
         outbox: Vec::new(),
         created_at_ms: 0,
     };
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+        .map_err(codec_err)?;
     batch.validate().map_err(codec_err)?;
     Ok(batch)
 }
@@ -2521,7 +2559,6 @@ fn internal_job_batch(
     // epoch travels on the outbox row below, and `lease`/`last_worker_ref` are
     // fields of the persisted job image itself. Caller identity is already
     // pseudonymized; never fall back to a raw worker label.
-    let principal = principal.to_string();
     let transition_actor = job
         .lease
         .as_ref()
@@ -2543,25 +2580,17 @@ fn internal_job_batch(
             query: format!("sha256:{digest}"),
         },
     };
-    let batch = MutationBatch {
+    let mut batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch_id.clone(),
-        context: MutationRequestContext {
-            request_id: 0,
-            principal,
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // No admission boundary verifies a capability for this internal,
-            // executor-driven transition -- it is a plain `Native`-versioned
-            // mutation, not the reserved-system `Unversioned` path, so it
-            // legitimately needs none. Empty is the true fact here, not a
-            // default standing in for an unknown value.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
+        // A job transition HAS a caller -- the worker or the job's own policy
+        // actor -- so it is an OPERATION envelope keyed on that actor's
+        // fingerprint, with the store's serving principal kept separately. The
+        // two were one overloaded `context.principal` before, which is why
+        // C1 P1-2 found caller-identified jobs writes admitted as maintenance.
+        envelope: job_operation_envelope(identity, &actor_digest, principal, &batch_id)?,
         identity: identity.clone(),
         placement_epoch: 0,
-        idempotency_key: batch_id.clone(),
         // The scope's live authoritative version, supplied by the caller (see
         // this function's doc comment) -- `MutationKernel::finish` requires
         // `VersionExpectation::Native` to equal the scope's CURRENT
@@ -2582,6 +2611,9 @@ fn internal_job_batch(
         }],
         created_at_ms: job.updated_at_ms.max(0) as u64,
     };
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+        .map_err(codec_err)?;
     batch.validate().map_err(codec_err)?;
     Ok(batch)
 }
@@ -2685,8 +2717,16 @@ mod tests {
         .unwrap();
         let request_id = format!("job-request:{action}:{sequence}");
         batch.batch_id = request_id.clone();
-        batch.idempotency_key = request_id.clone();
-        batch.context.request_id = sequence;
+        // The retry key lives in exactly one place -- inside the envelope's
+        // authority -- so re-keying this fixture batch re-mints the envelope
+        // rather than assigning a second copy of the key beside it.
+        batch.envelope = job_operation_envelope(
+            &identity,
+            crate::dev_scope_grant::DEV_PRINCIPAL,
+            crate::dev_scope_grant::DEV_PRINCIPAL,
+            &request_id,
+        )
+        .unwrap();
         batch.created_at_ms = job.updated_at_ms.max(0) as u64;
         let operation = MutationOperation {
             ordinal: 0,
@@ -2700,6 +2740,14 @@ mod tests {
         batch.operations = vec![operation.clone()];
         batch.outbox[0].key = request_id;
         batch.outbox[0].payload = rmp_serde::to_vec_named(&operation).unwrap();
+        // The operations and outbox above REPLACE the ones `internal_job_batch`
+        // minted the envelope from, so the envelope has to be re-minted against
+        // the final content -- exactly the reseal the production builder ends
+        // with. Without it the envelope under-covers its own body, which
+        // `validate_envelope_covers_this_batch` refuses at admission.
+        batch
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+            .unwrap();
         batch.validate().unwrap();
         batch
     }

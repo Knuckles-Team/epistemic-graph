@@ -71,6 +71,8 @@ pub(super) fn mining_response_to_gateway_result(resp: Response) -> Result<Result
 pub(crate) async fn try_handle_gateway(
     req_id: u64,
     caller: Option<&str>,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
+    idempotency_key: &str,
     tenant_scope: &str,
     graph_name: &str,
     core: &Arc<GraphCore>,
@@ -133,6 +135,8 @@ pub(crate) async fn try_handle_gateway(
     let ctx = MutationCtx {
         req_id,
         caller,
+        attempt_nonce,
+        idempotency_key,
         tenant_scope,
         graph_name,
         graph_type: *graph_type,

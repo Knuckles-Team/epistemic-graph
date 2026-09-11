@@ -105,14 +105,14 @@ pub(crate) struct SqlSourceAclSnapshot {
 #[cfg(test)]
 thread_local! {
     static SNAPSHOT_BEFORE_READ_LOCK: std::cell::RefCell<Option<(
-        std::sync::mpsc::Sender<()>,
+        std::sync::mpsc::SyncSender<()>,
         std::sync::mpsc::Receiver<()>,
     )>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
 fn pause_before_snapshot_read_lock(
-    reached: std::sync::mpsc::Sender<()>,
+    reached: std::sync::mpsc::SyncSender<()>,
     proceed: std::sync::mpsc::Receiver<()>,
 ) {
     SNAPSHOT_BEFORE_READ_LOCK.with(|hook| *hook.borrow_mut() = Some((reached, proceed)));
@@ -474,7 +474,24 @@ fn commit_source_acl_mutation(
     // example, a multi-table import registering each table owner). Bind the
     // durable child identity to the canonical effect as well as the stable
     // parent UUID so those effects neither collide nor become fresh retries.
-    let child_identity = format!("{}:{kind}:{operation_digest}", operation_id.simple());
+    //
+    // The ACTOR is bound in too (M1 review P1). `opaque_coordinator_key` is
+    // keyed on `tenant_scope()` -- the tenant ALONE -- while every sibling
+    // producer keys on `authority.namespace(..)`, which is `owner_scope`: tenant
+    // AND actor. Two actors in one tenant issuing the same logical ACL effect
+    // therefore shared one durable key, and the only thing separating them was
+    // that `created_at_ms` and the observed revision differed per attempt --
+    // precisely the two discriminators the mutation envelope removes from replay
+    // identity. Without this the cutover would convert a latent asymmetry into a
+    // live cross-actor replay-ownership hole. The identity ALSO carries the
+    // actor (`OperationReplayIdentity.actor`), so a cross-actor attempt is a
+    // `Conflict` rather than a silent replay; both are needed, because the key
+    // is what partitions the ledger row and the identity is what compares it.
+    let child_identity = format!(
+        "{}:{kind}:{operation_digest}:{}",
+        operation_id.simple(),
+        crate::server::mutation_batch::principal_fingerprint(authority.actor_scope())?,
+    );
     let batch_id = crate::server::mutation_batch::opaque_coordinator_key(
         "sql-source-acl",
         authority.tenant_scope(),
@@ -490,6 +507,7 @@ fn commit_source_acl_mutation(
         crate::server::mutation_batch::CompileBatch {
             batch_id: &batch_id,
             request_id,
+            attempt_nonce: authority.attempt_nonce(),
             principal: Some(authority.actor_scope()),
             tenant: authority.tenant_scope(),
             graph: SOURCE_ACL_RESOURCE,
@@ -507,6 +525,13 @@ fn commit_source_acl_mutation(
         "sql_source_acl_operation",
     )?;
     let committed = acl.commit_txn_batch(txn, &batch, created_at_ms)?;
+    let expected_actor =
+        crate::server::mutation_batch::principal_fingerprint(authority.actor_scope())?;
+    if committed.record.committing_actor()? != expected_actor {
+        return Err(
+            "IDEMPOTENCY_CONFLICT: SQL source ACL receipt is owned by another actor".to_string(),
+        );
+    }
     match committed.record.committed_version {
         crate::mutation_batch::CommittedVersion::Native { target, .. } => Ok(target),
         _ => Err("SQL source ACL committed without a native revision".to_string()),
@@ -1058,6 +1083,19 @@ pub(crate) struct SemanticTextSnapshot {
     pub(crate) column: String,
     pub(crate) schema_revision: u64,
     pub(crate) schema_digest: String,
+    /// The physical tenant SQL-source authority sampled with this page. It is
+    /// opaque to the semantic adapter and is part of the source revision.
+    pub(crate) source_authority_digest: [u8; 32],
+    /// Tenant-wide source epoch sampled from the same redb read transaction as
+    /// schema and rows. Native scope versions are not a substitute.
+    pub(crate) source_epoch: u64,
+    /// Keyed proof that this page is complete. It is present only when the
+    /// authenticated input cursor reaches the end of the source.
+    pub(crate) complete_snapshot_receipt_digest: Option<[u8; 32]>,
+    /// Trusted instant at which this authorized source decision was returned.
+    /// It is sampled while the source-authority read guard remains held and is
+    /// carried separately from the ACL decision digest.
+    pub(crate) decision_at_ms: u64,
     pub(crate) source_acl_revision: u64,
     pub(crate) source_acl_digest: String,
     pub(crate) decision_digest: String,
@@ -1366,8 +1404,67 @@ fn semantic_cursor_tag(
     mac.update(&page.schema_revision.to_be_bytes());
     mac.update(&(page.schema_digest.len() as u64).to_be_bytes());
     mac.update(page.schema_digest.as_bytes());
+    mac.update(&page.source_authority_digest);
+    mac.update(&page.source_epoch.to_be_bytes());
     mac_len_prefixed(&mut mac, physical_position);
     Ok(mac)
+}
+
+fn semantic_complete_snapshot_receipt_digest(
+    cursor_auth_secret: &[u8; 32],
+    authority: &CarrierAuthority,
+    selector: &eg_types::semantic_index::SqlColumnRef,
+    acl: &SqlSourceAclSnapshot,
+    page: &eg_query::tables::store::TableRowSnapshot,
+    input_cursor: Option<&SemanticTextCursor>,
+    records: &[SemanticTextRecord],
+    visible_null_count: usize,
+    skipped_count: usize,
+) -> Result<[u8; 32], String> {
+    let mut mac = semantic_cursor_base_mac(
+        cursor_auth_secret,
+        b"epistemic-graph/sql-semantic-complete-snapshot-v1",
+        authority,
+        selector,
+        acl,
+    )?;
+    for field in [
+        selector.catalog_id.as_bytes(),
+        selector.schema_id.as_bytes(),
+        selector.table_id.as_bytes(),
+        selector.column_id.as_bytes(),
+        page.schema_digest.as_bytes(),
+        acl.source_acl_digest.as_bytes(),
+        acl.decision_digest.as_bytes(),
+    ] {
+        mac_len_prefixed(&mut mac, field);
+    }
+    mac.update(&page.schema_revision.to_be_bytes());
+    mac.update(&page.source_authority_digest);
+    mac.update(&page.source_epoch.to_be_bytes());
+    mac.update(&acl.source_acl_revision.to_be_bytes());
+    match input_cursor {
+        Some(cursor) => {
+            mac.update(&[1]);
+            mac_len_prefixed(&mut mac, cursor);
+        }
+        None => mac.update(&[0]),
+    }
+    // This explicit marker prevents a future partial-page representation from
+    // being mistaken for a completed reconciliation receipt.
+    mac.update(b"complete");
+    mac.update(&(records.len() as u64).to_be_bytes());
+    for record in records {
+        mac_len_prefixed(&mut mac, &record.record_identity_digest);
+        mac_len_prefixed(&mut mac, record.text.as_bytes());
+    }
+    mac.update(&(visible_null_count as u64).to_be_bytes());
+    mac.update(&(skipped_count as u64).to_be_bytes());
+    let digest: [u8; 32] = mac.finalize().into_bytes().into();
+    if digest == [0; 32] {
+        return Err("SQL semantic complete snapshot proof is empty".to_string());
+    }
+    Ok(digest)
 }
 
 fn mac_len_prefixed(mac: &mut SemanticCursorMac, value: &[u8]) {
@@ -1622,12 +1719,33 @@ impl AuthorizedTable {
                 )
             })
             .transpose()?;
+        let complete_snapshot_receipt_digest = next_cursor
+            .is_none()
+            .then(|| {
+                semantic_complete_snapshot_receipt_digest(
+                    cursor_auth_secret,
+                    &self.authority,
+                    selector,
+                    &acl,
+                    &page,
+                    cursor,
+                    &records,
+                    visible_null_count,
+                    skipped_count,
+                )
+            })
+            .transpose()?;
+        let decision_at_ms = crate::server::txn::now_ms();
         Ok(SemanticTextSnapshot {
             tenant_scope: self.authority.tenant_scope().to_string(),
             table: selector.table_id.clone(),
             column: selector.column_id.clone(),
             schema_revision: page.schema_revision,
             schema_digest: page.schema_digest,
+            source_authority_digest: page.source_authority_digest,
+            source_epoch: page.source_epoch,
+            complete_snapshot_receipt_digest,
+            decision_at_ms,
             source_acl_revision: acl.source_acl_revision,
             source_acl_digest: acl.source_acl_digest,
             decision_digest: acl.decision_digest,
@@ -1850,6 +1968,9 @@ pub(crate) fn authorized_graph_table_sql(
     let record = store
         .property_graph(tenant_scope, &query.graph)?
         .ok_or_else(|| ACCESS_DENIED.to_string())?;
+    if !authority.is_admin() && !record.permits_select(authority.agent_id()) {
+        return Err(ACCESS_DENIED.to_string());
+    }
     let selectable: BTreeSet<String> = selectable_tables(authority, persist_dir)?
         .into_iter()
         .collect();
@@ -1866,6 +1987,112 @@ pub(crate) fn authorized_graph_table_sql(
     store.verify_property_graph_dependencies(&record)?;
     eg_query::sql::lower_graph_table(query, &record.accepted_definition, tenant_scope)
         .map(|plan| plan.to_sql())
+}
+
+/// Property-graph catalog rows this exact caller may discover through SQL
+/// metadata. Visibility requires graph `SELECT` plus `SELECT` on every pinned
+/// base relation, matching [`authorized_graph_table_sql`].
+pub(crate) fn authorized_property_graph_records(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+) -> Result<Vec<eg_query::tables::PropertyGraphCatalogRecord>, String> {
+    require_source_authority()?;
+    let tenant_scope = authority.tenant_scope();
+    let store = sql_tables::tenant_table_store(tenant_scope, persist_dir)?;
+    let selectable: BTreeSet<String> = selectable_tables(authority, persist_dir)?
+        .into_iter()
+        .collect();
+    let mut visible = Vec::new();
+    for record in store.list_property_graph_records(tenant_scope)? {
+        if !authority.is_admin() && !record.permits_select(authority.agent_id()) {
+            continue;
+        }
+        if !record
+            .dependencies
+            .iter()
+            .all(|dependency| selectable.contains(dependency.name.object.value()))
+        {
+            continue;
+        }
+        store.verify_property_graph_dependencies(&record)?;
+        visible.push(record);
+    }
+    Ok(visible)
+}
+
+/// One per-read physical projection containing only rows and graph metadata
+/// visible to the verified caller. Dropping it closes the redb handle before
+/// removing its temporary backing file.
+pub(crate) struct AuthorizedReadStore {
+    store: Option<TableStore>,
+    path: std::path::PathBuf,
+}
+
+impl AuthorizedReadStore {
+    pub(crate) fn store(&self) -> &TableStore {
+        self.store
+            .as_ref()
+            .expect("authorized read store remains present until drop")
+    }
+}
+
+impl Drop for AuthorizedReadStore {
+    fn drop(&mut self) {
+        self.store.take();
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Build the single shared authorized SQL projection used by every served SQL
+/// surface. Tables carry RLS-filtered rows; property graphs are re-admitted
+/// only after graph and dependency authorization, under the ephemeral store's
+/// internal scope because tenant identity is not a SQL-visible catalog column.
+pub(crate) fn authorized_read_store(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+) -> Result<AuthorizedReadStore, String> {
+    let names = selectable_tables(authority, persist_dir)?;
+    let property_graphs = authorized_property_graph_records(authority, persist_dir)?;
+    let (store, path) = crate::store_authority::open_ephemeral_sql_store()?;
+    let projection = AuthorizedReadStore {
+        store: Some(store),
+        path,
+    };
+    for name in names {
+        let authorized =
+            open_authorized_table(authority, persist_dir, &name, SqlPrivilege::Select)?;
+        let schema = authorized.schema()?;
+        let rows = authorized.select(None)?;
+        projection.store().create_table(&schema, true)?;
+        if !rows.is_empty() {
+            let col_order: Vec<String> = schema
+                .columns()
+                .iter()
+                .map(|column| column.name.clone())
+                .collect();
+            let values: Vec<Vec<Value>> = rows
+                .iter()
+                .map(|row| row.iter().map(Cell::to_json).collect())
+                .collect();
+            projection.store().insert_rows(&name, &col_order, &values)?;
+        }
+    }
+    let projection_scope = projection.store().index_scope().to_string();
+    for record in property_graphs {
+        let definition = eg_query::tables::PropertyGraphDefinition::new(
+            projection_scope.clone(),
+            record.accepted_definition.name.clone(),
+            false,
+            record.accepted_definition.vertex_tables.clone(),
+            record.accepted_definition.edge_tables.clone(),
+        )?;
+        projection.store().create_property_graph(
+            &projection_scope,
+            &definition,
+            record.owner.value(),
+        )?;
+    }
+    Ok(projection)
 }
 
 pub(crate) fn selectable_tables(
@@ -1928,6 +2155,46 @@ mod tests {
         operation: impl FnOnce(&SqlSourceAuthorityWrite<'_, '_>) -> Result<T, String>,
     ) -> Result<T, String> {
         with_source_authority_write(dir, authority, operation)
+    }
+
+    fn cross_resource_sql_batch(
+        authority: &CarrierAuthority,
+        store: &TableStore,
+        resource: &str,
+        batch_id: &str,
+    ) -> eg_types::mutation_batch::MutationBatch {
+        let expected_version = store
+            .mutation_version(authority.tenant_scope(), resource)
+            .unwrap();
+        let idempotency_key = format!("sql-cross-resource:{batch_id}");
+        let method = crate::protocol::Method::Sql {
+            query:
+                "INSERT INTO documents (id, body, summary) VALUES (257, 'body-257', 'summary-257')"
+                    .to_string(),
+            params_msgpack: Vec::new(),
+        };
+        crate::server::mutation_batch::compile_opaque_method(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id,
+                request_id: 17,
+                attempt_nonce: authority.attempt_nonce(),
+                principal: Some(authority.actor_scope()),
+                tenant: authority.tenant_scope(),
+                graph: resource,
+                placement_epoch: 0,
+                idempotency_key: &idempotency_key,
+                expected_graph_version: Some(expected_version),
+                fencing_token: None,
+                created_at_ms: 17,
+                default_surface: crate::mutation_batch::MutationSurface::Query,
+                authoritative_state: None,
+            },
+            &method,
+            crate::mutation_batch::MutationSurface::Query,
+            crate::mutation_batch::DurabilityDomain::SqlCatalog,
+            "sql_catalog_operation",
+        )
+        .unwrap()
     }
 
     #[test]
@@ -2972,9 +3239,9 @@ mod tests {
         let acl = open_acl(alice.tenant_scope(), &dir).unwrap();
         let lock = acl.source_authority_lock();
         let write_guard = lock.write().unwrap();
-        let (reached_tx, reached_rx) = std::sync::mpsc::channel();
-        let (proceed_tx, proceed_rx) = std::sync::mpsc::channel();
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let (reached_tx, reached_rx) = std::sync::mpsc::sync_channel(1);
+        let (proceed_tx, proceed_rx) = std::sync::mpsc::sync_channel(1);
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
         let reader_dir = dir.clone();
         let reader_authority = bob.clone();
         let handle = std::thread::spawn(move || {
@@ -3141,6 +3408,14 @@ mod tests {
         assert_eq!(snapshot.skipped_count, 1);
         assert_eq!(snapshot.skipped_count, before_hidden.skipped_count);
         assert_eq!(snapshot.next_cursor, None);
+        assert_eq!(
+            snapshot.source_authority_digest,
+            before_hidden.source_authority_digest
+        );
+        assert_eq!(snapshot.source_epoch, before_hidden.source_epoch);
+        assert!(snapshot.source_epoch > 0);
+        let complete_receipt = snapshot.complete_snapshot_receipt_digest.unwrap();
+        assert_ne!(complete_receipt, [0; 32]);
         assert_eq!(snapshot.source_acl_revision, table.source_acl_revision);
         assert_eq!(snapshot.source_acl_digest, table.source_acl_digest);
         assert_eq!(snapshot.decision_digest, table.decision_digest);
@@ -3167,6 +3442,14 @@ mod tests {
                 None,
             )
             .unwrap();
+        assert!(
+            after_update.source_epoch > snapshot.source_epoch,
+            "a committed row update advances the tenant-wide source epoch"
+        );
+        assert_ne!(
+            after_update.complete_snapshot_receipt_digest,
+            Some(complete_receipt)
+        );
         let updated = after_update
             .records
             .iter()
@@ -3452,6 +3735,7 @@ mod tests {
             first.records.len(),
             eg_query::tables::store::ROW_SNAPSHOT_MAX_RECORDS
         );
+        assert!(first.complete_snapshot_receipt_digest.is_none());
         let cursor = first.next_cursor.unwrap();
         assert_ne!(&cursor[..8], &255u64.to_be_bytes());
         assert_eq!(
@@ -3512,6 +3796,39 @@ mod tests {
         assert_eq!(final_page.records.len(), 1);
         assert_eq!(final_page.records[0].text, "body-256");
         assert_eq!(final_page.next_cursor, None);
+        let final_receipt = final_page.complete_snapshot_receipt_digest.unwrap();
+        assert_ne!(final_receipt, [0; 32]);
+
+        // A second native scope stands in for the SQLite/import route. Its
+        // write changes the tenant-wide source epoch even though graph-a's
+        // native counter is untouched, so the page cursor cannot cross it.
+        let store = sql_tables::tenant_table_store(alice.tenant_scope(), &dir).unwrap();
+        let mut cross_resource_txn = TableTxn::new();
+        cross_resource_txn.push(TxnOp::Insert {
+            table: "documents".to_string(),
+            col_order: vec!["id".to_string(), "body".to_string(), "summary".to_string()],
+            rows: vec![vec![
+                Value::from(257_i64),
+                Value::from("body-257"),
+                Value::from("summary-257"),
+            ]],
+        });
+        let cross_resource_batch =
+            cross_resource_sql_batch(&alice, &store, "sqlite-import", "source-epoch-cursor");
+        store
+            .commit_txn_batch(&cross_resource_txn, &cross_resource_batch, 18)
+            .unwrap();
+        let fresh = reopened
+            .semantic_text_snapshot(&selector, SEMANTIC_CURSOR_SECRET, None)
+            .unwrap();
+        assert!(fresh.source_epoch > final_page.source_epoch);
+        assert!(fresh.complete_snapshot_receipt_digest.is_none());
+        assert_eq!(
+            reopened
+                .semantic_text_snapshot(&selector, SEMANTIC_CURSOR_SECRET, Some(&cursor))
+                .unwrap_err(),
+            ACCESS_DENIED
+        );
 
         let current_schema = reopened.store.get_schema("documents").unwrap().unwrap();
         let migration = eg_query::tables::migration::SchemaMigration::for_schema(
@@ -3802,7 +4119,7 @@ mod tests {
             ACCESS_DENIED
         );
 
-        // Granted on every pinned relation, Bob resolves it like the owner.
+        // Base-relation grants alone are insufficient without graph SELECT.
         grant(
             &dir,
             &alice,
@@ -3813,8 +4130,84 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
+            authorized_graph_table_sql(&bob, &dir, &query).unwrap_err(),
+            ACCESS_DENIED
+        );
+
+        let store = sql_tables::tenant_table_store(alice.tenant_scope(), &dir).unwrap();
+        let record = store
+            .property_graph(alice.tenant_scope(), &graph_table_query("shop").graph)
+            .unwrap()
+            .unwrap();
+        let mut txn = eg_query::TableTxn::new();
+        txn.push(eg_query::TxnOp::PropertyGraphDdl(
+            eg_query::PropertyGraphTxnOp::GrantSelect {
+                tenant_scope: alice.tenant_scope().to_string(),
+                name: graph_table_query("shop").graph,
+                expected_object_id: record.object_id,
+                principal: bob.agent_id().to_string(),
+            },
+        ));
+        store.commit_txn(&txn).unwrap();
+
+        // Graph SELECT plus every pinned base relation admits the read.
+        assert_eq!(
             authorized_graph_table_sql(&bob, &dir, &query).unwrap(),
             authorized_graph_table_sql(&alice, &dir, &query).unwrap()
+        );
+    }
+
+    #[cfg(feature = "query")]
+    #[test]
+    fn graph_metadata_visibility_uses_the_same_graph_and_base_grants() {
+        let dir = test_persist_dir();
+        let alice = authority("alice", "tenant-pgq-metadata");
+        let bob = authority("bob", "tenant-pgq-metadata");
+        graph_fixture(&dir, &alice);
+        assert_eq!(
+            authorized_property_graph_records(&alice, &dir)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(authorized_property_graph_records(&bob, &dir)
+            .unwrap()
+            .is_empty());
+
+        for table in ["customers", "orders"] {
+            grant(
+                &dir,
+                &alice,
+                table,
+                "bob",
+                &[SqlPrivilege::Select],
+                mutation_id(),
+            )
+            .unwrap();
+        }
+        assert!(authorized_property_graph_records(&bob, &dir)
+            .unwrap()
+            .is_empty());
+
+        let store = sql_tables::tenant_table_store(alice.tenant_scope(), &dir).unwrap();
+        let query = graph_table_query("shop");
+        let record = store
+            .property_graph(alice.tenant_scope(), &query.graph)
+            .unwrap()
+            .unwrap();
+        let mut txn = eg_query::TableTxn::new();
+        txn.push(eg_query::TxnOp::PropertyGraphDdl(
+            eg_query::PropertyGraphTxnOp::GrantSelect {
+                tenant_scope: alice.tenant_scope().to_string(),
+                name: query.graph,
+                expected_object_id: record.object_id,
+                principal: bob.agent_id().to_string(),
+            },
+        ));
+        store.commit_txn(&txn).unwrap();
+        assert_eq!(
+            authorized_property_graph_records(&bob, &dir).unwrap().len(),
+            1
         );
     }
 

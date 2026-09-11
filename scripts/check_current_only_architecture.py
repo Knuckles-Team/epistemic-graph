@@ -17,6 +17,7 @@ from method_policy_inventory import (
     load_capability_sources,
     parse_method_policy_table,
 )
+from rust_callgraph import top_level_fns
 from rust_module_tree import read_module_tree
 
 
@@ -315,10 +316,34 @@ def _check_transport_contract(
     )
 
 
-def _check_client_basic_contract(client: str) -> None:
+def _check_client_basic_contract(client: str, generated_query: str) -> None:
+    graphql_client = delimited_body(
+        client,
+        "    async def graphql(",
+        "    async def import_sqlite_file(",
+    )
     require(
-        '"GraphQl", {"query": query, "variables": variables}' in client,
+        "send_graph_ql(" in graphql_client
+        and '"query": query' in graphql_client
+        and '"variables": variables' in graphql_client,
         "the Python client omits the explicit GraphQL variables field",
+    )
+    graphql_request = delimited_body(
+        generated_query,
+        "class GraphQlRequest(BaseModel):",
+        "class KnowledgeStreamRequest(BaseModel):",
+    )
+    graphql_sender = delimited_body(
+        generated_query,
+        "async def send_graph_ql(",
+        "class KnowledgeStreamRequest(BaseModel):",
+    )
+    require(
+        "variables: Any | None = None" in graphql_request
+        and "GraphQlRequest.model_validate(params or {})" in graphql_sender
+        and '"GraphQl"' in graphql_sender
+        and "params" in graphql_sender,
+        "the generated GraphQL transport no longer validates and forwards variables",
     )
     require(
         '{"graph": graph, "isolation": None}' in client,
@@ -334,14 +359,27 @@ def _check_client_basic_contract(client: str) -> None:
     )
 
 
-def _check_client_batch_contract(client: str) -> None:
+def _check_client_batch_contract(
+    client: str, generated_graph: str, generated_messaging: str
+) -> None:
     require(
-        '"CreateNodeIfAbsent"' in client
+        "send_create_node_if_absent(" in client
         and '"node_id": node_id' in client
         and '"properties_msgpack": _pack_binary_msgpack(properties or {})' in client
         and "def _pack_binary_msgpack(value: Any) -> bytes:" in client
         and "list(msgpack.packb" not in client,
         "the Python client does not use the native binary MessagePack batch/lifecycle contract",
+    )
+    require(
+        all(
+            marker in generated_graph
+            for marker in (
+                "CreateNodeIfAbsentRequest",
+                "properties_msgpack",
+                '"CreateNodeIfAbsent"',
+            )
+        ),
+        "the generated graph transport lost the binary create-if-absent contract",
     )
     require(
         "async def ack_tag(self, delivery_tag: int, *, consumer: str) -> bool:"
@@ -367,13 +405,29 @@ def _check_client_batch_contract(client: str) -> None:
                 "consumer: str",
                 "now_ms: int",
                 "lease_ms: int",
-                '"BrokerRenewTag"',
+                "send_broker_renew_tag(",
                 '"consumer": consumer',
                 '"now_ms": int(now_ms)',
                 '"lease_ms": int(lease_ms)',
             )
         ),
         "the Python lease renewal is not owner-fenced and explicitly clocked",
+    )
+    require(
+        all(
+            marker in generated_messaging
+            for marker in (
+                "BrokerAckTagRequest",
+                "BrokerNackTagRequest",
+                "BrokerRenewTagRequest",
+                "consumer: str",
+                "delivery_tag: int",
+                "now_ms: int",
+                "lease_ms: int",
+                '"BrokerRenewTag"',
+            )
+        ),
+        "the generated broker transport lost owner and clock fields",
     )
 
 
@@ -445,6 +499,19 @@ def _check_mutation_prepublish(mutation_runtime: str) -> None:
     )
 
 
+def _require_broker_expiry_sweep(broker: str) -> None:
+    """Require an absent lease deadline to remain non-expiring."""
+
+    sweep = top_level_fns(broker).get("sweep_expired", "")
+    require(sweep != "", "broker expiry sweep is absent")
+    require(
+        'status == "claimed" && lease_until.is_some_and(|l| l <= now_ms)' in sweep
+        and '("claimed", true, false)' in sweep
+        and "broker_release_expired_delivery" in sweep,
+        "a non-expiring zero-duration claim is released by the sweeper",
+    )
+
+
 def _check_broker_fencing(broker: str, graph: str) -> None:
     require(
         "pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64, consumer: &str) -> bool"
@@ -455,15 +522,7 @@ def _check_broker_fencing(broker: str, graph: str) -> None:
         in broker,
         "the native tag operations regained an ownerless or implicit-clock form",
     )
-    consume_lease = delimited_body(
-        broker,
-        'let lease_expired = status == "claimed"',
-        "\n            // EG-277:",
-    )
-    require(
-        ".unwrap_or(false)" in consume_lease,
-        "a non-expiring zero-duration claim is released by the sweeper",
-    )
+    _require_broker_expiry_sweep(broker)
     renewal = delimited_body(
         graph,
         "    pub fn broker_renew_delivery_tag(",
@@ -801,6 +860,9 @@ def main() -> None:
     server_main = read("src/main.rs")
     external_compute_e2e = read("tests/external_compute_e2e.rs")
     client = read("epistemic_graph/client.py")
+    generated_query = read("epistemic_graph/generated/query.py")
+    generated_graph = read("epistemic_graph/generated/graph.py")
+    generated_messaging = read("epistemic_graph/generated/messaging.py")
     pregel = read("src/raft/pregel.rs")
     dist_handler = read("src/server/handlers/dist_compute.rs")
     icv_policy = read("crates/eg-shacl/src/policy.rs")
@@ -827,9 +889,15 @@ def main() -> None:
     geometry = read("crates/eg-geo/src/geometry.rs")
     mysql_packets = read("src/server/mysql_wire/packets.rs")
     mysql_wire = read("src/server/mysql_wire/mod.rs")
-    auth = read("src/server/auth.rs")
+    # VerifiedRequestContext is a declared sibling module of auth.rs.  Keep
+    # the claim contract tied to both compiler-owned sources after the nonce
+    # extraction, rather than silently reading only the re-export facade.
+    auth = read_sources(("src/server/auth.rs", "src/server/authority_context.rs"))
     dispatch = read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
-    raft = read("src/raft/mod.rs")
+    # Raft command validation is declared in the command submodule; use the
+    # compiler-reachable tree so snapshot replay proofs follow that ownership
+    # split instead of inspecting only the facade.
+    raft = read_module_tree("src/raft/mod.rs", root_dir=ROOT)
     raft_store = read("src/raft/store.rs")
     raw_rows = read("src/server/persistence/online_reshard.rs")
     # The policy ledger lives across the domain-owned `ROWS` modules under
@@ -856,8 +924,8 @@ def main() -> None:
     _check_protocol(protocol, wire)
     _check_query_contract(schema, sql_exec, sql_mod, query_lib, plan_exec)
     _check_transport_contract(transport, server, server_main, external_compute_e2e)
-    _check_client_basic_contract(client)
-    _check_client_batch_contract(client)
+    _check_client_basic_contract(client, generated_query)
+    _check_client_batch_contract(client, generated_graph, generated_messaging)
     _check_graph_fencing(graph)
     _check_mutation_routing(mutation_runtime, mutation_apply, graph_handler, access)
     _check_mutation_prepublish(mutation_runtime)

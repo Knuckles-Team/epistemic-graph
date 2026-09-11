@@ -43,6 +43,25 @@ fn exec_err(msg: impl Into<String>) -> DataFusionError {
     DataFusionError::Execution(msg.into())
 }
 
+/// One Utf8 argument column, or the named execution error.
+fn utf8_column<'a>(values: &'a ArrayRef, what: &str) -> DfResult<&'a StringArray> {
+    values
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .ok_or_else(|| exec_err(format!("{what} must be Utf8")))
+}
+
+/// Feed every non-null value of a Utf8 argument column into a sketch.
+fn insert_utf8_values(values: &ArrayRef, what: &str, mut insert: impl FnMut(&str)) -> DfResult<()> {
+    let arr = utf8_column(values, what)?;
+    for i in 0..arr.len() {
+        if !arr.is_null(i) {
+            insert(arr.value(i));
+        }
+    }
+    Ok(())
+}
+
 // ── APPROX_DISTINCT (HyperLogLog) ───────────────────────────────────────────────
 
 /// Serialize a [`HyperLogLog`]'s state to bytes: one precision byte followed by its raw
@@ -80,16 +99,9 @@ impl ApproxDistinctAcc {
 
 impl Accumulator for ApproxDistinctAcc {
     fn update_batch(&mut self, values: &[ArrayRef]) -> DfResult<()> {
-        let arr = values[0]
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| exec_err("approx_distinct: argument must be Utf8"))?;
-        for i in 0..arr.len() {
-            if !arr.is_null(i) {
-                self.hll.insert(arr.value(i));
-            }
-        }
-        Ok(())
+        insert_utf8_values(&values[0], "approx_distinct: argument", |v| {
+            self.hll.insert(v)
+        })
     }
 
     fn merge_batch(&mut self, states: &[ArrayRef]) -> DfResult<()> {
@@ -215,14 +227,8 @@ impl ApproxFrequencyAcc {
 
 impl Accumulator for ApproxFrequencyAcc {
     fn update_batch(&mut self, values: &[ArrayRef]) -> DfResult<()> {
-        let items = values[0]
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| exec_err("approx_frequency: first argument must be Utf8"))?;
-        let probes = values[1]
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| exec_err("approx_frequency: second argument must be Utf8"))?;
+        let items = utf8_column(&values[0], "approx_frequency: first argument")?;
+        let probes = utf8_column(&values[1], "approx_frequency: second argument")?;
         self.capture_probe(probes);
         for i in 0..items.len() {
             if !items.is_null(i) {
@@ -327,16 +333,9 @@ impl MinHashAcc {
 
 impl Accumulator for MinHashAcc {
     fn update_batch(&mut self, values: &[ArrayRef]) -> DfResult<()> {
-        let arr = values[0]
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .ok_or_else(|| exec_err("minhash_signature: argument must be Utf8"))?;
-        for i in 0..arr.len() {
-            if !arr.is_null(i) {
-                self.mh.insert(arr.value(i));
-            }
-        }
-        Ok(())
+        insert_utf8_values(&values[0], "minhash_signature: argument", |v| {
+            self.mh.insert(v)
+        })
     }
 
     fn merge_batch(&mut self, states: &[ArrayRef]) -> DfResult<()> {

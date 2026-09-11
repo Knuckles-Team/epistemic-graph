@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const OWNER_LAYOUT_DOMAIN: &[u8] = b"eg/mutation-owner-layout/v1\0";
-const OWNER_LAYOUT_NAMES: [&str; 17] = [
+const OWNER_LAYOUT_NAMES: [&str; 18] = [
     "ledger_only",
     "rbac",
     "jobs",
@@ -25,8 +25,9 @@ const OWNER_LAYOUT_NAMES: [&str; 17] = [
     "node_info",
     "cluster_hierarchy",
     "graph_shard",
+    "agent_library",
 ];
-pub(crate) const OWNER_LAYOUT_DOMAINS: [DurabilityDomain; 17] = [
+pub(crate) const OWNER_LAYOUT_DOMAINS: [DurabilityDomain; 18] = [
     DurabilityDomain::ControlPlane,
     DurabilityDomain::ControlPlane,
     DurabilityDomain::AnalyticsJob,
@@ -44,6 +45,9 @@ pub(crate) const OWNER_LAYOUT_DOMAINS: [DurabilityDomain; 17] = [
     DurabilityDomain::ControlPlane,
     DurabilityDomain::ControlPlane,
     DurabilityDomain::GraphRows,
+    // RF-020 Agent Library: a ControlPlane owner file, reusing the existing
+    // native mutation ledger rather than introducing another durability domain.
+    DurabilityDomain::ControlPlane,
 ];
 
 /// Closed registry of physical owner-table layouts.
@@ -83,6 +87,9 @@ pub enum OwnerLayout {
     /// graph. See [`crate::owner::graph_shard`] for the census and for the two
     /// tables classes it deliberately excludes.
     GraphShard,
+    /// The durable RF-020 Agent Library revisions and current heads
+    /// (`agent_library.redb`).
+    AgentLibrary,
 }
 
 impl OwnerLayout {

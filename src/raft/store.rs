@@ -67,7 +67,7 @@ use super::{
     AppCtx, GroupId, NativeMutationCommand, RaftRequest, RaftResponse, ReplicatedMutation,
     TypeConfig,
 };
-use crate::protocol::{GraphType, Method};
+use crate::protocol::{GraphType, Method, ResultPayload};
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 
@@ -290,6 +290,147 @@ mod current_snapshot_schema_tests {
                 "incarnation:test:raft-snapshot".to_string()
             )
         );
+    }
+
+    fn encoded_result(result: ResultPayload) -> Vec<u8> {
+        rmp_serde::to_vec_named(&result).expect("test result must encode")
+    }
+
+    fn cas_method() -> Method {
+        Method::CompareAndSetNodeFields {
+            node_id: "node".to_string(),
+            conditions_msgpack: Vec::new(),
+            updates_msgpack: Vec::new(),
+        }
+    }
+
+    #[cfg(feature = "jobs")]
+    fn receipt_for_transport(replayed: bool) -> crate::mutation_batch::MutationBatchCommit {
+        let conditions = rmp_serde::to_vec_named(&serde_json::json!({"epoch": 0})).unwrap();
+        let updates = rmp_serde::to_vec_named(&serde_json::json!({"epoch": 1})).unwrap();
+        let batch = crate::server::mutation_batch::compile_methods(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: "raft-store-receipt-cas",
+                request_id: 9,
+                // Keep the synthetic fresh and replay receipts byte-identical;
+                // production compilation mints this nonce once per attempt,
+                // while this fixture builds both views of one stored receipt.
+                attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([7; 32])),
+                principal: Some("receipt-test-principal"),
+                tenant: "receipt-tenant",
+                graph: "receipt-graph",
+                placement_epoch: 0,
+                idempotency_key: "raft-store-receipt-cas",
+                expected_graph_version: Some(0),
+                fencing_token: None,
+                created_at_ms: 13,
+                default_surface: crate::mutation_batch::MutationSurface::Graph,
+                authoritative_state: None,
+            },
+            vec![Method::CompareAndSetNodeFields {
+                node_id: "reservation".to_string(),
+                conditions_msgpack: conditions,
+                updates_msgpack: updates,
+            }],
+        )
+        .unwrap();
+        let identity = batch.identity.clone();
+        let commit = crate::mutation_batch::MutationBatchCommit {
+            record: crate::mutation_batch::MutationBatchRecord {
+                batch,
+                identity: identity.clone(),
+                status: crate::mutation_batch::MutationBatchStatus::Committed,
+                committed_version: crate::mutation_batch::CommittedVersion::Graph {
+                    source: 0,
+                    target: 1,
+                },
+                result_msgpack: Some(encoded_result(ResultPayload::Bool(false))),
+                committed_at_ms: 13,
+            },
+            identity,
+            replayed,
+        };
+        commit.validate().unwrap();
+        commit
+    }
+
+    #[cfg(feature = "jobs")]
+    #[test]
+    fn native_commit_response_keeps_exact_ack_loss_receipt_and_cas_false() {
+        let fresh = receipt_for_transport(false);
+        let replay = receipt_for_transport(true);
+        let fresh_record = rmp_serde::to_vec_named(&fresh.record).unwrap();
+        let replay_record = rmp_serde::to_vec_named(&replay.record).unwrap();
+        assert_eq!(fresh_record, replay_record);
+
+        for commit in [fresh, replay] {
+            let response = EgStore::native_commit_outcome_to_response(Ok(commit));
+            response.validate().unwrap();
+            assert!(response.native_result.is_none());
+            assert!(response.native_commit.is_some());
+            assert!(response.native_commit.as_ref().is_some_and(|receipt| {
+                matches!(
+                    rmp_serde::from_slice::<ResultPayload>(
+                        receipt.record.result_msgpack.as_deref().unwrap()
+                    ),
+                    Ok(ResultPayload::Bool(false))
+                )
+            }));
+        }
+
+        let error = EgStore::native_commit_outcome_to_response(Err("apply failed".to_string()));
+        assert!(error.native_commit.is_none());
+        assert!(error.native_result.is_none());
+        assert_eq!(error.native_error.as_deref(), Some("apply failed"));
+    }
+
+    #[test]
+    fn ordinary_replay_requires_a_stored_true_boolean() {
+        let method = Method::AddNode {
+            node_id: "node".to_string(),
+            properties_msgpack: Vec::new(),
+        };
+        let ok = encoded_result(ResultPayload::Bool(true));
+        assert!(EgStore::decode_replayed_graph_result(Some(&ok), &method, false).is_ok());
+
+        let false_result = encoded_result(ResultPayload::Bool(false));
+        let error = EgStore::decode_replayed_graph_result(Some(&false_result), &method, false)
+            .expect_err("ordinary graph replay cannot claim a false terminal result");
+        assert!(error.contains("Bool(true)"), "{error}");
+
+        let count = encoded_result(ResultPayload::Count(1));
+        let error = EgStore::decode_replayed_graph_result(Some(&count), &method, false)
+            .expect_err("ordinary graph replay cannot reinterpret a count");
+        assert!(error.contains("Bool(true)"), "{error}");
+
+        let error = EgStore::decode_replayed_graph_result(Some(&[0xc1]), &method, false)
+            .expect_err("ordinary graph replay must reject corrupt MessagePack");
+        assert!(error.contains("corrupt"), "{error}");
+        let error = EgStore::decode_replayed_graph_result(None, &method, false)
+            .expect_err("ordinary graph replay must reject a missing receipt result");
+        assert!(error.contains("missing"), "{error}");
+    }
+
+    #[test]
+    fn cas_replay_accepts_only_a_boolean_apply_outcome() {
+        let method = cas_method();
+        let false_result = encoded_result(ResultPayload::Bool(false));
+        assert!(matches!(
+            EgStore::decode_replayed_graph_result(Some(&false_result), &method, false),
+            Ok(Some(ResultPayload::Bool(false)))
+        ));
+
+        let count = encoded_result(ResultPayload::Count(1));
+        let error = EgStore::decode_replayed_graph_result(Some(&count), &method, false)
+            .expect_err("CAS receipt must not turn a non-boolean payload into contention");
+        assert!(error.contains("must be Bool"), "{error}");
+
+        let error = EgStore::decode_replayed_graph_result(Some(&[0xc1]), &method, false)
+            .expect_err("CAS receipt must reject corrupt MessagePack");
+        assert!(error.contains("corrupt"), "{error}");
+        let error = EgStore::decode_replayed_graph_result(None, &method, false)
+            .expect_err("CAS receipt must reject a missing apply result");
+        assert!(error.contains("missing"), "{error}");
     }
 }
 
@@ -657,7 +798,7 @@ impl EgStore {
                         &plan,
                     )
                     .await;
-                    return Ok(Some(Self::native_bool_outcome_to_response(outcome)));
+                    return Ok(Some(Self::native_commit_outcome_to_response(outcome)));
                 }
                 #[cfg(feature = "jobs")]
                 NativeMutationCommand::JobPublicationFinalize { coordinator_id, .. } => {
@@ -724,6 +865,35 @@ impl EgStore {
                 applied: true,
                 native_result: Some(result),
                 ..Default::default()
+            },
+            Err(error) => RaftResponse {
+                applied: true,
+                native_error: Some(error),
+                ..Default::default()
+            },
+        }
+    }
+
+    /// Preserve the exact durable MutationBatch receipt produced by a native
+    /// job-publication commit.  The receipt carries identity and replay state
+    /// that cannot be recovered from `applied` or a boolean result.  Ordinary
+    /// native commands continue to use the two helpers above unchanged.
+    #[cfg(feature = "jobs")]
+    fn native_commit_outcome_to_response(
+        outcome: Result<crate::mutation_batch::MutationBatchCommit, String>,
+    ) -> RaftResponse {
+        match outcome {
+            Ok(commit) => match commit.validate() {
+                Ok(()) => RaftResponse {
+                    applied: true,
+                    native_commit: Some(commit),
+                    ..Default::default()
+                },
+                Err(error) => RaftResponse {
+                    applied: true,
+                    native_error: Some(format!("native commit receipt is invalid: {error}")),
+                    ..Default::default()
+                },
             },
             Err(error) => RaftResponse {
                 applied: true,
@@ -983,7 +1153,8 @@ impl EgStore {
         expected_tenant_scope: &str,
     ) -> bool {
         req.mutation.batch_id != envelope.mutation.batch_id
-            || req.mutation.request_id != envelope.mutation.context.request_id
+            || eg_types::mutation_batch::batch_request_number(&envelope.mutation)
+                != Some(req.mutation.request_id)
             || req.mutation.tenant_scope != expected_tenant_scope
             || Some(req.mutation.principal_fingerprint.as_str())
                 != crate::server::mutation_batch::batch_actor(&envelope.mutation)
@@ -992,14 +1163,15 @@ impl EgStore {
             || req.mutation.created_at_ms != envelope.mutation.created_at_ms
     }
 
-    /// Idempotent-replay fast path within the ordinary-mutation staging pipeline
-    /// (CX WB1-EG-01 CCN reduction). Phase-2 recovery intentionally submits the
-    /// same deterministic child authority again; resolving that receipt BEFORE
-    /// staging from today's graph image is required, or its authoritative-state
-    /// digest would differ and turn a valid replay into an idempotency conflict.
-    /// `Ok(Some(response))` / `Ok(None)` follow the same early-exit-as-value
-    /// convention as `try_apply_native_command`. Pure extract-method,
-    /// byte-identical behaviour.
+    /// Idempotent-replay fast path within the ordinary-mutation staging pipeline.
+    /// Phase-2 recovery intentionally submits the same deterministic child
+    /// authority again; resolving that receipt BEFORE staging from today's graph
+    /// image is required, or its authoritative-state digest would differ and turn
+    /// a valid replay into an idempotency conflict. The probe still enters the
+    /// universal commit kernel: that is where a caller-supplied attempt nonce is
+    /// finalized, so this read cannot become an unaccounted replay. `Ok(Some(..))`
+    /// / `Ok(None)` follow the same early-exit-as-value convention as
+    /// `try_apply_native_command`.
     async fn try_apply_idempotent_replay(
         &self,
         req: &RaftRequest,
@@ -1025,26 +1197,145 @@ impl EgStore {
         let expected_digest = format!("sha256:{}", hex::encode(Sha256::digest(&encoded_method)));
         let operation_matches =
             Self::idempotent_replay_operation_matches(&record, &expected_digest);
-        let expected_result = Self::modality_or_default_bool_result(
-            #[cfg(feature = "modality-serving")]
-            modality_command,
-        )?;
+        #[cfg(feature = "modality-serving")]
+        let expected_result = modality_command
+            .map(|_| Self::modality_or_default_bool_result(modality_command))
+            .transpose()?;
+        #[cfg(not(feature = "modality-serving"))]
+        let expected_result: Option<Vec<u8>> = None;
         if Self::idempotent_replay_record_mismatches(
             &record,
             req,
             batch_id,
             expected_principal,
             operation_matches,
-            &expected_result,
+            expected_result.as_deref(),
         ) {
             return Err("replicated child receipt conflicts with replay authority".to_string());
         }
+        #[cfg(feature = "modality-serving")]
+        let modality_replay = modality_command.is_some();
+        #[cfg(not(feature = "modality-serving"))]
+        let modality_replay = false;
+        // Validate the stored terminal payload before admitting the probe. A
+        // normal graph mutation has one terminal shape (`Bool(true)`), while
+        // Create/CAS expose their exact boolean outcome to the caller. Keeping
+        // these checks separate prevents a corrupt/non-boolean receipt from
+        // being reported as ordinary CAS contention.
+        let _validated_result = Self::decode_replayed_graph_result(
+            record.result_msgpack.as_deref(),
+            durable_method,
+            modality_replay,
+        )?;
+
+        let mut descriptor =
+            record.batch.authoritative_state.clone().ok_or_else(|| {
+                "committed replicated graph has no authoritative state".to_string()
+            })?;
+        let source_version = persistence
+            .read_mutation_graph_version(&req.graph_fname)
+            .await?
+            .ok_or_else(|| "committed replicated graph has no authoritative version".to_string())?;
+        descriptor.source_graph_version = source_version;
+        descriptor.target_graph_version = source_version
+            .checked_add(1)
+            .ok_or_else(|| "authoritative graph version overflow".to_string())?;
+        let audited = eg_capabilities::policy(durable_method).audited;
+        let probe = crate::server::mutation_batch::compile_methods(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id,
+                request_id: authority.request_id,
+                attempt_nonce: authority.attempt_nonce,
+                principal: Some(expected_principal),
+                tenant: &authority.tenant_scope,
+                graph: &req.graph_name,
+                placement_epoch: authority.placement_epoch,
+                idempotency_key: batch_id,
+                expected_graph_version: Some(source_version),
+                fencing_token: authority.fencing_token,
+                created_at_ms: authority.created_at_ms,
+                default_surface: crate::mutation_batch::MutationSurface::Graph,
+                authoritative_state: Some(descriptor),
+            },
+            vec![durable_method.clone()],
+        )?;
+        probe.validate()?;
+        let committed = persistence
+            .commit_mutation_batch_state(
+                &req.graph_fname,
+                &probe,
+                Vec::new(),
+                None,
+                authority.created_at_ms,
+                audited,
+            )
+            .await?;
+        if !committed.replayed {
+            return Err("replicated replay probe unexpectedly committed fresh work".to_string());
+        }
+        let native_result = Self::decode_replayed_graph_result(
+            committed.record.result_msgpack.as_deref(),
+            durable_method,
+            modality_replay,
+        )?;
         self.install_authoritative_graph_snapshot(req, core, persistence)
             .await?;
         Ok(Some(RaftResponse {
             applied: true,
+            native_result,
+            native_commit: Some(committed),
             ..Default::default()
         }))
+    }
+
+    /// Decode and validate the terminal result carried by an ordinary replicated
+    /// graph receipt. The result is part of the durable idempotency contract, so
+    /// a missing, malformed, or wrong-shape value must fail closed. Modality
+    /// receipts retain their command-specific payload and are validated by the
+    /// exact-byte comparison above.
+    fn decode_replayed_graph_result(
+        result_msgpack: Option<&[u8]>,
+        durable_method: &Method,
+        modality_replay: bool,
+    ) -> Result<Option<ResultPayload>, String> {
+        let result = result_msgpack.ok_or_else(|| {
+            if matches!(
+                durable_method,
+                Method::CreateNodeIfAbsent { .. } | Method::CompareAndSetNodeFields { .. }
+            ) {
+                "replicated CAS receipt is missing its exact apply result".to_string()
+            } else {
+                "replicated graph receipt is missing its terminal result".to_string()
+            }
+        })?;
+        let decoded: ResultPayload = rmp_serde::from_slice(result).map_err(|_| {
+            if matches!(
+                durable_method,
+                Method::CreateNodeIfAbsent { .. } | Method::CompareAndSetNodeFields { .. }
+            ) {
+                "replicated CAS receipt result is corrupt".to_string()
+            } else {
+                "replicated graph receipt result is corrupt".to_string()
+            }
+        })?;
+        if modality_replay {
+            return Ok(None);
+        }
+        match durable_method {
+            Method::CreateNodeIfAbsent { .. } | Method::CompareAndSetNodeFields { .. } => {
+                match decoded {
+                    ResultPayload::Bool(value) => Ok(Some(ResultPayload::Bool(value))),
+                    _ => Err("replicated CAS receipt result must be Bool".to_string()),
+                }
+            }
+            _ => match decoded {
+                ResultPayload::Bool(true) => Ok(None),
+                ResultPayload::Bool(false) => {
+                    Err("replicated graph receipt result must be Bool(true)".to_string())
+                }
+                _ => Err("replicated graph receipt result must be Bool(true)".to_string()),
+            },
+        }
     }
 
     /// Whether the durable record's single operation matches the expected
@@ -1095,7 +1386,7 @@ impl EgStore {
         batch_id: &str,
         expected_principal: &str,
         operation_matches: bool,
-        expected_result: &[u8],
+        expected_result: Option<&[u8]>,
     ) -> bool {
         // `identity.scope().graph_name()` is `None` for a native (non-graph)
         // scope; fail closed instead of letting a native-scope record silently
@@ -1109,9 +1400,10 @@ impl EgStore {
             || record.batch.batch_id != batch_id
             || record.batch.identity.tenant().as_str() != req.mutation.tenant_scope.as_str()
             || !graph_matches
-            || crate::server::mutation_batch::batch_actor(&record.batch) != Some(expected_principal)
+            || !matches!(record.committing_actor(), Ok(actor) if actor == expected_principal)
             || !operation_matches
-            || record.result_msgpack.as_deref() != Some(expected_result)
+            || expected_result
+                .is_some_and(|expected| record.result_msgpack.as_deref() != Some(expected))
     }
 
     /// Ordinary (non-native, non-ChangeEnvelope) replicated graph mutation:
@@ -1158,9 +1450,7 @@ impl EgStore {
         source_version: u64,
         created_at_ms: u64,
         state_msgpack: Vec<u8>,
-        #[cfg(feature = "modality-serving")] modality_command: Option<
-            &super::SanitizedModalityRaftCommand,
-        >,
+        result: Vec<u8>,
     ) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
         let authority = &req.mutation;
         // Resolve BEFORE `durable_method` is moved into `compile_methods` below --
@@ -1173,6 +1463,7 @@ impl EgStore {
             crate::server::mutation_batch::CompileBatch {
                 batch_id,
                 request_id: authority.request_id,
+                attempt_nonce: authority.attempt_nonce,
                 principal: Some(expected_principal),
                 tenant: &authority.tenant_scope,
                 graph: &req.graph_name,
@@ -1187,10 +1478,6 @@ impl EgStore {
             vec![durable_method],
         )?;
         batch.validate()?;
-        let result = Self::modality_or_default_bool_result(
-            #[cfg(feature = "modality-serving")]
-            modality_command,
-        )?;
         persistence
             .commit_mutation_batch_state(
                 &req.graph_fname,
@@ -1237,7 +1524,7 @@ impl EgStore {
         let batch_id = authority.batch_id.as_str();
         let expected_principal = authority.principal_fingerprint.as_str();
 
-        let (staged_snapshot, source_version) = self
+        let (staged_snapshot, source_version, graph_result) = self
             .stage_ordinary_mutation_snapshot(
                 req,
                 core,
@@ -1248,6 +1535,15 @@ impl EgStore {
             )
             .await?;
         let state_msgpack = staged_snapshot.to_msgpack()?;
+        let result = match graph_result.as_ref() {
+            Some(result) => rmp_serde::to_vec_named(result).map_err(|error| {
+                format!("replicated graph result serialization failed: {error}")
+            })?,
+            None => Self::modality_or_default_bool_result(
+                #[cfg(feature = "modality-serving")]
+                modality_command,
+            )?,
+        };
         let descriptor = crate::mutation_batch::MutationStateDescriptor {
             algorithm: "sha256".to_string(),
             digest: hex::encode(Sha256::digest(&state_msgpack)),
@@ -1259,15 +1555,14 @@ impl EgStore {
             .compile_and_commit_mutation_batch(
                 req,
                 persistence,
-                durable_method,
+                durable_method.clone(),
                 descriptor,
                 batch_id,
                 expected_principal,
                 source_version,
                 created_at_ms,
                 state_msgpack,
-                #[cfg(feature = "modality-serving")]
-                modality_command,
+                result,
             )
             .await?;
         self.finalize_ordinary_commit(
@@ -1282,8 +1577,19 @@ impl EgStore {
         #[cfg(all(feature = "modality-serving", feature = "streaming"))]
         self.emit_modality_cdc_if_needed(req, &committed, modality_command)
             .await;
+        #[cfg(feature = "modality-serving")]
+        let modality_replay = modality_command.is_some();
+        #[cfg(not(feature = "modality-serving"))]
+        let modality_replay = false;
+        let native_result = Self::decode_replayed_graph_result(
+            committed.record.result_msgpack.as_deref(),
+            &durable_method,
+            modality_replay,
+        )?;
         Ok(RaftResponse {
             applied: true,
+            native_result,
+            native_commit: Some(committed),
             ..Default::default()
         })
     }
@@ -1305,18 +1611,18 @@ impl EgStore {
         #[cfg(feature = "modality-serving")] modality_command: Option<
             &super::SanitizedModalityRaftCommand,
         >,
-    ) -> Result<(crate::graph::GraphSnapshot, u64), String> {
+    ) -> Result<(crate::graph::GraphSnapshot, u64, Option<ResultPayload>), String> {
         let (base_snapshot, source_version) = self
             .resolve_mutation_base_snapshot(req, core, persistence)
             .await?;
         let staged = crate::graph::GraphCore::from_snapshot(base_snapshot, source_version)?;
-        Self::apply_staged_ordinary_mutation(
+        let result = Self::apply_staged_ordinary_mutation(
             &staged,
             graph_method,
             #[cfg(feature = "modality-serving")]
             modality_command,
         )?;
-        Ok((staged.snapshot(), source_version))
+        Ok((staged.snapshot(), source_version, result))
     }
 
     /// Resolve the durable pre-image to stage the ordinary mutation from: the
@@ -1356,22 +1662,48 @@ impl EgStore {
         #[cfg(feature = "modality-serving")] modality_command: Option<
             &super::SanitizedModalityRaftCommand,
         >,
-    ) -> Result<(), String> {
+    ) -> Result<Option<ResultPayload>, String> {
         #[cfg(feature = "modality-serving")]
         if let Some(command) = modality_command {
             staged.add_node(
                 command.node_id.clone(),
                 command.sealed_runtime_state.clone(),
             );
-            return Ok(());
+            return Ok(None);
         }
-        crate::mutation_apply::apply(
-            staged,
-            graph_method.as_ref().ok_or_else(|| {
-                "replicated graph mutation is missing its typed method".to_string()
-            })?,
-        );
-        Ok(())
+        let method = graph_method
+            .as_ref()
+            .ok_or_else(|| "replicated graph mutation is missing its typed method".to_string())?;
+        let result = match method {
+            Method::CreateNodeIfAbsent {
+                node_id,
+                properties_msgpack,
+            } => Some(ResultPayload::Bool(staged.create_node_if_absent(
+                node_id.clone(),
+                properties_msgpack.clone(),
+            ))),
+            Method::CompareAndSetNodeFields {
+                node_id,
+                conditions_msgpack,
+                updates_msgpack,
+            } => {
+                let applied = match (
+                    eg_types::msgpack::decode_property_object(conditions_msgpack),
+                    eg_types::msgpack::decode_property_object(updates_msgpack),
+                ) {
+                    (Ok(conditions), Ok(updates)) => {
+                        staged.compare_and_set_fields(node_id, &conditions, &updates)
+                    }
+                    _ => false,
+                };
+                Some(ResultPayload::Bool(applied))
+            }
+            _ => {
+                crate::mutation_apply::apply(staged, method);
+                None
+            }
+        };
+        Ok(result)
     }
 
     /// `Some(command) => command.result_msgpack.clone()`, else the default

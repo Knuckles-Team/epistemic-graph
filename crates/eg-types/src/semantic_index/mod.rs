@@ -22,6 +22,7 @@ mod request;
 mod response;
 mod selector;
 mod selector_ref;
+mod source_dirty;
 mod source_manifest;
 mod stage;
 mod state;
@@ -34,6 +35,7 @@ pub use codec::{
     SEMANTIC_GENERATION_CHECKPOINT_SCHEMA, SEMANTIC_GRAPH_PROJECTION_MANIFEST_SCHEMA,
     SEMANTIC_INDEX_MANIFEST_SCHEMA, SEMANTIC_INDEX_MUTATION_SCHEMA,
     SEMANTIC_LEXICAL_INDEX_MANIFEST_SCHEMA, SEMANTIC_LINEAGE_SCHEMA,
+    SEMANTIC_SOURCE_DIRTY_INTENT_SCHEMA, SEMANTIC_SOURCE_DIRTY_TOPIC,
     SEMANTIC_SOURCE_PROGRESS_SCHEMA, SEMANTIC_SQL_SOURCE_MANIFEST_SCHEMA,
     SEMANTIC_STAGE_INTENT_SCHEMA, SEMANTIC_STAGE_TRANSITION_SCHEMA, SEMANTIC_TOMBSTONE_SCHEMA,
 };
@@ -90,6 +92,7 @@ pub use selector_ref::{
     LakehouseVectorProjectionRef, MultimodalAssetRef, SqlColumnRef, TimeSeriesWindowRef,
     SEMANTIC_SQL_CATALOG_ID, SEMANTIC_SQL_SCHEMA_ID,
 };
+pub use source_dirty::SemanticSourceDirtyIntent;
 pub use source_manifest::{
     SemanticGraphProjectionManifest, SemanticGraphProjectionManifestDraft,
     SemanticSqlSourceIdentity, SemanticSqlSourceManifest, SemanticSqlSourceManifestDraft,

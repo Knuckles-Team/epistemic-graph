@@ -29,8 +29,8 @@
 use crate::flat::Metric;
 use crate::ivfpq::SearchResult;
 use serde::{Deserialize, Serialize};
-use std::cmp::{Ordering, Reverse};
-use std::collections::{BinaryHeap, HashSet};
+use std::cmp::Ordering;
+mod search;
 
 /// One graph node: its external id, its full vector, and its per-layer adjacency
 /// (`neighbors[l]` = internal node indices linked at layer `l`; `neighbors.len()`
@@ -168,141 +168,6 @@ impl HnswIndex {
         n
     }
 
-    /// Deterministic exponential level for an id (CONCEPT:EG-KG.retrieval.hnsw-vector-index). A SplitMix64 hash
-    /// of `(id, seed)` yields `u ∈ (0,1)`, and `level = floor(-ln(u) * mL)`, the
-    /// standard HNSW law — but sourced from a pure hash so it needs no RNG state and
-    /// is identical across runs and reloads.
-    fn assign_level(&self, id: u64) -> usize {
-        // SplitMix64 finaliser over id ^ seed.
-        let mut x = id
-            .wrapping_add(self.seed)
-            .wrapping_add(0x9E37_79B9_7F4A_7C15);
-        x = (x ^ (x >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        x = (x ^ (x >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        x ^= x >> 31;
-        // Map the top 53 bits to (0, 1): +1 in numerator and denominator keeps the
-        // open interval so -ln(u) is finite and non-negative.
-        let mantissa = (x >> 11) as f64;
-        let u = (mantissa + 1.0) / ((1u64 << 53) as f64 + 1.0);
-        let lvl = (-u.ln() * self.ml).floor();
-        (lvl.max(0.0) as usize).min(MAX_LEVEL_CAP)
-    }
-
-    /// EXACT metric distance from an external query vector to node `i`.
-    #[inline]
-    fn dist_to(&self, query: &[f32], i: usize) -> f32 {
-        self.metric.distance(query, &self.nodes[i].vector)
-    }
-
-    /// Greedy descent within a single layer: from `entry`, repeatedly hop to the
-    /// strictly-closer neighbour (ties broken by smaller id) until no neighbour
-    /// improves, returning the local minimum node index. Used on the sparse upper
-    /// layers where `ef = 1`.
-    fn greedy_closest(&self, query: &[f32], entry: usize, layer: usize) -> usize {
-        let mut best = entry;
-        let mut best_d = self.dist_to(query, best);
-        let mut best_id = self.nodes[best].id;
-        loop {
-            let mut improved = false;
-            for &nb in &self.nodes[best].neighbors[layer] {
-                let d = self.dist_to(query, nb);
-                let nb_id = self.nodes[nb].id;
-                if d < best_d || (d == best_d && nb_id < best_id) {
-                    best = nb;
-                    best_d = d;
-                    best_id = nb_id;
-                    improved = true;
-                }
-            }
-            if !improved {
-                break;
-            }
-        }
-        best
-    }
-
-    /// Beam search at one layer (Malkov & Yashunin Algorithm 2). Explores from the
-    /// entry points and keeps the `ef` nearest nodes found, using exact distances.
-    /// Returns the result set as unordered [`Cand`]s (caller sorts / selects).
-    fn search_layer(&self, query: &[f32], entries: &[usize], ef: usize, layer: usize) -> Vec<Cand> {
-        let mut visited: HashSet<usize> = HashSet::with_capacity(ef * 4);
-        // `candidates`: min-heap (nearest first) of the frontier to expand.
-        let mut candidates: BinaryHeap<Reverse<Cand>> = BinaryHeap::new();
-        // `w`: max-heap (farthest first) of the current best `ef` results.
-        let mut w: BinaryHeap<Cand> = BinaryHeap::new();
-
-        for &e in entries {
-            let c = Cand {
-                dist: self.dist_to(query, e),
-                node: e,
-                id: self.nodes[e].id,
-            };
-            visited.insert(e);
-            candidates.push(Reverse(c));
-            w.push(c);
-        }
-        while w.len() > ef {
-            w.pop();
-        }
-
-        while let Some(Reverse(c)) = candidates.pop() {
-            // If the nearest unexpanded candidate is farther than the worst kept
-            // result (and w is full), the beam cannot improve — stop.
-            if let Some(worst) = w.peek() {
-                if w.len() >= ef && c.dist > worst.dist {
-                    break;
-                }
-            }
-            for &nb in &self.nodes[c.node].neighbors[layer] {
-                if !visited.insert(nb) {
-                    continue;
-                }
-                let d = self.dist_to(query, nb);
-                let nc = Cand {
-                    dist: d,
-                    node: nb,
-                    id: self.nodes[nb].id,
-                };
-                if w.len() < ef || w.peek().is_none_or(|worst| nc < *worst) {
-                    candidates.push(Reverse(nc));
-                    w.push(nc);
-                    if w.len() > ef {
-                        w.pop();
-                    }
-                }
-            }
-        }
-        w.into_vec()
-    }
-
-    /// Select the `m` nearest candidates (simple heuristic), nearest-first with
-    /// deterministic `(distance, id)` ordering, returning their internal indices.
-    fn select_neighbors(cands: &[Cand], m: usize) -> Vec<usize> {
-        let mut v: Vec<Cand> = cands.to_vec();
-        truncate_nearest(&mut v, m);
-        v.into_iter().map(|c| c.node).collect()
-    }
-
-    /// Re-prune node `node`'s adjacency at `layer` down to its `m` nearest current
-    /// neighbours (exact distances from `node`'s own vector), keeping the graph
-    /// degree bounded after a bidirectional link. Deterministic tie-break by id.
-    fn prune(&mut self, node: usize, layer: usize, m: usize) {
-        if self.nodes[node].neighbors[layer].len() <= m {
-            return;
-        }
-        let base = self.nodes[node].vector.clone();
-        let mut scored: Vec<Cand> = self.nodes[node].neighbors[layer]
-            .iter()
-            .map(|&nb| Cand {
-                dist: self.metric.distance(&base, &self.nodes[nb].vector),
-                node: nb,
-                id: self.nodes[nb].id,
-            })
-            .collect();
-        truncate_nearest(&mut scored, m);
-        self.nodes[node].neighbors[layer] = scored.into_iter().map(|c| c.node).collect();
-    }
-
     /// Insert `(id, vector)` into the graph (CONCEPT:EG-KG.retrieval.hnsw-vector-index). Assigns a level via the
     /// deterministic hash law, greedily descends the sparse upper layers, then runs
     /// an `efConstruction` beam search at each layer ≤ the node's level, wiring
@@ -310,7 +175,7 @@ impl HnswIndex {
     /// equal `dim`.
     pub fn insert(&mut self, id: u64, vector: Vec<f32>) {
         assert_eq!(vector.len(), self.dim, "vector length must equal dim");
-        let level = self.assign_level(id);
+        let level = search::assign_level(self, id);
         let node_idx = self.nodes.len();
         self.nodes.push(Node {
             id,
@@ -330,7 +195,7 @@ impl HnswIndex {
         // Phase 1: coarse greedy descent on layers ABOVE the new node's top layer.
         let mut lc = self.max_level;
         while lc > level {
-            ep = self.greedy_closest(&query, ep, lc);
+            ep = search::greedy_closest(self, &query, ep, lc);
             lc -= 1;
         }
 
@@ -338,15 +203,15 @@ impl HnswIndex {
         // search and connect.
         let start = level.min(self.max_level);
         for layer in (0..=start).rev() {
-            let found = self.search_layer(&query, &[ep], self.ef_construction, layer);
+            let found = search::search_layer(self, &query, &[ep], self.ef_construction, layer);
             let m = if layer == 0 { self.m0 } else { self.m };
-            let selected = Self::select_neighbors(&found, m);
+            let selected = search::select_neighbors(&found, m);
 
             // Link the new node → selected, and selected → new node (bidirectional).
             self.nodes[node_idx].neighbors[layer] = selected.clone();
             for &nb in &selected {
                 self.nodes[nb].neighbors[layer].push(node_idx);
-                self.prune(nb, layer, m);
+                search::prune(self, nb, layer, m);
             }
 
             // Descend from the nearest node found at this layer.
@@ -369,28 +234,32 @@ impl HnswIndex {
         }
     }
 
-    /// Approximate top-`k` nearest neighbours to `query` (CONCEPT:EG-KG.retrieval.hnsw-vector-index). Descends
-    /// the upper layers greedily, then beam-searches layer 0 with beam width `ef`
-    /// (clamped to ≥ `k`). Results carry EXACT distances and are sorted nearest-first
-    /// with deterministic `(distance, id)` tie-breaking — directly comparable and
-    /// mergeable with [`FlatIndex`] / [`IvfPq`] / `merge_topk` output.
+    /// Approximate top-`k` nearest neighbours to `query` (CONCEPT:EG-KG.retrieval.hnsw-vector-index).
+    /// Descends upper layers greedily, then beam-searches layer 0 with width `ef`
+    /// (clamped to at least `k`). Each result carries the exact metric distance and
+    /// results are nearest-first with deterministic `(distance, id)` tie-breaking,
+    /// so they can be compared with or merged with [`FlatIndex`] results.
     ///
-    /// A thin wrapper over [`Self::search_filtered`] with no candidate predicate,
-    /// so the unfiltered walk is byte-identical to the original beam search.
+    /// The unfiltered traversal uses the same private search phase as
+    /// [`Self::search_filtered`] with no predicate. `k == 0` and an empty index
+    /// return an empty vector; a query whose length differs from `dim` panics.
     pub fn search(&self, query: &[f32], k: usize, ef: usize) -> Vec<SearchResult> {
-        self.search_filtered(query, k, ef, None)
+        search::search(self, query, k, ef)
     }
 
-    /// Approximate top-`k` with an optional metadata predicate PUSHED INTO the
-    /// layer-0 neighbour expansion (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter). `allow`, when present, is
-    /// tested against each candidate's EXTERNAL id DURING the graph walk, so only
-    /// permitted nodes ever enter the result beam and the returned top-`k` already
-    /// satisfies the predicate — no over-fetch-then-post-filter. The traversal still
-    /// routes THROUGH disallowed nodes (they remain navigability "bridges"), so recall
-    /// over the allowed subset is preserved. `allow == None` is exactly the unfiltered
-    /// [`Self::search`] (it dispatches to the original [`Self::search_layer`], so
-    /// unfiltered results are unchanged). See [`Self::search_layer_filtered`] for why
-    /// the explored count stays `O(ef / selectivity)` — independent of the graph size.
+    /// Approximate top-`k` search with an optional metadata predicate applied during
+    /// layer-0 traversal (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter).
+    /// `allow`, when present, is tested against each candidate's external id before
+    /// it enters the result beam, so returned results all satisfy the predicate.
+    /// Disallowed nodes remain frontier candidates and routing bridges: the graph
+    /// may expand through them while only allowed nodes occupy the `ef` result beam.
+    /// The result distances remain exact and ordering remains deterministic
+    /// `(distance, id)`, with `ef` clamped to at least `k`; `allow == None` is
+    /// exactly [`Self::search`]. `k == 0` and an empty index return no results, and
+    /// the query length must equal `dim`. The filtered walk sizes its visited set
+    /// for the selective traversal and can visit roughly `ef / selectivity` nodes;
+    /// candidate storage follows the admitted traversal frontier rather than a
+    /// post-filtered size-proportional result list.
     pub fn search_filtered(
         &self,
         query: &[f32],
@@ -398,128 +267,7 @@ impl HnswIndex {
         ef: usize,
         allow: Option<&dyn Fn(u64) -> bool>,
     ) -> Vec<SearchResult> {
-        assert_eq!(query.len(), self.dim, "query length must equal dim");
-        if k == 0 {
-            return Vec::new();
-        }
-        let Some(mut ep) = self.entry_point else {
-            return Vec::new();
-        };
-        // Upper-layer descent is PURE NAVIGATION (never filtered) — identical to the
-        // unfiltered path. The predicate only governs which layer-0 nodes may be
-        // RETURNED, not which nodes may be used to route toward the query.
-        for layer in (1..=self.max_level).rev() {
-            ep = self.greedy_closest(query, ep, layer);
-        }
-        let ef = ef.max(k);
-        let mut found = match allow {
-            None => self.search_layer(query, &[ep], ef, 0),
-            Some(allow) => self.search_layer_filtered(query, &[ep], ef, 0, allow),
-        };
-        truncate_nearest(&mut found, k);
-        found
-            .into_iter()
-            .map(|c| SearchResult {
-                id: c.id,
-                distance: c.dist,
-            })
-            .collect()
-    }
-
-    /// Beam search at one layer with a metadata predicate pushed into the neighbour
-    /// expansion (CONCEPT:EG-KG.retrieval.hybrid-metadata-prefilter) — the filtered sibling of [`Self::search_layer`].
-    ///
-    /// The graph is walked through EVERY reachable node so navigability is preserved
-    /// (a disallowed node is still expanded as a routing bridge), but only nodes whose
-    /// external id passes `allow` may enter the result beam `results` (the max-heap of
-    /// the `ef` nearest allowed candidates). The frontier admits a neighbour while the
-    /// beam is not yet full of `ef` allowed nodes — so the walk floods toward the
-    /// allowed subset — OR the neighbour is closer than the current worst allowed
-    /// result — so once `ef` allowed nodes are found the frontier drains and the search
-    /// terminates. Reaching `ef` allowed nodes at selectivity `s` costs `~ef/s` node
-    /// visits regardless of the graph's size, which is the sub-linear win over a
-    /// post-filter that must first over-fetch a size-proportional band. Deterministic:
-    /// [`Cand`]'s total `(distance, id, node)` order drives every heap.
-    fn search_layer_filtered(
-        &self,
-        query: &[f32],
-        entries: &[usize],
-        ef: usize,
-        layer: usize,
-        allow: &dyn Fn(u64) -> bool,
-    ) -> Vec<Cand> {
-        // A selective filter floods more of the graph than the unfiltered beam, so the
-        // visited set is sized generously to cut rehashing.
-        let mut visited: HashSet<usize> = HashSet::with_capacity(ef * 8);
-        // `candidates`: min-heap (nearest first) of the frontier to expand — includes
-        // disallowed bridge nodes.
-        let mut candidates: BinaryHeap<Reverse<Cand>> = BinaryHeap::new();
-        // `results`: max-heap (farthest first) of the current best `ef` ALLOWED nodes.
-        let mut results: BinaryHeap<Cand> = BinaryHeap::new();
-
-        for &e in entries {
-            let c = Cand {
-                dist: self.dist_to(query, e),
-                node: e,
-                id: self.nodes[e].id,
-            };
-            visited.insert(e);
-            candidates.push(Reverse(c));
-            if allow(c.id) {
-                results.push(c);
-            }
-        }
-        while results.len() > ef {
-            results.pop();
-        }
-
-        while let Some(Reverse(c)) = candidates.pop() {
-            // Stop only once the beam holds `ef` ALLOWED results AND the nearest
-            // remaining frontier node is farther than the worst kept one — no closer
-            // allowed node is reachable downhill.
-            if results.len() >= ef {
-                if let Some(worst) = results.peek() {
-                    if c.dist > worst.dist {
-                        break;
-                    }
-                }
-            }
-            for &nb in &self.nodes[c.node].neighbors[layer] {
-                if !visited.insert(nb) {
-                    continue;
-                }
-                let d = self.dist_to(query, nb);
-                let worst_allowed = results.peek().map(|w| w.dist);
-                // Frontier admission — the bound that keeps exploration sub-linear:
-                // keep routing through this node while allowed results are still owed,
-                // or while it could beat the current worst allowed result.
-                if results.len() < ef || worst_allowed.is_none_or(|wd| d < wd) {
-                    let nc = Cand {
-                        dist: d,
-                        node: nb,
-                        id: self.nodes[nb].id,
-                    };
-                    candidates.push(Reverse(nc));
-                    if allow(nc.id) {
-                        results.push(nc);
-                        if results.len() > ef {
-                            results.pop();
-                        }
-                    }
-                }
-            }
-        }
-        // One targeted event per filtered search (a no-op without a subscriber): the
-        // explored count + allowed-found let a caller derive the observed selectivity.
-        tracing::trace!(
-            target: "eg_ann::hnsw",
-            mode = "filtered",
-            ef,
-            explored = visited.len(),
-            allowed_found = results.len(),
-            "hnsw filtered layer search",
-        );
-        results.into_vec()
+        search::search_filtered(self, query, k, ef, allow)
     }
 }
 

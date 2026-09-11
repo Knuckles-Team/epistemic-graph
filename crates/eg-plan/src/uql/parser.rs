@@ -617,17 +617,7 @@ impl<'a> Parser<'a> {
     /// out, so the clause is accepted lexically but rejected with a clear message.
     #[cfg(not(feature = "epistemic"))]
     fn parse_evidence_for(&mut self) -> Result<Op, UqlError> {
-        if self.peek_kw("FOR") {
-            self.bump();
-        }
-        if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
-            self.bump();
-        }
-        Err(self.err_at(
-            self.prev_start(),
-            "`EVIDENCE FOR` requires the epistemic belief substrate (build feature \
-             `epistemic`); not available in this build",
-        ))
+        self.reject_epistemic_id_clause(Some("FOR"), "EVIDENCE FOR")
     }
 
     /// `contradicts = "CONTRADICTS" id` → `Op::Contradicts { node_id }`
@@ -642,14 +632,7 @@ impl<'a> Parser<'a> {
     /// `CONTRADICTS` in a build WITHOUT `epistemic`: mirrors `parse_evidence_for`.
     #[cfg(not(feature = "epistemic"))]
     fn parse_contradicts(&mut self) -> Result<Op, UqlError> {
-        if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
-            self.bump();
-        }
-        Err(self.err_at(
-            self.prev_start(),
-            "`CONTRADICTS` requires the epistemic belief substrate (build feature \
-             `epistemic`); not available in this build",
-        ))
+        self.reject_epistemic_id_clause(None, "CONTRADICTS")
     }
 
     /// `supported_by = "SUPPORTED" "BY" id` → `Op::SupportedBy { node_id }`
@@ -665,17 +648,7 @@ impl<'a> Parser<'a> {
     /// `SUPPORTED` in a build WITHOUT `epistemic`: mirrors `parse_evidence_for`.
     #[cfg(not(feature = "epistemic"))]
     fn parse_supported_by(&mut self) -> Result<Op, UqlError> {
-        if self.peek_kw("BY") {
-            self.bump();
-        }
-        if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
-            self.bump();
-        }
-        Err(self.err_at(
-            self.prev_start(),
-            "`SUPPORTED BY` requires the epistemic belief substrate (build feature \
-             `epistemic`); not available in this build",
-        ))
+        self.reject_epistemic_id_clause(Some("BY"), "SUPPORTED BY")
     }
 
     /// `belief_asof = "BELIEF" "AS" "OF" "@" num` → `Op::BeliefAsOf { ts }`
@@ -692,21 +665,7 @@ impl<'a> Parser<'a> {
     /// consumes an `AS OF @<ts>` tail if present so the caret still lands sensibly.
     #[cfg(not(feature = "epistemic"))]
     fn parse_belief_asof(&mut self) -> Result<Op, UqlError> {
-        if self.peek_kw("AS") {
-            self.bump();
-        }
-        if self.peek_kw("OF") {
-            self.bump();
-        }
-        let _ = self.eat(&Tok::At);
-        if matches!(self.peek_kind(), Some(Tok::Num(_))) {
-            self.bump();
-        }
-        Err(self.err_at(
-            self.prev_start(),
-            "`BELIEF AS OF` requires the epistemic belief substrate (build feature \
-             `epistemic`); not available in this build",
-        ))
+        self.reject_epistemic_as_of_clause("BELIEF AS OF")
     }
 
     /// `valid_asof = "VALID" "AS" "OF" "@" num` → `Op::AsOf { ts, axis: Valid }`
@@ -728,21 +687,7 @@ impl<'a> Parser<'a> {
     /// `parse_asof`, gated only on base `query`.)
     #[cfg(not(feature = "epistemic"))]
     fn parse_valid_asof(&mut self) -> Result<Op, UqlError> {
-        if self.peek_kw("AS") {
-            self.bump();
-        }
-        if self.peek_kw("OF") {
-            self.bump();
-        }
-        let _ = self.eat(&Tok::At);
-        if matches!(self.peek_kind(), Some(Tok::Num(_))) {
-            self.bump();
-        }
-        Err(self.err_at(
-            self.prev_start(),
-            "`VALID AS OF` requires the epistemic belief substrate (build feature \
-             `epistemic`); not available in this build",
-        ))
+        self.reject_epistemic_as_of_clause("VALID AS OF")
     }
 
     /// `source_reliability = "SOURCE" "RELIABILITY" id` → `Op::SourceReliability
@@ -758,17 +703,7 @@ impl<'a> Parser<'a> {
     /// `SOURCE` in a build WITHOUT `epistemic`: mirrors `parse_evidence_for`.
     #[cfg(not(feature = "epistemic"))]
     fn parse_source_reliability(&mut self) -> Result<Op, UqlError> {
-        if self.peek_kw("RELIABILITY") {
-            self.bump();
-        }
-        if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
-            self.bump();
-        }
-        Err(self.err_at(
-            self.prev_start(),
-            "`SOURCE RELIABILITY` requires the epistemic belief substrate (build feature \
-             `epistemic`); not available in this build",
-        ))
+        self.reject_epistemic_id_clause(Some("RELIABILITY"), "SOURCE RELIABILITY")
     }
 
     /// `confidence = "CONFIDENCE"` → `Op::ConfidenceOp {}` (CONCEPT:EG-KG.epistemic.epistemic-substrate).
@@ -803,16 +738,53 @@ impl<'a> Parser<'a> {
     /// `EXPLAIN` in a build WITHOUT `epistemic`: mirrors `parse_evidence_for`.
     #[cfg(not(feature = "epistemic"))]
     fn parse_explain_belief(&mut self) -> Result<Op, UqlError> {
-        if self.peek_kw("BELIEF") {
-            self.bump();
+        self.reject_epistemic_id_clause(Some("BELIEF"), "EXPLAIN BELIEF")
+    }
+
+    /// Consume the optional tail and id shared by epistemic clauses that are
+    /// recognized lexically but unavailable without the `epistemic` feature.
+    #[cfg(not(feature = "epistemic"))]
+    fn reject_epistemic_id_clause(
+        &mut self,
+        tail: Option<&str>,
+        clause: &str,
+    ) -> Result<Op, UqlError> {
+        if let Some(tail) = tail {
+            if self.peek_kw(tail) {
+                self.bump();
+            }
         }
         if matches!(self.peek_kind(), Some(Tok::Str(_)) | Some(Tok::Ident(_))) {
             self.bump();
         }
         Err(self.err_at(
             self.prev_start(),
-            "`EXPLAIN BELIEF` requires the epistemic belief substrate (build feature \
-             `epistemic`); not available in this build",
+            &format!(
+                "`{clause}` requires the epistemic belief substrate (build feature \
+                 `epistemic`); not available in this build"
+            ),
+        ))
+    }
+
+    /// Consume the shared `AS OF @<ts>` tail for unavailable epistemic time
+    /// clauses while preserving the original error anchor.
+    #[cfg(not(feature = "epistemic"))]
+    fn reject_epistemic_as_of_clause(&mut self, clause: &str) -> Result<Op, UqlError> {
+        for keyword in ["AS", "OF"] {
+            if self.peek_kw(keyword) {
+                self.bump();
+            }
+        }
+        let _ = self.eat(&Tok::At);
+        if matches!(self.peek_kind(), Some(Tok::Num(_))) {
+            self.bump();
+        }
+        Err(self.err_at(
+            self.prev_start(),
+            &format!(
+                "`{clause}` requires the epistemic belief substrate (build feature \
+                 `epistemic`); not available in this build"
+            ),
         ))
     }
 

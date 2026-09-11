@@ -33,7 +33,6 @@ use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use epistemic_graph::audit;
-use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::protocol::Method;
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
@@ -168,14 +167,7 @@ fn bench_provenance_anchor_overhead(c: &mut Criterion) {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let backend = Arc::new(
-            RedbBackend::open(
-                dir.to_string_lossy().to_string(),
-                // Long interval so ONLY the barrier path commits a batch, never
-                // the timer -- matches `redb_group_commit_bench.rs`'s rationale.
-                DurabilityPolicy::Interval(Duration::from_millis(500)),
-                4096,
-            )
-            .expect("open redb backend"),
+            RedbBackend::open(dir.to_string_lossy().to_string(), 4096).expect("open redb backend"),
         );
 
         let anchor_task = if anchoring_on {

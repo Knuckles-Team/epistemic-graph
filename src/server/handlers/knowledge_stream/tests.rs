@@ -116,7 +116,7 @@ mod tests {
                     query: query(family),
                     batch_size: 2,
                     cursor: None,
-                    projection: KnowledgeStreamProjection::ArrowIpcV1,
+                    projection: KnowledgeStreamProjection::ArrowIpc,
                 },
                 execution(&authority, family, 5),
             )
@@ -140,7 +140,7 @@ mod tests {
                     query: query(family),
                     batch_size: 2,
                     cursor: Some(first.cursor),
-                    projection: KnowledgeStreamProjection::ArrowIpcV1,
+                    projection: KnowledgeStreamProjection::ArrowIpc,
                 },
                 execution(&authority, family, 5),
             )
@@ -163,7 +163,7 @@ mod tests {
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
                 cursor: None,
-                projection: KnowledgeStreamProjection::ArrowIpcV1,
+                projection: KnowledgeStreamProjection::ArrowIpc,
             },
             execution(&original_authority, KnowledgeResultFamily::Graph, 3),
         )
@@ -179,7 +179,7 @@ mod tests {
                     query: query(KnowledgeResultFamily::Graph),
                     batch_size: 2,
                     cursor: Some(first.cursor.clone()),
-                    projection: KnowledgeStreamProjection::ArrowIpcV1,
+                    projection: KnowledgeStreamProjection::ArrowIpc,
                 },
                 execution(authority, KnowledgeResultFamily::Graph, count),
             )
@@ -201,7 +201,7 @@ mod tests {
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
                 cursor: Some(tampered),
-                projection: KnowledgeStreamProjection::ArrowIpcV1,
+                projection: KnowledgeStreamProjection::ArrowIpc,
             },
             execution(&original_authority, KnowledgeResultFamily::Graph, 3),
         )
@@ -221,14 +221,14 @@ mod tests {
                 query: query(KnowledgeResultFamily::Sql),
                 batch_size: 2,
                 cursor: None,
-                projection: KnowledgeStreamProjection::ArrowIpcV1,
+                projection: KnowledgeStreamProjection::ArrowIpc,
             },
             execution(&authority, KnowledgeResultFamily::Sql, 5),
         )
         .unwrap();
         assert!(!response.cursor.exhausted);
         assert_eq!(response.cursor.row_offset, 2);
-        assert_eq!(response.projection, KnowledgeStreamProjection::ArrowIpcV1);
+        assert_eq!(response.projection, KnowledgeStreamProjection::ArrowIpc);
     }
 
     #[test]
@@ -244,7 +244,7 @@ mod tests {
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
                 cursor: None,
-                projection: KnowledgeStreamProjection::ArrowIpcV1,
+                projection: KnowledgeStreamProjection::ArrowIpc,
             },
             execution(&base_authority, KnowledgeResultFamily::Graph, 3),
         )
@@ -263,7 +263,7 @@ mod tests {
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
                 cursor: Some(first.cursor.clone()),
-                projection: KnowledgeStreamProjection::ArrowIpcV1,
+                projection: KnowledgeStreamProjection::ArrowIpc,
             },
             execution(&base_authority, KnowledgeResultFamily::Graph, 3),
         )
@@ -278,7 +278,7 @@ mod tests {
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
                 cursor: Some(first.cursor.clone()),
-                projection: KnowledgeStreamProjection::ArrowIpcV1,
+                projection: KnowledgeStreamProjection::ArrowIpc,
             },
             execution(&base_authority, KnowledgeResultFamily::Graph, 3),
         )
@@ -300,7 +300,7 @@ mod tests {
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
                 cursor: Some(first.cursor.clone()),
-                projection: KnowledgeStreamProjection::ArrowIpcV1,
+                projection: KnowledgeStreamProjection::ArrowIpc,
             },
             execution(&aba, KnowledgeResultFamily::Graph, 3),
         )
@@ -320,7 +320,7 @@ mod tests {
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
                 cursor: Some(first.cursor),
-                projection: KnowledgeStreamProjection::ArrowIpcV1,
+                projection: KnowledgeStreamProjection::ArrowIpc,
             },
             execution(&replacement, KnowledgeResultFamily::Graph, 3),
         )
@@ -479,7 +479,7 @@ mod tests {
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
                 cursor: None,
-                projection: KnowledgeStreamProjection::ArrowIpcV1,
+                projection: KnowledgeStreamProjection::ArrowIpc,
             },
             execution(&authority, KnowledgeResultFamily::Graph, 3),
         )
@@ -500,7 +500,7 @@ mod tests {
                 query: query(KnowledgeResultFamily::Graph),
                 batch_size: 2,
                 cursor: Some(first.cursor),
-                projection: KnowledgeStreamProjection::ArrowIpcV1,
+                projection: KnowledgeStreamProjection::ArrowIpc,
             },
             execution(&authority, KnowledgeResultFamily::Graph, 3),
         )

@@ -20,7 +20,6 @@ use std::time::Duration;
 use arrow::ipc::reader::StreamReader;
 
 use eg_types::jobs::{JobKind, JobOp, SubmitJobSpec};
-use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::knowledge_stream::{
     KnowledgeResultFamily, KnowledgeStreamBatch, KnowledgeStreamProjection, KnowledgeStreamQuery,
     KnowledgeStreamRequest, KNOWLEDGE_STREAM_SCHEMA_VERSION,
@@ -34,8 +33,7 @@ const GRAPH: &str = "__commons__";
 
 fn state(persist_dir: String) -> test_support::SharedState {
     let persistence: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(persist_dir.clone(), DurabilityPolicy::Each, 64)
-            .expect("open authoritative persistence"),
+        RedbBackend::open(persist_dir.clone(), 64).expect("open authoritative persistence"),
     );
     test_support::state_with(
         SECRET,
@@ -93,7 +91,7 @@ fn stream(query: KnowledgeStreamQuery) -> Method {
             query,
             batch_size: 32,
             cursor: None,
-            projection: KnowledgeStreamProjection::ArrowIpcV1,
+            projection: KnowledgeStreamProjection::ArrowIpc,
         },
     }
 }
@@ -150,7 +148,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
             assert_eq!(graph_batch.family, KnowledgeResultFamily::Graph);
             assert_eq!(
                 graph_batch.projection,
-                KnowledgeStreamProjection::ArrowIpcV1
+                KnowledgeStreamProjection::ArrowIpc
             );
             assert_eq!(arrow_rows(&graph_batch.payload), 3);
             assert!(graph_batch.cursor.exhausted);

@@ -27,10 +27,12 @@ pub enum SagaBegin {
 mod admission;
 mod admitted;
 mod commit;
+mod graft;
 mod group;
 mod kernel;
 mod ledger;
 mod maintenance;
+mod outbox;
 mod participant;
 mod read;
 mod replay;
@@ -38,9 +40,18 @@ mod saga;
 mod tables;
 
 pub use admitted::{AdmittedMutation, AdmittedOwnerWrite};
-pub use group::{AdmittedGroup, ScopedIntent};
+pub use graft::{
+    GraftDestination, GraftIntent, GraftOwnerWrite, GraftSource, GraftedScope,
+    OwnerPayloadTransfer, OwnerPayloadWrite,
+};
+pub use group::{AdmittedGroup, CurrentIntent, ScopedIntent};
 pub use kernel::MutationKernel;
 pub use maintenance::MaintenanceBatch;
+pub use outbox::{
+    max_delivery_attempts, outbox_cursor, outbox_status, queue_capacity, OutboxClaimBudget,
+    OutboxClaimCursor, OutboxClaimOutcome, OutboxConsumerState, OutboxDeferral, OutboxDelivery,
+    OutboxPosition, OutboxStatus,
+};
 pub use participant::{
     decode_record, decode_record_key, encode_record, encode_record_key, is_sealed_payload,
     sealed_blob_digest, validate_key_matches_record, validate_transition,
@@ -55,7 +66,8 @@ pub use participant::{
     MAX_COORDINATOR_ID_BYTES, MAX_ENCODED_RECORD_KEY_BYTES,
 };
 pub use read::{
-    read_batches, read_class, read_fences, read_ledger, read_outbox, read_private_payload, version,
+    read_batches, read_class, read_fences, read_ledger, read_outbox, read_private_payload,
+    read_replay_operation, version,
     OutboxCursor,
 };
 pub use replay::ReplayResolution;

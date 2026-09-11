@@ -223,6 +223,29 @@ mod check_embedding_dimension_tests {
     use super::*;
 
     #[test]
+    fn semantic_store_validation_is_read_only_and_matches_write_admission() {
+        let mut store = SemanticStore::new();
+        store
+            .add_embedding("known".into(), vec![1.0, 0.0, 0.0])
+            .unwrap();
+        let before = store.embeddings_snapshot();
+
+        assert_eq!(
+            store.validate_embedding(&[1.0, 0.0]),
+            Err(EmbeddingDimensionError::Mismatch {
+                expected: 3,
+                received: 2,
+            })
+        );
+        assert_eq!(
+            store.validate_embedding(&[1.0, f32::NAN, 0.0]),
+            Err(EmbeddingDimensionError::NonFinite { index: 1 })
+        );
+        assert_eq!(store.validate_embedding(&[0.0, 0.0, 1.0]), Ok(()));
+        assert_eq!(store.embeddings_snapshot(), before);
+    }
+
+    #[test]
     fn establishes_dimension_on_first_finite_vector() {
         assert_eq!(check_embedding_dimension(&[1.0, 2.0, 3.0], 0), Ok(3));
     }

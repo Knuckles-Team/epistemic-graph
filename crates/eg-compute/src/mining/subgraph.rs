@@ -225,6 +225,68 @@ fn edges_consistent(pos: usize, mapping: &[usize], host: &HostGraph, pattern: &P
 
 // ─────────────────────────── gSpan-style level-wise growth ───────────────────────────
 
+fn initial_edge_patterns(host: &HostGraph) -> Vec<Pattern> {
+    let mut seen: HashSet<(String, String, String)> = HashSet::new();
+    let mut patterns = Vec::new();
+    for (u, neighbors) in host.out_adj.iter().enumerate() {
+        for (v, label) in neighbors {
+            let signature = (
+                host.labels[u].clone(),
+                label.clone(),
+                host.labels[*v].clone(),
+            );
+            if seen.insert(signature.clone()) {
+                patterns.push(Pattern {
+                    node_labels: vec![signature.0, signature.2],
+                    edges: vec![(0, 1, signature.1)],
+                });
+            }
+        }
+    }
+    patterns
+}
+
+struct PatternEvaluation {
+    frequent: FrequentSubgraph,
+    embeddings: Vec<Vec<HostNodeId>>,
+}
+
+fn evaluate_pattern(
+    host: &HostGraph,
+    pattern: &Pattern,
+    min_count: usize,
+    total_edges: usize,
+) -> Option<PatternEvaluation> {
+    let embeddings = find_embeddings(host, pattern);
+    if embeddings.len() < min_count {
+        return None;
+    }
+    let mut members: Vec<HostNodeId> = embeddings.iter().flatten().copied().collect();
+    members.sort_unstable();
+    members.dedup();
+    Some(PatternEvaluation {
+        frequent: FrequentSubgraph {
+            pattern: pattern.clone(),
+            count: embeddings.len(),
+            support: embeddings.len() as f64 / total_edges as f64,
+            member_nodes: members,
+        },
+        embeddings,
+    })
+}
+
+fn deduplicate_patterns(candidates: Vec<Pattern>) -> Vec<Pattern> {
+    let mut unique = Vec::new();
+    let mut keys: HashSet<Vec<(usize, usize, String)>> = HashSet::new();
+    for candidate in candidates {
+        let canonical = canonicalize(&candidate);
+        if keys.insert(canonical.edges.clone()) {
+            unique.push(canonical);
+        }
+    }
+    unique
+}
+
 /// Frequent subgraph mining (CONCEPT:EG-KG.mining.gspan-frequent-subgraph):
 /// level-wise growth from every frequent single labeled edge up to
 /// `max_edges` edges, canonicalizing + exactly re-counting each candidate.
@@ -232,70 +294,77 @@ fn edges_consistent(pos: usize, mapping: &[usize], host: &HostGraph, pattern: &P
 pub fn mine_gspan(host: &HostGraph, min_support: f64, max_edges: usize) -> Vec<FrequentSubgraph> {
     let total_edges = host.edge_count().max(1);
     let mc = min_count(min_support, total_edges);
-    let mut all: Vec<FrequentSubgraph> = Vec::new();
+    let mut all = Vec::new();
     if max_edges == 0 {
         return all;
     }
 
-    // Level 1: every distinct (u_label, edge_label, v_label) signature.
-    let mut seen_l1: HashSet<(String, String, String)> = HashSet::new();
-    let mut frontier: Vec<Pattern> = Vec::new();
-    for (u, nbrs) in host.out_adj.iter().enumerate() {
-        for (v, lbl) in nbrs {
-            let sig = (host.labels[u].clone(), lbl.clone(), host.labels[*v].clone());
-            if seen_l1.insert(sig.clone()) {
-                frontier.push(Pattern {
-                    node_labels: vec![sig.0, sig.2],
-                    edges: vec![(0, 1, sig.1)],
-                });
-            }
-        }
-    }
-
+    let mut frontier = initial_edge_patterns(host);
     let mut level = 1;
     let mut canon_seen: HashSet<Vec<(usize, usize, String)>> = HashSet::new();
     while !frontier.is_empty() && level <= max_edges {
-        let mut next_frontier: Vec<Pattern> = Vec::new();
+        let mut next_frontier = Vec::new();
         for pattern in &frontier {
             let canon = canonicalize(pattern);
-            let key = canon.edges.clone();
-            if !canon_seen.insert(key) {
+            if !canon_seen.insert(canon.edges.clone()) {
                 continue; // already evaluated this shape at this or an earlier level
             }
-            let embeddings = find_embeddings(host, &canon);
-            if embeddings.len() < mc {
+            let Some(evaluation) = evaluate_pattern(host, &canon, mc, total_edges) else {
                 continue;
-            }
-            let mut members: Vec<HostNodeId> = embeddings.iter().flatten().copied().collect();
-            members.sort_unstable();
-            members.dedup();
-            all.push(FrequentSubgraph {
-                pattern: canon.clone(),
-                count: embeddings.len(),
-                support: embeddings.len() as f64 / total_edges as f64,
-                member_nodes: members,
-            });
-
-            if level == max_edges {
-                continue; // no more growth needed
-            }
-            for candidate in extend_candidates(host, &canon, &embeddings) {
-                next_frontier.push(candidate);
+            };
+            all.push(evaluation.frequent);
+            if level < max_edges {
+                next_frontier.extend(extend_candidates(host, &canon, &evaluation.embeddings));
             }
         }
-        // Dedup the next frontier by canonical form before recursing.
-        let mut dedup: Vec<Pattern> = Vec::new();
-        let mut dedup_keys: HashSet<Vec<(usize, usize, String)>> = HashSet::new();
-        for cand in next_frontier {
-            let canon = canonicalize(&cand);
-            if dedup_keys.insert(canon.edges.clone()) {
-                dedup.push(canon);
-            }
-        }
-        frontier = dedup;
+        frontier = deduplicate_patterns(next_frontier);
         level += 1;
     }
     all
+}
+
+#[derive(Clone, Copy)]
+enum ExtensionDirection {
+    Outgoing,
+    Incoming,
+}
+
+impl ExtensionDirection {
+    fn edge(self, local: usize, other: usize) -> (usize, usize) {
+        match self {
+            Self::Outgoing => (local, other),
+            Self::Incoming => (other, local),
+        }
+    }
+}
+
+fn neighbor_extensions(
+    host: &HostGraph,
+    pattern: &Pattern,
+    pattern_edges: &HashSet<(usize, usize, &str)>,
+    local_by_host: &HashMap<HostNodeId, usize>,
+    local: usize,
+    neighbors: &[(HostNodeId, String)],
+    direction: ExtensionDirection,
+) -> Vec<Pattern> {
+    let new_local = pattern.node_labels.len();
+    let mut extensions = Vec::new();
+    for (neighbor, label) in neighbors {
+        let existing = local_by_host.get(neighbor).copied();
+        let other = existing.unwrap_or(new_local);
+        let (from, to) = direction.edge(local, other);
+        if existing.is_some() && pattern_edges.contains(&(from, to, label.as_str())) {
+            continue;
+        }
+        let mut node_labels = pattern.node_labels.clone();
+        if existing.is_none() {
+            node_labels.push(host.labels[*neighbor].clone());
+        }
+        let mut edges = pattern.edges.clone();
+        edges.push((from, to, label.clone()));
+        extensions.push(Pattern { node_labels, edges });
+    }
+    extensions
 }
 
 /// Generate one-edge extensions of `pattern` by examining every embedding's
@@ -308,7 +377,6 @@ fn extend_candidates(
     pattern: &Pattern,
     embeddings: &[Vec<HostNodeId>],
 ) -> Vec<Pattern> {
-    let k = pattern.node_labels.len();
     let mut out = Vec::new();
     let pattern_edges: HashSet<(usize, usize, &str)> = pattern
         .edges
@@ -327,46 +395,24 @@ fn extend_candidates(
             local_by_host.entry(host_node).or_insert(local);
         }
         for (local_i, &host_i) in mapping.iter().enumerate() {
-            // Outgoing extensions: host_i -> neighbor.
-            for (nbr, lbl) in &host.out_adj[host_i] {
-                if let Some(existing_local) = local_by_host.get(nbr).copied() {
-                    // Closes a cycle onto an existing pattern node.
-                    if !pattern_edges.contains(&(local_i, existing_local, lbl.as_str())) {
-                        let mut edges = pattern.edges.clone();
-                        edges.push((local_i, existing_local, lbl.clone()));
-                        out.push(Pattern {
-                            node_labels: pattern.node_labels.clone(),
-                            edges,
-                        });
-                    }
-                } else {
-                    // Grows to a new node.
-                    let mut node_labels = pattern.node_labels.clone();
-                    node_labels.push(host.labels[*nbr].clone());
-                    let mut edges = pattern.edges.clone();
-                    edges.push((local_i, k, lbl.clone()));
-                    out.push(Pattern { node_labels, edges });
-                }
-            }
-            // Incoming extensions: neighbor -> host_i.
-            for (nbr, lbl) in &host.in_adj[host_i] {
-                if let Some(existing_local) = local_by_host.get(nbr).copied() {
-                    if !pattern_edges.contains(&(existing_local, local_i, lbl.as_str())) {
-                        let mut edges = pattern.edges.clone();
-                        edges.push((existing_local, local_i, lbl.clone()));
-                        out.push(Pattern {
-                            node_labels: pattern.node_labels.clone(),
-                            edges,
-                        });
-                    }
-                } else {
-                    let mut node_labels = pattern.node_labels.clone();
-                    node_labels.push(host.labels[*nbr].clone());
-                    let mut edges = pattern.edges.clone();
-                    edges.push((k, local_i, lbl.clone()));
-                    out.push(Pattern { node_labels, edges });
-                }
-            }
+            out.extend(neighbor_extensions(
+                host,
+                pattern,
+                &pattern_edges,
+                &local_by_host,
+                local_i,
+                &host.out_adj[host_i],
+                ExtensionDirection::Outgoing,
+            ));
+            out.extend(neighbor_extensions(
+                host,
+                pattern,
+                &pattern_edges,
+                &local_by_host,
+                local_i,
+                &host.in_adj[host_i],
+                ExtensionDirection::Incoming,
+            ));
         }
     }
     out
@@ -385,15 +431,13 @@ pub struct MotifCounts {
     pub directed_cycle3: usize,
 }
 
-/// Census the motifs of `host`'s UNDERLYING undirected simple graph (directed
-/// edges collapsed; multi-edges deduped), plus directed 3-cycles checked
-/// against the original directed edge set.
-pub fn count_motifs(host: &HostGraph) -> MotifCounts {
-    let n = host.node_count();
-    let mut undirected: Vec<HashSet<HostNodeId>> = vec![HashSet::new(); n];
-    let mut directed: HashSet<(HostNodeId, HostNodeId)> = HashSet::new();
-    for (u, nbrs) in host.out_adj.iter().enumerate() {
-        for (v, _) in nbrs {
+fn motif_topology(
+    host: &HostGraph,
+) -> (Vec<HashSet<HostNodeId>>, HashSet<(HostNodeId, HostNodeId)>) {
+    let mut undirected = vec![HashSet::new(); host.node_count()];
+    let mut directed = HashSet::new();
+    for (u, neighbors) in host.out_adj.iter().enumerate() {
+        for (v, _) in neighbors {
             if u != *v {
                 undirected[u].insert(*v);
                 undirected[*v].insert(u);
@@ -401,42 +445,52 @@ pub fn count_motifs(host: &HostGraph) -> MotifCounts {
             }
         }
     }
+    (undirected, directed)
+}
 
-    let mut triangle = 0usize;
-    let mut wedge = 0usize;
-    for u in 0..n {
-        let neighbors: Vec<HostNodeId> = undirected[u].iter().copied().collect();
+fn count_undirected_motifs(undirected: &[HashSet<HostNodeId>]) -> (usize, usize) {
+    let mut triangle = 0;
+    let mut wedge = 0;
+    for neighbors in undirected {
+        let neighbors: Vec<_> = neighbors.iter().copied().collect();
         for i in 0..neighbors.len() {
             for j in (i + 1)..neighbors.len() {
-                let (a, b) = (neighbors[i], neighbors[j]);
-                if undirected[a].contains(&b) {
-                    triangle += 1; // each triangle counted once per its 3 centers -> /3 below
+                if undirected[neighbors[i]].contains(&neighbors[j]) {
+                    triangle += 1;
                 } else {
                     wedge += 1;
                 }
             }
         }
     }
-    triangle /= 3;
+    (wedge, triangle / 3)
+}
 
-    let mut directed_cycle3 = 0usize;
-    for &(a, b) in &directed {
-        for &(b2, c) in &directed {
+fn count_directed_three_cycles(directed: &HashSet<(HostNodeId, HostNodeId)>) -> usize {
+    let mut cycles = 0;
+    for &(a, b) in directed {
+        for &(b2, c) in directed {
             if b2 != b {
                 continue;
             }
             if directed.contains(&(c, a)) && a != b && b != c && a != c {
-                directed_cycle3 += 1;
+                cycles += 1;
             }
         }
     }
-    // Each 3-cycle a→b→c→a is found starting from each of its 3 edges.
-    directed_cycle3 /= 3;
+    cycles / 3
+}
 
+/// Census the motifs of `host`'s UNDERLYING undirected simple graph (directed
+/// edges collapsed; multi-edges deduped), plus directed 3-cycles checked
+/// against the original directed edge set.
+pub fn count_motifs(host: &HostGraph) -> MotifCounts {
+    let (undirected, directed) = motif_topology(host);
+    let (wedge, triangle) = count_undirected_motifs(&undirected);
     MotifCounts {
         wedge,
         triangle,
-        directed_cycle3,
+        directed_cycle3: count_directed_three_cycles(&directed),
     }
 }
 

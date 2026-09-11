@@ -29,6 +29,14 @@
 
 use crate::{graph::GraphCore, protocol::Method};
 
+/// Stable serving principal for the engine's own kernel-owned durable writes.
+///
+/// This identity is shared by the server, embedded, and Raft/redb-only builds;
+/// keeping it in the server-independent durable-application facade prevents a
+/// standalone embedded build from acquiring a dependency on crate::server.
+pub(crate) const ENGINE_LEDGER_PRINCIPAL: &str =
+    "principal:sha256:41290b0e412ac542f312d4312a7a299e771eec66e3ffbbf7edb6369576875fb2";
+
 /// True for the methods whose effect must survive a crash in the authoritative store.
 pub fn is_durable_mutation(m: &Method) -> bool {
     // Served modality mutations use the stronger state-backed MutationBatch path;

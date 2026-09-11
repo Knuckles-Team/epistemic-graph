@@ -203,7 +203,7 @@ fn authority_for(
     (authority, operation, nonce)
 }
 
-fn envelope_with_effect_count(effect_count: usize) -> MutationEnvelope {
+fn envelope_with_effect_count(effect_count: usize) -> MutationRequestEnvelope {
     let effects = (0..effect_count)
         .map(|ordinal| delete_effect(u32::try_from(ordinal).unwrap()))
         .collect();
@@ -222,7 +222,7 @@ fn envelope_with_effect_count(effect_count: usize) -> MutationEnvelope {
         payload.egress_authorization_digest().unwrap(),
         payload.effect_digest().unwrap(),
     );
-    MutationEnvelope::new(MutationEnvelopeParts::new(
+    MutationRequestEnvelope::new(MutationRequestEnvelopeParts::new(
         payload,
         authority.0,
         authority.1,
@@ -235,7 +235,7 @@ fn envelope_with_effect_count(effect_count: usize) -> MutationEnvelope {
 fn serialized_envelope_has_no_public_executable_construction_surface() {
     let source = include_str!("envelope.rs");
     let fields = source
-        .split_once("pub struct MutationEnvelope {")
+        .split_once("pub struct MutationRequestEnvelope {")
         .unwrap()
         .1
         .split_once("\n}")
@@ -265,11 +265,11 @@ fn checked_constructor_accessors_and_named_round_trip_are_complete() {
     );
 
     let named = rmp_serde::to_vec_named(&envelope).unwrap();
-    let decoded = MutationEnvelope::decode_msgpack(&named).unwrap();
+    let decoded = MutationRequestEnvelope::decode_msgpack(&named).unwrap();
     assert_eq!(decoded, envelope);
 
     let positional = rmp_serde::to_vec(&envelope).unwrap();
-    assert!(MutationEnvelope::decode_msgpack(&positional).is_err());
+    assert!(MutationRequestEnvelope::decode_msgpack(&positional).is_err());
 }
 
 #[test]
@@ -294,17 +294,17 @@ fn envelope_rejects_unknown_and_duplicate_map_fields() {
     }
 
     let unknown = rmp_serde::to_vec_named(&UnknownEnvelopeField { unexpected: 1 }).unwrap();
-    assert!(rmp_serde::from_slice::<MutationEnvelope>(&unknown).is_err());
+    assert!(rmp_serde::from_slice::<MutationRequestEnvelope>(&unknown).is_err());
     let schema = ResourceId::new(MUTATION_ENVELOPE_SCHEMA_V1).unwrap();
     let duplicate = rmp_serde::to_vec_named(&DuplicateEnvelopeField(&schema)).unwrap();
-    assert!(rmp_serde::from_slice::<MutationEnvelope>(&duplicate).is_err());
+    assert!(rmp_serde::from_slice::<MutationRequestEnvelope>(&duplicate).is_err());
 }
 
 #[test]
 fn four_thousand_ninety_six_small_effects_round_trip_under_budget() {
     let envelope = envelope_with_effect_count(MAX_MUTATION_EFFECTS);
     let named = rmp_serde::to_vec_named(&envelope).unwrap();
-    let decoded = MutationEnvelope::decode_msgpack(&named).unwrap();
+    let decoded = MutationRequestEnvelope::decode_msgpack(&named).unwrap();
     assert_eq!(decoded.effects().len(), MAX_MUTATION_EFFECTS);
 }
 
@@ -360,7 +360,7 @@ fn egress_destination_must_match_the_authority_decision() {
         recompute_egress_authorization_digest(&authorized).unwrap(),
         payload.effect_digest().unwrap(),
     );
-    assert!(MutationEnvelope::new(MutationEnvelopeParts::new(
+    assert!(MutationRequestEnvelope::new(MutationRequestEnvelopeParts::new(
         payload,
         authority.0,
         authority.1,

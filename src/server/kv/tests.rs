@@ -89,6 +89,38 @@ fn kv_persists_across_reopen() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn kv_rejects_adopting_a_private_adapter_file() {
+    let dir = tmp_dir("physical-identity");
+    {
+        let store = KvStore::open(Some(dir.to_str().unwrap())).unwrap();
+        store.put("ns", "key", b"value".to_vec()).unwrap();
+    }
+
+    // A file stamped for the main KV authority cannot be reopened as either
+    // private adapter authority.  This is the storage manifest's adoption
+    // refusal, before any logical scope or row is touched.
+    for private_name in ["epistemic-graph:redis-kv", "epistemic-graph:s3-index"] {
+        let err = match KvStore::open_named(Some(dir.to_str().unwrap()), private_name) {
+            Ok(_) => panic!("a file must not be adopted under another physical identity"),
+            Err(err) => err,
+        };
+        assert!(
+            err.contains("manifest") || err.contains("identity"),
+            "wrong-store refusal should name the physical authority boundary: {err}"
+        );
+    }
+
+    // The correct physical identity remains reopenable after each failed
+    // adoption attempt, and the durable row was not modified by those probes.
+    let store = KvStore::open(Some(dir.to_str().unwrap())).unwrap();
+    assert_eq!(
+        store.get("ns", "key").unwrap().as_deref(),
+        Some(&b"value"[..])
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The in-memory backend (no persist dir) honors the same contract (ephemeral).
 #[test]
 fn kv_in_memory_roundtrip() {

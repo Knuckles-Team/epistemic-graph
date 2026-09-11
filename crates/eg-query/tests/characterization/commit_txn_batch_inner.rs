@@ -24,9 +24,9 @@
 
 use eg_query::{Column, ColumnType, TableSchema, TableStore, TableTxn, TxnOp};
 use eg_types::mutation_batch::{
-    DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationOperation,
-    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationSurface,
-    ScopeTenantId, VersionExpectation, COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
+    DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationEnvelope,
+    MutationOperation, MutationOutboxIntent, MutationScopeIdentity, MutationSurface, ScopeTenantId,
+    VersionExpectation, COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
 };
 
 const TENANT: &str = "tenant-commit-txn-batch";
@@ -55,33 +55,25 @@ fn batch(store: &TableStore, batch_id: &str, idempotency_key: &str) -> MutationB
     // test never trips STALE_VERSION -- same discipline as the old
     // `expected_graph_version: Some(expected)` this replaces.
     let expected = store.mutation_version(TENANT, GRAPH).unwrap();
-    MutationBatch {
+    // `DurabilityDomain::SqlCatalog` is one of the migration contract's
+    // non-graph domains -> native scope. `sql_scope_key` (`eg-query`'s
+    // `tables/store.rs`) reads this batch's `(tenant, resource)` back out via
+    // `identity.scope()`'s `Native { resource, .. }` arm and rejects a
+    // `Graph`-scoped batch outright, so TENANT/GRAPH map onto tenant/resource
+    // here exactly as they did onto the old flat tenant/graph fields.
+    let identity = MutationScopeIdentity::native(
+        ScopeTenantId::new(TENANT).expect("valid tenant id"),
+        DurabilityDomain::SqlCatalog,
+        LogicalName::new(GRAPH).expect("valid resource name"),
+        IncarnationId::new(COMPILED_BATCH_INCARNATION).expect("valid incarnation id"),
+    )
+    .expect("sql-catalog native scope identity is valid");
+    let mut batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch_id.to_string(),
-        context: MutationRequestContext {
-            request_id: 1,
-            principal: format!("principal:sha256:{}", "a".repeat(64)),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            verified_capabilities: Default::default(),
-        },
-        // `DurabilityDomain::SqlCatalog` is one of the migration contract's
-        // non-graph domains -> native scope. `sql_scope_key` (`eg-query`'s
-        // `tables/store.rs`) reads this batch's `(tenant, resource)` back out via
-        // `identity.scope()`'s `Native { resource, .. }` arm and rejects a
-        // `Graph`-scoped batch outright, so TENANT/GRAPH map onto
-        // tenant/resource here exactly as they did onto the old flat
-        // tenant/graph fields.
-        identity: MutationScopeIdentity::native(
-            ScopeTenantId::new(TENANT).expect("valid tenant id"),
-            DurabilityDomain::SqlCatalog,
-            LogicalName::new(GRAPH).expect("valid resource name"),
-            IncarnationId::new(COMPILED_BATCH_INCARNATION).expect("valid incarnation id"),
-        )
-        .expect("sql-catalog native scope identity is valid"),
+        envelope: fixture_envelope(&identity, 1, idempotency_key),
+        identity,
         placement_epoch: 0,
-        idempotency_key: idempotency_key.to_string(),
         version_expectation: VersionExpectation::Native(expected),
         fencing_token: None,
         authoritative_state: None,
@@ -102,7 +94,11 @@ fn batch(store: &TableStore, batch_id: &str, idempotency_key: &str) -> MutationB
             headers: Default::default(),
         }],
         created_at_ms: 100,
-    }
+    };
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+        .expect("a fixture batch reseals its envelope over its final body");
+    batch
 }
 
 #[test]
@@ -118,9 +114,14 @@ fn fresh_commit_applies_rows_and_replay_is_idempotent() {
     assert_eq!(store.mutation_version(TENANT, GRAPH).unwrap(), 1);
     assert_eq!(store.scan("widgets").unwrap().len(), 2);
 
-    // Identical batch resubmitted: idempotent replay, no double-apply.
+    // The SAME operation retried: unchanged idempotency key, content and stable
+    // identity, but a FRESH attempt nonce -- which is what a producer builds on
+    // a retry. Under RF-RULING-004 a nonce is single-use, so resubmitting the
+    // byte-identical value (nonce included) is a duplicated ATTEMPT and is
+    // refused by name; it is the idempotency key, not the nonce, that replays.
+    let retry = batch(&store, "batch-1", "idem-1");
     let replay = store
-        .commit_txn_batch(&insert_txn(), &b, 100)
+        .commit_txn_batch(&insert_txn(), &retry, 100)
         .expect("idempotent replay");
     assert!(replay.replayed);
     assert_eq!(replay.record.batch.batch_id, first.record.batch.batch_id);
@@ -163,4 +164,38 @@ fn stale_version_expectation_is_rejected() {
         .expect_err("stale version_expectation must be rejected");
     assert!(err.contains("STALE_VERSION"), "unexpected error: {err}");
     assert_eq!(store.mutation_version(TENANT, GRAPH).unwrap(), 0);
+}
+
+/// The operation envelope a fixture SQL batch carries.
+///
+/// A served SQL statement HAS a caller, so it is an operation envelope: the
+/// actor is the caller's fingerprint, the serving principal is the SQL owner
+/// file's, and the attempt nonce is server-minted -- rebuilding this fixture for
+/// the same key is a FRESH attempt over the same stable operation, which is
+/// exactly the case the kernel must replay.
+fn fixture_envelope(
+    identity: &MutationScopeIdentity,
+    request_id: u64,
+    idempotency_key: &str,
+) -> MutationEnvelope {
+    let actor = format!("principal:sha256:{}", "a".repeat(64));
+    let method = eg_types::contract::MethodId::new("sql_catalog_operation").unwrap();
+    MutationEnvelope::for_scope(
+        eg_types::mutation_batch::CompiledScope {
+            identity,
+            actor: &actor,
+            serving_principal: &actor,
+            request_id,
+            idempotency_key,
+            nonce: eg_types::contract::Nonce::minted(),
+            now_ms: 0,
+        },
+        eg_types::mutation_batch::CompiledOperation {
+            method_schema_id: eg_types::mutation_batch::method_schema_id(&method).unwrap(),
+            method,
+            method_schema_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
+            canonical_payload_digest: eg_types::contract::Digest256::from_bytes([1_u8; 32]),
+        },
+    )
+    .unwrap()
 }

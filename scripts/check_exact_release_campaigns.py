@@ -440,7 +440,7 @@ def _check_architecture_contracts(errors: list[str]) -> None:
     modality = _read("scripts/check_p2_modality_architecture.py")
     _require(
         modality,
-        {"KnowledgeBatch", "KnowledgeStreamCursor", "ArrowIpcV1", "cross_modal"},
+        {"KnowledgeBatch", "KnowledgeStreamCursor", "ArrowIpc", "cross_modal"},
         "modality architecture gate",
         errors,
     )

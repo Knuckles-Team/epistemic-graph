@@ -1541,8 +1541,14 @@ impl MultiRaft {
 
     /// Build one internal placement request. Placement mutations are ordinary
     /// graph methods, but they always use the DEFAULT group's replicated log;
-    /// no local shortcut is permitted.
-    async fn placement_method_request(&self, method: &Method) -> Result<RaftRequest, String> {
+    /// no local shortcut is permitted. `coordinator_id` is a stable child
+    /// identity for one exact plan method, so distinct plans with identical
+    /// methods do not collapse into one MutationBatch replay record.
+    async fn placement_method_request(
+        &self,
+        coordinator_id: &str,
+        method: &Method,
+    ) -> Result<RaftRequest, String> {
         self.ensure_group(DEFAULT_GROUP).await?;
         let server_secret = self.ctx.state.read().await.auth_secret.clone();
         Ok(RaftRequest {
@@ -1553,12 +1559,7 @@ impl MultiRaft {
             mutation: super::RaftMutationContext::internal(
                 "raft-placement",
                 placement::PLACEMENT_GRAPH,
-                &crate::server::mutation_batch::opaque_request_key(
-                    "placement-operation",
-                    placement::PLACEMENT_GRAPH,
-                    0,
-                    method,
-                ),
+                coordinator_id,
                 0,
                 0,
             ),
@@ -1566,9 +1567,42 @@ impl MultiRaft {
         })
     }
 
-    async fn commit_placement_method(&self, method: &Method) -> Result<RaftResponse, String> {
-        let req = self.placement_method_request(method).await?;
+    async fn commit_placement_method_with_coordinator(
+        &self,
+        coordinator_id: &str,
+        method: &Method,
+    ) -> Result<RaftResponse, String> {
+        let req = self
+            .placement_method_request(coordinator_id, method)
+            .await?;
         self.client_write_group(DEFAULT_GROUP, req).await
+    }
+
+    async fn commit_placement_method(&self, method: &Method) -> Result<RaftResponse, String> {
+        let coordinator_id = crate::server::mutation_batch::opaque_request_key(
+            "placement-operation",
+            placement::PLACEMENT_GRAPH,
+            0,
+            method,
+        );
+        self.commit_placement_method_with_coordinator(&coordinator_id, method)
+            .await
+    }
+
+    async fn commit_placement_plan_method(
+        &self,
+        operation_id: &str,
+        ordinal: u64,
+        method: &Method,
+    ) -> Result<RaftResponse, String> {
+        let coordinator_id = crate::server::mutation_batch::opaque_request_key(
+            "placement-plan",
+            operation_id,
+            ordinal,
+            method,
+        );
+        self.commit_placement_method_with_coordinator(&coordinator_id, method)
+            .await
     }
 
     /// Commit a batch of placement-catalog mutations through the DEFAULT group's Raft
@@ -1587,19 +1621,26 @@ impl MultiRaft {
 
     /// Complete a [`placement::PendingWrite`] in two fenced parts: first reserve
     /// an epoch through the replicated counter CAS, then apply the placement row
-    /// CAS/add/remove methods. The counter CAS result is surfaced instead of
-    /// being discarded; callers re-plan on contention before any placement row
-    /// is written.
+    /// CAS/add/remove methods. CAS outcomes come from the exact state-machine
+    /// apply result; the plan child identity prevents distinct identical plans
+    /// from sharing a durable replay record.
     async fn commit_placement_plan(
         &self,
         plan: &placement::PendingWrite<'_>,
     ) -> Result<PlacementCommitOutcome, String> {
+        let mut ordinal = 0u64;
         if let Some(allocation) = plan.epoch_allocation {
             if allocation.seed_if_absent {
                 let seed = placement::PlacementCatalog::epoch_seed_method(allocation.floor);
-                let response = self.commit_placement_method(&seed).await?;
+                let response = self
+                    .commit_placement_plan_method(&plan.operation_id, ordinal, &seed)
+                    .await?;
+                ordinal = ordinal.saturating_add(1);
                 if let Some(error) = response.native_error {
                     return Err(error);
+                }
+                if !matches!(response.native_result, Some(ResultPayload::Bool(true))) {
+                    return Ok(PlacementCommitOutcome::EpochConflict);
                 }
             }
             if allocation.expected != allocation.floor {
@@ -1607,7 +1648,10 @@ impl MultiRaft {
                     allocation.expected,
                     allocation.floor,
                 );
-                let response = self.commit_placement_method(&reconcile).await?;
+                let response = self
+                    .commit_placement_plan_method(&plan.operation_id, ordinal, &reconcile)
+                    .await?;
+                ordinal = ordinal.saturating_add(1);
                 if let Some(error) = response.native_error {
                     return Err(error);
                 }
@@ -1619,7 +1663,10 @@ impl MultiRaft {
                 allocation.floor,
                 allocation.allocated,
             );
-            let response = self.commit_placement_method(&reserve).await?;
+            let response = self
+                .commit_placement_plan_method(&plan.operation_id, ordinal, &reserve)
+                .await?;
+            ordinal = ordinal.saturating_add(1);
             if let Some(error) = response.native_error {
                 return Err(error);
             }
@@ -1629,7 +1676,10 @@ impl MultiRaft {
         }
 
         for method in &plan.methods {
-            let response = self.commit_placement_method(method).await?;
+            let response = self
+                .commit_placement_plan_method(&plan.operation_id, ordinal, method)
+                .await?;
+            ordinal = ordinal.saturating_add(1);
             if let Some(error) = response.native_error {
                 return Err(error);
             }
@@ -2000,6 +2050,22 @@ impl MultiRaft {
         if let Err(error) = tokio::task::spawn_blocking(move || backend.shutdown()).await {
             tracing::warn!(%error, "Raft persistence shutdown task failed");
         }
+
+        // `MultiRaft::start` publishes an owning `Arc<Self>` into `ServerState` so
+        // request routing can reach the placement authority.  This manager also
+        // owns `ctx.state`, so leaving that publication in place creates a cycle
+        // that keeps the backend (and its redb lock) alive after the last external
+        // handle is dropped.  Clear only our own publication: a concurrent restart
+        // may already have installed a newer manager in the same state.
+        let self_addr = self as *const Self as usize;
+        let mut state = self.ctx.state.write().await;
+        if state
+            .multi_raft
+            .as_ref()
+            .is_some_and(|current| Arc::as_ptr(current) as usize == self_addr)
+        {
+            state.multi_raft = None;
+        }
     }
 }
 
@@ -2066,5 +2132,42 @@ async fn serve_conn(
             .map_err(|_| {
                 std::io::Error::new(std::io::ErrorKind::TimedOut, "raft frame write timed out")
             })??;
+    }
+}
+
+#[cfg(test)]
+mod placement_identity_tests {
+    use super::placement::PlacementCatalog;
+
+    #[test]
+    fn identical_methods_from_distinct_plans_get_distinct_child_keys() {
+        let method = PlacementCatalog::epoch_cas_method(4, 5);
+        let first = crate::server::mutation_batch::opaque_request_key(
+            "placement-plan",
+            "plan-a",
+            0,
+            &method,
+        );
+        let second = crate::server::mutation_batch::opaque_request_key(
+            "placement-plan",
+            "plan-b",
+            0,
+            &method,
+        );
+        let later_step = crate::server::mutation_batch::opaque_request_key(
+            "placement-plan",
+            "plan-a",
+            1,
+            &method,
+        );
+
+        assert_ne!(
+            first, second,
+            "concurrent identical plans must not replay together"
+        );
+        assert_ne!(
+            first, later_step,
+            "one plan's child steps must remain distinct"
+        );
     }
 }

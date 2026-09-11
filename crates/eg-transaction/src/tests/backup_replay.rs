@@ -11,6 +11,7 @@ use super::*;
 use crate::admitted::AdmittedMutation;
 use crate::tables::REPLAY_NONCES;
 use crate::ReplayResolution;
+use eg_storage::RecordedOperation;
 use eg_storage::{
     backup_recovery_store, backup_strict_recovery_store, recovery_store_fingerprint, BlobOwner,
 };
@@ -57,9 +58,16 @@ fn commit_with_replay(
         .mutations
         .record_replay(&write, &attempt.operation, &attempt.nonce, &attempt.receipt)
         .unwrap();
+    // The receipt row recorded above and the batch row written by `finish` must
+    // agree on the result: a typed replay receipt's own result IS the linked
+    // batch's durable result, which is what `finish_with_replay` checks at
+    // commit time and recovery validation re-checks on reopen. Passing `None`
+    // here would record a receipt that disagrees with its own batch.
+    let result_msgpack =
+        eg_storage::encode_bounded(&attempt.receipt.result, "mutation receipt result").unwrap();
     fixture
         .mutations
-        .finish(&write, batch, None, 2, source_version)
+        .finish(&write, batch, Some(result_msgpack), 2, source_version)
         .unwrap();
     fixture.mutations.commit(write, batch).unwrap();
 }
@@ -97,7 +105,9 @@ fn a_coordinator_backup_preserves_every_consumed_nonce_and_receipt() {
     let second = attempt(2, "request-2", "idem:stable");
     assert_eq!(
         resolve(&copy, &owner, &second.operation, &second.nonce),
-        ReplayResolution::ReplayedResult(Box::new(first.receipt))
+        ReplayResolution::ReplayedResult(Box::new(RecordedOperation::Receipt(Box::new(
+            first.receipt
+        ))))
     );
 }
 
@@ -121,7 +131,13 @@ fn a_strict_backup_proves_the_replay_tables_it_copied() {
             .iter()
             .find(|entry| entry.table_id == table)
             .unwrap_or_else(|| panic!("{table} is missing from strict backup evidence"));
-        assert_eq!(row.rows, 1, "{table}");
+        // TWO rows, not one: the seed both COMMITS an operation batch -- which
+        // now records its own `(operation, nonce)` pair under the batch's own
+        // idempotency key, because the batch path and the authority-context path
+        // share the one replay table -- and records an authority-context receipt
+        // under `idem:stable`. They are two different operations, and a backup
+        // that copied only one of them would resolve the other `Fresh`.
+        assert_eq!(row.rows, 2, "{table}");
     }
     drop(fixture);
 

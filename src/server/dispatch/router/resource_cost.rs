@@ -34,9 +34,7 @@ pub(super) async fn dispatch_resource_cost_methods(
                 summary,
             } => {
                 dispatch_boxed(async {
-                    let state = state;
                     let req_id = req.id;
-                    let verified_context = verified_context;
                     {
                         dispatch_resource_stats(
                             state,

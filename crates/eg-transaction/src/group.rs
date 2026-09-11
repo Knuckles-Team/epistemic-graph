@@ -21,38 +21,101 @@
 
 use crate::admitted::AdmittedMutation;
 use crate::Begin;
-use eg_storage::{MutationClass, OwnedStoreHandle, OwnerDomain};
+use eg_storage::{OwnedStoreHandle, OwnerDomain};
+use eg_types::mutation_batch::{MutationScope, VersionExpectation};
 use eg_types::{MutationBatch, MutationScopeIdentity};
 
-/// One member of a scope group: the bound scope it is admitted for, the batch
-/// it applies, and the class that batch is admitted under.
+/// One member of a scope group: the bound scope it is admitted for and the
+/// batch it applies. The batch envelope supplies its own mutation class.
 pub struct ScopedIntent<'i, D: OwnerDomain> {
     pub(crate) owner: &'i OwnedStoreHandle<D>,
     pub(crate) batch: &'i MutationBatch,
-    pub(crate) class: MutationClass,
 }
 
 impl<'i, D: OwnerDomain> ScopedIntent<'i, D> {
-    /// A caller-originated batch on this scope.
-    pub fn operation(owner: &'i OwnedStoreHandle<D>, batch: &'i MutationBatch) -> Self {
-        Self {
-            owner,
-            batch,
-            class: MutationClass::Operation,
-        }
-    }
-
-    /// An owner-maintenance batch on this scope (RF-RULING-005).
-    pub fn maintenance(owner: &'i OwnedStoreHandle<D>, batch: &'i MutationBatch) -> Self {
-        Self {
-            owner,
-            batch,
-            class: MutationClass::Maintenance,
-        }
+    /// A batch on this scope. Its envelope determines whether it is an
+    /// operation or owner-maintenance mutation.
+    pub fn new(owner: &'i OwnedStoreHandle<D>, batch: &'i MutationBatch) -> Self {
+        Self { owner, batch }
     }
 
     pub fn scope(&self) -> &MutationScopeIdentity {
         self.owner.identity()
+    }
+}
+
+/// One member of a scope group whose batch is BUILT INSIDE the group's write
+/// transaction, from the scope's authoritative version resolved there.
+///
+/// [`ScopedIntent`] carries an already-built batch, so its
+/// `VersionExpectation` was necessarily read before the write lock was taken:
+/// any other writer may commit in that window and
+/// [`crate::commit::begin`] then fails the member closed with `STALE_VERSION`.
+/// That is correct for a caller-supplied expectation, which is a real OCC claim
+/// about state the caller observed. It is wrong for a coalescer's own batch,
+/// whose expectation is not a claim at all but merely "whatever this scope is
+/// at" -- and a graph shard's drain, which builds N such batches at once, had no
+/// group form of the fix [`crate::MutationKernel::admit_current`] already
+/// provides for a single scope.
+///
+/// `build` receives that in-lock version and must return a batch expecting it:
+/// `Graph(version)` for a graph scope, `Native(version)` for a native one.
+/// Anything else is refused, because it would reintroduce the claim this type
+/// exists to remove.
+pub struct CurrentIntent<'i, D: OwnerDomain> {
+    pub(crate) owner: &'i OwnedStoreHandle<D>,
+    pub(crate) build: Box<dyn FnOnce(u64) -> Result<MutationBatch, String> + 'i>,
+}
+
+impl<'i, D: OwnerDomain> CurrentIntent<'i, D> {
+    /// A batch built at the scope's authoritative version. Its envelope is the
+    /// sole source of operation-versus-maintenance class.
+    pub fn new(
+        owner: &'i OwnedStoreHandle<D>,
+        build: impl FnOnce(u64) -> Result<MutationBatch, String> + 'i,
+    ) -> Self {
+        Self {
+            owner,
+            build: Box::new(build),
+        }
+    }
+
+    /// A caller-originated batch on this scope, built at the in-lock version.
+    /// The name documents the expected producer; admission still derives class
+    /// from the batch envelope rather than this constructor.
+    pub fn operation(
+        owner: &'i OwnedStoreHandle<D>,
+        build: impl FnOnce(u64) -> Result<MutationBatch, String> + 'i,
+    ) -> Self {
+        Self::new(owner, build)
+    }
+
+    /// An owner-maintenance batch on this scope, built at the in-lock version
+    /// (RF-RULING-005).
+    pub fn maintenance(
+        owner: &'i OwnedStoreHandle<D>,
+        build: impl FnOnce(u64) -> Result<MutationBatch, String> + 'i,
+    ) -> Self {
+        Self::new(owner, build)
+    }
+
+    pub fn scope(&self) -> &MutationScopeIdentity {
+        self.owner.identity()
+    }
+}
+
+/// The expectation a batch built at the scope's in-lock `version` must carry.
+///
+/// Derived from the scope rather than fixed, because a group legitimately mixes
+/// both: a graph shard's members are graph-scoped and its control member is the
+/// file's own native scope.
+pub(crate) fn expected_current_version(
+    identity: &MutationScopeIdentity,
+    version: u64,
+) -> VersionExpectation {
+    match identity.scope() {
+        MutationScope::Graph { .. } => VersionExpectation::Graph(version),
+        MutationScope::Native { .. } => VersionExpectation::Native(version),
     }
 }
 

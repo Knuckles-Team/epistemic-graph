@@ -1,4 +1,5 @@
 use super::graph_pipeline::dispatch_graph_op;
+#[cfg(feature = "raft")]
 use super::request_boundary::dispatch_with_context;
 use super::*;
 
@@ -222,6 +223,54 @@ pub(super) fn replicated_identity_bootstrap_authorized() -> bool {
     false
 }
 
+// ── The non-raft arms, made real ────────────────────────────────────────────
+//
+// `is_replicated_apply`, `replicated_placement_authority` and
+// `propose_native_mutation` were `#[cfg(feature = "raft")]` while
+// `graph_pipeline.rs`, `request_boundary.rs` and `dispatch.rs` imported them
+// unconditionally, so `--all-features` (which turns `raft` on) compiled and the
+// pre-commit hook's own `--no-default-features --features full` did not -- three
+// E0432 that only the hook's feature set ever saw. Fixing it at the import would
+// only move the cfg outward and leave the call sites to grow their own arms; the
+// honest answer is that a build without consensus HAS an answer to each of these
+// questions, and it is the same one it would give if the node were not a
+// follower.
+
+/// Without consensus there is no replicated apply, so no request is one.
+#[cfg(not(feature = "raft"))]
+pub(crate) fn is_replicated_apply() -> bool {
+    false
+}
+
+/// Without consensus there is no replicated placement authority to inherit, so a
+/// compiled batch keeps the route its own caller supplied.
+#[cfg(not(feature = "raft"))]
+pub(crate) fn replicated_placement_authority() -> Option<(u64, Option<u64>)> {
+    None
+}
+
+/// Without consensus there is nowhere to propose a native mutation TO.
+///
+/// The only caller reaches this after observing
+/// `PlacementAuthorityKind::MultiRaft`, which a build without `raft` cannot
+/// serve, so this refuses by name rather than silently applying locally -- a
+/// local apply would be a single-node write standing in for a replicated one,
+/// which is exactly the divergence the placement authority exists to prevent.
+#[cfg(not(feature = "raft"))]
+pub(super) async fn propose_native_mutation(
+    _state: &Arc<RwLock<ServerState>>,
+    _request_graph: &str,
+    request_id: u64,
+    _verified_context: &VerifiedRequestContext,
+    _identity_bootstrap: bool,
+    _method: Method,
+) -> Response {
+    Response::err(
+        request_id,
+        "consensus routing is not available in this build",
+    )
+}
+
 /// Apply a committed bounded native command through its existing domain kernel.
 /// Authentication/authorization has already happened before proposal; the
 /// reconstructed context contains only one-way tenant/principal scopes so no raw
@@ -422,7 +471,7 @@ pub(crate) async fn apply_replicated_job_publication_commit(
     applying_group: crate::raft::GroupId,
     coordinator_id: &str,
     plan: &[u8],
-) -> Result<bool, String> {
+) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
     REPLICATED_APPLY
         .scope(replicated_apply_scope(committed_at_ms, authority), async {
             handlers::jobs::apply_consensus_job_publication_commit(
@@ -656,6 +705,7 @@ mod consensus_admin_route_tests {
 struct NativeProposal<'a> {
     state: &'a Arc<RwLock<ServerState>>,
     request_id: u64,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
     authority: &'a CarrierAuthority,
     server_secret: &'a str,
     graph_name: &'a str,
@@ -745,6 +795,7 @@ fn build_native_raft_request(
     let mutation = match crate::raft::RaftMutationContext::from_verified_request(
         batch_id,
         proposal.request_id,
+        proposal.attempt_nonce,
         proposal.authority.tenant_scope(),
         proposal.authority.actor_scope().to_string(),
         identity_bootstrap,
@@ -912,6 +963,7 @@ pub(super) async fn propose_native_mutation(
     let proposal = NativeProposal {
         state,
         request_id,
+        attempt_nonce: verified_context.attempt_nonce(),
         authority: &authority,
         server_secret: &server_secret,
         graph_name: &graph_name,
@@ -927,10 +979,11 @@ pub(super) async fn propose_native_mutation(
 
 #[cfg(all(feature = "raft", feature = "jobs"))]
 #[allow(clippy::too_many_arguments)]
-async fn submit_consensus_job_publication_command(
+async fn submit_consensus_job_publication_response(
     multi: &Arc<crate::raft::multi::MultiRaft>,
     authority: &CarrierAuthority,
     request_id: u64,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
     coordinator_id: &str,
     operation: &str,
     graph_name: &str,
@@ -939,7 +992,7 @@ async fn submit_consensus_job_publication_command(
     placement_epoch: u64,
     fencing_token: Option<u64>,
     command: crate::raft::NativeMutationCommand,
-) -> Result<ResultPayload, String> {
+) -> Result<crate::raft::RaftResponse, String> {
     let batch_id = crate::server::mutation_batch::opaque_coordinator_key(
         "raft-job-publication-command",
         coordinator_id,
@@ -949,6 +1002,7 @@ async fn submit_consensus_job_publication_command(
     let mutation = crate::raft::RaftMutationContext::from_verified_request(
         batch_id,
         request_id,
+        attempt_nonce,
         authority.tenant_scope(),
         authority.actor_scope().to_string(),
         false,
@@ -965,32 +1019,104 @@ async fn submit_consensus_job_publication_command(
         mutation,
     };
     let response = multi.client_write_group(group_id, request).await?;
+    response.validate()?;
     if let Some(error) = response.native_error {
         return Err(error);
     }
+    Ok(response)
+}
+
+#[cfg(all(feature = "raft", feature = "jobs"))]
+#[allow(clippy::too_many_arguments)]
+async fn submit_consensus_job_publication_command(
+    multi: &Arc<crate::raft::multi::MultiRaft>,
+    authority: &CarrierAuthority,
+    request_id: u64,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
+    coordinator_id: &str,
+    operation: &str,
+    graph_name: &str,
+    graph_type: crate::protocol::GraphType,
+    group_id: crate::raft::GroupId,
+    placement_epoch: u64,
+    fencing_token: Option<u64>,
+    command: crate::raft::NativeMutationCommand,
+) -> Result<ResultPayload, String> {
+    let response = submit_consensus_job_publication_response(
+        multi,
+        authority,
+        request_id,
+        attempt_nonce,
+        coordinator_id,
+        operation,
+        graph_name,
+        graph_type,
+        group_id,
+        placement_epoch,
+        fencing_token,
+        command,
+    )
+    .await?;
     response
         .native_result
         .ok_or_else(|| "job publication command returned no result".to_string())
 }
 
-/// The target group must answer a job-publication commit with exactly
-/// `Bool(true)`; every other shape is a refusal the coordinator reports rather
-/// than finalizing over.
+/// Submit a job-publication target commit and return the durable typed receipt.
+/// The caller must validate domain-specific publication bytes; this layer only
+/// transports the state-machine's exact MutationBatchCommit without deriving a
+/// substitute from `applied` or `native_result`.
+#[cfg(all(feature = "raft", feature = "jobs"))]
+#[allow(clippy::too_many_arguments)]
+async fn submit_consensus_job_publication_commit(
+    multi: &Arc<crate::raft::multi::MultiRaft>,
+    authority: &CarrierAuthority,
+    request_id: u64,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
+    coordinator_id: &str,
+    operation: &str,
+    graph_name: &str,
+    graph_type: crate::protocol::GraphType,
+    group_id: crate::raft::GroupId,
+    placement_epoch: u64,
+    fencing_token: Option<u64>,
+    command: crate::raft::NativeMutationCommand,
+) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
+    let response = submit_consensus_job_publication_response(
+        multi,
+        authority,
+        request_id,
+        attempt_nonce,
+        coordinator_id,
+        operation,
+        graph_name,
+        graph_type,
+        group_id,
+        placement_epoch,
+        fencing_token,
+        command,
+    )
+    .await?;
+    response
+        .native_commit
+        .ok_or_else(|| "job publication commit returned no durable receipt".to_string())
+}
+
+/// The target group must return a valid committed MutationBatch receipt. The
+/// caller retains the typed value until the jobs domain binds it to the
+/// prepared batch immediately before scheduler finalization.
 #[cfg(all(feature = "raft", feature = "jobs"))]
 fn interpret_job_publication_commit(
     request_id: u64,
-    outcome: Result<ResultPayload, String>,
-) -> Result<(), Response> {
+    outcome: Result<crate::mutation_batch::MutationBatchCommit, String>,
+) -> Result<crate::mutation_batch::MutationBatchCommit, Response> {
     match outcome {
-        Ok(ResultPayload::Bool(true)) => Ok(()),
-        Ok(ResultPayload::Bool(false)) => Err(Response::err(
-            request_id,
-            "job publication target rejected commit",
-        )),
-        Ok(_) => Err(Response::err(
-            request_id,
-            "job publication target returned invalid result",
-        )),
+        Ok(commit) => commit.validate().map(|()| commit).map_err(|error| {
+            Response::err(
+                request_id,
+                format!("job publication target returned invalid receipt: {error}"),
+            )
+        }),
         Err(error) => Err(Response::err(
             request_id,
             format!("job publication target commit failed: {error}"),
@@ -1033,12 +1159,13 @@ async fn execute_consensus_job_publication(
         Ok(command) => command,
         Err(error) => return Response::err(request_id, error),
     };
-    if let Err(response) = interpret_job_publication_commit(
+    let committed = match interpret_job_publication_commit(
         request_id,
-        submit_consensus_job_publication_command(
+        submit_consensus_job_publication_commit(
             &multi,
             authority,
             request_id,
+            authority.attempt_nonce(),
             &prepared.coordinator_id,
             "target-commit",
             &prepared.target_graph,
@@ -1050,8 +1177,9 @@ async fn execute_consensus_job_publication(
         )
         .await,
     ) {
-        return response;
-    }
+        Ok(committed) => committed,
+        Err(response) => return response,
+    };
 
     let finalize = match crate::raft::NativeMutationCommand::job_publication_finalize(
         prepared.coordinator_id.clone(),
@@ -1070,6 +1198,8 @@ async fn execute_consensus_job_publication(
             control_graph,
             control_graph_type,
         },
+        &prepared,
+        &committed,
         &prepared.coordinator_id,
         finalize,
     )
@@ -1092,10 +1222,18 @@ struct JobPublicationControl<'a> {
 #[cfg(all(feature = "raft", feature = "jobs"))]
 async fn finalize_consensus_job_publication(
     control: &JobPublicationControl<'_>,
+    prepared: &handlers::jobs::PreparedJobPublication,
+    committed: &crate::mutation_batch::MutationBatchCommit,
     coordinator_id: &str,
     finalize: crate::raft::NativeMutationCommand,
 ) -> Response {
     let request_id = control.request_id;
+    if let Err(error) = handlers::jobs::validate_job_publication_commit(prepared, committed) {
+        return Response::err(
+            request_id,
+            format!("job publication finalization lost its target receipt: {error}"),
+        );
+    }
     let control_fence = control
         .control
         .placed
@@ -1104,6 +1242,7 @@ async fn finalize_consensus_job_publication(
         control.multi,
         control.authority,
         request_id,
+        None,
         coordinator_id,
         "scheduler-finalize",
         control.control_graph,
@@ -1151,6 +1290,7 @@ async fn submit_consensus_transaction_command(
     let mutation = crate::raft::RaftMutationContext::from_verified_request(
         batch_id,
         request_id,
+        None,
         authority.tenant_scope(),
         authority.actor_scope().to_string(),
         false,

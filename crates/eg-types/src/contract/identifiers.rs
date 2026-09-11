@@ -61,6 +61,8 @@ macro_rules! canonical_id_type {
     ($name:ident, $maximum:expr, $label:literal) => {
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
         #[serde(transparent)]
+        #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+        #[cfg_attr(feature = "contract-schema", schemars(transparent))]
         pub struct $name(String);
         impl $name {
             pub fn new(value: impl Into<String>) -> Result<Self, String> {
@@ -103,10 +105,134 @@ canonical_id_type!(
 );
 canonical_id_type!(SchemaId, MAX_RESOURCE_ID_BYTES, "schema id");
 
+impl ResourceId {
+    /// Convert a canonical sanitized physical graph key into an internal
+    /// authority subject at the shard boundary.
+    ///
+    /// Physical graph keys are storage names, not external resource ids: the
+    /// shard sanitizer represents punctuation as `~xx` (or a bounded
+    /// `~h<sha256>` key), while the public canonical alphabet deliberately
+    /// excludes `~`. The internal subject is the `physical:` namespace plus
+    /// the lowercase hex bytes of the complete sanitized key. Keeping the
+    /// physical spelling intact makes ordinary escapes and one-way hash keys
+    /// disjoint even when they would decode to the same logical text. The
+    /// physical key is validated before conversion so a caller cannot smuggle
+    /// a noncanonical or overlong storage spelling into authority.
+    pub(crate) fn from_physical_graph_key(value: &str) -> Result<Self, String> {
+        validate_physical_graph_key(value)?;
+        let mut internal = String::with_capacity("physical:".len() + value.len() * 2);
+        internal.push_str("physical:");
+        for byte in value.bytes() {
+            use std::fmt::Write as _;
+            write!(&mut internal, "{byte:02x}").expect("writing to String cannot fail");
+        }
+        Self::new(internal)
+    }
+}
+
+const MAX_ORDINARY_PHYSICAL_GRAPH_KEY_BYTES: usize = 200;
+
+fn decode_physical_graph_key(value: &str) -> Vec<u8> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut offset = 0;
+    while offset < bytes.len() {
+        if bytes[offset] == b'~' {
+            let high = hex_value(bytes[offset + 1]);
+            let low = hex_value(bytes[offset + 2]);
+            decoded.push((high << 4) | low);
+            offset += 3;
+        } else {
+            decoded.push(bytes[offset]);
+            offset += 1;
+        }
+    }
+    decoded
+}
+
+fn validate_physical_graph_key(value: &str) -> Result<(), String> {
+    if value.is_empty() {
+        return Err("physical graph key must not be empty".to_string());
+    }
+
+    let bytes = value.as_bytes();
+    if value.starts_with("~h") {
+        return if bytes.len() == 66 && bytes[2..].iter().copied().all(is_lower_hex) {
+            Ok(())
+        } else {
+            Err("physical graph hash key is malformed".to_string())
+        };
+    }
+
+    validate_ordinary_physical_graph_key(value, bytes)
+}
+
+fn validate_ordinary_physical_graph_key(value: &str, bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() > MAX_ORDINARY_PHYSICAL_GRAPH_KEY_BYTES {
+        return Err(format!(
+            "ordinary physical graph key must contain at most {MAX_ORDINARY_PHYSICAL_GRAPH_KEY_BYTES} bytes"
+        ));
+    }
+
+    let mut offset = 0;
+    while offset < bytes.len() {
+        match bytes[offset] {
+            byte if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.') => {
+                offset += 1;
+            }
+            b'~' if offset + 2 < bytes.len()
+                && is_lower_hex(bytes[offset + 1])
+                && is_lower_hex(bytes[offset + 2]) =>
+            {
+                offset += 3;
+            }
+            _ => {
+                return Err(
+                    "physical graph key must use the sanitized storage alphabet".to_string()
+                );
+            }
+        }
+    }
+    let decoded = decode_physical_graph_key(value);
+    std::str::from_utf8(&decoded)
+        .map_err(|_| "physical graph key does not decode to valid UTF-8".to_string())?;
+    if encode_physical_graph_key(&decoded) != value {
+        return Err("physical graph key is not a canonical sanitizer spelling".to_string());
+    }
+    Ok(())
+}
+
+fn encode_physical_graph_key(value: &[u8]) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for &byte in value {
+        use std::fmt::Write as _;
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.') {
+            encoded.push(char::from(byte));
+        } else {
+            write!(&mut encoded, "~{byte:02x}").expect("writing to String cannot fail");
+        }
+    }
+    encoded
+}
+
+fn is_lower_hex(byte: u8) -> bool {
+    byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')
+}
+
+fn hex_value(byte: u8) -> u8 {
+    match byte {
+        b'0'..=b'9' => byte - b'0',
+        b'a'..=b'f' => byte - b'a' + 10,
+        _ => unreachable!("physical graph key validation checked hex digits"),
+    }
+}
+
 macro_rules! closed_token_type {
     ($name:ident, $label:literal, [$($value:literal),+ $(,)?]) => {
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
         #[serde(transparent)]
+        #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+        #[cfg_attr(feature = "contract-schema", schemars(transparent))]
         pub struct $name(String);
         impl $name {
             pub fn new(value: impl Into<String>) -> Result<Self, String> {
@@ -237,6 +363,8 @@ closed_token_type!(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "contract-schema", schemars(transparent))]
 pub struct UtcUnixNanos(i64);
 impl UtcUnixNanos {
     pub fn new(value: i64) -> Self {
@@ -256,6 +384,23 @@ mod tests {
         assert!(TenantId::new("é").is_err());
         assert!(TenantId::new(" tenant-a").is_err());
         assert!(ResourceId::new("r".repeat(MAX_RESOURCE_ID_BYTES + 1)).is_err());
+        assert!(ResourceId::new("graph~3ascope").is_err());
+        assert_eq!(
+            ResourceId::from_physical_graph_key("graph~3ascope")
+                .unwrap()
+                .as_str(),
+            "physical:67726170687e336173636f7065"
+        );
+        let hash_key = format!("~h{}", "a".repeat(64));
+        let hash_id = ResourceId::from_physical_graph_key(&hash_key).unwrap();
+        assert!(hash_id.as_str().starts_with("physical:7e68"));
+        let slash_hash_key = format!("~2fh{}", "a".repeat(64));
+        let slash_hash_id = ResourceId::from_physical_graph_key(&slash_hash_key).unwrap();
+        assert_ne!(hash_id, slash_hash_id);
+        assert!(ResourceId::from_physical_graph_key("graph~61").is_err());
+        assert!(ResourceId::from_physical_graph_key("graph~ff").is_err());
+        assert!(ResourceId::from_physical_graph_key(&"a".repeat(201)).is_err());
+        assert!(ResourceId::from_physical_graph_key("graph~zz").is_err());
         let removed_scope_kind = ["glo", "bal"].concat();
         assert!(ScopeKind::new(removed_scope_kind).is_err());
     }

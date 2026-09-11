@@ -716,11 +716,7 @@ fn parse_all_values(idx: &TripleIndex, id: &str) -> Option<(String, String)> {
 /// a union node.
 fn parse_union(idx: &TripleIndex, id: &str) -> Option<Vec<Concept>> {
     let head = idx.first_object(id, OWL_UNION_OF)?;
-    let mut disjuncts = Vec::new();
-    for item in parse_rdf_list(idx, head) {
-        disjuncts.extend(parse_class_expr(idx, &term_key(&item))?);
-    }
-    (!disjuncts.is_empty()).then_some(disjuncts)
+    parse_rdf_list_mapped(idx, head, parse_class_expr)
 }
 
 /// Fold a conjunction list to a single concept: a single conjunct passes through; a
@@ -741,6 +737,21 @@ fn conjunction_to_concept(mut cs: Vec<Concept>) -> Concept {
 /// Walk an `rdf:first`/`rdf:rest`/`rdf:nil` collection into a vector of object terms.
 /// `pub(crate)` — the [`crate::tableau`] OWL-DL parser (CONCEPT:EG-KG.ontology.concept-2) walks the same
 /// `intersectionOf`/`unionOf`/`oneOf` RDF collections.
+/// Parse every member of an RDF list through `parse` and flatten. `None` when a member
+/// does not parse or the list is empty — a list with an unsupported member is not a
+/// partially-supported list.
+pub(crate) fn parse_rdf_list_mapped<T>(
+    idx: &TripleIndex,
+    head: &Term,
+    parse: impl Fn(&TripleIndex, &str) -> Option<Vec<T>>,
+) -> Option<Vec<T>> {
+    let mut out = Vec::new();
+    for item in parse_rdf_list(idx, head) {
+        out.extend(parse(idx, &term_key(&item))?);
+    }
+    (!out.is_empty()).then_some(out)
+}
+
 pub(crate) fn parse_rdf_list(idx: &TripleIndex, head: &Term) -> Vec<Term> {
     let mut out = Vec::new();
     let mut cur = term_key(head);
@@ -1637,27 +1648,27 @@ impl Reasoner {
         changed
     }
 
-    /// Current confidence of a subsumption `(a,b)` — `1.0` when unweighted or unseen
-    /// (an unrecorded pair is treated as certain, e.g. the reflexive seed).
-    fn cur_conf(&self, a: &str, b: &str) -> f64 {
-        if !self.weighted {
-            return 1.0;
+    /// The confidence of a recorded entry: `1.0` when unweighted or unseen (an
+    /// unrecorded pair is treated as certain, e.g. the reflexive seed).
+    fn confidence_of(&self, recorded: Option<&f64>) -> f64 {
+        if self.weighted {
+            recorded.copied().unwrap_or(1.0)
+        } else {
+            1.0
         }
-        self.conf
-            .get(&(a.to_string(), b.to_string()))
-            .copied()
-            .unwrap_or(1.0)
+    }
+
+    /// Current confidence of a subsumption `(a,b)`.
+    fn cur_conf(&self, a: &str, b: &str) -> f64 {
+        self.confidence_of(self.conf.get(&(a.to_string(), b.to_string())))
     }
 
     /// Current confidence of a role pair `(r,(a,b))`.
     fn cur_rconf(&self, r: &str, a: &str, b: &str) -> f64 {
-        if !self.weighted {
-            return 1.0;
-        }
-        self.rconf
-            .get(&(r.to_string(), a.to_string(), b.to_string()))
-            .copied()
-            .unwrap_or(1.0)
+        self.confidence_of(
+            self.rconf
+                .get(&(r.to_string(), a.to_string(), b.to_string())),
+        )
     }
 
     /// Add (or raise the confidence of) a subsumption. Returns `true` when membership
@@ -2153,8 +2164,9 @@ pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
     out
 }
 
-/// Parse a stored node id (`<iri>`, `_:blank`, or a bare label) into an RDF subject.
-fn tbox_subject(id: &str) -> Option<NamedOrBlankNode> {
+/// Parse a stored node id (`<iri>` or `_:blank`) into an RDF node. A bare label is not a
+/// term and has no node.
+fn tbox_node(id: &str) -> Option<NamedOrBlankNode> {
     if let Some(i) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
         NamedNode::new(i).ok().map(NamedOrBlankNode::NamedNode)
     } else if let Some(b) = id.strip_prefix("_:") {
@@ -2164,15 +2176,12 @@ fn tbox_subject(id: &str) -> Option<NamedOrBlankNode> {
     }
 }
 
-/// Parse a stored node id (`<iri>`, `_:blank`, or a bare IRI — a folded `type` may be
-/// stored without angle brackets) into an RDF object term.
+/// The same id in object position, where a bare IRI is also accepted — a folded `type` may
+/// be stored without angle brackets.
 fn tbox_object(id: &str) -> Option<Term> {
-    if let Some(i) = id.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
-        NamedNode::new(i).ok().map(Term::NamedNode)
-    } else if let Some(b) = id.strip_prefix("_:") {
-        BlankNode::new(b).ok().map(Term::BlankNode)
-    } else {
-        NamedNode::new(id).ok().map(Term::NamedNode)
+    match tbox_node(id) {
+        Some(n) => Some(n.into()),
+        None => NamedNode::new(id).ok().map(Term::NamedNode),
     }
 }
 
@@ -2184,7 +2193,7 @@ fn push_edge_triples(view: &eg_core::graph::GraphView, out: &mut Vec<Triple>) {
             if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
                 if let Some(pred) = v.get("relationship").and_then(|x| x.as_str()) {
                     if let (Some(su), Some(pr), Some(ob)) =
-                        (tbox_subject(s), NamedNode::new(pred).ok(), tbox_object(o))
+                        (tbox_node(s), NamedNode::new(pred).ok(), tbox_object(o))
                     {
                         out.push(Triple::new(su, pr, ob));
                     }
@@ -2200,7 +2209,7 @@ fn push_node_type_triples(view: &eg_core::graph::GraphView, out: &mut Vec<Triple
     for (id, blob) in &view.node_properties {
         if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
             if let Some(t) = v.get("type").and_then(|x| x.as_str()) {
-                if let (Some(su), Some(ob)) = (tbox_subject(id), tbox_object(t)) {
+                if let (Some(su), Some(ob)) = (tbox_node(id), tbox_object(t)) {
                     if let Ok(rt) = NamedNode::new(RDF_TYPE) {
                         out.push(Triple::new(su, rt, ob));
                     }

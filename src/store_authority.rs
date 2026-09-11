@@ -44,7 +44,9 @@
 //! be a second grant authority for the same files, which is the shape
 //! RF-RULING-004 forbids.
 
-use eg_storage::{OwnerLayout, PhysicalStoreIdentity, ScopeGrantVerifier};
+use eg_storage::{
+    BlobSharedServiceVerifier, OwnerLayout, PhysicalStoreIdentity, ScopeGrantVerifier,
+};
 use eg_types::MutationScopeIdentity;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -71,8 +73,10 @@ const GRANT_ID_BYTES: usize = 16;
 /// opaque-digest form: a readable principal string is unrepresentable in a batch,
 /// so a store bound under one could never commit a maintenance mutation. It is
 /// the same construction `server::mutation_batch::digest::principal_fingerprint`
-/// applies to a caller identity, over the engine's own name.
-pub const ENGINE_PRINCIPAL: &str = crate::server::mutation_batch::ENGINE_LEDGER_PRINCIPAL;
+/// applies to a caller identity, over the engine's own name. The actual stable
+/// value lives in the server-independent durable-application facade so embedded
+/// and redb-only builds do not depend on `crate::server`.
+pub const ENGINE_PRINCIPAL: &str = crate::mutation_apply::ENGINE_LEDGER_PRINCIPAL;
 
 /// The composition root's scope-grant authority.
 pub struct EngineScopeAuthority {
@@ -202,6 +206,29 @@ impl EngineScopeAuthority {
             }
         }
     }
+
+    /// Verify one process-issued proof and pin it to one exact physical store
+    /// and layout. Scope grants and the blob shared-service authority use this
+    /// same composition-root decision; only the kernel decides which kind of
+    /// handle the verified proof may mint.
+    fn verify_store_grant(
+        &self,
+        physical: &PhysicalStoreIdentity,
+        layout: OwnerLayout,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<(), String> {
+        if proof.len() != GRANT_ID_BYTES + 32 {
+            return Err("engine scope grant authority rejected".to_string());
+        }
+        let mut grant_id = [0u8; GRANT_ID_BYTES];
+        grant_id.copy_from_slice(&proof[..GRANT_ID_BYTES]);
+        let expected = self.digest(&grant_id, principal);
+        if !constant_time_eq(&proof[GRANT_ID_BYTES..], &expected) {
+            return Err("engine scope grant authority rejected".to_string());
+        }
+        self.spend(grant_id, self.binding(physical, layout, principal))
+    }
 }
 
 impl ScopeGrantVerifier for EngineScopeAuthority {
@@ -219,16 +246,21 @@ impl ScopeGrantVerifier for EngineScopeAuthority {
         principal: &str,
         proof: &[u8],
     ) -> Result<(), String> {
-        if proof.len() != GRANT_ID_BYTES + 32 {
-            return Err("engine scope grant authority rejected".to_string());
-        }
-        let mut grant_id = [0u8; GRANT_ID_BYTES];
-        grant_id.copy_from_slice(&proof[..GRANT_ID_BYTES]);
-        let expected = self.digest(&grant_id, principal);
-        if !constant_time_eq(&proof[GRANT_ID_BYTES..], &expected) {
-            return Err("engine scope grant authority rejected".to_string());
-        }
-        self.spend(grant_id, self.binding(physical, layout, principal))
+        self.verify_store_grant(physical, layout, principal, proof)
+    }
+}
+
+impl BlobSharedServiceVerifier for EngineScopeAuthority {
+    /// The blob kernel has already proved that the physical store declares the
+    /// Blob layout. Pin a fresh process proof to that same store/layout binding
+    /// before it mints the independently authenticated shared-service handle.
+    fn verify(
+        &self,
+        physical: &PhysicalStoreIdentity,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<(), String> {
+        self.verify_store_grant(physical, OwnerLayout::Blob, principal, proof)
     }
 }
 
@@ -315,17 +347,16 @@ mod tests {
         next: (&PhysicalStoreIdentity, OwnerLayout, &MutationScopeIdentity),
     ) -> bool {
         let proof = authority.proof();
-        authority
-            .verify(
-                &physical(),
-                OwnerLayout::ColdTier,
-                &scope(),
-                ENGINE_PRINCIPAL,
-                &proof,
-            )
-            .expect("the first use pins the grant");
-        authority
-            .verify(next.0, next.1, next.2, ENGINE_PRINCIPAL, &proof)
+        ScopeGrantVerifier::verify(
+            authority,
+            &physical(),
+            OwnerLayout::ColdTier,
+            &scope(),
+            ENGINE_PRINCIPAL,
+            &proof,
+        )
+        .expect("the first use pins the grant");
+        ScopeGrantVerifier::verify(authority, next.0, next.1, next.2, ENGINE_PRINCIPAL, &proof)
             .is_ok()
     }
 
@@ -373,57 +404,57 @@ mod tests {
             (&physical(), OwnerLayout::ColdTier, &scope())
         ));
         let second = authority.proof();
-        assert!(authority
-            .verify(
-                &other_physical(),
-                OwnerLayout::TenantCatalog,
-                &other_scope(),
-                ENGINE_PRINCIPAL,
-                &second
-            )
-            .is_ok());
+        assert!(ScopeGrantVerifier::verify(
+            authority.as_ref(),
+            &other_physical(),
+            OwnerLayout::TenantCatalog,
+            &other_scope(),
+            ENGINE_PRINCIPAL,
+            &second,
+        )
+        .is_ok());
     }
 
     #[test]
     fn this_process_authority_accepts_its_own_proof() {
         let authority = EngineScopeAuthority::new();
-        assert!(authority
-            .verify(
-                &physical(),
-                OwnerLayout::TenantCatalog,
-                &scope(),
-                ENGINE_PRINCIPAL,
-                &authority.proof()
-            )
-            .is_ok());
+        assert!(ScopeGrantVerifier::verify(
+            authority.as_ref(),
+            &physical(),
+            OwnerLayout::TenantCatalog,
+            &scope(),
+            ENGINE_PRINCIPAL,
+            &authority.proof(),
+        )
+        .is_ok());
     }
 
     #[test]
     fn a_proof_from_another_authority_is_rejected() {
         let proof = EngineScopeAuthority::new().proof();
-        assert!(EngineScopeAuthority::new()
-            .verify(
-                &physical(),
-                OwnerLayout::ColdTier,
-                &scope(),
-                ENGINE_PRINCIPAL,
-                &proof
-            )
-            .is_err());
+        assert!(ScopeGrantVerifier::verify(
+            EngineScopeAuthority::new().as_ref(),
+            &physical(),
+            OwnerLayout::ColdTier,
+            &scope(),
+            ENGINE_PRINCIPAL,
+            &proof,
+        )
+        .is_err());
     }
 
     #[test]
     fn a_proof_presented_for_another_principal_is_rejected() {
         let authority = EngineScopeAuthority::new();
-        assert!(authority
-            .verify(
-                &physical(),
-                OwnerLayout::ColdTier,
-                &scope(),
-                "principal:someone-else",
-                &authority.proof()
-            )
-            .is_err());
+        assert!(ScopeGrantVerifier::verify(
+            authority.as_ref(),
+            &physical(),
+            OwnerLayout::ColdTier,
+            &scope(),
+            "principal:someone-else",
+            &authority.proof(),
+        )
+        .is_err());
     }
 
     #[test]
@@ -442,16 +473,36 @@ mod tests {
             zeroed_mac,
             vec![0u8; 32],
         ] {
-            assert!(authority
-                .verify(
-                    &physical(),
-                    OwnerLayout::ColdTier,
-                    &scope(),
-                    ENGINE_PRINCIPAL,
-                    &forged
-                )
-                .is_err());
+            assert!(ScopeGrantVerifier::verify(
+                authority.as_ref(),
+                &physical(),
+                OwnerLayout::ColdTier,
+                &scope(),
+                ENGINE_PRINCIPAL,
+                &forged,
+            )
+            .is_err());
         }
+    }
+
+    #[test]
+    fn a_blob_shared_proof_spent_on_one_store_is_rejected_for_another() {
+        let authority = EngineScopeAuthority::new();
+        let proof = authority.proof();
+        BlobSharedServiceVerifier::verify(
+            authority.as_ref(),
+            &physical(),
+            ENGINE_PRINCIPAL,
+            &proof,
+        )
+        .expect("the first shared-service use pins the grant");
+        assert!(BlobSharedServiceVerifier::verify(
+            authority.as_ref(),
+            &other_physical(),
+            ENGINE_PRINCIPAL,
+            &proof,
+        )
+        .is_err());
     }
 
     /// A store bound under a principal a `MutationBatch` cannot carry could never

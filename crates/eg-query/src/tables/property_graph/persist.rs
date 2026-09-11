@@ -23,9 +23,9 @@ use crate::tables::schema::TableSchema;
 use super::alter::apply_alter_action;
 use super::{
     decode_property_graph_catalog_record, AlterPropertyGraphAction, DropBehavior, GraphOwner,
-    PropertyGraphCatalogRecord, PropertyGraphDefinition, PropertyGraphObjectId, PropertyGraphOwner,
-    RelationCatalogSnapshot, RelationKind, RelationObjectId, SqlIdentifier, SqlName,
-    MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES,
+    PropertyGraphCatalogRecord, PropertyGraphDefinition, PropertyGraphGrantee,
+    PropertyGraphObjectId, PropertyGraphOwner, RelationCatalogSnapshot, RelationKind,
+    RelationObjectId, SqlIdentifier, SqlName, MAX_PROPERTY_GRAPH_CATALOG_RECORD_BYTES,
 };
 
 /// `graph object name -> canonical catalog-record bytes`.
@@ -194,6 +194,22 @@ pub(crate) fn list_property_graphs_snapshot(rtx: &SqlRead<'_>) -> Result<Vec<Str
     Ok(names)
 }
 
+/// Every admitted record in `tenant_scope`, sorted by canonical graph name.
+/// The serving authority filters this complete internal snapshot before it is
+/// exposed through SQL-visible metadata.
+pub(crate) fn list_property_graph_records_snapshot(
+    rtx: &SqlRead<'_>,
+    tenant_scope: &str,
+) -> Result<Vec<PropertyGraphCatalogRecord>, String> {
+    let table = rtx.open_owner_table(PROPERTY_GRAPHS)?;
+    let mut records: Vec<PropertyGraphCatalogRecord> = scan(&table)?
+        .into_iter()
+        .filter(|record| record.name.tenant_scope == tenant_scope)
+        .collect();
+    records.sort_by(|left, right| left.name.cmp(&right.name));
+    Ok(records)
+}
+
 fn next_counter(wtx: &SqlWrite<'_>, counter: &str) -> Result<u64, String> {
     let mut seq = wtx.open_table(PROPERTY_GRAPH_SEQ)?;
     let next = seq
@@ -301,12 +317,65 @@ pub(crate) fn alter_property_graph_in(
             .ok_or_else(|| "property graph definition revision overflow".to_string())?,
         &draft,
         &snapshots(input, &draft.tenant_scope)?,
-    )?;
+    )?
+    .with_select_grantees(current.select_grantees.clone())?;
     if next_key != key {
         remove_record(wtx, &key)?;
     }
     put_record(wtx, &next_key, &record)?;
     Ok(Some(record))
+}
+
+/// Add one exact-principal `SELECT` grant to the stable graph object. A
+/// repeated GRANT is a semantic no-op and consumes no catalog revision.
+pub(crate) fn grant_property_graph_select_in(
+    wtx: &SqlWrite<'_>,
+    tenant_scope: &str,
+    name: &SqlName,
+    expected_object_id: &PropertyGraphObjectId,
+    principal: &str,
+) -> Result<bool, String> {
+    let key = canonical_key(name)?;
+    let Some(mut record) = record_for_tenant_in(wtx, tenant_scope, &key)? else {
+        return Err(format!("property graph `{key}` does not exist"));
+    };
+    if &record.object_id != expected_object_id {
+        return Err("property graph object changed after privilege authorization".to_string());
+    }
+    let principal = PropertyGraphGrantee::new(principal)?;
+    if record.permits_select(principal.value()) {
+        return Ok(false);
+    }
+    let revision = next_counter(wtx, CATALOG_REVISION_COUNTER)?;
+    record.grant_select(principal, revision)?;
+    put_record(wtx, &key, &record)?;
+    Ok(true)
+}
+
+/// Remove one exact-principal `SELECT` grant. Revoking an absent grant is a
+/// semantic no-op and consumes no catalog revision.
+pub(crate) fn revoke_property_graph_select_in(
+    wtx: &SqlWrite<'_>,
+    tenant_scope: &str,
+    name: &SqlName,
+    expected_object_id: &PropertyGraphObjectId,
+    principal: &str,
+) -> Result<bool, String> {
+    let key = canonical_key(name)?;
+    let Some(mut record) = record_for_tenant_in(wtx, tenant_scope, &key)? else {
+        return Err(format!("property graph `{key}` does not exist"));
+    };
+    if &record.object_id != expected_object_id {
+        return Err("property graph object changed after privilege authorization".to_string());
+    }
+    let principal = PropertyGraphGrantee::new(principal)?;
+    if record.select_grantees.binary_search(&principal).is_err() {
+        return Ok(false);
+    }
+    let revision = next_counter(wtx, CATALOG_REVISION_COUNTER)?;
+    record.revoke_select(&principal, revision)?;
+    put_record(wtx, &key, &record)?;
+    Ok(true)
 }
 
 fn next_owner(

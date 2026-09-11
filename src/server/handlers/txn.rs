@@ -27,6 +27,7 @@ use super::super::txn::StagedMeasurement;
 use super::super::txn::{now_ms, parse_isolation, GraphTxnState, NewTxnArgs};
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
+use eg_types::contract::Nonce;
 
 const MAX_TXN_RESULT_BYTES: usize = 1024 * 1024;
 const MAX_TXN_NESTED_BYTES: usize = 64 * 1024 * 1024;
@@ -122,21 +123,40 @@ fn transaction_receipt_id(txn_id: &str) -> String {
 /// safe when the caller still has that exact `txn_id` (a dropped-response retry
 /// with the same handle). That already works today via `AdminSaga` replay.
 ///
-/// With a caller key, the receipt is keyed by THAT instead -- a disjoint id
-/// space (`"idempotency"` vs `"transaction"` as the hashed middle field, so a
-/// key-derived id can never collide with a txn_id-derived one) -- so a retry
-/// that necessarily re-stages under a FRESH `txn_id` (the caller lost track of
-/// the original and had to re-`BeginTxn`) still lands on the SAME durable
-/// receipt row and replay-skips, closing the gap `transaction_receipt_id` alone
-/// cannot: proving "committed, response lost" apart from "never committed" even
-/// when the caller no longer has the original `txn_id` to retry with.
-fn commit_receipt_id(txn_id: &str, idempotency_key: Option<&str>) -> String {
+/// With a caller key, the receipt is keyed by the verified tenant plus THAT key
+/// -- a disjoint id space (`"idempotency"` vs `"transaction"` as the hashed
+/// middle field, so a key-derived id can never collide with a txn_id-derived
+/// one) -- so a retry that necessarily re-stages under a FRESH `txn_id` (the
+/// caller lost track of the original and had to re-`BeginTxn`) still lands on
+/// the SAME durable receipt row and replay-skips, closing the gap
+/// `transaction_receipt_id` alone cannot: proving "committed, response lost"
+/// apart from "never committed" even when the caller no longer has the original
+/// `txn_id` to retry with.
+fn commit_receipt_id(
+    txn_id: &str,
+    idempotency_key: Option<&str>,
+    tenant_scope: Option<&str>,
+) -> String {
     match idempotency_key {
-        Some(key) => crate::server::mutation_batch::opaque_coordinator_key(
-            "transaction-receipt",
-            "idempotency",
-            key,
-        ),
+        Some(key) => {
+            // The request key is stable across a lost-response re-stage, while the
+            // verified tenant is part of the canonical replay scope.  Bind both
+            // before hashing so one caller's key cannot select another tenant's
+            // transaction receipt.
+            let tenant = tenant_scope
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("unknown");
+            let scoped_key = crate::server::mutation_batch::opaque_coordinator_key(
+                "transaction-receipt-tenant",
+                tenant,
+                key,
+            );
+            crate::server::mutation_batch::opaque_coordinator_key(
+                "transaction-receipt",
+                "idempotency",
+                &scoped_key,
+            )
+        }
         None => transaction_receipt_id(txn_id),
     }
 }
@@ -154,18 +174,17 @@ fn cross_shard_transaction_id(parent_id: &str) -> String {
 #[cfg(feature = "raft")]
 async fn cleanup_cross_shard_decision(
     state: &Arc<RwLock<ServerState>>,
-    txn_id: &str,
+    parent_id: &str,
 ) -> Result<(), String> {
     let backend = state.read().await.persistence.clone();
     let Some(redb) = backend.as_ref().and_then(|value| value.as_redb()) else {
         return Ok(());
     };
-    let parent_id = transaction_receipt_id(txn_id);
-    if redb.xshard_decision_retain_get(&parent_id)? {
+    if redb.xshard_decision_retain_get(parent_id)? {
         let decision = redb
-            .xshard_decision_get(&parent_id)?
+            .xshard_decision_get(parent_id)?
             .ok_or_else(|| "retained cross-shard transaction is still undecided".to_string())?;
-        let parent = eg_transaction::read_ledger(&redb.admin_mutations_read()?, &parent_id)?
+        let parent = eg_transaction::read_ledger(&redb.admin_mutations_read()?, parent_id)?
             .ok_or_else(|| "retained cross-shard decision has no parent receipt".to_string())?;
         if parent.status != crate::mutation_batch::MutationBatchStatus::Committed {
             return Err("cross-shard decision cannot be collected before its parent".to_string());
@@ -179,13 +198,13 @@ async fn cleanup_cross_shard_decision(
             return Err("transaction parent and retained 2PC decision disagree".to_string());
         }
     }
-    redb.xshard_decision_clear(&parent_id).await
+    redb.xshard_decision_clear(parent_id).await
 }
 
 #[cfg(not(feature = "raft"))]
 async fn cleanup_cross_shard_decision(
     _state: &Arc<RwLock<ServerState>>,
-    _txn_id: &str,
+    _parent_id: &str,
 ) -> Result<(), String> {
     Ok(())
 }
@@ -221,6 +240,7 @@ fn begin_txn_receipt(
     txn_id: &str,
     txn: &GraphTxnState,
     idempotency_key: Option<&str>,
+    attempt_nonce: Option<Nonce>,
 ) -> Result<(TxnReceipt, Option<ResultPayload>), String> {
     let backend = backend.ok_or_else(|| {
         "transaction commit requires an authoritative MutationBatch backend".to_string()
@@ -229,18 +249,24 @@ fn begin_txn_receipt(
         .as_redb()
         .ok_or_else(|| "transaction commit requires durable redb".to_string())?;
     let (payload_digest, encrypted_payload) = seal_txn_recovery_plan(redb, txn)?;
-    let saga = crate::server::handlers::admin::begin_named_admin_saga_with_private_payload(
-        redb,
-        req_id,
-        caller,
-        crate::server::handlers::admin::AdminSagaPayload {
-            domain: crate::mutation_batch::DurabilityDomain::ControlPlane,
-            batch_id: &commit_receipt_id(txn_id, idempotency_key),
-            event_type: "transaction_recovery_plan",
-            payload_digest: &payload_digest,
-            encrypted_payload: &encrypted_payload,
-        },
-    )?;
+    let saga =
+        crate::server::handlers::admin::begin_named_admin_saga_with_private_payload_and_nonce(
+            redb,
+            req_id,
+            caller,
+            attempt_nonce,
+            crate::server::handlers::admin::AdminSagaPayload {
+                domain: crate::mutation_batch::DurabilityDomain::ControlPlane,
+                batch_id: &commit_receipt_id(
+                    txn_id,
+                    idempotency_key,
+                    Some(txn.tenant_scope.as_str()),
+                ),
+                event_type: "transaction_recovery_plan",
+                payload_digest: &payload_digest,
+                encrypted_payload: &encrypted_payload,
+            },
+        )?;
     let replayed = saga.replayed.clone();
     Ok((TxnReceipt { backend, saga }, replayed))
 }
@@ -253,6 +279,7 @@ fn begin_txn_receipt(
     _txn_id: &str,
     _txn: &GraphTxnState,
     _idempotency_key: Option<&str>,
+    _attempt_nonce: Option<Nonce>,
 ) -> Result<((), Option<ResultPayload>), String> {
     Err("transaction commit requires the redb MutationBatch coordinator".to_string())
 }
@@ -269,8 +296,12 @@ type ResumedTxnReceipt = (TxnReceipt, Option<ResultPayload>, Option<GraphTxnStat
 #[cfg(feature = "redb")]
 fn resume_txn_receipt(
     backend: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    req_id: u64,
     caller: Option<&str>,
     txn_id: &str,
+    idempotency_key: Option<&str>,
+    expected_tenant: Option<&str>,
+    attempt_nonce: Option<Nonce>,
 ) -> Result<Option<ResumedTxnReceipt>, String> {
     let Some(backend) = backend else {
         return Ok(None);
@@ -283,7 +314,7 @@ fn resume_txn_receipt(
         .ok_or_else(|| "transaction recovery requires durable redb".to_string())?;
     let Some(saga) = crate::server::handlers::admin::resume_named_admin_saga(
         redb,
-        &transaction_receipt_id(txn_id),
+        &commit_receipt_id(txn_id, idempotency_key, expected_tenant),
         Some(caller),
     )?
     else {
@@ -295,6 +326,54 @@ fn resume_txn_receipt(
         return Err("transaction parent receipt has the wrong coordinator scope".to_string());
     }
     let _ = transaction_plan_digest(&saga.batch)?;
+    // A commit bypasses the transport replay ledger because its effect belongs
+    // to the durable parent/child kernel.  Re-admit every verified retry
+    // nonce through that SAME parent saga, including a terminal parent.  This
+    // preserves the one authority's exact-nonce rejection while a fresh nonce
+    // still receives the stored terminal result.  The private plan is reused
+    // only while the parent is Prepared; terminal receipts have already erased
+    // it and need only the digest-only operation identity.
+    let saga = if let Some(attempt_nonce) = attempt_nonce {
+        let payload_digest = transaction_plan_digest(&saga.batch)?;
+        let prepared = saga.replayed.is_none();
+        let encrypted_payload = if prepared {
+            eg_transaction::read_private_payload(
+                &redb.admin_mutations_read()?,
+                &saga.batch.batch_id,
+            )?
+            .ok_or_else(|| "prepared transaction has no encrypted recovery plan".to_string())?
+        } else {
+            Vec::new()
+        };
+        let admitted =
+            crate::server::handlers::admin::begin_named_admin_saga_with_private_payload_and_nonce(
+                redb,
+                req_id,
+                Some(caller),
+                Some(attempt_nonce),
+                crate::server::handlers::admin::AdminSagaPayload {
+                    domain: crate::mutation_batch::DurabilityDomain::ControlPlane,
+                    batch_id: &saga.batch.batch_id,
+                    event_type: "transaction_recovery_plan",
+                    payload_digest: &payload_digest,
+                    encrypted_payload: &encrypted_payload,
+                },
+            )?;
+        if prepared {
+            // A Prepared saga's operation row was claimed by the original
+            // prepare nonce.  The retry admission above re-enters the same
+            // kernel and rejects an exact reuse, but the stored Prepared batch
+            // must remain the batch that
+            // `finish_admin_saga` terminalizes; handing it the freshly built
+            // batch would ask `record_operation_in` to claim the same
+            // operation with a second nonce.
+            saga
+        } else {
+            admitted
+        }
+    } else {
+        saga
+    };
     let replayed = saga.replayed.clone();
     if replayed
         .as_ref()
@@ -309,12 +388,13 @@ fn resume_txn_receipt(
             &saga.batch.batch_id,
         )?
         .ok_or_else(|| "prepared transaction has no encrypted recovery plan".to_string())?;
-        Some(open_txn_recovery_plan(
-            redb,
-            &saga.batch,
-            &encrypted,
-            caller.to_string(),
-        )?)
+        let txn = open_txn_recovery_plan(redb, &saga.batch, &encrypted, caller.to_string())?;
+        if let Some(expected_tenant) = expected_tenant {
+            if txn.tenant_scope != expected_tenant {
+                return Err("prepared transaction does not match caller tenant scope".to_string());
+            }
+        }
+        Some(txn)
     } else {
         None
     };
@@ -330,8 +410,12 @@ type ResumedTxnReceiptStub = ((), Option<ResultPayload>, Option<GraphTxnState>);
 #[cfg(not(feature = "redb"))]
 fn resume_txn_receipt(
     _backend: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    _req_id: u64,
     _caller: Option<&str>,
     _txn_id: &str,
+    _idempotency_key: Option<&str>,
+    _expected_tenant: Option<&str>,
+    _attempt_nonce: Option<Nonce>,
 ) -> Result<Option<ResumedTxnReceiptStub>, String> {
     Ok(None)
 }
@@ -457,23 +541,246 @@ async fn authorize_txn_plan(
     Ok(())
 }
 
+/// Finish an admin saga on behalf of a `{backend, saga}` receipt/control
+/// wrapper — the txn-commit receipt (`TxnReceipt`), the transaction-lifecycle
+/// receipt (`TxnLifecycleReceipt`), and the materialized-view control-plane
+/// saga (`dist_compute::ControlSaga`) all carry that identical pair. Unwrap the
+/// backend's redb coordinator and hand the batch to the one saga-completion
+/// authority, `admin::finish_admin_saga`; the caller-specific "lost its redb
+/// coordinator" wording is the only thing that varies between the three sites.
+#[cfg(feature = "redb")]
+pub(crate) fn finish_saga_via_redb(
+    backend: &Arc<dyn crate::server::persistence::PersistenceBackend>,
+    saga: crate::server::handlers::admin::AdminSaga,
+    result: ResultPayload,
+    lost_backend_message: &str,
+) -> Result<ResultPayload, String> {
+    let redb = backend
+        .as_redb()
+        .ok_or_else(|| lost_backend_message.to_string())?;
+    crate::server::handlers::admin::finish_admin_saga(redb, saga.batch, saga.created_at_ms, result)
+}
+
 #[cfg(feature = "redb")]
 fn finish_txn_receipt(receipt: TxnReceipt, result: ResultPayload) -> Result<ResultPayload, String> {
-    let redb = receipt
-        .backend
-        .as_redb()
-        .ok_or_else(|| "transaction receipt lost its redb coordinator".to_string())?;
-    crate::server::handlers::admin::finish_admin_saga(
-        redb,
-        receipt.saga.batch,
-        receipt.saga.created_at_ms,
+    finish_saga_via_redb(
+        &receipt.backend,
+        receipt.saga,
         result,
+        "transaction receipt lost its redb coordinator",
     )
 }
 
 #[cfg(not(feature = "redb"))]
 fn finish_txn_receipt(_receipt: (), _result: ResultPayload) -> Result<ResultPayload, String> {
     Err("transaction commit requires the redb MutationBatch coordinator".to_string())
+}
+
+/// Every mutating transaction-family method bypasses the transport replay
+/// ledger because its effect belongs to the durable kernel.  Begin/stage/
+/// rollback used to be the hole in that rule: they changed in-memory
+/// `open_txns` state without ever presenting the verified nonce to the kernel.
+/// Use the existing named admin saga as the one admission/receipt authority for
+/// those lifecycle steps; this helper does not introduce a second replay table.
+fn is_txn_lifecycle_method(method: &Method) -> bool {
+    matches!(method, Method::BeginTxn { .. })
+        || (method_txn_id(method).is_some() && !matches!(method, Method::Commit { .. }))
+}
+
+/// A terminal lifecycle receipt is useful only while the volatile transaction
+/// handle it describes is still present.  The durable saga may outlive the
+/// process, but it cannot recreate `open_txns`; returning its old success after
+/// restart would hand the caller a dead Begin handle or claim a Stage/Rollback
+/// succeeded before the next request fails with `unknown transaction`.
+async fn validate_txn_lifecycle_replay(
+    state: &Arc<RwLock<ServerState>>,
+    method: &Method,
+    owner: &str,
+    result: &ResultPayload,
+) -> Result<(), String> {
+    let txn_id = if matches!(method, Method::BeginTxn { .. }) {
+        match result {
+            ResultPayload::String(txn_id) => txn_id.as_str(),
+            _ => {
+                return Err(
+                    "transaction lifecycle receipt has the wrong BeginTxn result".to_string(),
+                )
+            }
+        }
+    } else {
+        method_txn_id(method).ok_or_else(|| {
+            "transaction lifecycle receipt has no volatile transaction handle".to_string()
+        })?
+    };
+    let s = state.read().await;
+    let Some(entry) = s.open_txns.get(txn_id) else {
+        return Err(
+            "transaction lifecycle receipt is terminal but volatile staging state is unavailable; \
+             refusing to return a stale success"
+                .to_string(),
+        );
+    };
+    if entry.value().lock().agent != owner {
+        return Err("transaction lifecycle receipt does not match caller scope".to_string());
+    }
+    Ok(())
+}
+
+fn txn_lifecycle_batch_id(authority: &CarrierAuthority, method: &Method) -> String {
+    // Keep one envelope idempotency key reusable across different transaction
+    // operations by including the operation family in the opaque coordinator
+    // input.  The full method body remains in the kernel operation digest, so a
+    // changed txn id, graph, or payload still conflicts under the same key.
+    let operation_key = format!("{}:{}", method.tag_name(), authority.idempotency_key());
+    crate::server::mutation_batch::opaque_coordinator_key(
+        "transaction-lifecycle",
+        authority.owner_scope(),
+        &operation_key,
+    )
+}
+
+#[cfg(feature = "redb")]
+pub(crate) struct TxnLifecycleReceipt {
+    backend: Arc<dyn crate::server::persistence::PersistenceBackend>,
+    saga: crate::server::handlers::admin::AdminSaga,
+}
+
+#[cfg(not(feature = "redb"))]
+pub(crate) struct TxnLifecycleReceipt;
+
+#[cfg(feature = "redb")]
+async fn begin_txn_lifecycle_receipt(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    caller: &str,
+    authority: &CarrierAuthority,
+    method: &Method,
+) -> Result<TxnLifecycleReceipt, String> {
+    let backend = state.read().await.persistence.clone().ok_or_else(|| {
+        "transaction lifecycle requires an authoritative MutationBatch backend".to_string()
+    })?;
+    let redb = backend
+        .as_redb()
+        .ok_or_else(|| "transaction lifecycle requires durable redb".to_string())?;
+    let batch_id = txn_lifecycle_batch_id(authority, method);
+    // A lifecycle saga is only the replay authority; its effect still lives in
+    // the volatile transaction registry.  If a prior attempt prepared that
+    // saga and then died before terminalization, executing the method again
+    // would duplicate Begin/Stage/Rollback (or silently operate on a different
+    // handle after restart).  Probe the same durable coordinator before
+    // admission so a Prepared receipt becomes an explicit lost-staging
+    // refusal.  The real admission below still consumes the exact nonce and
+    // therefore preserves the kernel's REPLAY_NONCE_CONSUMED / conflict
+    // decisions for retries.
+    let prepared =
+        crate::server::handlers::admin::resume_named_admin_saga(redb, &batch_id, Some(caller))?
+            .is_some_and(|saga| saga.replayed.is_none());
+    let saga = crate::server::handlers::admin::begin_named_admin_saga_with_nonce(
+        redb,
+        req_id,
+        Some(caller),
+        method,
+        crate::mutation_batch::DurabilityDomain::ControlPlane,
+        &batch_id,
+        authority.attempt_nonce(),
+    )?;
+    if prepared && saga.replayed.is_none() {
+        return Err(
+            "transaction lifecycle receipt is Prepared but volatile staging state is unavailable; \
+             refusing to re-execute an ambiguous lifecycle operation"
+                .to_string(),
+        );
+    }
+    Ok(TxnLifecycleReceipt { backend, saga })
+}
+
+#[cfg(not(feature = "redb"))]
+async fn begin_txn_lifecycle_receipt(
+    _state: &Arc<RwLock<ServerState>>,
+    _req_id: u64,
+    _caller: &str,
+    _authority: &CarrierAuthority,
+    _method: &Method,
+) -> Result<TxnLifecycleReceipt, String> {
+    Err("transaction lifecycle requires the redb MutationBatch coordinator".to_string())
+}
+
+#[cfg(feature = "redb")]
+fn finish_txn_lifecycle_receipt(
+    receipt: TxnLifecycleReceipt,
+    result: ResultPayload,
+) -> Result<ResultPayload, String> {
+    finish_saga_via_redb(
+        &receipt.backend,
+        receipt.saga,
+        result,
+        "transaction lifecycle lost its redb coordinator",
+    )
+}
+
+#[cfg(not(feature = "redb"))]
+fn finish_txn_lifecycle_receipt(
+    _receipt: TxnLifecycleReceipt,
+    _result: ResultPayload,
+) -> Result<ResultPayload, String> {
+    Err("transaction lifecycle requires the redb MutationBatch coordinator".to_string())
+}
+
+/// Abort after a volatile lifecycle effect and before its durable terminal
+/// receipt is written.  This is an explicit fault-window hook for restart
+/// testing; it is inert unless a request id is armed in the environment.
+/// Keeping the hook at this boundary exercises the real signed dispatch path
+/// without creating another replay or idempotency authority.
+pub(crate) fn fault_after_txn_lifecycle_effect(req_id: u64) {
+    let Ok(armed) = std::env::var("EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID") else {
+        return;
+    };
+    if armed.parse::<u64>().ok() == Some(req_id) {
+        eprintln!("EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID armed for request {req_id}");
+        std::process::abort();
+    }
+}
+
+/// Admission result for a GraphQL-native begin/stage/read/rollback operation.
+///
+/// These operations mutate the process registry, but their replay identity and
+/// terminal result belong to the same named admin saga used by the native
+/// `BeginTxn`/`Txn*`/`Rollback` lifecycle.  Keeping the receipt behind this
+/// facade lets the GraphQL handler execute its existing registry primitive after
+/// admission without creating a second replay ledger or coordinator.
+#[cfg(feature = "graphql")]
+pub(crate) enum GraphQlLifecycleAdmission {
+    Replayed(ResultPayload),
+    Execute(TxnLifecycleReceipt),
+}
+
+/// Consume the verified carrier's nonce and stable key for one native GraphQL
+/// staging operation.  A fresh nonce with the same operation identity returns
+/// `Replayed`; a reused nonce or changed method body is rejected by the kernel.
+#[cfg(feature = "graphql")]
+pub(crate) async fn begin_graphql_lifecycle(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    caller: &str,
+    authority: &CarrierAuthority,
+    method: &Method,
+) -> Result<GraphQlLifecycleAdmission, String> {
+    let receipt = begin_txn_lifecycle_receipt(state, req_id, caller, authority, method).await?;
+    #[cfg(feature = "redb")]
+    if let Some(result) = receipt.saga.replayed.clone() {
+        return Ok(GraphQlLifecycleAdmission::Replayed(result));
+    }
+    Ok(GraphQlLifecycleAdmission::Execute(receipt))
+}
+
+/// Terminalize a native GraphQL staging operation through the same durable
+/// lifecycle receipt used by the ordinary transaction-family methods.
+#[cfg(feature = "graphql")]
+pub(crate) fn finish_graphql_lifecycle(
+    receipt: TxnLifecycleReceipt,
+    result: ResultPayload,
+) -> Result<ResultPayload, String> {
+    finish_txn_lifecycle_receipt(receipt, result)
 }
 
 /// Upper bound on concurrent durable-batch lookups fanned out per reconcile call.
@@ -501,6 +808,9 @@ async fn reconcile_committed_txn(
     req_id: u64,
     caller: Option<&str>,
     txn_id: &str,
+    idempotency_key: Option<&str>,
+    expected_tenant: Option<&str>,
+    attempt_nonce: Option<Nonce>,
 ) -> Result<Option<Response>, String> {
     let (persistence, graphs) = {
         let s = state.read().await;
@@ -519,7 +829,7 @@ async fn reconcile_committed_txn(
         caller.ok_or_else(|| "transaction recovery requires a verified principal".to_string())?,
     )?;
 
-    let parent_id = transaction_receipt_id(txn_id);
+    let parent_id = commit_receipt_id(txn_id, idempotency_key, expected_tenant);
     // (graph, core, fname, batch_id) for every (resident graph x namespace) pair,
     // in the same order the original sequential loop visited them.
     let mut lookups = Vec::with_capacity(graphs.len() * 2);
@@ -567,6 +877,9 @@ async fn reconcile_committed_txn(
             req_id,
             caller,
             txn_id,
+            idempotency_key,
+            expected_tenant,
+            attempt_nonce,
             persistence: &persistence,
             expected_principal: &expected_principal,
             graph,
@@ -580,19 +893,10 @@ async fn reconcile_committed_txn(
             return Ok(Some(response));
         }
     }
-    #[cfg(feature = "redb")]
-    if let Some(redb) = persistence.as_redb() {
-        if let Some(result) = crate::server::handlers::admin::read_named_admin_saga_result(
-            redb,
-            &transaction_receipt_id(txn_id),
-            caller,
-        )? {
-            if !matches!(&result, ResultPayload::Bool(_)) {
-                return Err("transaction parent receipt has the wrong result type".to_string());
-            }
-            return Ok(Some(Response::ok(req_id, result)));
-        }
-    }
+    // A terminal parent with no graph child (for example an empty transaction)
+    // deliberately falls through to `resume_txn_receipt`.  That path re-admits
+    // the verified attempt nonce, so an exact retry cannot bypass the kernel by
+    // taking a read-only terminal-result shortcut.
     Ok(None)
 }
 
@@ -603,6 +907,9 @@ struct ReconcileTxnCandidate<'a> {
     req_id: u64,
     caller: Option<&'a str>,
     txn_id: &'a str,
+    idempotency_key: Option<&'a str>,
+    expected_tenant: Option<&'a str>,
+    attempt_nonce: Option<Nonce>,
     persistence: &'a Arc<dyn crate::server::persistence::PersistenceBackend>,
     expected_principal: &'a str,
     graph: String,
@@ -623,6 +930,9 @@ async fn reconcile_txn_candidate(
         req_id,
         caller,
         txn_id,
+        idempotency_key,
+        expected_tenant,
+        attempt_nonce,
         persistence,
         expected_principal,
         graph,
@@ -636,7 +946,13 @@ async fn reconcile_txn_candidate(
         Ok(None) => return Ok(None),
         Err(error) => return Err(error),
     };
-    if !record_matches_reconcile_candidate(&record, &batch_id, &graph, expected_principal) {
+    if !record_matches_reconcile_candidate(
+        &record,
+        &batch_id,
+        &graph,
+        expected_tenant,
+        expected_principal,
+    ) {
         return Err("committed transaction receipt does not match caller scope".to_string());
     }
     let bytes = record
@@ -658,8 +974,15 @@ async fn reconcile_txn_candidate(
     // before `finish_txn_receipt` therefore leaves a recoverable Prepared
     // parent. Re-enter that named parent and terminalize it from the exact
     // durable child result before acknowledging the retry.
-    let Some((receipt, replayed, _)) =
-        resume_txn_receipt(Some(persistence.clone()), caller, txn_id)?
+    let Some((receipt, replayed, _)) = resume_txn_receipt(
+        Some(persistence.clone()),
+        req_id,
+        caller,
+        txn_id,
+        idempotency_key,
+        expected_tenant,
+        attempt_nonce,
+    )?
     else {
         return Err("committed child has no durable transaction parent".to_string());
     };
@@ -677,6 +1000,7 @@ fn record_matches_reconcile_candidate(
     record: &crate::mutation_batch::MutationBatchRecord,
     batch_id: &str,
     graph: &str,
+    expected_tenant: Option<&str>,
     expected_principal: &str,
 ) -> bool {
     record.status == crate::mutation_batch::MutationBatchStatus::Committed
@@ -688,17 +1012,15 @@ fn record_matches_reconcile_candidate(
             .graph_name()
             .map(|name| name.as_str())
             == Some(graph)
-        // PRE-EXISTING BUG, ported unchanged (see MIGRATION-CONTRACT.md / this
-        // lane's report): this compares the batch's TENANT against the GRAPH
-        // name, not against any expected tenant — there is no tenant parameter
-        // on this function to compare against. `commit_graphql_cross_modal_replay`
-        // below is the analogous reconcile check and shows the INTENDED shape:
-        // `record.batch.tenant != authority.tenant_scope()`. A real fix needs a
-        // tenant scope threaded through `reconcile_committed_txn` /
-        // `ReconcileTxnCandidate`, which is a behavior change out of scope for a
-        // mechanical v1 port — flagged, not silently corrected or dropped.
-        && record.batch.identity.tenant().as_str() == graph
-        && crate::server::mutation_batch::batch_actor(&record.batch) == Some(expected_principal)
+        // The graph and tenant are independent verified scopes.  A production
+        // carrier may legitimately write graph `g` under tenant `t`, so matching
+        // the tenant to `graph` would reject a valid crash-recovery receipt and
+        // could fall through to a duplicate commit.  Reconcile against the
+        // verified tenant carried by the retry instead.
+        && expected_tenant
+            .map(|tenant| record.batch.identity.tenant().as_str() == tenant)
+            .unwrap_or(true)
+        && matches!(record.committing_actor(), Ok(actor) if actor == expected_principal)
 }
 
 /// Handle the transaction methods. Returns `Err(method)` for any non-txn method so
@@ -725,6 +1047,7 @@ pub(crate) async fn try_handle(
 /// the compiler keeps proving every `Method` variant is routed.
 struct TxnMethodContext {
     carrier_authority: CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
     /// Only read by the sparql/query/epistemic derived-read txn stages in
     /// [`dispatch_txn_method`] (each independently feature-gated); a slim
     /// build with none of them enabled never reads this field, mirroring the
@@ -778,6 +1101,7 @@ async fn try_handle_prepare(
     };
     Ok(TxnMethodContext {
         carrier_authority,
+        attempt_nonce: verified_context.attempt_nonce(),
         derived_read_authority,
         #[cfg(feature = "tsdb")]
         measurement_authority,
@@ -793,12 +1117,39 @@ async fn dispatch_txn_method(
 ) -> Result<Response, Method> {
     let TxnMethodContext {
         carrier_authority,
+        attempt_nonce,
+        #[cfg(any(feature = "sparql", feature = "query", feature = "epistemic"))]
         derived_read_authority,
+        #[cfg(not(any(feature = "sparql", feature = "query", feature = "epistemic")))]
+            derived_read_authority: _,
         #[cfg(feature = "tsdb")]
         measurement_authority,
     } = ctx;
     let txn_owner = carrier_authority.owner_scope();
-    match method {
+    let lifecycle_receipt = if is_txn_lifecycle_method(&method) {
+        match begin_txn_lifecycle_receipt(state, req_id, caller, &carrier_authority, &method).await
+        {
+            Ok(receipt) => Some(receipt),
+            Err(error) => return Ok(Response::err(req_id, error)),
+        }
+    } else {
+        None
+    };
+    // A terminal saga replay is resolved before the volatile transaction effect
+    // is entered.  Exact duplicate envelopes fail in the kernel on their nonce;
+    // a fresh nonce under the same stable operation key returns this stored result.
+    #[cfg(feature = "redb")]
+    if let Some(receipt) = lifecycle_receipt.as_ref() {
+        if let Some(result) = receipt.saga.replayed.clone() {
+            if let Err(error) =
+                validate_txn_lifecycle_replay(state, &method, txn_owner, &result).await
+            {
+                return Ok(Response::err(req_id, error));
+            }
+            return Ok(Response::ok(req_id, result));
+        }
+    }
+    let response = match method {
         Method::BeginTxn { graph, isolation } => Ok(begin_txn(
             state,
             req_id,
@@ -991,11 +1342,32 @@ async fn dispatch_txn_method(
             Some(caller),
             &txn_id,
             idempotency_key.as_deref(),
+            attempt_nonce,
+            Some(carrier_authority.tenant_scope()),
         )
         .await),
         Method::Rollback { txn_id } => Ok(rollback(state, req_id, &txn_id).await),
         other => Err(other),
-    }
+    };
+    let response = match (lifecycle_receipt, response) {
+        (Some(receipt), Ok(response)) if response.error.is_none() => {
+            let Some(result) = response.result.clone() else {
+                return Ok(Response::err(
+                    req_id,
+                    "transaction lifecycle handler returned no result",
+                ));
+            };
+            fault_after_txn_lifecycle_effect(req_id);
+            match finish_txn_lifecycle_receipt(receipt, result) {
+                Ok(result) => Ok(Response::ok(req_id, result)),
+                Err(error) => Ok(Response::err(req_id, error)),
+            }
+        }
+        (Some(_receipt), Ok(response)) => Ok(response),
+        (Some(_receipt), Err(other)) => Err(other),
+        (None, response) => response,
+    }?;
+    Ok(response)
 }
 
 fn method_txn_id(method: &Method) -> Option<&str> {
@@ -1764,6 +2136,8 @@ async fn commit(
     caller: Option<&str>,
     txn_id: &str,
     idempotency_key: Option<&str>,
+    attempt_nonce: Option<Nonce>,
+    tenant_scope: Option<&str>,
 ) -> Response {
     if consensus_apply_is_authorized() {
         return Response::err(
@@ -1775,8 +2149,8 @@ async fn commit(
     // Serialize every first attempt/retry for this opaque parent.  This also closes
     // the restart race where two callers simultaneously discover the same Prepared
     // plan and try to resume its remaining children.
-    let _coordinator_guard =
-        crate::server::mutation_batch::lock_graph(&transaction_receipt_id(txn_id)).await;
+    let parent_id = commit_receipt_id(txn_id, idempotency_key, tenant_scope);
+    let _coordinator_guard = crate::server::mutation_batch::lock_graph(&parent_id).await;
 
     let (open, persistence, open_map) = {
         let s = state.read().await;
@@ -1799,6 +2173,7 @@ async fn commit(
                     txn_mutex,
                     persistence,
                     open_map,
+                    attempt_nonce,
                 },
             )
             .await
@@ -1807,13 +2182,26 @@ async fn commit(
                 Err(response) => return response,
             }
         }
-        None => match commit_resume_txn(state, req_id, caller, txn_id, keyed, persistence).await {
+        None => match commit_resume_txn(
+            state,
+            req_id,
+            caller,
+            txn_id,
+            idempotency_key,
+            tenant_scope,
+            keyed,
+            persistence,
+            attempt_nonce,
+        )
+        .await
+        {
             Ok(pair) => pair,
             Err(response) => return response,
         },
     };
 
-    let response = commit_prepared(state, req_id, caller, txn_id, txn, receipt).await;
+    let response =
+        commit_prepared(state, req_id, caller, txn_id, txn, receipt, attempt_nonce).await;
     tag_commit_response(response, false, keyed)
 }
 
@@ -1828,6 +2216,7 @@ struct CommitOpenTxnArgs<'a> {
     txn_mutex: parking_lot::Mutex<GraphTxnState>,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     open_map: Arc<dashmap::DashMap<String, parking_lot::Mutex<GraphTxnState>>>,
+    attempt_nonce: Option<Nonce>,
 }
 
 /// The `commit`-time path for a txn still open in RAM: authorize the staged
@@ -1847,6 +2236,7 @@ async fn commit_open_txn(
         txn_mutex,
         persistence,
         open_map,
+        attempt_nonce,
     } = args;
     let txn = txn_mutex.into_inner();
     // Until parent preparation succeeds, preserve the historical retry contract:
@@ -1869,13 +2259,15 @@ async fn commit_open_txn(
         txn_id,
         &txn,
         idempotency_key,
+        attempt_nonce,
     ) {
         Ok(value) => value,
         Err(error) => return Err(Response::err(req_id, error)),
     };
     restore.complete();
     if let Some(result) = replayed {
-        if let Err(error) = cleanup_cross_shard_decision(state, txn_id).await {
+        let parent_id = commit_receipt_id(txn_id, idempotency_key, Some(txn.tenant_scope.as_str()));
+        if let Err(error) = cleanup_cross_shard_decision(state, &parent_id).await {
             return Err(Response::err(
                 req_id,
                 format!("transaction cleanup failed: {error}"),
@@ -1899,12 +2291,26 @@ async fn commit_resume_txn(
     req_id: u64,
     caller: Option<&str>,
     txn_id: &str,
+    idempotency_key: Option<&str>,
+    expected_tenant: Option<&str>,
     keyed: bool,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    attempt_nonce: Option<Nonce>,
 ) -> Result<(GraphTxnState, TxnReceipt), Response> {
-    match reconcile_committed_txn(state, req_id, caller, txn_id).await {
+    match reconcile_committed_txn(
+        state,
+        req_id,
+        caller,
+        txn_id,
+        idempotency_key,
+        expected_tenant,
+        attempt_nonce,
+    )
+    .await
+    {
         Ok(Some(response)) => {
-            if let Err(error) = cleanup_cross_shard_decision(state, txn_id).await {
+            let parent_id = commit_receipt_id(txn_id, idempotency_key, expected_tenant);
+            if let Err(error) = cleanup_cross_shard_decision(state, &parent_id).await {
                 return Err(Response::err(
                     req_id,
                     format!("transaction cleanup failed: {error}"),
@@ -1920,7 +2326,15 @@ async fn commit_resume_txn(
             ))
         }
     }
-    let resumed = match resume_txn_receipt(persistence, caller, txn_id) {
+    let resumed = match resume_txn_receipt(
+        persistence,
+        req_id,
+        caller,
+        txn_id,
+        idempotency_key,
+        expected_tenant,
+        attempt_nonce,
+    ) {
         Ok(value) => value,
         Err(error) => return Err(Response::err(req_id, error)),
     };
@@ -1931,7 +2345,8 @@ async fn commit_resume_txn(
         ));
     };
     if let Some(result) = replayed {
-        if let Err(error) = cleanup_cross_shard_decision(state, txn_id).await {
+        let parent_id = commit_receipt_id(txn_id, idempotency_key, expected_tenant);
+        if let Err(error) = cleanup_cross_shard_decision(state, &parent_id).await {
             return Err(Response::err(
                 req_id,
                 format!("transaction cleanup failed: {error}"),
@@ -2086,14 +2501,22 @@ async fn prepare_consensus_open_txn(
     // B-9 note: the clustered/consensus prepare phase has no caller
     // idempotency key of its own (Raft's replicated log is the durability
     // mechanism here) -- always `None`, byte-identical to pre-B-9 behavior.
-    let (receipt, replayed) =
-        match begin_txn_receipt(persistence.clone(), req_id, caller, txn_id, &txn, None) {
-            Ok(value) => value,
-            Err(error) => return Err(Response::err(req_id, error)),
-        };
+    let (receipt, replayed) = match begin_txn_receipt(
+        persistence.clone(),
+        req_id,
+        caller,
+        txn_id,
+        &txn,
+        None,
+        None,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Err(Response::err(req_id, error)),
+    };
     restore.complete();
     if let Some(result) = replayed {
-        if let Err(error) = cleanup_cross_shard_decision(state, txn_id).await {
+        let parent_id = transaction_receipt_id(txn_id);
+        if let Err(error) = cleanup_cross_shard_decision(state, &parent_id).await {
             return Err(Response::err(
                 req_id,
                 format!("transaction cleanup failed: {error}"),
@@ -2114,7 +2537,7 @@ async fn prepare_consensus_resume_txn(
     txn_id: &str,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
 ) -> Result<(GraphTxnState, TxnReceipt), Response> {
-    match reconcile_committed_txn(state, req_id, caller, txn_id).await {
+    match reconcile_committed_txn(state, req_id, caller, txn_id, None, None, None).await {
         Ok(Some(response)) => return Err(response),
         Ok(None) => {}
         Err(error) => {
@@ -2124,7 +2547,7 @@ async fn prepare_consensus_resume_txn(
             ))
         }
     }
-    let resumed = match resume_txn_receipt(persistence, caller, txn_id) {
+    let resumed = match resume_txn_receipt(persistence, req_id, caller, txn_id, None, None, None) {
         Ok(value) => value,
         Err(error) => return Err(Response::err(req_id, error)),
     };
@@ -2552,11 +2975,19 @@ pub(crate) async fn apply_consensus_participant_commit(
     }
 
     let committed = if cross_modal {
-        commit_cross_modal_txn(state, request_id, Some(&principal), &child_id, participant).await?
+        commit_cross_modal_txn_with_nonce(
+            state,
+            request_id,
+            Some(&principal),
+            &child_id,
+            participant,
+            authority.attempt_nonce,
+        )
+        .await?
     } else if participant.write_set.is_empty() {
         true
     } else {
-        crate::server::mutation_batch::commit_internal_graph_methods(
+        crate::server::mutation_batch::commit_internal_graph_methods_with_nonce(
             Some(&backend),
             &core,
             request_id,
@@ -2565,6 +2996,7 @@ pub(crate) async fn apply_consensus_participant_commit(
             &child_id,
             participant.write_set,
             &ResultPayload::Bool(true),
+            authority.attempt_nonce,
         )
         .await?;
         true
@@ -2790,6 +3222,7 @@ async fn commit_prepared(
     txn_id: &str,
     txn: GraphTxnState,
     receipt: TxnReceipt,
+    attempt_nonce: Option<Nonce>,
 ) -> Response {
     let s = state.read().await;
     let coordinator_id = receipt_coordinator_id(&receipt);
@@ -2810,6 +3243,7 @@ async fn commit_prepared(
             &coordinator_id,
             txn,
             receipt,
+            attempt_nonce,
         )
         .await;
     }
@@ -2826,6 +3260,7 @@ async fn commit_prepared(
             &coordinator_id,
             txn,
             receipt,
+            attempt_nonce,
         )
         .await;
     }
@@ -2863,6 +3298,7 @@ async fn commit_prepared(
         begin_version,
         applied,
         mutation_guard,
+        attempt_nonce,
     })
     .await
 }
@@ -2874,17 +3310,19 @@ async fn commit_prepared_multi_graph(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     caller: Option<&str>,
-    txn_id: &str,
+    _txn_id: &str,
     coordinator_id: &str,
     txn: GraphTxnState,
     receipt: TxnReceipt,
+    attempt_nonce: Option<Nonce>,
 ) -> Response {
-    let response = commit_multi_graph(state, req_id, caller, coordinator_id, txn).await;
+    let response =
+        commit_multi_graph(state, req_id, caller, coordinator_id, txn, attempt_nonce).await;
     let Some(result) = response.result.clone() else {
         return response;
     };
     match finish_txn_receipt(receipt, result) {
-        Ok(result) => match cleanup_cross_shard_decision(state, txn_id).await {
+        Ok(result) => match cleanup_cross_shard_decision(state, coordinator_id).await {
             Ok(()) => Response::ok(req_id, result),
             Err(error) => Response::err(req_id, format!("transaction cleanup failed: {error}")),
         },
@@ -2901,8 +3339,10 @@ async fn commit_prepared_cross_modal_span(
     coordinator_id: &str,
     txn: GraphTxnState,
     receipt: TxnReceipt,
+    attempt_nonce: Option<Nonce>,
 ) -> Response {
-    let response = commit_cross_modal(state, req_id, caller, coordinator_id, txn).await;
+    let response =
+        commit_cross_modal(state, req_id, caller, coordinator_id, txn, attempt_nonce).await;
     let Some(result) = response.result.clone() else {
         return response;
     };
@@ -2931,6 +3371,7 @@ struct CommitPreparedDurableArgs<'a> {
     begin_version: u64,
     applied: Vec<Method>,
     mutation_guard: tokio::sync::OwnedMutexGuard<()>,
+    attempt_nonce: Option<Nonce>,
 }
 
 /// Compile and durably commit the transaction's write-set as one
@@ -2949,6 +3390,7 @@ struct CompilePreparedBatchArgs<'a> {
     begin_version: u64,
     applied: Vec<Method>,
     committed_at_ms: u64,
+    attempt_nonce: Option<Nonce>,
 }
 
 /// Read the authoritative graph version and compile the transaction's
@@ -2967,6 +3409,7 @@ async fn compile_prepared_batch(
         begin_version,
         applied,
         committed_at_ms,
+        attempt_nonce,
     } = args;
     let idempotency_key = batch_id.to_string();
     let authoritative_version = match authority
@@ -2985,6 +3428,7 @@ async fn compile_prepared_batch(
         crate::server::mutation_batch::CompileBatch {
             batch_id,
             request_id: req_id,
+            attempt_nonce,
             principal: caller,
             tenant: tenant_scope,
             graph: graph_name,
@@ -3031,6 +3475,7 @@ async fn commit_prepared_durable(args: CommitPreparedDurableArgs<'_>) -> Respons
         begin_version,
         applied,
         mutation_guard: _mutation_guard,
+        attempt_nonce,
     } = args;
     let committed_at_ms = now_ms();
     let batch_id =
@@ -3051,6 +3496,7 @@ async fn commit_prepared_durable(args: CommitPreparedDurableArgs<'_>) -> Respons
         begin_version,
         applied: applied.clone(),
         committed_at_ms,
+        attempt_nonce,
     })
     .await
     {
@@ -3172,79 +3618,31 @@ async fn commit_cross_modal(
     caller: Option<&str>,
     coordinator_id: &str,
     txn: GraphTxnState,
+    attempt_nonce: Option<Nonce>,
 ) -> Response {
-    match commit_cross_modal_txn(state, req_id, caller, coordinator_id, txn).await {
+    match commit_cross_modal_txn_with_nonce(
+        state,
+        req_id,
+        caller,
+        coordinator_id,
+        txn,
+        attempt_nonce,
+    )
+    .await
+    {
         Ok(committed) => Response::ok(req_id, ResultPayload::Bool(committed)),
         Err(e) => Response::err(req_id, e),
     }
 }
 
-/// Retry/restart reconciliation for [`commit_graphql_cross_modal`]: if a durable
-/// coordinator record for this GraphQL cross-modal commit already exists, validate
-/// it matches the caller's scope, re-install the authoritative snapshot, and
-/// return its stored result. `Ok(None)` means no durable record exists yet, so
-/// the caller should proceed with the ephemeral staged txn.
-#[cfg(feature = "graphql")]
-async fn commit_graphql_cross_modal_replay(
-    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    graph_name: &str,
-    core: &crate::graph::GraphCore,
-    authority: &CarrierAuthority,
-    coordinator_id: &str,
-) -> Result<Option<bool>, String> {
-    let Some(persistence) = persistence else {
-        return Ok(None);
-    };
-    let fname = crate::persist::sanitize(graph_name);
-    let batch_id = crate::server::mutation_batch::opaque_coordinator_key(
-        "crossmodal",
-        graph_name,
-        coordinator_id,
-    );
-    let Some(record) = persistence.read_mutation_batch(&fname, &batch_id).await? else {
-        return Ok(None);
-    };
-    let expected_principal =
-        crate::server::mutation_batch::principal_fingerprint(authority.agent_id())?;
-    if record
-        .batch
-        .identity
-        .scope()
-        .graph_name()
-        .map(|name| name.as_str())
-        != Some(graph_name)
-        || record.batch.identity.tenant().as_str() != authority.tenant_scope()
-        || crate::server::mutation_batch::batch_actor(&record.batch)
-            != Some(expected_principal.as_str())
-    {
-        return Err("committed GraphQL cross-modal batch does not match caller scope".to_string());
-    }
-    let bytes = record
-        .result_msgpack
-        .as_deref()
-        .ok_or_else(|| "committed GraphQL cross-modal batch has no result".to_string())?;
-    let result = decode_txn_result(bytes)?;
-    let committed = match result {
-        ResultPayload::Bool(value) => value,
-        _ => return Err("committed GraphQL cross-modal result has the wrong type".to_string()),
-    };
-    let (snapshot, version) = persistence
-        .read_authoritative_graph_snapshot(&fname)
-        .await?
-        .ok_or_else(|| "committed GraphQL cross-modal graph image is missing".to_string())?;
-    core.install_committed_snapshot(snapshot, version)?;
-    Ok(Some(committed))
-}
-
-/// DURABLE GraphQL cross-modal commit (CONCEPT:EG-KG.query.facade-reconcile-hook). The
-/// `eg-graphql` crate stages an owner-bound multi-request transaction but exposes no
-/// direct commit path because it sits below `ServerState`/persistence. Here the facade
-/// GraphQL carrier `take`s the staged txn,
-/// converts it into a facade [`GraphTxnState`] (graph writes → `AddNode`/`AddEdge`,
-/// embeddings → `stage_vector`, tsdb batches → `stage_measurement`) and lands every
-/// modality DURABLY in ONE redb `WriteTransaction` via [`commit_cross_modal_txn`] — the
-/// SAME committed machinery pgwire's `commit_txn_state` drives. Returns `Ok(true)` on
-/// commit, `Ok(false)` on an OCC conflict, `Err` on an unknown txn / commit failure.
+/// Durable GraphQL cross-modal commit (CONCEPT:EG-KG.query.facade-reconcile-hook).
+///
+/// GraphQL stages its owner-bound transaction in the process registry, but the
+/// commit authority is the same durable parent/child protocol used by native
+/// cross-modal transactions. The parent receipt seals the complete staged plan
+/// under the verified tenant and idempotency key before the child kernel commit;
+/// retries recover that encrypted plan and re-enter the kernel instead of
+/// reading a finished row and installing a snapshot outside the kernel.
 #[cfg(feature = "graphql")]
 pub(crate) async fn commit_graphql_cross_modal(
     state: &Arc<RwLock<ServerState>>,
@@ -3255,131 +3653,113 @@ pub(crate) async fn commit_graphql_cross_modal(
     txn_id: &str,
     authority: &CarrierAuthority,
 ) -> Result<bool, String> {
-    let coordinator_id = crate::server::mutation_batch::opaque_coordinator_key(
-        "graphql-crossmodal-owner",
-        authority.owner_scope(),
-        txn_id,
-    );
-    // Retry/restart reconciliation must happen before consuming the ephemeral
-    // staging registry: an acknowledgement-lost retry legitimately has no staged
-    // object, but its durable coordinator record is authoritative.
     let persistence = state.read().await.persistence.clone();
-    if let Some(committed) =
-        commit_graphql_cross_modal_replay(persistence, graph_name, core, authority, &coordinator_id)
-            .await?
-    {
-        return Ok(committed);
-    }
-    let staged = registry
-        .take(authority.owner_scope(), txn_id)
-        .ok_or_else(|| format!("unknown transaction '{txn_id}'"))?;
-    // NE-071 sweep verdict (EG-OCC-SWEEP): this `begin_version: core.version()`
-    // LOOKS like the same commit-time re-derivation the wire/mod.rs P0 fixed,
-    // but it is BENIGN here — read this before "fixing" it again.
-    //
-    //   * `isolation: Snapshot` is hardcoded a few lines below (no
-    //     `predicate`), so `validate()`'s coarse guard can only ever be
-    //     gating the plain per-node `read_set` check, never a
-    //     `predicate_reads` re-check — unlike the wire multi-statement
-    //     `BEGIN … COMMIT` path, there is no serializable predicate state
-    //     captured at an earlier, real client `BEGIN` that this could be
-    //     starving of validation.
-    //   * `read_set` for THIS `txn` is populated ONLY by the
-    //     `txn.stage_vector(core, …)` calls below (`GraphTxnState::observe`)
-    //     — `staged.graph_writes()` push straight into `txn.write_set`
-    //     without going through `stage`/`observe`, so they never touch
-    //     `read_set` at all. Every `observe()` call that does run happens
-    //     synchronously, right here, in the SAME span as this
-    //     `begin_version` capture — there is no `.await` between them, so
-    //     they always see the identical `core.version()`.
-    //   * The only real gap validate() needs to protect is between here and
-    //     `commit_cross_modal_txn`'s `txn.validate(&core)` call, which runs
-    //     AFTER `state.read().await` and `mutation_batch::lock_graph(...).await`
-    //     — genuine yield points a concurrent commit can land during. Because
-    //     `begin_version` is captured BEFORE those awaits (not re-derived
-    //     inside `commit_cross_modal_txn` itself), a conflicting write landing
-    //     in that window correctly bumps `core.version()` past `begin_version`,
-    //     defeats the coarse guard, and forces the real `read_set` re-check —
-    //     which fails, as intended, if a staged vector's target node changed.
-    //
-    //   In short: this function's own `begin_version` capture already IS the
-    //   earliest point its `read_set` could possibly be evaluated from (the
-    //   GraphQL cross-modal registry — `crates/eg-graphql/src/crossmodal.rs`
-    //   — does not itself timestamp/fingerprint a node at `stageEmbedding`
-    //   time, so there is no earlier "true begin" available to thread through
-    //   even in principle without changing that crate + `handlers/query.rs`,
-    //   both outside this track). This is the SAME shape as the wire path's
-    //   legitimate off-txn `TxnBeginVersion::Autocommit` call sites, not the
-    //   broken multi-statement one.
-    let mut txn = GraphTxnState::new(
-        core,
-        NewTxnArgs {
-            graph: graph_name.to_string(),
-            tenant_scope: authority.tenant_scope().to_string(),
-            begin_version: core.version(),
-            isolation: IsolationLevel::Snapshot,
-            predicate: None,
-            agent: authority.owner_scope().to_string(),
-            now_ms: now_ms(),
+    let caller = Some(authority.agent_id());
+    let idempotency_key = Some(authority.idempotency_key());
+    let expected_tenant = Some(authority.tenant_scope());
+
+    let (receipt, txn) = match resume_txn_receipt(
+        persistence.clone(),
+        request_id,
+        caller,
+        txn_id,
+        idempotency_key,
+        expected_tenant,
+        authority.attempt_nonce(),
+    )? {
+        Some((_receipt, Some(result), None)) => match result {
+            ResultPayload::Bool(value) => return Ok(value),
+            _ => return Err("GraphQL cross-modal parent result has the wrong type".to_string()),
         },
-    );
-    // Staged graph writes (from `sparqlUpdate` / `sparqlConstruct`, already lowered to the
-    // property-graph projection) → the SAME `AddNode`/`AddEdge` write-set the RPC/pgwire
-    // seam commits.
-    for w in staged.graph_writes() {
-        match w {
-            eg_graphql::GraphWrite::Node { id, blob } => txn.write_set.push(Method::AddNode {
-                node_id: id.clone(),
-                properties_msgpack: blob.clone(),
-            }),
-            eg_graphql::GraphWrite::Edge { from, to, blob } => {
-                txn.write_set.push(Method::AddEdge {
-                    source_id: from.clone(),
-                    target_id: to.clone(),
-                    properties_msgpack: blob.clone(),
-                })
-            }
+        Some((receipt, None, Some(txn))) => (receipt, txn),
+        Some((_receipt, Some(_), Some(_))) | Some((_receipt, None, None)) => {
+            return Err("GraphQL cross-modal parent receipt is inconsistent".to_string())
         }
-    }
-    for (node_id, embedding) in staged.vectors() {
-        txn.stage_vector(core, node_id.clone(), embedding.clone(), now_ms());
-    }
-    // tsdb measurement batches ride `full` (the facade enables `eg-graphql/crossmodal-tsdb`
-    // from its tsdb graphql tier). Without the facade `tsdb` feature `staged.measurements()`
-    // is empty (the crate leg is off too), so this loop is a no-op.
-    #[cfg(feature = "tsdb")]
-    for (series, points) in staged.measurements() {
-        let n_fields = points.first().map(|(_, v)| v.len()).unwrap_or(0);
-        let field_names = (0..n_fields).map(|i| format!("f{i}")).collect();
-        txn.stage_measurement(
-            StagedMeasurement {
-                series,
-                n_fields,
-                bucket_ns: DEFAULT_MEASUREMENT_BUCKET_NS,
-                field_names,
-                points,
-            },
-            now_ms(),
-        );
-    }
-    commit_cross_modal_txn(
+        None => {
+            let staged = registry
+                .take(authority.owner_scope(), txn_id)
+                .ok_or_else(|| format!("unknown transaction '{txn_id}'"))?;
+            let mut txn = GraphTxnState::new(
+                core,
+                NewTxnArgs {
+                    graph: graph_name.to_string(),
+                    tenant_scope: authority.tenant_scope().to_string(),
+                    begin_version: core.version(),
+                    isolation: IsolationLevel::Snapshot,
+                    predicate: None,
+                    agent: authority.owner_scope().to_string(),
+                    now_ms: now_ms(),
+                },
+            );
+            for w in staged.graph_writes() {
+                match w {
+                    eg_graphql::GraphWrite::Node { id, blob } => {
+                        txn.write_set.push(Method::AddNode {
+                            node_id: id.clone(),
+                            properties_msgpack: blob.clone(),
+                        })
+                    }
+                    eg_graphql::GraphWrite::Edge { from, to, blob } => {
+                        txn.write_set.push(Method::AddEdge {
+                            source_id: from.clone(),
+                            target_id: to.clone(),
+                            properties_msgpack: blob.clone(),
+                        })
+                    }
+                }
+            }
+            for (node_id, embedding) in staged.vectors() {
+                txn.stage_vector(core, node_id.clone(), embedding.clone(), now_ms());
+            }
+            #[cfg(feature = "tsdb")]
+            for (series, points) in staged.measurements() {
+                let n_fields = points.first().map(|(_, v)| v.len()).unwrap_or(0);
+                let field_names = (0..n_fields).map(|i| format!("f{i}")).collect();
+                txn.stage_measurement(
+                    StagedMeasurement {
+                        series,
+                        n_fields,
+                        bucket_ns: DEFAULT_MEASUREMENT_BUCKET_NS,
+                        field_names,
+                        points,
+                    },
+                    now_ms(),
+                );
+            }
+            let (receipt, replayed) = begin_txn_receipt(
+                persistence,
+                request_id,
+                caller,
+                txn_id,
+                &txn,
+                idempotency_key,
+                authority.attempt_nonce(),
+            )?;
+            if let Some(result) = replayed {
+                return match result {
+                    ResultPayload::Bool(value) => Ok(value),
+                    _ => Err("GraphQL cross-modal parent result has the wrong type".to_string()),
+                };
+            }
+            (receipt, txn)
+        }
+    };
+
+    let coordinator_id = receipt_coordinator_id(&receipt);
+    let committed = commit_cross_modal_txn_with_nonce(
         state,
         request_id,
-        // `check_graph_access` inside `commit_cross_modal_txn` looks a caller up by the
-        // RAW agent_id registered in `IsolationLayer` (every other dispatch call site --
-        // e.g. `dispatch.rs`'s `req.agent_id.as_deref()`, `jobs.rs`'s
-        // `Some(authority.agent_id())` -- passes the plain agent_id, never the opaque
-        // `actor_scope()` storage key). Passing `actor_scope()` here made every
-        // GraphQL cross-modal commit ACCESS_DENIED for an identity that is provisioned
-        // and authorized under its real agent_id, because the hashed scope never
-        // matches an `IsolationLayer::agents` entry. `MutationBatch.context.principal`
-        // is fingerprinted from this same value below on the retry-reconciliation path,
-        // so both call sites use `agent_id()` consistently.
-        Some(authority.agent_id()),
+        caller,
         &coordinator_id,
         txn,
+        authority.attempt_nonce(),
     )
-    .await
+    .await?;
+    let result = finish_txn_receipt(receipt, ResultPayload::Bool(committed))?;
+    match result {
+        ResultPayload::Bool(value) => Ok(value),
+        _ => Err("GraphQL cross-modal parent result has the wrong type".to_string()),
+    }
 }
 
 /// Mirror durable blob-ref properties onto the in-memory node for every
@@ -3419,6 +3799,17 @@ pub(crate) async fn commit_cross_modal_txn(
     caller: Option<&str>,
     coordinator_id: &str,
     txn: GraphTxnState,
+) -> Result<bool, String> {
+    commit_cross_modal_txn_with_nonce(state, request_id, caller, coordinator_id, txn, None).await
+}
+
+pub(crate) async fn commit_cross_modal_txn_with_nonce(
+    state: &Arc<RwLock<ServerState>>,
+    request_id: u64,
+    caller: Option<&str>,
+    coordinator_id: &str,
+    txn: GraphTxnState,
+    attempt_nonce: Option<Nonce>,
 ) -> Result<bool, String> {
     let (core, persistence, graph_type, owner) = {
         let s = state.read().await;
@@ -3517,6 +3908,7 @@ pub(crate) async fn commit_cross_modal_txn(
             crate::server::mutation_batch::CompileBatch {
                 batch_id: &batch_id,
                 request_id,
+                attempt_nonce,
                 principal: caller,
                 tenant: &txn.tenant_scope,
                 graph: &txn.graph,
@@ -3712,6 +4104,7 @@ async fn commit_multi_graph(
     caller: Option<&str>,
     coordinator_id: &str,
     txn: GraphTxnState,
+    attempt_nonce: Option<Nonce>,
 ) -> Response {
     // Build the per-graph slices: the default graph (its write_set) + every extra
     // graph. Each graph must exist + the caller must hold Write on it.
@@ -3750,7 +4143,7 @@ async fn commit_multi_graph(
         }
     }
 
-    commit_recoverable_slices(state, req_id, caller, coordinator_id, slices).await
+    commit_recoverable_slices(state, req_id, caller, coordinator_id, slices, attempt_nonce).await
 }
 
 /// Commit an already-authorized coordinator plan through the same recoverable
@@ -3764,6 +4157,25 @@ pub(crate) async fn commit_coordinated_graph_methods(
     caller: Option<&str>,
     coordinator_id: &str,
     graph_methods: Vec<(String, crate::protocol::GraphType, Vec<Method>)>,
+) -> Response {
+    commit_coordinated_graph_methods_with_nonce(
+        state,
+        req_id,
+        caller,
+        coordinator_id,
+        graph_methods,
+        None,
+    )
+    .await
+}
+
+pub(crate) async fn commit_coordinated_graph_methods_with_nonce(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    caller: Option<&str>,
+    coordinator_id: &str,
+    graph_methods: Vec<(String, crate::protocol::GraphType, Vec<Method>)>,
+    attempt_nonce: Option<Nonce>,
 ) -> Response {
     let mut slices = Vec::with_capacity(graph_methods.len());
     {
@@ -3799,7 +4211,7 @@ pub(crate) async fn commit_coordinated_graph_methods(
         }
     }
     slices.sort_by(|left, right| left.graph_name.cmp(&right.graph_name));
-    commit_recoverable_slices(state, req_id, caller, coordinator_id, slices).await
+    commit_recoverable_slices(state, req_id, caller, coordinator_id, slices, attempt_nonce).await
 }
 
 async fn commit_recoverable_slices(
@@ -3808,6 +4220,7 @@ async fn commit_recoverable_slices(
     caller: Option<&str>,
     coordinator_id: &str,
     slices: Vec<CommitSlice>,
+    attempt_nonce: Option<Nonce>,
 ) -> Response {
     // ── CROSS-SHARD: a multi-graph span over ≥2 Raft groups routes through 2PC ──
     #[cfg(feature = "raft")]
@@ -3851,7 +4264,15 @@ async fn commit_recoverable_slices(
     }
 
     // ── Single-group collapse OR no cluster: apply each slice locally ──
-    apply_slices_locally(state, req_id, caller, coordinator_id, &slices).await
+    apply_slices_locally(
+        state,
+        req_id,
+        caller,
+        coordinator_id,
+        &slices,
+        attempt_nonce,
+    )
+    .await
 }
 
 /// Route a cross-shard multi-graph txn through the 2PC coordinator (CONCEPT:EG-KG.txn.routes-cross-shard-txn).
@@ -3918,6 +4339,7 @@ async fn apply_slices_locally(
     caller: Option<&str>,
     coordinator_id: &str,
     slices: &[CommitSlice],
+    attempt_nonce: Option<Nonce>,
 ) -> Response {
     let backend = {
         let s = state.read().await;
@@ -3941,7 +4363,7 @@ async fn apply_slices_locally(
             &slice.graph_name,
             coordinator_id,
         );
-        if let Err(error) = crate::server::mutation_batch::commit_internal_graph_methods(
+        if let Err(error) = crate::server::mutation_batch::commit_internal_graph_methods_with_nonce(
             Some(&backend),
             &core,
             req_id,
@@ -3950,6 +4372,7 @@ async fn apply_slices_locally(
             &child_id,
             slice.methods.clone(),
             &ResultPayload::Bool(true),
+            attempt_nonce,
         )
         .await
         {
@@ -4150,5 +4573,485 @@ mod materialize_belief_tests {
     fn materialize_belief_missing_node_errors() {
         let core = GraphCore::new();
         assert!(materialize_belief_to_methods(&core, "nope").is_err());
+    }
+}
+
+/// Recovery-window regressions for keyed native transactions.  These tests use
+/// the private parent/child helpers directly so each crash point is explicit:
+/// the first leaves only a Prepared parent, while the second commits the child
+/// and deliberately drops the parent receipt before the retry reconciles it.
+#[cfg(all(test, feature = "redb", feature = "security"))]
+mod keyed_recovery_window_tests {
+    use super::*;
+    use crate::protocol::GraphType;
+    use crate::server::persistence::backup::EnvVarGuard;
+    use crate::server::persistence::redb_backend::RedbBackend;
+    use crate::server::persistence::PersistenceBackend;
+    use crate::server::ServerState;
+    use std::path::PathBuf;
+
+    const CALLER: &str = "txn-recovery-agent";
+    const TENANT: &str = "tenant-recovery-scope";
+    const KEY: &str = "txn-recovery-stable-key";
+
+    fn test_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "eg-{label}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&dir).expect("create transaction recovery test dir");
+        dir
+    }
+
+    fn test_state(
+        graph: &str,
+        dir: &PathBuf,
+    ) -> (
+        Arc<RwLock<ServerState>>,
+        Arc<RedbBackend>,
+        Arc<crate::graph::GraphCore>,
+    ) {
+        let backend = Arc::new(
+            RedbBackend::open_with_shards(dir.to_string_lossy().into_owned(), 64, 1)
+                .expect("open transaction recovery backend"),
+        );
+        let mut server = ServerState::new_for_test(
+            "txn-recovery-test-secret",
+            ServerState::test_isolation(CALLER),
+        );
+        server.persist_dir = Some(dir.to_string_lossy().into_owned());
+        server.persistence = Some(backend.clone());
+        server
+            .registry
+            .create_graph(graph, GraphType::Global, None)
+            .expect("create transaction recovery graph");
+        let core = server
+            .registry
+            .get(graph)
+            .expect("transaction recovery graph is resident")
+            .core
+            .clone();
+        (Arc::new(RwLock::new(server)), backend, core)
+    }
+
+    fn staged_cross_modal_txn(core: &crate::graph::GraphCore, graph: &str) -> GraphTxnState {
+        let mut txn = GraphTxnState::new(
+            core,
+            NewTxnArgs {
+                graph: graph.to_string(),
+                tenant_scope: TENANT.to_string(),
+                begin_version: core.version(),
+                isolation: crate::server::txn::IsolationLevel::Snapshot,
+                predicate: None,
+                agent: CALLER.to_string(),
+                now_ms: now_ms(),
+            },
+        );
+        txn.stage(
+            core,
+            Method::AddNode {
+                node_id: "recovery-node".to_string(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+                    "kind": "recovery-window"
+                }))
+                .expect("encode staged recovery node"),
+            },
+            now_ms(),
+        );
+        txn.stage_vector(
+            core,
+            "recovery-node".to_string(),
+            vec![0.25, 0.75],
+            now_ms(),
+        );
+        txn
+    }
+
+    fn assert_keyed_commit(response: &Response, replayed: bool) {
+        assert_eq!(response.error, None, "keyed commit failed: {response:?}");
+        let Some(ResultPayload::Json(value)) = response.result.as_ref() else {
+            panic!(
+                "expected keyed commit JSON result, got {:?}",
+                response.result
+            );
+        };
+        assert_eq!(value["committed"], serde_json::json!(true));
+        assert_eq!(value["replayed"], serde_json::json!(replayed));
+    }
+
+    fn assert_nonce_rejected(response: &Response) {
+        assert!(
+            response
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("REPLAY_NONCE_CONSUMED")),
+            "exact keyed commit retry must be rejected by the kernel: {response:?}"
+        );
+    }
+
+    fn lifecycle_authority(key: &str, nonce: [u8; 32]) -> CarrierAuthority {
+        let base =
+            crate::server::authority_context::VerifiedRequestContext::verified_for_test_with_scopes(
+                CALLER,
+                TENANT,
+                &["*"],
+            );
+        let context = crate::server::authority_context::VerifiedRequestContext::from_verified_claims_with_nonce(
+            base.claims().clone(),
+            key.to_string(),
+            Some(Nonce::from_bytes(nonce)),
+        );
+        CarrierAuthority::from_verified(&context).expect("build lifecycle authority")
+    }
+
+    async fn close_test_state(
+        state: Arc<RwLock<ServerState>>,
+        backend: Arc<RedbBackend>,
+        dir: PathBuf,
+    ) {
+        backend.shutdown();
+        state.write().await.persistence = None;
+        drop(state);
+        drop(backend);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    async fn restart_test_backend(
+        state: &Arc<RwLock<ServerState>>,
+        backend: Arc<RedbBackend>,
+        dir: &PathBuf,
+    ) -> Arc<RedbBackend> {
+        backend.shutdown();
+        state.write().await.persistence = None;
+        drop(backend);
+        for _ in 0..50 {
+            match RedbBackend::open_with_shards(dir.to_string_lossy().into_owned(), 64, 1) {
+                Ok(reopened) => {
+                    let reopened = Arc::new(reopened);
+                    state.write().await.persistence = Some(reopened.clone());
+                    return reopened;
+                }
+                Err(_) => tokio::task::yield_now().await,
+            }
+        }
+        panic!("reopen transaction recovery backend");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn prepared_lifecycle_retry_refuses_ambiguous_volatile_effect() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _recovery_key = EnvVarGuard::set(
+            crate::crypto::TXN_RECOVERY_KEY_ENV,
+            "txn-handler-recovery-window-test-key",
+        );
+        let graph = "prepared-lifecycle-graph";
+        let dir = test_dir("txn-prepared-lifecycle");
+        let (state, backend, _core) = test_state(graph, &dir);
+        let first = lifecycle_authority("prepared-lifecycle-key", [21; 32]);
+        let begun = begin_txn(
+            &state,
+            20,
+            Some(CALLER),
+            first.owner_scope(),
+            first.tenant_scope(),
+            Some(graph.to_string()),
+            None,
+        )
+        .await;
+        let txn_id = match begun.result {
+            Some(ResultPayload::String(txn_id)) => txn_id,
+            other => panic!(
+                "unexpected lifecycle BeginTxn result: {:?} / {other:?}",
+                begun.error
+            ),
+        };
+        let method = Method::TxnAddNode {
+            txn_id: txn_id.clone(),
+            node_id: "node".to_string(),
+            properties_msgpack: vec![1, 2, 3],
+            graph: Some(graph.to_string()),
+        };
+        let receipt = begin_txn_lifecycle_receipt(&state, 21, CALLER, &first, &method)
+            .await
+            .expect("prepare lifecycle receipt");
+        let staged = stage(
+            &state,
+            22,
+            &txn_id,
+            Some(graph),
+            Method::AddNode {
+                node_id: "node".to_string(),
+                properties_msgpack: vec![1, 2, 3],
+            },
+        )
+        .await;
+        assert!(
+            staged.error.is_none(),
+            "stage effect failed: {:?}",
+            staged.error
+        );
+        drop(receipt);
+        let backend = restart_test_backend(&state, backend, &dir).await;
+        state.write().await.open_txns.clear();
+
+        // A crash after the volatile stage effect but before finish leaves only the
+        // Prepared coordinator.  A fresh attempt must fail closed instead of
+        // appending the stage a second time; the exact original nonce still
+        // reaches the kernel and receives its consumed-nonce rejection.
+        let fresh = lifecycle_authority("prepared-lifecycle-key", [22; 32]);
+        let error = begin_txn_lifecycle_receipt(&state, 22, CALLER, &fresh, &method)
+            .await
+            .err()
+            .expect("Prepared lifecycle must refuse re-execution");
+        assert!(error.contains("Prepared"), "{error}");
+
+        let exact = lifecycle_authority("prepared-lifecycle-key", [21; 32]);
+        let error = begin_txn_lifecycle_receipt(&state, 23, CALLER, &exact, &method)
+            .await
+            .err()
+            .expect("exact lifecycle retry must be rejected");
+        assert!(error.contains("REPLAY_NONCE_CONSUMED"), "{error}");
+
+        close_test_state(state, backend, dir).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn terminal_lifecycle_replay_refuses_missing_volatile_handle() {
+        let state = Arc::new(RwLock::new(ServerState::new_for_test(
+            "txn-lifecycle-replay-test-secret",
+            ServerState::test_isolation(CALLER),
+        )));
+        let authority = lifecycle_authority("terminal-lifecycle-key", [31; 32]);
+        let method = Method::BeginTxn {
+            graph: Some("lost-after-restart".to_string()),
+            isolation: None,
+        };
+        let error = validate_txn_lifecycle_replay(
+            &state,
+            &method,
+            authority.owner_scope(),
+            &ResultPayload::String("txn-lost-after-restart".to_string()),
+        )
+        .await
+        .err()
+        .expect("missing volatile handle must not replay success");
+        assert!(
+            error.contains("volatile staging state is unavailable"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn keyed_prepared_parent_recovers_before_child_exists() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _recovery_key = EnvVarGuard::set(
+            crate::crypto::TXN_RECOVERY_KEY_ENV,
+            "txn-handler-recovery-window-test-key",
+        );
+        let graph = "prepared-before-child-graph";
+        let dir = test_dir("txn-prepared-before-child");
+        let (state, backend, core) = test_state(graph, &dir);
+        let txn = staged_cross_modal_txn(&core, graph);
+        let txn_id = "prepared-before-child-txn";
+        let tenant = Some(TENANT);
+        let key = Some(KEY);
+
+        let (receipt, replayed) = begin_txn_receipt(
+            Some(backend.clone()),
+            1,
+            Some(CALLER),
+            txn_id,
+            &txn,
+            key,
+            Some(Nonce::from_bytes([1; 32])),
+        )
+        .expect("prepare keyed parent receipt");
+        assert!(replayed.is_none());
+
+        // The encrypted recovery plan is the only surviving transaction state
+        // at this crash point; proving it can be reopened also binds the retry
+        // to the verified tenant independently of the graph name.
+        let resumed = resume_txn_receipt(
+            Some(backend.clone()),
+            2,
+            Some(CALLER),
+            txn_id,
+            key,
+            tenant,
+            None,
+        )
+        .expect("resume prepared parent")
+        .expect("prepared parent receipt exists");
+        assert!(resumed.1.is_none(), "parent must still be Prepared");
+        assert!(resumed.2.is_some(), "prepared parent must retain its plan");
+        drop(resumed);
+        drop(receipt);
+
+        // Reopen the durable tier before the child exists.  The in-memory
+        // registry is deliberately retained only as the serving projection;
+        // recovery must come from the encrypted Prepared parent on disk.
+        let backend = restart_test_backend(&state, backend, &dir).await;
+
+        let first = commit(
+            &state,
+            2,
+            Some(CALLER),
+            txn_id,
+            key,
+            Some(Nonce::from_bytes([2; 32])),
+            tenant,
+        )
+        .await;
+        assert_keyed_commit(&first, false);
+        assert!(
+            backend
+                .read_node(graph, "recovery-node")
+                .await
+                .expect("read recovered child")
+                .is_some(),
+            "prepared-before-child retry must commit the recovered child"
+        );
+        let committed_version = core.version();
+
+        let exact = commit(
+            &state,
+            3,
+            Some(CALLER),
+            txn_id,
+            key,
+            Some(Nonce::from_bytes([1; 32])),
+            tenant,
+        )
+        .await;
+        assert_nonce_rejected(&exact);
+
+        let replay = commit(
+            &state,
+            4,
+            Some(CALLER),
+            txn_id,
+            key,
+            Some(Nonce::from_bytes([3; 32])),
+            tenant,
+        )
+        .await;
+        assert_keyed_commit(&replay, true);
+        assert_eq!(
+            core.version(),
+            committed_version,
+            "terminal retry must not apply twice"
+        );
+
+        close_test_state(state, backend, dir).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn keyed_child_before_parent_finish_reconciles_one_child() {
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let _recovery_key = EnvVarGuard::set(
+            crate::crypto::TXN_RECOVERY_KEY_ENV,
+            "txn-handler-recovery-window-test-key",
+        );
+        let graph = "child-before-parent-finish-graph";
+        let dir = test_dir("txn-child-before-parent");
+        let (state, backend, core) = test_state(graph, &dir);
+        let txn = staged_cross_modal_txn(&core, graph);
+        let txn_id = "child-before-parent-finish-txn";
+        let tenant = Some(TENANT);
+        let key = Some(KEY);
+
+        let (receipt, replayed) = begin_txn_receipt(
+            Some(backend.clone()),
+            10,
+            Some(CALLER),
+            txn_id,
+            &txn,
+            key,
+            Some(Nonce::from_bytes([11; 32])),
+        )
+        .expect("prepare keyed parent receipt");
+        assert!(replayed.is_none());
+        let coordinator_id = receipt_coordinator_id(&receipt);
+
+        // Model the crash after the graph/vector child fsync and before the
+        // control-plane parent is terminalized.  Production threads one
+        // verified request nonce through both parent and child scopes, so the
+        // child consumes the same attempt nonce in its own kernel scope.  The
+        // retry must find this child through its opaque parent coordinator and
+        // finish the same receipt.
+        assert!(commit_cross_modal_txn_with_nonce(
+            &state,
+            11,
+            Some(CALLER),
+            &coordinator_id,
+            txn,
+            Some(Nonce::from_bytes([11; 32])),
+        )
+        .await
+        .expect("commit durable child"));
+        drop(receipt);
+        let committed_version = core.version();
+
+        // Reopen after the child fsync but before the parent finish.  This is
+        // the acknowledgement-loss window: reconciliation must recover the
+        // child and terminalize the same parent receipt exactly once.
+        let backend = restart_test_backend(&state, backend, &dir).await;
+
+        let recovered = commit(
+            &state,
+            12,
+            Some(CALLER),
+            txn_id,
+            key,
+            Some(Nonce::from_bytes([13; 32])),
+            tenant,
+        )
+        .await;
+        assert_keyed_commit(&recovered, true);
+        assert_eq!(
+            core.version(),
+            committed_version,
+            "reconcile must not apply child twice"
+        );
+        assert!(
+            backend
+                .read_node(graph, "recovery-node")
+                .await
+                .expect("read reconciled child")
+                .is_some(),
+            "child-before-parent retry must preserve the durable child"
+        );
+
+        let exact = commit(
+            &state,
+            13,
+            Some(CALLER),
+            txn_id,
+            key,
+            Some(Nonce::from_bytes([11; 32])),
+            tenant,
+        )
+        .await;
+        assert_nonce_rejected(&exact);
+
+        let terminal_retry = commit(
+            &state,
+            14,
+            Some(CALLER),
+            txn_id,
+            key,
+            Some(Nonce::from_bytes([14; 32])),
+            tenant,
+        )
+        .await;
+        assert_keyed_commit(&terminal_retry, true);
+        assert_eq!(
+            core.version(),
+            committed_version,
+            "terminal parent retry must not duplicate the child"
+        );
+
+        close_test_state(state, backend, dir).await;
     }
 }

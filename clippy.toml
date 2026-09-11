@@ -1,0 +1,53 @@
+# Clippy policy for epistemic-graph.
+#
+# `disallowed_methods` is warn-by-default and both clippy gates run with
+# `-D warnings`, so an entry here is ENFORCED without any further wiring.
+#
+# The list below encodes two different failure modes that this workspace has
+# actually suffered, not a general style preference. Both are invisible to every
+# other gate: CCCC, KISS, dupehound, jscpd and arch-lint all measure the SHAPE of
+# code, and an unbounded wait is short, simple, unduplicated and correctly
+# layered. It scores perfectly everywhere while hanging the process.
+#
+# ── 1. Unbounded WAITS (liveness) ────────────────────────────────────────────
+# A wait with no deadline turns a fault somewhere else into a hang here. Three
+# separate instances of this were found in one day (2026-09-10):
+#   * `ort` re-entering its own `OnceLock` from its error path;
+#   * a shard graft rendezvous tripped only on the success path;
+#   * that same rendezvous being unbounded, so the missing party stranded the
+#     test for the life of the process.
+# A hung test binary is worse than a failing one: `cargo test` cannot tell it
+# from a slow one, so it silently truncates the whole run and the result is read
+# as complete. Every workspace test run in this repository was truncated this way
+# before those fixes.
+#
+# ── 2. Unbounded QUEUES (backpressure) ───────────────────────────────────────
+# An unbounded channel has no backpressure: a slow consumer becomes unbounded
+# memory rather than a slowed producer. Prefer a bounded capacity, and capacity
+# 0 where a true rendezvous (synchronous handoff) is what is meant.
+#
+# Escaping an entry is legitimate. Do it locally, with a reason:
+#   #[allow(clippy::disallowed_methods)] // <why this one cannot be bounded>
+# A blanket allow at module or crate level is not the same thing and defeats the
+# purpose.
+
+disallowed-methods = [
+  # ── Unbounded waits ────────────────────────────────────────────────────────
+  { path = "std::sync::Barrier::wait", reason = "no deadline: if the other party never arrives the thread blocks for the life of the process. Use crate::test_rendezvous::meet, which fails naming the missed rendezvous" },
+  { path = "std::thread::JoinHandle::join", reason = "no deadline: a worker that deadlocked upstream takes its joiner with it. Use crate::test_rendezvous::join_bounded" },
+  { path = "std::sync::mpsc::Receiver::recv", reason = "no deadline. Use recv_timeout so a producer that never sends is a failure, not a hang" },
+
+  # ── Lock poisoning is a decision, not a reflex ─────────────────────────────
+  # `.lock().unwrap()` propagates a panic from some other thread into this one,
+  # and poisoning is sticky: one panic makes every later caller panic too.
+  # `crate::lock_recovery` makes the choice explicit -- `lock_recovering` for
+  # rebuildable state, `lock_or_panic` for authority state that must not be
+  # served on broken invariants.
+  { path = "std::sync::PoisonError::into_inner", reason = "recovering silently hides that an invariant may be broken. Use crate::lock_recovery, which recovers AND reports, or panics with a reason" },
+
+  # ── Unbounded queues ───────────────────────────────────────────────────────
+  { path = "std::sync::mpsc::channel", reason = "unbounded: a slow consumer becomes unbounded memory. Use sync_channel(n), or sync_channel(0) for a rendezvous" },
+  { path = "tokio::sync::mpsc::unbounded_channel", reason = "no backpressure. Use tokio::sync::mpsc::channel(n)" },
+  { path = "futures::channel::mpsc::unbounded", reason = "no backpressure. Use futures::channel::mpsc::channel(n)" },
+  { path = "crossbeam_channel::unbounded", reason = "no backpressure. Use crossbeam_channel::bounded(n), or bounded(0) for a rendezvous" },
+]

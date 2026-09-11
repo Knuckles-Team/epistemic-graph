@@ -14,9 +14,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    ExampleOutcome, ExampleSplit, OptimizationPlan, OptimizerArtifact, OptimizerArtifactKind,
-    PlanExecutor, PlanStep, PlanStepKind, ProgramError, ProgramModality, ProgramRevision,
-    TrainingCorpus, TrainingExample, MAX_OPTIMIZER_ARTIFACTS, PROGRAM_SCHEMA_VERSION,
+    digest_optional_ref, digest_ref_list, ExampleOutcome, ExampleSplit, OptimizationPlan,
+    OptimizerArtifact, OptimizerArtifactKind, PlanExecutor, PlanStep, PlanStepKind, ProgramError,
+    ProgramModality, ProgramRevision, TrainingCorpus, TrainingExample, MAX_OPTIMIZER_ARTIFACTS,
+    PROGRAM_SCHEMA_VERSION,
 };
 
 pub const MAX_CANDIDATES: usize = 128;
@@ -184,13 +185,13 @@ impl OptimizationBudget {
     /// Every count/limit field is within its `MAX_*` ceiling (and the two
     /// "must be at least 1" fields are non-zero).
     fn bounds_ok(&self) -> bool {
-        !(self.max_candidates == 0
-            || self.max_candidates > MAX_CANDIDATES
-            || self.max_demonstrations == 0
-            || self.max_demonstrations > MAX_DEMONSTRATIONS
-            || self.max_model_calls > MAX_MODEL_CALLS
-            || self.max_evaluator_calls > MAX_EVALUATOR_CALLS
-            || self.max_training_steps > MAX_TRAINING_STEPS)
+        self.max_candidates != 0
+            && self.max_candidates <= MAX_CANDIDATES
+            && self.max_demonstrations != 0
+            && self.max_demonstrations <= MAX_DEMONSTRATIONS
+            && self.max_model_calls <= MAX_MODEL_CALLS
+            && self.max_evaluator_calls <= MAX_EVALUATOR_CALLS
+            && self.max_training_steps <= MAX_TRAINING_STEPS
     }
 
     /// The `max_model_calls`/`max_training_steps` shape required by the optimizer's
@@ -611,9 +612,9 @@ fn maybe_add_ensemble_candidate(
     artifact_modalities: &BTreeMap<OpaqueRef, BTreeSet<ProgramModality>>,
     evaluations: &BTreeMap<&str, &EvaluationSummary>,
 ) -> Result<(), ProgramError> {
-    if !(request.optimizer == OptimizerKind::Ensemble
-        && ensemble_artifacts(request).len() < 2
-        && candidates.len() >= 2)
+    if request.optimizer != OptimizerKind::Ensemble
+        || ensemble_artifacts(request).len() >= 2
+        || candidates.len() < 2
     {
         return Ok(());
     }
@@ -1504,26 +1505,6 @@ fn candidate_digest(request: &OptimizationRequest, spec: &CandidateSpec) -> Stri
         spec.model_profile_ref.as_ref(),
     );
     hex::encode(digest.finalize())
-}
-
-fn digest_ref_list(digest: &mut Sha256, label: &[u8], references: &[OpaqueRef]) {
-    digest.update((label.len() as u64).to_le_bytes());
-    digest.update(label);
-    digest.update((references.len() as u64).to_le_bytes());
-    for reference in references {
-        digest.update((reference.as_str().len() as u64).to_le_bytes());
-        digest.update(reference.as_str().as_bytes());
-    }
-}
-
-fn digest_optional_ref(digest: &mut Sha256, label: &[u8], reference: Option<&OpaqueRef>) {
-    digest.update((label.len() as u64).to_le_bytes());
-    digest.update(label);
-    digest.update([u8::from(reference.is_some())]);
-    if let Some(reference) = reference {
-        digest.update((reference.as_str().len() as u64).to_le_bytes());
-        digest.update(reference.as_str().as_bytes());
-    }
 }
 
 fn promotable(request: &OptimizationRequest, candidate: &ProgramCandidate) -> bool {

@@ -3,24 +3,77 @@
 //! The authoritative MutationBatch outbox is the scheduling input; its digest-only
 //! lease resolves the canonical operation/state record from the same authority.
 //! Each lease is applied idempotently, the compact projection is atomically
-//! snapshotted, and only then is it acknowledged with its durable cursor.
+//! snapshotted, and only then is it acknowledged.
+//!
+//! The acknowledgement IS the cursor advance. The mutation kernel marks the
+//! delivery row delivered and writes the `(scope, consumer)` watermark in one
+//! transaction, so this worker never acknowledges and then separately advances or
+//! re-reads a watermark: a crash between those two steps is not representable,
+//! and the advanced cursor comes back from the acknowledgement itself.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use eg_epistemic::{
-    IncrementalDelta, IncrementalReasoningIndex, ProjectionPosition, ReasoningProjectionWakeup,
-};
-use eg_types::mutation_batch::{CommittedVersion, MutationBatchStatus, MutationOutboxLease};
+use eg_epistemic::IncrementalReasoningIndex;
 use sha2::{Digest, Sha256};
 use tokio::sync::RwLock;
 
 use crate::server::state::ServerState;
 
+// The outbox-tailing half of this module. The durable outbox -- its leases, its
+// claim budget and its projection cursors -- is a mutation-kernel ledger only the
+// redb authority holds, so the `PersistenceBackend` methods that carry it are
+// gated on `redb` and so is every item here that calls them. The reader half
+// (`read_index`, `materialization_status`, `stale_materializations`,
+// `recompute_materialization`) serves from the on-disk projection and is not.
+
+#[cfg(any(feature = "redb", test))]
+use eg_epistemic::ProjectionPosition;
+#[cfg(feature = "redb")]
+use eg_epistemic::{IncrementalDelta, ReasoningProjectionWakeup};
+#[cfg(feature = "redb")]
+use eg_transaction::OutboxClaimBudget;
+#[cfg(feature = "redb")]
+use eg_types::mutation_batch::{
+    CommittedVersion, MutationBatchStatus, MutationOutboxLease, MutationProjectionCursor,
+};
+#[cfg(feature = "redb")]
+use std::collections::HashSet;
+#[cfg(feature = "redb")]
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// The one durable name this worker has on every graph's ledger.
+///
+/// The retired shard ledger carried two: a `projection` for its
+/// `(projection, tenant, graph)` cursor key and a `consumer` for its
+/// `(batch, ordinal, consumer)` lease key. Under one scope key both are
+/// `(scope, consumer)`, and the lease the kernel hands back carries this exact
+/// string, so an acknowledgement could not name a different one even if the
+/// second constant had survived.
+#[cfg(feature = "redb")]
 const CONSUMER: &str = "reasoning-projection-v1";
-const PROJECTION: &str = "epistemic-causal-materialized-v1";
+
+/// The topic this worker is durably subscribed to.
+///
+/// Every batch `mutation_batch::compile` builds carries exactly one
+/// `engine.projection.rebuild` outbox intent, so this subscription is the whole
+/// committed stream rather than a slice of it -- and it is where the filtering
+/// the retired path did after claiming now happens, one index scan earlier.
+#[cfg(feature = "redb")]
+const TOPIC: &str = "engine.projection.rebuild";
+
+/// Rows one sweep may claim across every graph it visits.
+///
+/// A quarter of it -- the budget's consecutive-claim cap -- is 64, which is
+/// exactly the per-graph limit the retired shard claim took.
+#[cfg(feature = "redb")]
+const CLAIM_SWEEP_LIMIT: u32 = 256;
+
+/// How long a claimed row stays leased to this worker.
+#[cfg(feature = "redb")]
+const CLAIM_LEASE_MS: u64 = 30_000;
+
 const MAX_PROJECTION_SNAPSHOT_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_PROJECTION_SNAPSHOT_ITEMS: usize = 4_000_000;
 const MAX_PROJECTION_SNAPSHOT_DEPTH: usize = 64;
@@ -127,18 +180,27 @@ where
     .map_err(|_| "reasoning projection persistence task failed".to_string())?
 }
 
-/// Start the singleton projection loop after graph recovery.  A backend without
-/// durable outbox leases is left untouched; authoritative redb implements them.
+/// Start the singleton projection loop after graph recovery.
+///
+/// A build without the redb authority has no durable outbox to tail at all --
+/// the leases and the projection cursors are mutation-kernel ledger rows -- so
+/// there is no loop to start. The projection reader below still serves whatever
+/// is on disk.
 pub fn spawn(state: Arc<RwLock<ServerState>>) {
+    #[cfg(feature = "redb")]
     tokio::spawn(projection_loop(state));
+    #[cfg(not(feature = "redb"))]
+    drop(state);
 }
 
+#[cfg(feature = "redb")]
 struct ProjectionContext {
     persistence: Arc<dyn crate::server::persistence::PersistenceBackend>,
     persist_dir: Option<String>,
     graphs: Vec<(String, Arc<eg_core::graph::GraphCore>)>,
 }
 
+#[cfg(feature = "redb")]
 async fn projection_loop(state: Arc<RwLock<ServerState>>) {
     loop {
         let Some(context) = projection_context(&state).await else {
@@ -152,6 +214,7 @@ async fn projection_loop(state: Arc<RwLock<ServerState>>) {
     }
 }
 
+#[cfg(feature = "redb")]
 async fn projection_context(state: &Arc<RwLock<ServerState>>) -> Option<ProjectionContext> {
     let state = state.read().await;
     let persistence = state.persistence.clone();
@@ -170,20 +233,84 @@ async fn projection_context(state: &Arc<RwLock<ServerState>>) -> Option<Projecti
     })
 }
 
+/// One sweep over every registered graph, under ONE claim budget.
+///
+/// The budget is the sweep's value, not the call's. A claim is bound to exactly
+/// one serving scope by construction, so DESIGN.md's per-tenant weighted round
+/// robin and its consecutive-claim cap only mean anything across the scopes a
+/// sweep visits; rebuilding the budget per graph would cap nothing and the whole
+/// fairness rule would be inert. It is rebuilt per SWEEP rather than kept alive
+/// across sweeps because it carries the `now_ms` every lease deadline is measured
+/// from, and a stale one would hand out leases that are already expired.
+#[cfg(feature = "redb")]
 async fn process_graphs(context: &ProjectionContext) -> bool {
+    let Ok(mut budget) =
+        OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, current_time_ms())
+    else {
+        return false;
+    };
     let mut progressed = false;
     for (graph, core) in &context.graphs {
-        if process_graph(context, graph, core).await {
+        // Reuse one budget for the whole sweep. All graph-shard scopes share
+        // the reserved ledger tenant, so the budget never observes cross-tenant
+        // contention here; its remaining count still bounds total work across
+        // every graph without a per-graph reset that could exceed the sweep.
+        if process_graph(context, graph, core, &mut budget).await {
             progressed = true;
         }
     }
     progressed
 }
 
+/// Graphs whose durable outbox subscription this process has established.
+///
+/// The subscription itself is the durable fact; this only keeps the worker from
+/// opening a write transaction per graph on every poll to re-assert something it
+/// already proved. It is deliberately process-local, so an empty memo after a
+/// restart costs one idempotent re-subscribe and can never mean a missing
+/// subscription.
+#[cfg(feature = "redb")]
+fn subscribed_graphs() -> &'static RwLock<HashSet<String>> {
+    static SUBSCRIBED: OnceLock<RwLock<HashSet<String>>> = OnceLock::new();
+    SUBSCRIBED.get_or_init(|| RwLock::new(HashSet::new()))
+}
+
+/// Establish this worker's durable subscription on one graph, once.
+///
+/// A subscription is a real precondition of a claim, not a formality: the kernel
+/// refuses to claim for a consumer that has none, and the subscription is what
+/// bounds the ordered stream the watermark names. It is asserted here, at the
+/// worker's startup on a graph, rather than recovered from a failed claim --
+/// a claim that quietly subscribed itself could widen a live projection's stream
+/// without anyone having decided to.
+#[cfg(feature = "redb")]
+async fn ensure_subscription(
+    persistence: &Arc<dyn crate::server::persistence::PersistenceBackend>,
+    graph_fname: &str,
+) -> bool {
+    if subscribed_graphs().read().await.contains(graph_fname) {
+        return true;
+    }
+    if persistence
+        .subscribe_mutation_outbox(graph_fname, CONSUMER, TOPIC)
+        .await
+        .is_err()
+    {
+        return false;
+    }
+    subscribed_graphs()
+        .write()
+        .await
+        .insert(graph_fname.to_string());
+    true
+}
+
+#[cfg(feature = "redb")]
 async fn process_graph(
     context: &ProjectionContext,
     graph: &str,
     core: &Arc<eg_core::graph::GraphCore>,
+    budget: &mut OutboxClaimBudget,
 ) -> bool {
     let graph_fname = crate::persist::sanitize(graph);
     if !initialize_index(
@@ -195,24 +322,63 @@ async fn process_graph(
     {
         return false;
     }
-    let leases = match context
+    if !ensure_subscription(&context.persistence, &graph_fname).await {
+        return false;
+    }
+    // A deferred outcome is the queue's own backpressure: a full in-flight set,
+    // a spent allowance or an incomplete index backfill claims nothing and
+    // leaves every durable intention pending. An empty non-deferred outcome is
+    // an idle queue. Neither is projection progress.
+    let outcome = match context
         .persistence
-        .claim_mutation_outbox(&graph_fname, CONSUMER, current_time_ms(), 30_000, 64)
+        .claim_mutation_outbox(&graph_fname, CONSUMER, budget)
         .await
     {
-        Ok(leases) => leases,
-        Err(_) => return false,
+        Ok(outcome) => outcome,
+        Err(error) => {
+            // A graph purge retires the durable consumer and cursor together,
+            // but this process-local memo and the derived snapshot live outside
+            // that transaction.  The exact missing-subscription refusal is the
+            // durable proof that a cached name no longer names the incarnation
+            // we subscribed to.  Drop both aliases and defer: the next sweep
+            // rebuilds from the current GraphCore before re-subscribing.  Other
+            // claim errors must never discard a valid projection image.
+            if error == "outbox consumer has no durable subscription"
+                && reset_retired_projection(context.persist_dir.clone(), graph_fname.clone()).await
+            {
+                subscribed_graphs().write().await.remove(&graph_fname);
+            }
+            return false;
+        }
     };
+    if outcome.is_deferred() {
+        return false;
+    }
     process_leases(
         &context.persistence,
         context.persist_dir.clone(),
         &graph_fname,
         core.clone(),
-        leases,
+        outcome.claims,
     )
     .await
 }
 
+/// Remove the name-keyed derived image after the durable ledger proves that
+/// this process's cached subscription belongs to a retired graph incarnation.
+///
+/// The projection is rebuildable from the current authoritative `GraphCore`.
+/// Failure leaves the memo in place so the next sweep repeats the exact
+/// missing-subscription recovery instead of subscribing while a retired image
+/// could still shadow the recreated graph.
+#[cfg(feature = "redb")]
+async fn reset_retired_projection(persist_dir: Option<String>, graph_fname: String) -> bool {
+    run_projection_job(move || remove_projection_snapshot(persist_dir.as_deref(), &graph_fname))
+        .await
+        .is_ok()
+}
+
+#[cfg(feature = "redb")]
 async fn initialize_index(
     persist_dir: Option<String>,
     graph_fname: String,
@@ -242,6 +408,7 @@ async fn initialize_index(
     }
 }
 
+#[cfg(feature = "redb")]
 async fn process_leases(
     persistence: &Arc<dyn crate::server::persistence::PersistenceBackend>,
     persist_dir: Option<String>,
@@ -249,85 +416,99 @@ async fn process_leases(
     core: Arc<eg_core::graph::GraphCore>,
     leases: Vec<MutationOutboxLease>,
 ) -> bool {
+    // The durable watermark is the restart/reconciliation boundary, and it is
+    // read ONCE per poll rather than once per lease: after the first
+    // acknowledgement the watermark is exactly the cursor that acknowledgement
+    // returned, written in the same transaction that marked the row delivered.
+    // The retired ledger had to acknowledge and then advance separately, so
+    // re-reading between the two was the only way to see the gap; there is no
+    // longer a gap to see.
+    let Ok(mut watermark) = persistence
+        .read_mutation_projection_cursor(graph_fname, CONSUMER)
+        .await
+    else {
+        return false;
+    };
     let mut progressed = false;
     for lease in leases {
-        if !process_lease(
+        let Some(advanced) = process_lease(
             persistence,
             persist_dir.clone(),
             graph_fname,
             core.clone(),
             &lease,
+            watermark.as_ref(),
         )
         .await
-        {
+        else {
             break;
-        }
+        };
+        watermark = Some(advanced);
         progressed = true;
     }
     progressed
 }
 
+/// Apply one leased event and acknowledge it, returning the watermark the
+/// acknowledgement advanced to, or `None` if the worker must stop on this graph.
+#[cfg(feature = "redb")]
 async fn process_lease(
     persistence: &Arc<dyn crate::server::persistence::PersistenceBackend>,
     persist_dir: Option<String>,
     graph_fname: &str,
     core: Arc<eg_core::graph::GraphCore>,
     lease: &MutationOutboxLease,
-) -> bool {
-    // Reading the cursor is an explicit restart/reconciliation boundary. A
-    // sidecar may be one event AHEAD after a crash between snapshot and ack;
-    // exact-position apply is idempotent.
-    if persistence
-        .read_mutation_projection_cursor(
-            graph_fname,
-            PROJECTION,
-            lease.record.identity.tenant().as_str(),
-        )
-        .await
-        .is_err()
-    {
-        return false;
-    }
+    watermark: Option<&MutationProjectionCursor>,
+) -> Option<MutationProjectionCursor> {
     // Projection wake-ups contain only domain-separated identities and closed
     // categorical tags. Bind them to the authoritative operation digest before
     // allowing the side index to advance.
-    let wakeup = match resolve_projection_wakeup(persistence, graph_fname, lease).await {
-        Ok(wakeup) => wakeup,
-        Err(()) => return false,
-    };
-    let Some((newly_stale, stale_count)) = apply_lease_and_publish(
+    let wakeup = resolve_projection_wakeup(persistence, graph_fname, lease)
+        .await
+        .ok()?;
+    let (newly_stale, stale_count) = apply_lease_and_publish(
         persist_dir,
         graph_fname.to_string(),
         core,
         lease.clone(),
         wakeup,
+        watermark.cloned(),
     )
-    .await
-    else {
-        return false;
-    };
+    .await?;
     crate::metrics::epistemic_materializations_staled(newly_stale as u64);
     crate::metrics::set_epistemic_materializations_stale(stale_count as i64);
-    if persistence
-        .ack_mutation_outbox(graph_fname, lease, PROJECTION, current_time_ms())
+    // The acknowledgement IS the cursor advance: the kernel marks the delivery
+    // row delivered and writes the `(scope, consumer)` watermark in ONE admitted
+    // transaction. A crash between the two is not representable, so there is no
+    // second call to make and no watermark left to re-read -- the advanced
+    // cursor is the return value.
+    match persistence
+        .ack_mutation_outbox(graph_fname, lease, current_time_ms())
         .await
-        .is_err()
     {
-        // Do not apply later leased rows after an ordering gap. The sidecar is
-        // at most one event ahead; exact-position replay is harmless after this
-        // lease expires.
-        return false;
+        Ok(advanced) => Some(advanced),
+        // Do not apply later leased rows after an ordering gap
+        // (`OUTBOX_ORDER_GAP`) or a lost lease (`STALE_OUTBOX_LEASE`). The lease
+        // is deliberately NOT released: its expiry is this worker's backoff,
+        // where `outbox_release` would re-offer the row on the next poll and
+        // turn a persistent failure into a hot retry loop. The sidecar is at
+        // most one event ahead; exact-position replay is harmless.
+        Err(_) => None,
     }
-    true
 }
 
+#[cfg(feature = "redb")]
 async fn resolve_projection_wakeup(
     persistence: &Arc<dyn crate::server::persistence::PersistenceBackend>,
     graph_fname: &str,
     lease: &MutationOutboxLease,
-) -> Result<Option<ReasoningProjectionWakeup>, ()> {
-    if lease.record.intent.topic != "engine.projection.rebuild" {
-        return Ok(None);
+) -> Result<ReasoningProjectionWakeup, ()> {
+    // The durable subscription bounds every claim to exactly one topic, so a
+    // foreign topic here is a corrupt ledger rather than a row to skip. The
+    // retired path had to filter after claiming and advanced its cursor over
+    // whatever it skipped, which is why it needed a "no wake-up" apply at all.
+    if lease.record.intent.topic != TOPIC {
+        return Err(());
     }
     let record = persistence
         .read_mutation_batch(graph_fname, &lease.record.batch_id)
@@ -341,9 +522,10 @@ async fn resolve_projection_wakeup(
     )
     .map_err(|_| ())?;
     validate_projection_wakeup(&wakeup, &record.batch)?;
-    Ok(Some(wakeup))
+    Ok(wakeup)
 }
 
+#[cfg(feature = "redb")]
 fn validate_projection_wakeup(
     wakeup: &ReasoningProjectionWakeup,
     batch: &eg_types::mutation_batch::MutationBatch,
@@ -358,17 +540,20 @@ fn validate_projection_wakeup(
     Ok(())
 }
 
+#[cfg(feature = "redb")]
 async fn apply_lease_and_publish(
     persist_dir: Option<String>,
     graph_fname: String,
     core: Arc<eg_core::graph::GraphCore>,
     lease: MutationOutboxLease,
-    wakeup: Option<ReasoningProjectionWakeup>,
+    wakeup: ReasoningProjectionWakeup,
+    watermark: Option<MutationProjectionCursor>,
 ) -> Option<(usize, usize)> {
     match run_projection_job(move || {
         let mut index = load_index(persist_dir.as_deref(), &graph_fname)?
             .ok_or_else(|| "reasoning projection is not initialized".to_string())?;
-        let delta = apply_lease(&mut index, &core, &lease, wakeup.as_ref())?;
+        require_snapshot_not_behind_watermark(&index, watermark.as_ref())?;
+        let delta = apply_lease(&mut index, &core, &lease, &wakeup)?;
         persist_index(persist_dir.as_deref(), &graph_fname, &index)?;
         Ok((
             delta.newly_stale.len(),
@@ -385,28 +570,59 @@ async fn apply_lease_and_publish(
     }
 }
 
+/// Refuse to advance a snapshot the durable watermark has already passed.
+///
+/// The healthy order is snapshot-then-acknowledge, so an applied projection is
+/// equal to or one event AHEAD of the ledger watermark, and re-applying an exact
+/// position is idempotent. The converse -- an applied projection BEHIND the
+/// watermark -- says the ledger already recorded events this image does not
+/// contain, which no crash window between the two can produce and a restored
+/// stale snapshot can. It is the direction that silently loses reasoning state,
+/// so it fails closed for operator repair rather than being replayed over.
+///
+/// An index with no position at all is exempt: that is `initialize_index`'s
+/// deliberate full rebuild from the live graph after the image went missing, not
+/// a stale image, and it is complete as of a version no watermark can predate.
+#[cfg(feature = "redb")]
+fn require_snapshot_not_behind_watermark(
+    index: &IncrementalReasoningIndex,
+    watermark: Option<&MutationProjectionCursor>,
+) -> Result<(), String> {
+    let (Some(watermark), Some(position)) = (watermark, index.position.as_ref()) else {
+        return Ok(());
+    };
+    let CommittedVersion::Graph { target, .. } = watermark.committed_version else {
+        return Err("reasoning projection watermark is not graph-authoritative".to_string());
+    };
+    if position.source_graph_version < target {
+        return Err(
+            "reasoning projection snapshot is behind its durable projection cursor".to_string(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(feature = "redb")]
 fn apply_lease(
     index: &mut IncrementalReasoningIndex,
     core: &eg_core::graph::GraphCore,
     lease: &MutationOutboxLease,
-    wakeup: Option<&ReasoningProjectionWakeup>,
+    wakeup: &ReasoningProjectionWakeup,
 ) -> Result<IncrementalDelta, String> {
     // Fails closed on any non-`Graph` committed version (`Native` or `None`),
     // matching the original `version_scope != Graph` guard exactly while also
-    // extracting the source version it authorizes below.
-    let CommittedVersion::Graph { source, .. } = lease.record.committed_version else {
+    // extracting the committed image version it authorizes below.
+    let CommittedVersion::Graph { target, .. } = lease.record.committed_version else {
         return Err("reasoning projection requires a graph-authoritative event".to_string());
     };
     let position = ProjectionPosition {
         batch_id: lease.record.batch_id.clone(),
         ordinal: lease.record.ordinal,
-        source_graph_version: source,
+        // The projection describes the source graph AFTER this commit.
+        // Its first valid position is target 1, not the bootstrap source 0.
+        source_graph_version: target,
     };
-    if let Some(wakeup) = wakeup {
-        index.apply_wakeup(position, wakeup, &core.analysis_snapshot())
-    } else {
-        index.apply_batch(position, &[])
-    }
+    index.apply_wakeup(position, wakeup, &core.analysis_snapshot())
 }
 
 fn snapshot_path(persist_dir: Option<&str>, graph_fname: &str) -> Option<PathBuf> {
@@ -432,6 +648,30 @@ fn load_index(
             MAX_PROJECTION_SNAPSHOT_DEPTH,
         ),
     )
+}
+
+fn remove_projection_snapshot(persist_dir: Option<&str>, graph_fname: &str) -> Result<(), String> {
+    let Some(path) = snapshot_path(persist_dir, graph_fname) else {
+        return Ok(());
+    };
+    let Some(file) = open_snapshot_file(persist_dir, &path)? else {
+        return Ok(());
+    };
+    drop(file);
+    std::fs::remove_file(&path)
+        .map_err(|_| "reasoning projection snapshot could not be retired".to_string())?;
+    #[cfg(not(windows))]
+    {
+        let parent = path
+            .parent()
+            .ok_or_else(|| "reasoning projection snapshot path is invalid".to_string())?;
+        std::fs::File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| {
+                "reasoning projection snapshot directory could not be persisted".to_string()
+            })?;
+    }
+    Ok(())
 }
 
 fn load_index_with_limits(
@@ -881,6 +1121,7 @@ fn replace_snapshot(temporary: &Path, path: &Path) -> std::io::Result<()> {
     }
 }
 
+#[cfg(feature = "redb")]
 fn current_time_ms() -> u64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => duration.as_millis() as u64,
@@ -895,6 +1136,9 @@ mod tests {
 
     use eg_epistemic::ProjectedMaterializationStatus;
     use eg_types::protocol::Method;
+
+    #[cfg(feature = "redb")]
+    use crate::server::persistence::PersistenceBackend;
 
     use super::*;
 
@@ -1231,6 +1475,59 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// The projection cursor is no longer a watermark this worker re-reads after
+    /// acknowledging -- the acknowledgement returns it -- so the one thing the
+    /// pre-read still decides is whether the on-disk image may be advanced at
+    /// all. Shape only: which positions are behind, not any queue threshold.
+    #[cfg(feature = "redb")]
+    #[test]
+    fn an_image_behind_its_durable_cursor_refuses_to_advance() {
+        fn watermark(target: u64) -> MutationProjectionCursor {
+            MutationProjectionCursor {
+                schema_version: eg_types::mutation_batch::MUTATION_BATCH_VERSION,
+                projection: CONSUMER.to_string(),
+                identity: eg_types::mutation_batch::MutationScopeIdentity::fixed_graph(
+                    "graph-shard",
+                    "graph",
+                    "incarnation",
+                )
+                .unwrap(),
+                batch_id: "acked".to_string(),
+                outbox_ordinal: 0,
+                committed_version: CommittedVersion::Graph {
+                    source: target - 1,
+                    target,
+                },
+                advanced_at_ms: 1,
+            }
+        }
+
+        // `stale_index` last applied source version 2.
+        let index = stale_index();
+        assert!(require_snapshot_not_behind_watermark(&index, None).is_ok());
+        assert!(require_snapshot_not_behind_watermark(&index, Some(&watermark(2))).is_ok());
+        assert!(require_snapshot_not_behind_watermark(&index, Some(&watermark(1))).is_ok());
+        let error = require_snapshot_not_behind_watermark(&index, Some(&watermark(3))).unwrap_err();
+        assert!(error.contains("behind its durable projection cursor"));
+
+        // A rebuilt-from-graph image carries no position: it is a deliberate
+        // full rebuild, not a stale image, so no watermark can be ahead of it.
+        let rebuilt = IncrementalReasoningIndex::default();
+        assert!(rebuilt.position.is_none());
+        assert!(require_snapshot_not_behind_watermark(&rebuilt, Some(&watermark(3))).is_ok());
+
+        // A non-graph watermark is refused for the same reason `apply_lease`
+        // refuses a non-graph event: there is no graph version to compare.
+        let mut native = watermark(3);
+        native.committed_version = CommittedVersion::Native {
+            source: 3,
+            target: 4,
+        };
+        assert!(require_snapshot_not_behind_watermark(&index, Some(&native))
+            .unwrap_err()
+            .contains("not graph-authoritative"));
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn recompute_is_version_fenced_and_durable() {
         let root = test_root();
@@ -1263,6 +1560,416 @@ mod tests {
                 .status_of("derived"),
             Some(ProjectedMaterializationStatus::Fresh)
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(feature = "redb")]
+    struct DeferredProjectionBackend {
+        claim_calls: AtomicU64,
+        ack_calls: AtomicU64,
+        deferred_reason: StdMutex<Option<eg_transaction::OutboxDeferral>>,
+    }
+
+    #[cfg(feature = "redb")]
+    impl DeferredProjectionBackend {
+        fn new() -> Self {
+            Self {
+                claim_calls: AtomicU64::new(0),
+                ack_calls: AtomicU64::new(0),
+                deferred_reason: StdMutex::new(None),
+            }
+        }
+    }
+
+    #[cfg(feature = "redb")]
+    #[async_trait::async_trait]
+    impl crate::server::persistence::PersistenceBackend for DeferredProjectionBackend {
+        async fn load_all(
+            &self,
+            _state: &Arc<RwLock<crate::server::state::ServerState>>,
+        ) -> Result<usize, String> {
+            Ok(0)
+        }
+
+        async fn record_durable(&self, _graph_fname: &str, _method: &Method) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn subscribe_mutation_outbox(
+            &self,
+            _graph_fname: &str,
+            _consumer: &str,
+            _topic: &str,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn claim_mutation_outbox(
+            &self,
+            _graph_fname: &str,
+            _consumer: &str,
+            _budget: &mut eg_transaction::OutboxClaimBudget,
+        ) -> Result<eg_transaction::OutboxClaimOutcome, String> {
+            self.claim_calls.fetch_add(1, Ordering::Relaxed);
+            *self.deferred_reason.lock().unwrap() =
+                Some(eg_transaction::OutboxDeferral::BudgetSpent);
+            Ok(eg_transaction::OutboxClaimOutcome {
+                claims: Vec::new(),
+                deferred: Some(eg_transaction::OutboxDeferral::BudgetSpent),
+                more_available: true,
+            })
+        }
+
+        async fn ack_mutation_outbox(
+            &self,
+            _graph_fname: &str,
+            _lease: &eg_types::mutation_batch::MutationOutboxLease,
+            _now_ms: u64,
+        ) -> Result<eg_types::mutation_batch::MutationProjectionCursor, String> {
+            self.ack_calls.fetch_add(1, Ordering::Relaxed);
+            Err("deferred projection must not acknowledge a lease".to_string())
+        }
+
+        fn shutdown(&self) {}
+    }
+
+    #[cfg(feature = "redb")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn process_graph_treats_budget_deferred_as_no_progress_without_ack() {
+        let root = test_root();
+        let root_str = root.to_string_lossy().to_string();
+        let graph = format!("deferred-budget-{}", std::process::id());
+        let backend = Arc::new(DeferredProjectionBackend::new());
+        let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> = backend.clone();
+        let core = Arc::new(eg_core::graph::GraphCore::new());
+        let context = ProjectionContext {
+            persistence,
+            persist_dir: Some(root_str.clone()),
+            graphs: vec![(graph.clone(), core.clone())],
+        };
+        let mut budget =
+            eg_transaction::OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, 1).unwrap();
+
+        assert!(!process_graph(&context, &graph, &core, &mut budget).await);
+        assert_eq!(backend.claim_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(backend.ack_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            *backend.deferred_reason.lock().unwrap(),
+            Some(eg_transaction::OutboxDeferral::BudgetSpent)
+        );
+        assert!(load_index(Some(&root_str), &graph).unwrap().is_some());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(feature = "redb")]
+    fn projection_budget_batch(graph: &str, row: u64) -> eg_types::mutation_batch::MutationBatch {
+        projection_batch(graph, row, format!("projection-budget-{graph}-{row}"))
+    }
+
+    #[cfg(feature = "redb")]
+    fn projection_batch(
+        graph: &str,
+        row: u64,
+        batch_id: String,
+    ) -> eg_types::mutation_batch::MutationBatch {
+        use std::collections::BTreeMap;
+
+        use crate::server::mutation_batch::ENGINE_LEDGER_PRINCIPAL;
+        use eg_types::contract::{Digest256, MethodId, Nonce};
+        use eg_types::mutation_batch::{
+            CompiledOperation, CompiledScope, DurabilityDomain, MutationBatch, MutationEnvelope,
+            MutationOperation, MutationOutboxIntent, MutationSurface, VersionExpectation,
+            BATCH_COMPILED_METHODS, MUTATION_BATCH_VERSION,
+        };
+
+        // A CALLER identity. `shard::graph_scope_identity` builds the
+        // POST-binding shard scope `(GRAPH_SHARD_TENANT, graph, incarnation)`,
+        // and submitting that to `shard::bind_caller_batch` -- whose contract is
+        // to bind a caller batch ONTO that scope -- is refused with
+        // "'__shard__' is the graph shard's reserved scope tenant and cannot be
+        // a caller tenant". Same fix as
+        // `resource_reservation_tests::resource_batch` and
+        // `work_item_capability`.
+        let identity = eg_types::mutation_batch::MutationScopeIdentity::graph(
+            eg_types::mutation_batch::ScopeTenantId::new("tenant-a").expect("valid caller tenant"),
+            eg_types::mutation_batch::LogicalName::new(graph).expect("valid graph name"),
+            eg_types::mutation_batch::IncarnationId::new("incarnation:test:reasoning-projection")
+                .expect("valid incarnation"),
+        );
+        let actor = crate::server::mutation_batch::principal_fingerprint(
+            "reasoning-projection-budget-test",
+        )
+        .expect("test actor fingerprint");
+        let method = MethodId::new(BATCH_COMPILED_METHODS).expect("compiled batch method id");
+        let operation = MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Graph,
+            domain: DurabilityDomain::GraphRows,
+            method: Method::AddNode {
+                node_id: format!("projection-budget-node-{row}"),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+            },
+        };
+        let payload = crate::redb_store::projection_payload_for_operations(&[operation.clone()])
+            .expect("projection wake-up payload");
+        let schema_digest = Digest256::from_bytes([1_u8; 32]);
+        let scope_sha256 = identity.identity_digest().to_hex();
+        let mut batch = MutationBatch {
+            schema_version: MUTATION_BATCH_VERSION,
+            batch_id: batch_id.clone(),
+            envelope: MutationEnvelope::for_scope(
+                CompiledScope {
+                    identity: &identity,
+                    actor: &actor,
+                    serving_principal: ENGINE_LEDGER_PRINCIPAL,
+                    request_id: row + 1,
+                    idempotency_key: &batch_id,
+                    nonce: Nonce::from_bytes([row as u8; 32]),
+                    now_ms: row + 1,
+                },
+                CompiledOperation {
+                    method: method.clone(),
+                    method_schema_id: eg_types::mutation_batch::method_schema_id(&method)
+                        .expect("compiled batch schema id"),
+                    method_schema_digest: schema_digest,
+                    canonical_payload_digest: Digest256::from_bytes([2_u8; 32]),
+                },
+            )
+            .expect("test batch envelope"),
+            identity,
+            placement_epoch: 0,
+            version_expectation: VersionExpectation::Graph(row),
+            fencing_token: None,
+            authoritative_state: None,
+            operations: vec![operation],
+            outbox: vec![MutationOutboxIntent {
+                topic: TOPIC.to_string(),
+                key: batch_id.clone(),
+                payload,
+                headers: BTreeMap::from([
+                    ("actor".to_string(), actor),
+                    ("scope_sha256".to_string(), scope_sha256),
+                ]),
+            }],
+            created_at_ms: row + 1,
+        };
+        batch
+            .reseal_envelope(schema_digest)
+            .expect("test batch envelope reseal");
+        batch.validate().expect("test batch validates");
+        batch
+    }
+
+    #[cfg(feature = "redb")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn delete_recreate_rebuilds_subscription_and_projection_before_ack() {
+        use crate::server::persistence::redb_backend::RedbBackend;
+
+        let root = test_root();
+        let root_str = root.to_string_lossy().to_string();
+        let graph = format!("projection-recreate-{}", std::process::id());
+        let graph_fname = crate::persist::sanitize(&graph);
+        subscribed_graphs().write().await.remove(&graph_fname);
+
+        let backend = Arc::new(
+            RedbBackend::open_with_shards(root_str.clone(), 256, 1)
+                .expect("open projection recreate backend"),
+        );
+        let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> = backend.clone();
+        let retired_batch =
+            projection_batch(&graph_fname, 0, format!("projection-retired-{graph_fname}"));
+        persistence
+            .commit_mutation_batch(&graph_fname, &retired_batch, None, 1)
+            .await
+            .expect("commit retired-incarnation projection event");
+        let retired_core = Arc::new(eg_core::graph::GraphCore::new());
+        retired_core.add_node("retired-derived".to_string(), derived_properties());
+        let retired_context = ProjectionContext {
+            persistence: persistence.clone(),
+            persist_dir: Some(root_str.clone()),
+            graphs: vec![(graph.clone(), retired_core.clone())],
+        };
+        let mut retired_budget =
+            OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, current_time_ms()).unwrap();
+        assert!(process_graph(&retired_context, &graph, &retired_core, &mut retired_budget).await);
+        let first_image = read_index(Some(&root_str), &graph).await.unwrap();
+        assert_eq!(
+            first_image.position.as_ref().unwrap().source_graph_version,
+            1
+        );
+        // Re-polling an acknowledged first commit cannot advance or replace
+        // its durable projection image.
+        assert!(!process_graph(&retired_context, &graph, &retired_core, &mut retired_budget).await);
+        assert_eq!(
+            read_index(Some(&root_str), &graph).await.unwrap(),
+            first_image
+        );
+        assert!(subscribed_graphs().read().await.contains(&graph_fname));
+        assert_eq!(
+            persistence
+                .read_mutation_projection_cursor(&graph_fname, CONSUMER)
+                .await
+                .unwrap()
+                .unwrap()
+                .batch_id,
+            retired_batch.batch_id
+        );
+
+        persistence
+            .purge_graph(&graph_fname)
+            .await
+            .expect("purge retired graph incarnation");
+        assert!(persistence
+            .read_mutation_projection_cursor(&graph_fname, CONSUMER)
+            .await
+            .unwrap()
+            .is_none());
+
+        let recreated_batch = projection_batch(
+            &graph_fname,
+            0,
+            format!("projection-recreated-{graph_fname}"),
+        );
+        persistence
+            .commit_mutation_batch(&graph_fname, &recreated_batch, None, 2)
+            .await
+            .expect("commit recreated-incarnation projection event");
+        let recreated_core = Arc::new(eg_core::graph::GraphCore::new());
+        recreated_core.add_node("fresh-derived".to_string(), derived_properties());
+        let recreated_context = ProjectionContext {
+            persistence: persistence.clone(),
+            persist_dir: Some(root_str.clone()),
+            graphs: vec![(graph.clone(), recreated_core.clone())],
+        };
+
+        // The first poll sees the durable missing-subscription refusal. It is a
+        // failure, not an idle or deferred queue outcome: no cursor advances,
+        // and recovery retires both process-local aliases before returning.
+        let mut recovery_budget =
+            OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, current_time_ms()).unwrap();
+        assert!(
+            !process_graph(
+                &recreated_context,
+                &graph,
+                &recreated_core,
+                &mut recovery_budget
+            )
+            .await
+        );
+        assert!(!subscribed_graphs().read().await.contains(&graph_fname));
+        assert!(persistence
+            .read_mutation_projection_cursor(&graph_fname, CONSUMER)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(read_index(Some(&root_str), &graph)
+            .await
+            .unwrap_err()
+            .contains("not initialized"));
+
+        // A later sweep owns a fresh budget, rebuilds from the recreated core,
+        // re-subscribes once, and only then acknowledges the new event.
+        let mut recreated_budget =
+            OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, current_time_ms()).unwrap();
+        assert!(
+            process_graph(
+                &recreated_context,
+                &graph,
+                &recreated_core,
+                &mut recreated_budget
+            )
+            .await
+        );
+        let cursor = persistence
+            .read_mutation_projection_cursor(&graph_fname, CONSUMER)
+            .await
+            .unwrap()
+            .expect("recreated event is acknowledged");
+        assert_eq!(cursor.batch_id, recreated_batch.batch_id);
+        let rebuilt = read_index(Some(&root_str), &graph).await.unwrap();
+        assert_eq!(rebuilt.status_of("retired-derived"), None);
+        assert_eq!(
+            rebuilt.status_of("fresh-derived"),
+            Some(ProjectedMaterializationStatus::Fresh)
+        );
+
+        subscribed_graphs().write().await.remove(&graph_fname);
+        backend.shutdown();
+        drop(backend);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(feature = "redb")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn process_graphs_carries_one_claim_budget_across_graph_scopes() {
+        use crate::server::persistence::redb_backend::RedbBackend;
+
+        let root = test_root();
+        let root_str = root.to_string_lossy().to_string();
+        let graph_names: Vec<String> = (0..5)
+            .map(|index| format!("shared-budget-{}-{index}", std::process::id()))
+            .collect();
+        let backend = Arc::new(
+            RedbBackend::open_with_shards(root_str.clone(), 256, 1)
+                .expect("open projection budget backend"),
+        );
+        let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> = backend.clone();
+
+        for graph in &graph_names {
+            for row in 0..64 {
+                let batch = projection_budget_batch(graph, row);
+                persistence
+                    .commit_mutation_batch(graph, &batch, None, row + 1)
+                    .await
+                    .unwrap_or_else(|error| {
+                        panic!("commit projection budget fixture {graph}/{row}: {error}")
+                    });
+            }
+        }
+
+        let graphs = graph_names
+            .iter()
+            .map(|graph| (graph.clone(), Arc::new(eg_core::graph::GraphCore::new())))
+            .collect();
+        let context = ProjectionContext {
+            persistence: persistence.clone(),
+            persist_dir: Some(root_str.clone()),
+            graphs,
+        };
+        assert!(process_graphs(&context).await);
+
+        // Each graph admits at most the 64-row consecutive cap. Reusing the
+        // sweep budget lets exactly four graph scopes consume the 256-row
+        // allowance; a per-graph reset would incorrectly acknowledge graph 5.
+        for (index, graph) in graph_names.iter().enumerate() {
+            let cursor = persistence
+                .read_mutation_projection_cursor(graph, CONSUMER)
+                .await
+                .unwrap();
+            if index < 4 {
+                let cursor = cursor.expect("budget admitted the first four graph scopes");
+                assert_eq!(cursor.batch_id, format!("projection-budget-{graph}-63"));
+                assert_eq!(cursor.outbox_ordinal, 0);
+                let image = read_index(Some(&root_str), graph).await.unwrap();
+                assert_eq!(image.position.as_ref().unwrap().source_graph_version, 64);
+                assert!(require_snapshot_not_behind_watermark(&image, Some(&cursor)).is_ok());
+                assert_eq!(
+                    cursor.committed_version,
+                    CommittedVersion::Graph {
+                        source: 63,
+                        target: 64,
+                    }
+                );
+            } else {
+                assert!(
+                    cursor.is_none(),
+                    "a per-graph budget reset would acknowledge the fifth graph"
+                );
+            }
+        }
+
+        backend.shutdown();
+        drop(backend);
         let _ = std::fs::remove_dir_all(root);
     }
 }

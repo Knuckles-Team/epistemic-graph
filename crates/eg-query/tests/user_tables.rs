@@ -11,14 +11,16 @@
 
 use eg_core::graph::{GraphCore, GraphView};
 use eg_query::{
-    classify, exec_sql_typed_with_tables, Cell, Column, ColumnType, StatementKind, TableSchema,
-    TableStore, TypedQueryResult,
+    classify, exec_sql_typed_with_tables, Cell, Column, ColumnType, PgColType, StatementKind,
+    TableSchema, TableStore, TypedQueryResult,
 };
 // CONCEPT:EG-KG.query.table-schema-constraints/NE-001/NE-002 — table-level constraints + the new scalar types are
 // reachable via the fully-qualified `tables::schema` path (not yet added to the
 // crate's top-level re-export list in `tables/mod.rs`, a file this track does not
 // own — see the final report's "files touched outside the owned list" note).
+use eg_query::sql::parse_property_graph_ddl;
 use eg_query::tables::schema::{ArrayElemType, RefAction, TableConstraint};
+use eg_query::tables::PropertyGraphStatement;
 use serde_json::{json, Value};
 
 /// Resolve a `classify::ColumnDef` (raw type spelling) into a store `Column`.
@@ -696,6 +698,152 @@ fn catalog_fixture() -> (TableStore, GraphView) {
         "CREATE FUNCTION add_two(a int, b int) RETURNS int AS $$ SELECT a + b $$ LANGUAGE sql",
     );
     (store, view)
+}
+
+/// Extend the existing catalog fixture with one admitted SQL/PGQ graph. The
+/// graph is created through the durable TableStore API so the information_schema
+/// projection exercises the same Phase 1 record path as a served DDL.
+fn property_graph_catalog_fixture() -> (TableStore, GraphView) {
+    let (store, view) = catalog_fixture();
+    store
+        .create_table(
+            &TableSchema::new(
+                "assets",
+                vec![
+                    Column::new("asset_id", ColumnType::Text, false, true),
+                    Column::new("symbol", ColumnType::Text, true, false),
+                ],
+            ),
+            false,
+        )
+        .unwrap();
+    store
+        .create_table(
+            &TableSchema::new(
+                "links",
+                vec![
+                    Column::new("link_id", ColumnType::Text, false, true),
+                    Column::new("source_id", ColumnType::Text, true, false),
+                    Column::new("target_id", ColumnType::Text, true, false),
+                    Column::new("weight", ColumnType::Double, true, false),
+                ],
+            ),
+            false,
+        )
+        .unwrap();
+
+    let tenant = store.index_scope().to_string();
+    let definition = match parse_property_graph_ddl(
+        "CREATE PROPERTY GRAPH portfolio \
+         VERTEX TABLES (assets KEY (asset_id) LABEL asset PROPERTIES (symbol)) \
+         EDGE TABLES (links KEY (link_id) \
+           SOURCE KEY (source_id) REFERENCES assets (asset_id) \
+           DESTINATION KEY (target_id) REFERENCES assets (asset_id) \
+           LABEL connects PROPERTIES (weight))",
+        &tenant,
+    )
+    .unwrap()
+    {
+        PropertyGraphStatement::Create(definition) => definition,
+        _ => panic!("expected CREATE PROPERTY GRAPH"),
+    };
+    store
+        .create_property_graph(&tenant, &definition, "epistemic")
+        .unwrap();
+    (store, view)
+}
+
+#[test]
+fn information_schema_property_graph_views_are_empty_without_admitted_graphs() {
+    let (store, view) = catalog_fixture();
+    let graphs = run(
+        &store,
+        &view,
+        "SELECT * FROM information_schema.property_graphs",
+    )
+    .unwrap();
+    let elements = run(
+        &store,
+        &view,
+        "SELECT * FROM information_schema.pg_element_tables",
+    )
+    .unwrap();
+    assert!(graphs.rows.is_empty());
+    assert!(elements.rows.is_empty());
+}
+
+#[test]
+fn information_schema_property_graph_views_reflect_admitted_elements() {
+    let (store, view) = property_graph_catalog_fixture();
+    let graphs = run(
+        &store,
+        &view,
+        "SELECT * FROM information_schema.property_graphs",
+    )
+    .unwrap();
+    assert_eq!(
+        graphs
+            .columns
+            .iter()
+            .map(|column| (column.name.clone(), column.ty))
+            .collect::<Vec<_>>(),
+        vec![
+            ("property_graph_catalog".to_string(), PgColType::Text),
+            ("property_graph_schema".to_string(), PgColType::Text),
+            ("property_graph_name".to_string(), PgColType::Text),
+        ]
+    );
+    assert_eq!(
+        graphs.rows,
+        vec![vec![json!(""), json!("public"), json!("portfolio"),]]
+    );
+
+    let elements = run(
+        &store,
+        &view,
+        "SELECT * FROM information_schema.pg_element_tables \
+         ORDER BY element_table_kind, element_table_name",
+    )
+    .unwrap();
+    assert_eq!(
+        elements
+            .columns
+            .iter()
+            .map(|column| (column.name.clone(), column.ty))
+            .collect::<Vec<_>>(),
+        vec![
+            ("property_graph_catalog".to_string(), PgColType::Text),
+            ("property_graph_schema".to_string(), PgColType::Text),
+            ("property_graph_name".to_string(), PgColType::Text),
+            ("element_table_catalog".to_string(), PgColType::Text),
+            ("element_table_schema".to_string(), PgColType::Text),
+            ("element_table_name".to_string(), PgColType::Text),
+            ("element_table_kind".to_string(), PgColType::Text),
+        ]
+    );
+    assert_eq!(
+        elements.rows,
+        vec![
+            vec![
+                json!(""),
+                json!("public"),
+                json!("portfolio"),
+                json!(""),
+                json!("public"),
+                json!("links"),
+                json!("EDGE"),
+            ],
+            vec![
+                json!(""),
+                json!("public"),
+                json!("portfolio"),
+                json!(""),
+                json!("public"),
+                json!("assets"),
+                json!("VERTEX"),
+            ],
+        ]
+    );
 }
 
 /// `pg_catalog.pg_class` JOIN `pg_namespace` lists tables (`relkind='r'`) AND the view

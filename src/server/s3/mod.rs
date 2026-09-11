@@ -49,11 +49,16 @@ use hmac::{Hmac, Mac};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
+/// What an S3 request addresses (service / bucket / object / multipart
+/// upload) and the verbs each address answers.
+mod route;
+
 use crate::server::blob::store::{ChunkStore, RedbChunkStore};
+use crate::server::http1::{self, RequestLimits};
 use crate::server::kv::KvStore;
 use crate::server::ServerState;
 
@@ -66,10 +71,19 @@ pub const S3_ADDR_ENV: &str = "EPISTEMIC_GRAPH_S3_ADDR";
 pub const S3_ACCESS_KEY_ENV: &str = "EPISTEMIC_GRAPH_S3_ACCESS_KEY";
 /// Env var: the secret access key (armed together with the access key).
 pub const S3_SECRET_KEY_ENV: &str = "EPISTEMIC_GRAPH_S3_SECRET_KEY";
-const MAX_HTTP_HEADER_BYTES: usize = 64 * 1024;
+/// Physical authority identity for the S3 metadata/index KV file.  Object
+/// bytes have their own CAS authority; the index must also remain distinct
+/// from the main KV and Redis adapter files even though all three use the
+/// same typed owner layout.
+pub(crate) const S3_INDEX_PHYSICAL_STORE: &str = "epistemic-graph:s3-index";
 const MAX_HTTP_HEADERS: usize = 256;
 const MAX_HTTP_QUERY_FIELDS: usize = 256;
 const MAX_S3_BODY_BYTES: usize = 64 * 1024 * 1024;
+/// Objects are binary and large: a 64 MiB body budget, framed by [`http1`].
+const HTTP_LIMITS: RequestLimits = RequestLimits {
+    max_head_bytes: 64 * 1024,
+    max_body_bytes: MAX_S3_BODY_BYTES,
+};
 const MAX_S3_META_BYTES: usize = 16 * 1024;
 const MAX_S3_META_ITEMS: usize = 128;
 const MAX_S3_BUCKET_BYTES: usize = 63;
@@ -198,10 +212,22 @@ pub struct S3Store {
 }
 
 impl S3Store {
-    /// Open the S3 store. `Some(dir)` ⇒ durable (`{dir}/s3-index/kv.redb` +
-    /// `{dir}/s3-blob`); `None` ⇒ an ephemeral in-memory index over a temp-dir CAS
-    /// (the BLOB substrate has no in-memory backend — mirrors its philosophy).
+    /// Open the S3 store with its private Redb CAS fallback. Served startup uses
+    /// [`Self::open_with_blob_store`] so the S3 API shares the server-selected
+    /// blob authority instead of opening `{dir}/s3-blob` beside it.
     pub fn open(persist_dir: Option<&str>) -> Result<Self, String> {
+        Self::open_with_blob_store(persist_dir, None)
+    }
+
+    /// Open the S3 index around an already-selected blob store. The index owns
+    /// bucket/object metadata; the supplied CAS owns object bytes and remains the
+    /// same authority used by native Blob and observability consumers.
+    /// `None` preserves the private temp/Redb path for direct tests and
+    /// embedded callers that have no server composition to inject.
+    pub fn open_with_blob_store(
+        persist_dir: Option<&str>,
+        selected_blob: Option<Arc<dyn ChunkStore>>,
+    ) -> Result<Self, String> {
         let (kv_dir, blob_dir) = match persist_dir {
             Some(d) => (Some(format!("{d}/s3-index")), format!("{d}/s3-blob")),
             None => {
@@ -219,8 +245,14 @@ impl S3Store {
                 (None, tmp.to_string_lossy().into_owned())
             }
         };
-        let kv = Arc::new(KvStore::open(kv_dir.as_deref())?);
-        let blob: Arc<dyn ChunkStore> = Arc::new(RedbChunkStore::open(&blob_dir)?);
+        let kv = Arc::new(KvStore::open_named(
+            kv_dir.as_deref(),
+            S3_INDEX_PHYSICAL_STORE,
+        )?);
+        let blob: Arc<dyn ChunkStore> = match selected_blob {
+            Some(blob) => blob,
+            None => Arc::new(RedbChunkStore::open(&blob_dir)?),
+        };
         Ok(Self {
             kv,
             blob,
@@ -583,13 +615,13 @@ fn hmac_bytes(key: &[u8], value: &[u8]) -> Option<Vec<u8>> {
     Some(mac.finalize().into_bytes().to_vec())
 }
 
-fn valid_amz_date(value: &str, scope_date: &str) -> bool {
+fn parse_amz_date(value: &str, scope_date: &str) -> Option<(i64, i64, i64, i64, i64, i64)> {
     if value.len() != 16
         || !value.ends_with('Z')
         || value.get(0..8) != Some(scope_date)
         || value.as_bytes().get(8) != Some(&b'T')
     {
-        return false;
+        return None;
     }
     let number = |range: std::ops::Range<usize>| value.get(range)?.parse::<i64>().ok();
     let (year, month, day, hour, minute, second) = match (
@@ -601,8 +633,13 @@ fn valid_amz_date(value: &str, scope_date: &str) -> bool {
         number(13..15),
     ) {
         (Some(y), Some(m), Some(d), Some(h), Some(mi), Some(s)) => (y, m, d, h, mi, s),
-        _ => return false,
+        _ => return None,
     };
+    Some((year, month, day, hour, minute, second))
+}
+
+fn amz_date_timestamp(parts: (i64, i64, i64, i64, i64, i64)) -> Option<i64> {
+    let (year, month, day, hour, minute, second) = parts;
     let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
     let month_days = [
         31,
@@ -625,7 +662,7 @@ fn valid_amz_date(value: &str, scope_date: &str) -> bool {
         || minute > 59
         || second > 59
     {
-        return false;
+        return None;
     }
     // Howard Hinnant's civil-date conversion, yielding days from Unix epoch.
     let adjusted_year = year - if month <= 2 { 1 } else { 0 };
@@ -639,9 +676,19 @@ fn valid_amz_date(value: &str, scope_date: &str) -> bool {
     let doy = (153 * shifted_month + 2) / 5 + day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days = era * 146_097 + doe - 719_468;
-    let timestamp = days
-        .saturating_mul(86_400)
-        .saturating_add(hour * 3_600 + minute * 60 + second);
+    Some(
+        days.saturating_mul(86_400)
+            .saturating_add(hour * 3_600 + minute * 60 + second),
+    )
+}
+
+fn valid_amz_date(value: &str, scope_date: &str) -> bool {
+    let Some(parts) = parse_amz_date(value, scope_date) else {
+        return false;
+    };
+    let Some(timestamp) = amz_date_timestamp(parts) else {
+        return false;
+    };
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
@@ -649,53 +696,34 @@ fn valid_amz_date(value: &str, scope_date: &str) -> bool {
     now.abs_diff(timestamp) <= 900
 }
 
-fn verify_sigv4(auth: &S3Auth, req: &S3Request, header: &str) -> bool {
-    if req
-        .query
-        .split('&')
-        .filter(|field| !field.is_empty())
-        .count()
-        > MAX_HTTP_QUERY_FIELDS
-    {
-        return false;
-    }
+fn parse_sigv4_authorization(header: &str) -> Option<(&str, &str, &str)> {
     let Some(fields) = header.strip_prefix("AWS4-HMAC-SHA256 ") else {
-        return false;
+        return None;
     };
     let mut parsed_fields = HashMap::with_capacity(3);
     for field in fields.split(',') {
         let Some((name, value)) = field.trim().split_once('=') else {
-            return false;
+            return None;
         };
         if !matches!(name, "Credential" | "SignedHeaders" | "Signature")
             || value.is_empty()
             || parsed_fields.insert(name, value).is_some()
         {
-            return false;
+            return None;
         }
     }
     if parsed_fields.len() != 3 {
-        return false;
+        return None;
     }
-    let fields = parsed_fields;
-    let Some(credential) = fields.get("Credential") else {
-        return false;
-    };
-    let Some(signed_headers_raw) = fields.get("SignedHeaders") else {
-        return false;
-    };
-    let Some(signature) = fields.get("Signature") else {
-        return false;
-    };
-    let credential: Vec<&str> = credential.split('/').collect();
-    if credential.len() != 5
-        || credential[0] != auth.access_key
-        || credential[3] != "s3"
-        || credential[4] != "aws4_request"
-    {
-        return false;
-    }
-    let signed_headers: Vec<&str> = signed_headers_raw.split(';').collect();
+    Some((
+        parsed_fields.get("Credential").copied()?,
+        parsed_fields.get("SignedHeaders").copied()?,
+        parsed_fields.get("Signature").copied()?,
+    ))
+}
+
+fn parse_sigv4_signed_headers(raw: &str) -> Option<Vec<&str>> {
+    let signed_headers: Vec<&str> = raw.split(';').collect();
     if signed_headers.is_empty()
         || signed_headers.len() > MAX_HTTP_HEADERS
         || signed_headers.windows(2).any(|pair| pair[0] >= pair[1])
@@ -709,60 +737,83 @@ fn verify_sigv4(auth: &S3Auth, req: &S3Request, header: &str) -> bool {
             .iter()
             .all(|required| signed_headers.contains(required))
     {
-        return false;
+        return None;
     }
-    let Some(amz_date) = req.headers.get("x-amz-date") else {
-        return false;
-    };
-    if !valid_amz_date(amz_date, credential[1]) {
-        return false;
-    }
-    let Some(payload_hash) = req.headers.get("x-amz-content-sha256") else {
-        return false;
-    };
+    Some(signed_headers)
+}
+
+fn validate_sigv4_request<'a>(
+    auth: &S3Auth,
+    req: &'a S3Request,
+    header: &'a str,
+) -> Option<(
+    Vec<&'a str>,
+    Vec<&'a str>,
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+)> {
+    (req.query
+        .split('&')
+        .filter(|field| !field.is_empty())
+        .count()
+        <= MAX_HTTP_QUERY_FIELDS)
+        .then_some(())?;
+    let (credential_raw, signed_headers_raw, signature) = parse_sigv4_authorization(header)?;
+    let credential: Vec<&str> = credential_raw.split('/').collect();
+    (credential.len() == 5
+        && credential[0] == auth.access_key
+        && credential[3] == "s3"
+        && credential[4] == "aws4_request")
+        .then_some(())?;
+    let signed_headers = parse_sigv4_signed_headers(signed_headers_raw)?;
+    let amz_date = req.headers.get("x-amz-date")?;
+    valid_amz_date(amz_date, credential[1]).then_some(())?;
+    let payload_hash = req.headers.get("x-amz-content-sha256")?;
     let actual_payload_hash = hex::encode(Sha256::digest(&req.body));
-    if payload_hash != &actual_payload_hash {
-        return false;
-    }
+    (payload_hash == &actual_payload_hash).then_some(())?;
+    Some((
+        credential,
+        signed_headers,
+        signed_headers_raw,
+        signature,
+        amz_date,
+        payload_hash,
+    ))
+}
+
+fn canonical_sigv4_headers(req: &S3Request, signed_headers: &[&str]) -> Option<String> {
     let mut canonical_headers = Vec::with_capacity(signed_headers.len());
-    for name in &signed_headers {
+    for name in signed_headers {
         let Some(value) = req.headers.get(*name) else {
-            return false;
+            return None;
         };
         canonical_headers.push(format!(
             "{name}:{}",
             value.split_whitespace().collect::<Vec<_>>().join(" ")
         ));
     }
-    let canonical_request = format!(
-        "{}\n{}\n{}\n{}\n{}\n{}",
-        req.method,
-        aws_uri_encode(&req.path, false),
-        canonical_query(&req.query),
-        canonical_headers.join("\n"),
-        signed_headers_raw,
-        payload_hash,
-    );
-    let scope = credential[1..].join("/");
-    let string_to_sign = format!(
-        "AWS4-HMAC-SHA256\n{}\n{}\n{}",
-        amz_date,
-        scope,
-        hex::encode(Sha256::digest(canonical_request.as_bytes())),
-    );
-    let Some(date_key) = hmac_bytes(
+    Some(canonical_headers.join("\n"))
+}
+
+fn sigv4_signing_key(auth: &S3Auth, credential: &[&str]) -> Option<Vec<u8>> {
+    let date_key = hmac_bytes(
         format!("AWS4{}", auth.secret_key).as_bytes(),
         credential[1].as_bytes(),
-    ) else {
-        return false;
-    };
-    let Some(region_key) = hmac_bytes(&date_key, credential[2].as_bytes()) else {
-        return false;
-    };
-    let Some(service_key) = hmac_bytes(&region_key, credential[3].as_bytes()) else {
-        return false;
-    };
-    let Some(signing_key) = hmac_bytes(&service_key, credential[4].as_bytes()) else {
+    )?;
+    let region_key = hmac_bytes(&date_key, credential[2].as_bytes())?;
+    let service_key = hmac_bytes(&region_key, credential[3].as_bytes())?;
+    hmac_bytes(&service_key, credential[4].as_bytes())
+}
+
+fn verify_sigv4_signature(
+    auth: &S3Auth,
+    credential: &[&str],
+    string_to_sign: &str,
+    signature: &str,
+) -> bool {
+    let Some(signing_key) = sigv4_signing_key(auth, credential) else {
         return false;
     };
     let Ok(got_signature) = hex::decode(signature) else {
@@ -773,6 +824,34 @@ fn verify_sigv4(auth: &S3Auth, req: &S3Request, header: &str) -> bool {
     };
     verifier.update(string_to_sign.as_bytes());
     verifier.verify_slice(&got_signature).is_ok()
+}
+
+fn verify_sigv4(auth: &S3Auth, req: &S3Request, header: &str) -> bool {
+    let Some((credential, signed_headers, signed_headers_raw, signature, amz_date, payload_hash)) =
+        validate_sigv4_request(auth, req, header)
+    else {
+        return false;
+    };
+    let Some(canonical_headers) = canonical_sigv4_headers(req, &signed_headers) else {
+        return false;
+    };
+    let canonical_request = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        req.method,
+        aws_uri_encode(&req.path, false),
+        canonical_query(&req.query),
+        canonical_headers,
+        signed_headers_raw,
+        payload_hash,
+    );
+    let scope = credential[1..].join("/");
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{}\n{}\n{}",
+        amz_date,
+        scope,
+        hex::encode(Sha256::digest(canonical_request.as_bytes())),
+    );
+    verify_sigv4_signature(auth, &credential, &string_to_sign, signature)
 }
 
 /// Verify a complete body-bound SigV4 request.
@@ -931,190 +1010,16 @@ fn handle(store: &S3Store, auth: &S3Auth, req: &S3Request) -> S3Response {
     handle_authorized(store, req)
 }
 
-/// Route a request after the network boundary verified SigV4.
+/// Route a request after SigV4 authenticated it. Kept separate from [`handle`]
+/// so unit tests can exercise storage/routing without manufacturing
+/// signatures. What a request addresses and what its verb does are two steps,
+/// and [`route`] owns both.
 fn handle_authorized(store: &S3Store, req: &S3Request) -> S3Response {
-    let (bucket, key) = split_bucket_key(&req.path);
-
-    // Service-level: `GET /` → ListBuckets.
-    if bucket.is_empty() {
-        return match req.method.as_str() {
-            "GET" => match store.list_buckets() {
-                Ok(buckets) => S3Response::xml("200 OK", list_buckets_xml(&buckets)),
-                Err(e) => internal(&e),
-            },
-            _ => S3Response::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
-        };
-    }
-
-    // Bucket-level (no object key).
-    if key.is_empty() {
-        return match req.method.as_str() {
-            "PUT" => match store.create_bucket(&bucket) {
-                Ok(()) => {
-                    let mut r = S3Response::empty("200 OK");
-                    r.headers.push(("Location".into(), format!("/{bucket}")));
-                    r
-                }
-                Err(e) => internal(&e),
-            },
-            "DELETE" => match store.delete_bucket(&bucket) {
-                Ok(_) => S3Response::empty("204 No Content"),
-                Err(e) if e == "BucketNotEmpty" => S3Response::error(
-                    "409 Conflict",
-                    "BucketNotEmpty",
-                    "The bucket you tried to delete is not empty",
-                ),
-                Err(e) => internal(&e),
-            },
-            "HEAD" => match store.bucket_exists(&bucket) {
-                Ok(true) => S3Response::empty("200 OK"),
-                Ok(false) => S3Response::error("404 Not Found", "NoSuchBucket", "no such bucket"),
-                Err(e) => internal(&e),
-            },
-            "GET" => {
-                // ListObjects(V2) — `list-type=2` or the v1 default.
-                let prefix = query_param(&req.query, "prefix").unwrap_or_default();
-                match store.list_objects(&bucket, &prefix) {
-                    Ok(objs) => {
-                        S3Response::xml("200 OK", list_objects_xml(&bucket, &prefix, &objs))
-                    }
-                    Err(e) => internal(&e),
-                }
-            }
-            _ => S3Response::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
-        };
-    }
-
-    // Object-level. Multipart-upload sub-resources (CONCEPT:EG-KG.txn.pubsub-transactions) are selected by
-    // query parameters (`?uploads`, `?uploadId=…`, `?partNumber=…`) and take
-    // precedence over the plain object verbs.
-    let has_uploads = query_param(&req.query, "uploads").is_some();
-    let upload_id = query_param(&req.query, "uploadId");
-    let part_number = query_param(&req.query, "partNumber").and_then(|s| s.parse::<u32>().ok());
-
-    if has_uploads && req.method == "POST" {
-        // CreateMultipartUpload.
-        return match store.bucket_exists(&bucket) {
-            Ok(false) => S3Response::error("404 Not Found", "NoSuchBucket", "no such bucket"),
-            Err(e) => internal(&e),
-            Ok(true) => {
-                let ctype = req
-                    .headers
-                    .get("content-type")
-                    .cloned()
-                    .unwrap_or_else(|| "application/octet-stream".to_string());
-                match store.create_multipart(&bucket, &key, &ctype) {
-                    Ok(uid) => {
-                        S3Response::xml("200 OK", initiate_multipart_xml(&bucket, &key, &uid))
-                    }
-                    Err(error) => internal(&error),
-                }
-            }
-        };
-    }
-    if let Some(uid) = upload_id {
-        return handle_multipart(store, &bucket, &key, &uid, part_number, req);
-    }
-
-    match req.method.as_str() {
-        "PUT" => {
-            match store.bucket_exists(&bucket) {
-                Ok(false) => {
-                    return S3Response::error("404 Not Found", "NoSuchBucket", "no such bucket")
-                }
-                Err(e) => return internal(&e),
-                Ok(true) => {}
-            }
-            let ctype = req
-                .headers
-                .get("content-type")
-                .cloned()
-                .unwrap_or_else(|| "application/octet-stream".to_string());
-            match store.put_object(&bucket, &key, &req.body, &ctype) {
-                Ok(etag) => {
-                    let mut r = S3Response::empty("200 OK");
-                    r.headers.push(("ETag".into(), etag));
-                    r
-                }
-                Err(e) => internal(&e),
-            }
-        }
-        "GET" => match store.get_object(&bucket, &key) {
-            Ok(Some((meta, bytes))) => match req.headers.get("range") {
-                // Ranged read (CONCEPT:EG-KG.txn.pubsub-transactions) → 206 Partial Content.
-                Some(range) => range_response(meta, bytes, range),
-                None => object_response(meta, bytes, false),
-            },
-            Ok(None) => S3Response::error("404 Not Found", "NoSuchKey", "no such key"),
-            Err(e) => internal(&e),
-        },
-        "HEAD" => match store.object_meta(&bucket, &key) {
-            Ok(Some(meta)) => object_response(meta, Vec::new(), true),
-            Ok(None) => S3Response::error("404 Not Found", "NoSuchKey", "no such key"),
-            Err(e) => internal(&e),
-        },
-        "DELETE" => match store.delete_object(&bucket, &key) {
-            Ok(_) => S3Response::empty("204 No Content"),
-            Err(e) => internal(&e),
-        },
-        _ => S3Response::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
-    }
+    route::target(req).serve(store, req)
 }
 
 /// Route the multipart sub-resource verbs for a known `uploadId` (CONCEPT:EG-KG.txn.pubsub-transactions):
 /// `PUT …&partNumber=N` (UploadPart), `POST` (CompleteMultipartUpload),
-/// `DELETE` (AbortMultipartUpload), `GET` (ListParts).
-fn handle_multipart(
-    store: &S3Store,
-    bucket: &str,
-    key: &str,
-    upload_id: &str,
-    part_number: Option<u32>,
-    req: &S3Request,
-) -> S3Response {
-    let no_such = || S3Response::error("404 Not Found", "NoSuchUpload", "no such upload");
-    match req.method.as_str() {
-        "PUT" => {
-            let pn = match part_number {
-                Some(n) if (1..=MAX_S3_MULTIPART_PARTS as u32).contains(&n) => n,
-                _ => {
-                    return S3Response::error(
-                        "400 Bad Request",
-                        "InvalidArgument",
-                        "partNumber is outside the supported range",
-                    )
-                }
-            };
-            match store.upload_part(bucket, key, upload_id, pn, &req.body) {
-                Ok(etag) => {
-                    let mut r = S3Response::empty("200 OK");
-                    r.headers.push(("ETag".into(), etag));
-                    r
-                }
-                Err(e) if e == "NoSuchUpload" => no_such(),
-                Err(e) => internal(&e),
-            }
-        }
-        "POST" => match store.complete_multipart(bucket, key, upload_id) {
-            Ok((b, k, etag)) => S3Response::xml("200 OK", complete_multipart_xml(&b, &k, &etag)),
-            Err(e) if e == "NoSuchUpload" => no_such(),
-            Err(e) => internal(&e),
-        },
-        "DELETE" => {
-            if store.abort_multipart(bucket, key, upload_id) {
-                S3Response::empty("204 No Content")
-            } else {
-                no_such()
-            }
-        }
-        "GET" => match store.list_parts(bucket, key, upload_id) {
-            Ok(parts) => S3Response::xml("200 OK", list_parts_xml(bucket, key, upload_id, &parts)),
-            Err(e) if e == "NoSuchUpload" => no_such(),
-            Err(e) => internal(&e),
-        },
-        _ => S3Response::error("405 Method Not Allowed", "MethodNotAllowed", "unsupported"),
-    }
-}
 
 fn internal(msg: &str) -> S3Response {
     S3Response::error("500 Internal Server Error", "InternalError", msg)
@@ -1284,98 +1189,28 @@ fn list_objects_xml(bucket: &str, prefix: &str, objs: &[(String, ObjectMeta)]) -
 
 // ── the HTTP listener (hand-rolled, no axum/hyper — the Pi contract) ─────────────
 
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
-
-/// Read one HTTP/1.1 request, keeping the body as RAW BYTES (objects are binary)
-/// and capturing headers (lowercased keys) for the auth guard.
+/// Read one framed HTTP/1.1 request and normalize it into the S3 surface's
+/// own model: the percent-decoded object path plus the RAW query string SigV4
+/// must canonicalize, with the query-field count bounded.
 async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<S3Request> {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 8192];
-    let header_end = loop {
-        if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
-            break pos;
-        }
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > MAX_HTTP_HEADER_BYTES {
-            return None; // header flood guard
-        }
-    };
-    let head = std::str::from_utf8(&buf[..header_end]).ok()?.to_string();
-    let mut lines = head.split("\r\n");
-    let request_line = lines.next()?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next()?.to_string();
-    let target = parts.next()?.to_string();
-    let version = parts.next()?;
-    if !matches!(version, "HTTP/1.0" | "HTTP/1.1") || parts.next().is_some() {
-        return None;
-    }
-    let (raw_path, query) = match target.split_once('?') {
-        Some((p, q)) => (p, q.to_string()),
-        None => (target.as_str(), String::new()),
-    };
-    if query.split('&').filter(|field| !field.is_empty()).count() > MAX_HTTP_QUERY_FIELDS {
+    let message = http1::read_request(stream, HTTP_LIMITS).await?;
+    let (raw_path, raw_query) = message.path_and_query();
+    if raw_query
+        .split('&')
+        .filter(|field| !field.is_empty())
+        .count()
+        > MAX_HTTP_QUERY_FIELDS
+    {
         return None;
     }
     let path = percent_decode(raw_path);
-
-    let mut headers = HashMap::new();
-    let mut content_length: Option<usize> = None;
-    for line in lines {
-        if headers.len() >= MAX_HTTP_HEADERS {
-            return None;
-        }
-        let (k, v) = line.split_once(':')?;
-        let key = k.trim().to_ascii_lowercase();
-        let val = v.trim().to_string();
-        if key.is_empty()
-            || !key
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-            || headers.contains_key(&key)
-        {
-            return None;
-        }
-        if key == "content-length" {
-            if content_length.is_some() {
-                return None;
-            }
-            content_length = Some(val.parse().ok()?);
-        } else if key == "transfer-encoding" {
-            return None;
-        }
-        headers.insert(key, val);
-    }
-    let content_length = content_length.unwrap_or(0);
-    if content_length > MAX_S3_BODY_BYTES {
-        return None;
-    }
-    let mut body = buf[header_end + 4..].to_vec();
-    if body.len() > content_length || body.len() > MAX_S3_BODY_BYTES {
-        return None;
-    }
-    while body.len() < content_length {
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            break;
-        }
-        body.extend_from_slice(&tmp[..n]);
-    }
-    if body.len() != content_length {
-        return None;
-    }
+    let query = raw_query.to_string();
     Some(S3Request {
-        method,
+        method: message.method,
         path,
         query,
-        headers,
-        body,
+        headers: message.headers,
+        body: message.body,
     })
 }
 
@@ -1383,11 +1218,31 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<S3Request> {
 /// `main.rs` only when built `--features s3-api` AND `EPISTEMIC_GRAPH_S3_ADDR` is
 /// set (CONCEPT:EG-KG.ontology.object-put-get-head). One task per connection, one response per request,
 /// connection: close — the SAME idiom as the obs / SPARQL listeners.
-pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
+pub async fn serve_with_blob_store(
+    addr: &str,
+    state: Arc<RwLock<ServerState>>,
+    selected_blob: Option<Arc<dyn ChunkStore>>,
+) -> std::io::Result<()> {
     let persist_dir = { state.read().await.persist_dir.clone() };
-    let store = Arc::new(S3Store::open(persist_dir.as_deref()).map_err(std::io::Error::other)?);
+    let store = Arc::new(
+        S3Store::open_with_blob_store(persist_dir.as_deref(), selected_blob)
+            .map_err(std::io::Error::other)?,
+    );
     let auth = resolve_auth()?;
     serve_with_store_inner(addr, store, auth).await
+}
+
+/// Serve using the blob authority already composed into `ServerState`.
+pub async fn serve(addr: &str, state: Arc<RwLock<ServerState>>) -> std::io::Result<()> {
+    let selected_blob = {
+        state
+            .read()
+            .await
+            .blob
+            .as_ref()
+            .map(|cursors| cursors.store.clone())
+    };
+    serve_with_blob_store(addr, state, selected_blob).await
 }
 
 /// Resolve mandatory SigV4 credentials from the environment.
@@ -1573,6 +1428,105 @@ mod tests {
             handle_authorized(&store, &req("DELETE", "/b2", b"", &[])).status,
             "204 No Content"
         );
+    }
+
+    #[test]
+    fn durable_index_reopens_bucket_list_and_head_without_blob_scope() {
+        let dir = std::env::temp_dir().join(format!(
+            "eg-s3-index-durable-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let dir_string = dir.to_string_lossy().into_owned();
+        {
+            let store = S3Store::open(Some(&dir_string)).unwrap();
+            store.create_bucket("durable-bucket").unwrap();
+            assert!(store.bucket_exists("durable-bucket").unwrap());
+            assert_eq!(store.list_buckets().unwrap(), vec!["durable-bucket"]);
+        }
+        {
+            let store = S3Store::open(Some(&dir_string)).unwrap();
+            // Bucket index is durable independently of the object CAS.  This
+            // exercises create/list/head on the reopened index without binding
+            // any blob-serving scope.
+            assert!(store.bucket_exists("durable-bucket").unwrap());
+            assert_eq!(store.list_buckets().unwrap(), vec!["durable-bucket"]);
+            assert_eq!(
+                handle_authorized(&store, &req("HEAD", "/durable-bucket", b"", &[])).status,
+                "200 OK"
+            );
+        }
+
+        // The same path cannot be adopted as the main KV authority.
+        let index_dir = format!("{dir_string}/s3-index");
+        assert!(
+            KvStore::open(Some(&index_dir)).is_err(),
+            "main KV must refuse an S3-index-owned file"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn injected_blob_store_is_visible_to_s3_and_survives_reopen() {
+        let dir = std::env::temp_dir().join(format!(
+            "eg-s3-selected-blob-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let persist_dir = dir.to_string_lossy().into_owned();
+        let blob_dir = dir.join("native-blob");
+        let blob_dir_string = blob_dir.to_string_lossy().into_owned();
+
+        {
+            let selected: Arc<dyn ChunkStore> =
+                Arc::new(RedbChunkStore::open(&blob_dir_string).expect("open selected blob"));
+            let store = S3Store::open_with_blob_store(Some(&persist_dir), Some(selected.clone()))
+                .expect("open S3 over selected blob");
+            store.create_bucket("shared").expect("create bucket");
+            let etag = store
+                .put_object(
+                    "shared",
+                    "object",
+                    b"shared bytes",
+                    "application/octet-stream",
+                )
+                .expect("put object");
+            let digest = etag.trim_matches('"');
+            assert_eq!(
+                selected.get_chunk(digest).expect("native CAS read"),
+                Some(b"shared bytes".to_vec())
+            );
+            assert_eq!(
+                store
+                    .get_object("shared", "object")
+                    .expect("S3 read")
+                    .expect("object")
+                    .1,
+                b"shared bytes"
+            );
+        }
+
+        {
+            let selected: Arc<dyn ChunkStore> =
+                Arc::new(RedbChunkStore::open(&blob_dir_string).expect("reopen selected blob"));
+            let reopened =
+                S3Store::open_with_blob_store(Some(&persist_dir), Some(selected.clone()))
+                    .expect("reopen S3 over selected blob");
+            assert_eq!(
+                reopened
+                    .get_object("shared", "object")
+                    .expect("reopened S3 read")
+                    .expect("reopened object")
+                    .1,
+                b"shared bytes"
+            );
+        }
+
+        assert!(
+            !dir.join("s3-blob").exists(),
+            "injected composition must not create a private duplicate CAS"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

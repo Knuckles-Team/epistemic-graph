@@ -312,6 +312,45 @@ fn array_values_for_row(
     }
 }
 
+/// A strictly-typed ARRAY element: a JSON null is a null element, and anything that is
+/// not the column's element type is a corrupt persisted row.
+fn typed_element<T>(
+    parsed: Option<T>,
+    value: &serde_json::Value,
+    kind: &str,
+) -> Result<Option<T>, String> {
+    match parsed {
+        Some(v) => Ok(Some(v)),
+        None if value.is_null() => Ok(None),
+        None => Err(format!("invalid {kind} ARRAY element")),
+    }
+}
+
+/// Build the Arrow list column for one ARRAY column. The row/list framing — a missing or
+/// NULL cell is a null list, otherwise every element is appended — is the same for every
+/// element type; `append` is the only thing that varies.
+fn build_array_column<B: arrow::array::builder::ArrayBuilder>(
+    rows: &[Vec<Cell>],
+    ci: usize,
+    column: ColumnType,
+    values: B,
+    mut append: impl FnMut(&mut B, &serde_json::Value) -> Result<(), String>,
+) -> Result<ArrayRef, String> {
+    let mut b = ListBuilder::new(values);
+    for row in rows {
+        match array_values_for_row(Some(row), column, ci)? {
+            Some(values) => {
+                for value in values {
+                    append(b.values(), &value)?;
+                }
+                b.append(true);
+            }
+            None => b.append(false),
+        }
+    }
+    Ok(Arc::new(b.finish()))
+}
+
 fn materialize_array(
     rows: &[Vec<Cell>],
     ci: usize,
@@ -319,85 +358,35 @@ fn materialize_array(
 ) -> Result<ArrayRef, String> {
     let column = ColumnType::Array(elem);
     match elem {
+        // A non-string JSON element keeps its JSON spelling — TEXT/UUID arrays are the
+        // one lossless-by-stringification case.
         ArrayElemType::Text | ArrayElemType::Uuid => {
-            let mut b = ListBuilder::new(StringBuilder::new());
-            for row in rows {
-                match array_values_for_row(Some(row), column, ci)? {
-                    Some(values) => {
-                        for value in values {
-                            if value.is_null() {
-                                b.values().append_null();
-                            } else if let Some(text) = value.as_str() {
-                                b.values().append_value(text);
-                            } else {
-                                b.values().append_value(value.to_string());
-                            }
-                        }
-                        b.append(true);
-                    }
-                    None => b.append(false),
+            build_array_column(rows, ci, column, StringBuilder::new(), |b, value| {
+                match value.as_str() {
+                    _ if value.is_null() => b.append_null(),
+                    Some(text) => b.append_value(text),
+                    None => b.append_value(value.to_string()),
                 }
-            }
-            Ok(Arc::new(b.finish()))
+                Ok(())
+            })
         }
         ArrayElemType::Int | ArrayElemType::BigInt => {
-            let mut b = ListBuilder::new(Int64Builder::new());
-            for row in rows {
-                match array_values_for_row(Some(row), column, ci)? {
-                    Some(values) => {
-                        for value in values {
-                            match value.as_i64() {
-                                Some(number) => b.values().append_value(number),
-                                None if value.is_null() => b.values().append_null(),
-                                None => return Err("invalid integer ARRAY element".to_string()),
-                            }
-                        }
-                        b.append(true);
-                    }
-                    None => b.append(false),
-                }
-            }
-            Ok(Arc::new(b.finish()))
+            build_array_column(rows, ci, column, Int64Builder::new(), |b, value| {
+                b.append_option(typed_element(value.as_i64(), value, "integer")?);
+                Ok(())
+            })
         }
         ArrayElemType::Bool => {
-            let mut b = ListBuilder::new(BooleanBuilder::new());
-            for row in rows {
-                match array_values_for_row(Some(row), column, ci)? {
-                    Some(values) => {
-                        for value in values {
-                            match value.as_bool() {
-                                Some(boolean) => b.values().append_value(boolean),
-                                None if value.is_null() => b.values().append_null(),
-                                None => return Err("invalid boolean ARRAY element".to_string()),
-                            }
-                        }
-                        b.append(true);
-                    }
-                    None => b.append(false),
-                }
-            }
-            Ok(Arc::new(b.finish()))
+            build_array_column(rows, ci, column, BooleanBuilder::new(), |b, value| {
+                b.append_option(typed_element(value.as_bool(), value, "boolean")?);
+                Ok(())
+            })
         }
         ArrayElemType::Double => {
-            let mut b = ListBuilder::new(Float64Builder::new());
-            for row in rows {
-                match array_values_for_row(Some(row), column, ci)? {
-                    Some(values) => {
-                        for value in values {
-                            match value.as_f64() {
-                                Some(number) => b.values().append_value(number),
-                                None if value.is_null() => b.values().append_null(),
-                                None => {
-                                    return Err("invalid floating-point ARRAY element".to_string())
-                                }
-                            }
-                        }
-                        b.append(true);
-                    }
-                    None => b.append(false),
-                }
-            }
-            Ok(Arc::new(b.finish()))
+            build_array_column(rows, ci, column, Float64Builder::new(), |b, value| {
+                b.append_option(typed_element(value.as_f64(), value, "floating-point")?);
+                Ok(())
+            })
         }
     }
 }

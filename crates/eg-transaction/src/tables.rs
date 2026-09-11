@@ -16,7 +16,7 @@
 //! either directly ([`BATCHES`], [`OUTBOX`], [`FENCES`] via
 //! [`eg_storage::ScopeFence`], [`REPLAY_OPERATIONS`] via
 //! [`eg_storage::OperationReplayRow`]) or through the receipt its key resolves
-//! to ([`IDEMPOTENCY`], [`PRIVATE_PAYLOADS`], [`REPLAY_NONCES`]).
+//! to ([`MAINTENANCE`], [`PRIVATE_PAYLOADS`], [`REPLAY_NONCES`]).
 //!
 //! That stamp is what makes recovery validation possible: a row resolves its
 //! own scope binding by its own key, then the stamped identity must equal the
@@ -28,8 +28,8 @@ use redb::{TableDefinition, TableHandle};
 
 pub(crate) const BATCHES: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("ledger_batches");
-pub(crate) const IDEMPOTENCY: TableDefinition<'static, (&str, &str), &str> =
-    TableDefinition::new("ledger_idempotency");
+pub(crate) const MAINTENANCE: TableDefinition<'static, (&str, &str), &str> =
+    TableDefinition::new("ledger_maintenance");
 pub(crate) const VERSIONS: TableDefinition<'static, &str, u64> =
     TableDefinition::new("ledger_versions");
 pub(crate) const FENCES: TableDefinition<'static, &str, &[u8]> =
@@ -69,7 +69,7 @@ pub(crate) const CLASSES: TableDefinition<'static, (&str, &str), &[u8]> =
 macro_rules! visit_ledger_tables {
     ($visit:ident) => {{
         $visit!($crate::tables::BATCHES);
-        $visit!($crate::tables::IDEMPOTENCY);
+        $visit!($crate::tables::MAINTENANCE);
         $visit!($crate::tables::VERSIONS);
         $visit!($crate::tables::FENCES);
         $visit!($crate::tables::OUTBOX);

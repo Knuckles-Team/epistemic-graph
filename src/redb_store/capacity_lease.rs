@@ -1,20 +1,25 @@
-//! Authoritative redb capacity-cell/lease ledger (GOC-21-W04/W05).
+//! Authoritative capacity-cell/lease ledger on the graph shard (GOC-21-W04/W05).
 //!
 //! The pure [`eg_types::capacity_lease::CapacityLedger`] is useful for policy
 //! tests, but it is deliberately not an authority.  This module owns the
 //! graph-scoped durable cells, aggregate usage, lease fences, and tenant/key
-//! replay rows.  Every write below runs in one immediate redb transaction;
-//! all validation happens before the first insert/update so a denial cannot
-//! leave a partially charged dimension.
+//! replay rows.  All four of its tables are scope-prefixed shard tables, so
+//! every row access here goes through a capability bound to ONE graph: the
+//! write side through [`ShardWrite::graph`], the read side through
+//! [`Shard::read`].  Every write below runs in one admitted group -- one
+//! physical transaction, one fsync -- and all validation happens before the
+//! first insert/update so a denial cannot leave a partially charged dimension.
 
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::OnceLock;
 
-use redb::{
-    Database, Durability, ReadableDatabase, ReadableTable, TableDefinition, WriteTransaction,
-};
+use rand::RngCore;
+use redb::TableDefinition;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use eg_storage::{GraphShardOwner, PhysicalWriteCapability, ScopedOwnerTable, ScopedOwnerTableMut};
 use eg_types::capacity_lease::{CapacityCell, CapacityLease, LeaseState};
 use eg_types::native_control::{
     CapacityAcquireRequest, CapacityAcquireResult, CapacityAvailability, CapacityCellUpdateRequest,
@@ -25,8 +30,12 @@ use eg_types::native_control::{
     MAX_CAPACITY_RECLAIM_BATCH, MAX_CAPACITY_STATUS_ROWS, MAX_CAPACITY_TTL_MS,
 };
 
+use super::shard::{Shard, ShardWrite};
 use super::{decode_durable, DurableCrypto};
 use crate::protocol::Method;
+
+/// One capacity table opened for writing on one graph's scope.
+type CapacityRows<'a> = ScopedOwnerTableMut<'a, (&'static str, &'static str), &'static [u8]>;
 
 pub(crate) const CELLS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("capacity_cells");
@@ -55,112 +64,118 @@ struct DurableReplay {
     result: Vec<u8>,
 }
 
-pub(crate) fn initialize_tables(wtx: &WriteTransaction) -> Result<(), String> {
-    wtx.open_table(CELLS).map_err(|e| e.to_string())?;
-    wtx.open_table(LEASES).map_err(|e| e.to_string())?;
-    wtx.open_table(USAGE).map_err(|e| e.to_string())?;
-    wtx.open_table(IDEMPOTENCY).map_err(|e| e.to_string())?;
-    Ok(())
+/// Drop every capacity row of one graph inside an admitted group.
+///
+/// The delete-time half of a graph's lifecycle (ClearGraph, DeleteGraph, a
+/// checkpoint replacement). It is the same four-table sweep
+/// [`retire_graph_rows`] performs, through the same kernel primitive; the two
+/// differ only in the capability the caller holds -- a group member's
+/// owner-row write here, the scope's own physical write capability there.
+pub(crate) fn clear_graph_rows(write: &ShardWrite<'_>, graph: &str) -> Result<(), String> {
+    let rows = write.graph(graph)?;
+    rows.open_scoped_table(CELLS)?.purge_scope_rows()?;
+    rows.open_scoped_table(LEASES)?.purge_scope_rows()?;
+    rows.open_scoped_table(USAGE)?.purge_scope_rows()?;
+    rows.open_scoped_table(IDEMPOTENCY)?.purge_scope_rows()
 }
 
-pub(crate) fn clear_graph_rows(wtx: &WriteTransaction, graph: &str) -> Result<(), String> {
-    let mut cells = wtx.open_table(CELLS).map_err(|e| e.to_string())?;
-    let cell_keys = cells
-        .range((graph, "")..)
-        .map_err(|e| e.to_string())?
-        .map(|row| {
-            let (key, _) = row.map_err(|e| e.to_string())?;
-            let (row_graph, cell_id) = key.value();
-            if row_graph != graph {
-                return Ok::<_, String>(None);
-            }
-            Ok(Some(cell_id.to_string()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    for cell in cell_keys.into_iter().flatten() {
-        cells
-            .remove((graph, cell.as_str()))
-            .map_err(|e| e.to_string())?;
-    }
-    drop(cells);
-    let mut leases = wtx.open_table(LEASES).map_err(|e| e.to_string())?;
-    let lease_keys = leases
-        .range((graph, "")..)
-        .map_err(|e| e.to_string())?
-        .map(|row| {
-            let (key, _) = row.map_err(|e| e.to_string())?;
-            let (row_graph, lease_id) = key.value();
-            if row_graph != graph {
-                return Ok::<_, String>(None);
-            }
-            Ok(Some(lease_id.to_string()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    for lease in lease_keys.into_iter().flatten() {
-        leases
-            .remove((graph, lease.as_str()))
-            .map_err(|e| e.to_string())?;
-    }
-    drop(leases);
-    let mut usage = wtx.open_table(USAGE).map_err(|e| e.to_string())?;
-    let usage_keys = usage
-        .range((graph, "")..)
-        .map_err(|e| e.to_string())?
-        .map(|row| {
-            let (key, _) = row.map_err(|e| e.to_string())?;
-            let (row_graph, cell_id) = key.value();
-            if row_graph != graph {
-                return Ok::<_, String>(None);
-            }
-            Ok(Some(cell_id.to_string()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    for cell in usage_keys.into_iter().flatten() {
-        usage
-            .remove((graph, cell.as_str()))
-            .map_err(|e| e.to_string())?;
-    }
-    drop(usage);
-    let mut idem = wtx.open_table(IDEMPOTENCY).map_err(|e| e.to_string())?;
-    let idem_keys = idem
-        .range((graph, "", "")..)
-        .map_err(|e| e.to_string())?
-        .map(|row| {
-            let (key, _) = row.map_err(|e| e.to_string())?;
-            let (row_graph, tenant, idem_key) = key.value();
-            if row_graph == graph {
-                Ok::<_, String>(Some((tenant.to_string(), idem_key.to_string())))
-            } else {
-                Ok(None)
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    for key in idem_keys.into_iter().flatten() {
-        idem.remove((graph, key.0.as_str(), key.1.as_str()))
-            .map_err(|e| e.to_string())?;
-    }
-    Ok(())
+/// Retire this module's rows for the capability's own graph scope.
+///
+/// The payload half of a scope retirement (`OwnerPayloadRetirement`). Every
+/// table this module declares is listed -- missing one would hand the retired
+/// generation's rows to the next binding of the same graph name.
+///
+/// The sweep itself is `ScopedOwnerTableMut::purge_scope_rows`, whose scope
+/// comes from the capability that opened the table rather than from an
+/// argument; see its doc for why the ledger sweep
+/// (`PhysicalWriteCapability::purge_scoped_rows`) cannot serve an owner table.
+pub(crate) fn retire_graph_rows(
+    write: &PhysicalWriteCapability<'_, GraphShardOwner>,
+) -> Result<(), String> {
+    write.scoped_owner_table_mut(CELLS)?.purge_scope_rows()?;
+    write.scoped_owner_table_mut(LEASES)?.purge_scope_rows()?;
+    write.scoped_owner_table_mut(USAGE)?.purge_scope_rows()?;
+    write
+        .scoped_owner_table_mut(IDEMPOTENCY)?
+        .purge_scope_rows()
 }
 
+/// One admitted attempt's operation id.
+///
+/// Unique per ATTEMPT, deliberately, exactly as `Shard`'s own `drain_batch`
+/// requires: a retried capacity method is a fresh admission, and the replay
+/// identity these operations actually have is this module's own
+/// `capacity_idempotency` row, not the batch id. The process nonce keeps two
+/// runs of the same counter value apart across a restart, so a replayed
+/// counter can never collide with a durable batch id from an earlier process.
+fn attempt_id() -> String {
+    static PROCESS: OnceLock<String> = OnceLock::new();
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let process = PROCESS.get_or_init(|| {
+        let mut nonce = [0_u8; 16];
+        rand::rngs::OsRng.fill_bytes(&mut nonce);
+        hex::encode(nonce)
+    });
+    format!(
+        "capacity/{process}:{}",
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+/// The authority-owned instant one capacity method is applied at.
+///
+/// Every capacity request carries the leader/state-machine timestamp already --
+/// it is what dates a lease's expiry and a cell's `updated_at_ms` -- so the
+/// commit is dated from the same clock the rows are, rather than from a second
+/// one read at the transaction boundary.
+fn method_now_ms(method: &Method) -> Result<u64, String> {
+    match method {
+        Method::AcquireCapacity { request } => Ok(request.now_ms),
+        Method::RenewCapacity { request } | Method::ReleaseCapacity { request } => {
+            Ok(request.now_ms)
+        }
+        Method::ReclaimExpiredCapacity { request } => Ok(request.now_ms),
+        Method::UpdateCapacityCell { request } => Ok(request.now_ms),
+        _ => Err("capacity ledger received an unsupported method".to_string()),
+    }
+}
+
+/// Apply one capacity method to its graph in ONE admitted group.
+///
+/// The five-step shard write: bind the graph, admit the group at the version
+/// resolved inside its transaction, open the owner-row writes, write the rows,
+/// finish every member, commit. The class is `maintenance` because none of
+/// these writes carries a caller operation identity into the ledger -- the
+/// synthesized batch has an empty capability set and the store's own serving
+/// principal, and the caller's replay identity lives in this module's
+/// `capacity_idempotency` row instead, which is exactly what puts the write
+/// outside operation-replay conflict semantics (RF-RULING-005).
 pub(crate) fn commit(
-    db: &Database,
+    shard: &Shard,
     graph: &str,
     method: &Method,
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut super::AuditTailCache,
 ) -> Result<Vec<u8>, String> {
-    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-    wtx.set_durability(Durability::Immediate)
-        .map_err(|e| e.to_string())?;
-    let bytes = apply_in_wtx(&wtx, graph, method, crypto)?;
+    let committed_at_ms = method_now_ms(method)?;
+    let op_id = attempt_id();
+    let members = shard.graph_members(&[graph])?;
+    let (group, batches) = shard.admit_maintenance(&members, &op_id)?;
+    let write = ShardWrite::open(shard, &group, &members, &batches)?;
+    let bytes = apply(&write, graph, method, crypto)?;
+    // Scoped so the audit table handle is dropped before `write.finish()`
+    // consumes the owner-row admission it borrows.
     #[cfg(feature = "security")]
-    let mut staged_audit_tail = audit_tail.clone();
-    #[cfg(feature = "security")]
-    if !result_is_replay(method, &bytes)? {
-        let mut audit = wtx.open_table(super::AUDIT).map_err(|e| e.to_string())?;
-        super::append_audit_entry(&mut audit, &mut staged_audit_tail, graph, method)?;
-    }
-    wtx.commit().map_err(|e| e.to_string())?;
+    let staged_audit_tail = {
+        let mut staged = audit_tail.clone();
+        if !result_is_replay(method, &bytes)? {
+            let mut audit = write.graph(graph)?.open_scoped_table(super::AUDIT)?;
+            super::append_audit_entry(&mut audit, &mut staged, graph, method)?;
+        }
+        staged
+    };
+    write.finish()?;
+    shard.commit_drain(group, &batches, committed_at_ms)?;
     #[cfg(feature = "security")]
     {
         *audit_tail = staged_audit_tail;
@@ -182,18 +197,20 @@ fn result_is_replay(method: &Method, bytes: &[u8]) -> Result<bool, String> {
     }
 }
 
+/// Page one graph's cells and leases from a kernel-issued scoped read.
 pub(crate) fn read(
-    db: &Database,
+    shard: &Shard,
     graph: &str,
     request: &CapacityStatusRequest,
     crypto: DurableCrypto<'_>,
 ) -> Result<CapacityStatusResult, String> {
     validate_status_request(request)?;
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let cells = rtx.open_table(CELLS).map_err(|e| e.to_string())?;
-    let leases = rtx.open_table(LEASES).map_err(|e| e.to_string())?;
-    let cell_rows = scan_status_cells(&cells, graph, request, crypto)?;
-    let lease_rows = scan_status_leases(&leases, graph, request, crypto)?;
+    let handle = shard.graph(graph)?;
+    let read = shard.read(&handle)?;
+    let cells = read.scoped_owner_table(CELLS)?;
+    let leases = read.scoped_owner_table(LEASES)?;
+    let cell_rows = scan_status_cells(&cells, request, crypto)?;
+    let lease_rows = scan_status_leases(&leases, request, crypto)?;
     let next_cursor = lease_rows.last().map(|lease| lease.lease_id.clone());
     Ok(CapacityStatusResult {
         schema_version: NativeControlSchemaVersion::V1,
@@ -203,23 +220,18 @@ pub(crate) fn read(
     })
 }
 
-fn scan_status_cells<T>(
-    cells: &T,
-    graph: &str,
+fn scan_status_cells(
+    cells: &ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
     request: &CapacityStatusRequest,
     crypto: DurableCrypto<'_>,
-) -> Result<Vec<CapacityCell>, String>
-where
-    T: ReadableTable<(&'static str, &'static str), &'static [u8]>,
-{
+) -> Result<Vec<CapacityCell>, String> {
     let mut cell_rows = Vec::new();
     let mut scanned_cells = 0usize;
-    for row in cells.range((graph, "")..).map_err(|e| e.to_string())? {
-        let (key, value) = row.map_err(|e| e.to_string())?;
-        let (row_graph, cell_id) = key.value();
-        if row_graph != graph {
-            break;
-        }
+    // `scope_rows` is already bounded to this read's own graph, so the scan
+    // needs no starting key and no "did we leave the graph" break.
+    for row in cells.scope_rows()? {
+        let (key, value) = row?;
+        let (_, cell_id) = key.value();
         scanned_cells += 1;
         if scanned_cells > MAX_SCAN {
             return Err("capacity status cell scan exceeds native bound".to_string());
@@ -240,24 +252,17 @@ where
     Ok(cell_rows)
 }
 
-fn scan_status_leases<T>(
-    leases: &T,
-    graph: &str,
+fn scan_status_leases(
+    leases: &ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
     request: &CapacityStatusRequest,
     crypto: DurableCrypto<'_>,
-) -> Result<Vec<CapacityLease>, String>
-where
-    T: ReadableTable<(&'static str, &'static str), &'static [u8]>,
-{
+) -> Result<Vec<CapacityLease>, String> {
     let mut lease_rows = Vec::new();
     let mut scanned_leases = 0usize;
     let cursor = request.cursor.as_deref().unwrap_or("");
-    for row in leases.range((graph, "")..).map_err(|e| e.to_string())? {
-        let (key, value) = row.map_err(|e| e.to_string())?;
-        let (row_graph, lease_id) = key.value();
-        if row_graph != graph {
-            break;
-        }
+    for row in leases.scope_rows()? {
+        let (key, value) = row?;
+        let (_, lease_id) = key.value();
         scanned_leases += 1;
         if scanned_leases > MAX_SCAN {
             return Err("capacity status lease scan exceeds native bound".to_string());
@@ -294,31 +299,31 @@ fn lease_matches_status_request(lease: &CapacityLease, request: &CapacityStatusR
             .is_none_or(|wanted| wanted == lease.lease_id)
 }
 
-fn apply_in_wtx(
-    wtx: &WriteTransaction,
+fn apply(
+    write: &ShardWrite<'_>,
     graph: &str,
     method: &Method,
     crypto: DurableCrypto<'_>,
 ) -> Result<Vec<u8>, String> {
     match method {
         Method::AcquireCapacity { request } => {
-            let result = acquire(wtx, graph, request, crypto)?;
+            let result = acquire(write, graph, request, crypto)?;
             encode(&result)
         }
         Method::RenewCapacity { request } => {
-            let result = mutate_leases(wtx, graph, request, true, crypto)?;
+            let result = mutate_leases(write, graph, request, true, crypto)?;
             encode(&result)
         }
         Method::ReleaseCapacity { request } => {
-            let result = mutate_leases(wtx, graph, request, false, crypto)?;
+            let result = mutate_leases(write, graph, request, false, crypto)?;
             encode(&result)
         }
         Method::ReclaimExpiredCapacity { request } => {
-            let result = reclaim(wtx, graph, request, crypto)?;
+            let result = reclaim(write, graph, request, crypto)?;
             encode(&result)
         }
         Method::UpdateCapacityCell { request } => {
-            let result = update_cell(wtx, graph, request, crypto)?;
+            let result = update_cell(write, graph, request, crypto)?;
             encode(&result)
         }
         _ => Err("capacity ledger received an unsupported method".to_string()),
@@ -326,7 +331,7 @@ fn apply_in_wtx(
 }
 
 fn acquire(
-    wtx: &WriteTransaction,
+    write: &ShardWrite<'_>,
     graph: &str,
     request: &CapacityAcquireRequest,
     crypto: DurableCrypto<'_>,
@@ -336,7 +341,7 @@ fn acquire(
     digest_request.now_ms = 0;
     let digest = request_digest(&digest_request)?;
     if let Some(replay) = read_replay(
-        wtx,
+        write,
         graph,
         &request.tenant_ref,
         &request.idempotency_key,
@@ -352,11 +357,13 @@ fn acquire(
         return Ok(result);
     }
 
-    // Expired capacity is reclaimed before the CAS check, in the same writer
-    // transaction.  The scan is bounded; a pathological backlog fails closed
-    // and asks the controller to drain it explicitly.
+    // Expired capacity is reclaimed before the CAS check, in the same admitted
+    // group.  The scan is bounded; a pathological backlog fails closed and asks
+    // the controller to drain it explicitly.  It runs BEFORE the three table
+    // handles below are opened, because `redb` refuses a second open of a table
+    // whose first handle is still alive and it opens LEASES and USAGE itself.
     reclaim_expired_inner(
-        wtx,
+        write,
         graph,
         request.now_ms,
         ReclaimScope {
@@ -368,9 +375,10 @@ fn acquire(
         crypto,
     )?;
 
-    let cells = wtx.open_table(CELLS).map_err(|e| e.to_string())?;
-    let mut usage = wtx.open_table(USAGE).map_err(|e| e.to_string())?;
-    let mut leases = wtx.open_table(LEASES).map_err(|e| e.to_string())?;
+    let rows = write.graph(graph)?;
+    let cells = rows.open_scoped_table(CELLS)?;
+    let mut usage = rows.open_scoped_table(USAGE)?;
+    let mut leases = rows.open_scoped_table(LEASES)?;
     let mut demands = request.demands.clone();
     demands.sort_by(|left, right| {
         (&left.cell_id, &left.resource_class, left.amount).cmp(&(
@@ -435,7 +443,7 @@ fn acquire(
         message: None,
     };
     write_replay(
-        wtx,
+        write,
         graph,
         ReplayKey {
             tenant: &request.tenant_ref,
@@ -454,16 +462,15 @@ fn acquire(
 /// compares `CapacityAvailability::available` against the demand's requested
 /// amount, since an exhausted demand still needs its priced entry recorded.
 fn price_demand(
-    cells: &redb::Table<'_, (&str, &str), &[u8]>,
-    usage: &redb::Table<'_, (&str, &str), &[u8]>,
+    cells: &CapacityRows<'_>,
+    usage: &CapacityRows<'_>,
     graph: &str,
     priority: eg_types::capacity_lease::LeasePriority,
     demand: &CapacityDemand,
     crypto: DurableCrypto<'_>,
 ) -> Result<(CapacityCell, DurableUsage, CapacityAvailability), String> {
     let cell = cells
-        .get((graph, demand.cell_id.as_str()))
-        .map_err(|e| e.to_string())?
+        .get((graph, demand.cell_id.as_str()))?
         .ok_or_else(|| format!("capacity cell '{}' was not found", demand.cell_id))
         .and_then(|value| decode_durable::<CapacityCell>(&crypto.unseal(value.value())?))?;
     validate_cell_bounds(&cell)?;
@@ -474,8 +481,7 @@ fn price_demand(
         ));
     }
     let row = usage
-        .get((graph, demand.cell_id.as_str()))
-        .map_err(|e| e.to_string())?
+        .get((graph, demand.cell_id.as_str()))?
         .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
         .transpose()?
         .unwrap_or_default();
@@ -493,8 +499,8 @@ fn price_demand(
 /// lease row and the cell's updated usage row for one already-priced demand.
 #[allow(clippy::too_many_arguments)]
 fn issue_acquired_lease(
-    leases: &mut redb::Table<'_, (&str, &str), &[u8]>,
-    usage: &mut redb::Table<'_, (&str, &str), &[u8]>,
+    leases: &mut CapacityRows<'_>,
+    usage: &mut CapacityRows<'_>,
     graph: &str,
     request: &CapacityAcquireRequest,
     demand: &CapacityDemand,
@@ -509,11 +515,7 @@ fn issue_acquired_lease(
         .checked_add(1)
         .ok_or_else(|| "capacity fence exhausted".to_string())?;
     let lease_id = lease_id(request, demand, index, digest)?;
-    if leases
-        .get((graph, lease_id.as_str()))
-        .map_err(|e| e.to_string())?
-        .is_some()
-    {
+    if leases.get((graph, lease_id.as_str()))?.is_some() {
         return Err("capacity lease id is already in use".to_string());
     }
     let lease = CapacityLease {
@@ -545,14 +547,10 @@ fn issue_acquired_lease(
         .ok_or_else(|| "capacity usage overflow".to_string())?;
     let sealed_lease_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
     let sealed_lease = crypto.seal(&sealed_lease_bytes);
-    leases
-        .insert((graph, lease.lease_id.as_str()), sealed_lease.as_ref())
-        .map_err(|e| e.to_string())?;
+    leases.insert((graph, lease.lease_id.as_str()), sealed_lease.as_ref())?;
     let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
     let sealed_usage = crypto.seal(&sealed_usage_bytes);
-    usage
-        .insert((graph, demand.cell_id.as_str()), sealed_usage.as_ref())
-        .map_err(|e| e.to_string())?;
+    usage.insert((graph, demand.cell_id.as_str()), sealed_usage.as_ref())?;
     Ok(lease)
 }
 
@@ -560,7 +558,7 @@ fn issue_acquired_lease(
 /// validate the stored digest/operation match and return the replayed
 /// result; otherwise `None` so the caller proceeds with a fresh mutation.
 fn check_mutation_replay(
-    wtx: &WriteTransaction,
+    write: &ShardWrite<'_>,
     graph: &str,
     request: &CapacityLeaseMutationRequest,
     renew: bool,
@@ -570,7 +568,7 @@ fn check_mutation_replay(
     let Some(key) = request.idempotency_key.as_deref() else {
         return Ok(None);
     };
-    let Some(replay) = read_replay(wtx, graph, &request.tenant_ref, key, crypto)? else {
+    let Some(replay) = read_replay(write, graph, &request.tenant_ref, key, crypto)? else {
         return Ok(None);
     };
     if replay.digest != digest || replay.operation != if renew { "renew" } else { "release" } {
@@ -584,7 +582,7 @@ fn check_mutation_replay(
 }
 
 fn mutate_leases(
-    wtx: &WriteTransaction,
+    write: &ShardWrite<'_>,
     graph: &str,
     request: &CapacityLeaseMutationRequest,
     renew: bool,
@@ -595,11 +593,12 @@ fn mutate_leases(
     let mut digest_request = request.clone();
     digest_request.now_ms = 0;
     let digest = request_digest(&digest_request)?;
-    if let Some(result) = check_mutation_replay(wtx, graph, request, renew, &digest, crypto)? {
+    if let Some(result) = check_mutation_replay(write, graph, request, renew, &digest, crypto)? {
         return Ok(result);
     }
-    let leases_table = wtx.open_table(LEASES).map_err(|e| e.to_string())?;
-    let cells_table = wtx.open_table(CELLS).map_err(|e| e.to_string())?;
+    let rows = write.graph(graph)?;
+    let leases_table = rows.open_scoped_table(LEASES)?;
+    let cells_table = rows.open_scoped_table(CELLS)?;
     let mut snapshots = Vec::with_capacity(request.leases.len());
     for fence in &request.leases {
         match check_lease_fence(&leases_table, &cells_table, graph, request, fence, crypto)? {
@@ -609,8 +608,8 @@ fn mutate_leases(
     }
     drop(leases_table);
     drop(cells_table);
-    let mut leases_table = wtx.open_table(LEASES).map_err(|e| e.to_string())?;
-    let mut usage = wtx.open_table(USAGE).map_err(|e| e.to_string())?;
+    let mut leases_table = rows.open_scoped_table(LEASES)?;
+    let mut usage = rows.open_scoped_table(USAGE)?;
     let mut output = Vec::with_capacity(snapshots.len());
     for lease in snapshots {
         let lease = apply_lease_mutation(
@@ -636,7 +635,7 @@ fn mutate_leases(
     };
     if let Some(key) = key {
         write_replay(
-            wtx,
+            write,
             graph,
             ReplayKey {
                 tenant: &request.tenant_ref,
@@ -665,16 +664,15 @@ enum FenceCheck {
 /// ownership, lease epoch, cell epoch (CAS), fence token, and active/expiry
 /// state, in that order — mirrors the original inline guard-clause sequence.
 fn check_lease_fence(
-    leases_table: &redb::Table<'_, (&str, &str), &[u8]>,
-    cells_table: &redb::Table<'_, (&str, &str), &[u8]>,
+    leases_table: &CapacityRows<'_>,
+    cells_table: &CapacityRows<'_>,
     graph: &str,
     request: &CapacityLeaseMutationRequest,
     fence: &eg_types::native_control::CapacityLeaseFence,
     crypto: DurableCrypto<'_>,
 ) -> Result<FenceCheck, String> {
     let current = leases_table
-        .get((graph, fence.lease_id.as_str()))
-        .map_err(|e| e.to_string())?
+        .get((graph, fence.lease_id.as_str()))?
         .ok_or_else(|| format!("capacity lease '{}' was not found", fence.lease_id))
         .and_then(|value| decode_durable::<CapacityLease>(&crypto.unseal(value.value())?))?;
     if current.tenant_ref != request.tenant_ref || current.actor_digest != request.owner_digest {
@@ -694,8 +692,7 @@ fn check_lease_fence(
         })));
     }
     let cell = cells_table
-        .get((graph, current.cell_id.as_str()))
-        .map_err(|e| e.to_string())?
+        .get((graph, current.cell_id.as_str()))?
         .ok_or_else(|| format!("capacity cell '{}' was not found", current.cell_id))
         .and_then(|value| decode_durable::<CapacityCell>(&crypto.unseal(value.value())?))?;
     validate_cell_bounds(&cell)?;
@@ -740,8 +737,8 @@ fn check_lease_fence(
 /// Apply a renewal or release to one already-fence-checked lease snapshot and
 /// durably record the lease (and, on release, the cell's usage row).
 fn apply_lease_mutation(
-    leases_table: &mut redb::Table<'_, (&str, &str), &[u8]>,
-    usage: &mut redb::Table<'_, (&str, &str), &[u8]>,
+    leases_table: &mut CapacityRows<'_>,
+    usage: &mut CapacityRows<'_>,
     graph: &str,
     request: &CapacityLeaseMutationRequest,
     renew: bool,
@@ -756,8 +753,7 @@ fn apply_lease_mutation(
     } else {
         lease.state = LeaseState::Released;
         let mut row = usage
-            .get((graph, lease.cell_id.as_str()))
-            .map_err(|e| e.to_string())?
+            .get((graph, lease.cell_id.as_str()))?
             .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
             .transpose()?
             .unwrap_or_default();
@@ -766,30 +762,26 @@ fn apply_lease_mutation(
         })?;
         let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
         let sealed_usage = crypto.seal(&sealed_usage_bytes);
-        usage
-            .insert((graph, lease.cell_id.as_str()), sealed_usage.as_ref())
-            .map_err(|e| e.to_string())?;
+        usage.insert((graph, lease.cell_id.as_str()), sealed_usage.as_ref())?;
     }
     lease
         .validate()
         .map_err(|error| format!("invalid capacity lease: {error:?}"))?;
     let sealed_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
     let sealed = crypto.seal(&sealed_bytes);
-    leases_table
-        .insert((graph, lease.lease_id.as_str()), sealed.as_ref())
-        .map_err(|e| e.to_string())?;
+    leases_table.insert((graph, lease.lease_id.as_str()), sealed.as_ref())?;
     Ok(lease)
 }
 
 fn reclaim(
-    wtx: &WriteTransaction,
+    write: &ShardWrite<'_>,
     graph: &str,
     request: &CapacityReclaimRequest,
     crypto: DurableCrypto<'_>,
 ) -> Result<CapacityReclaimResult, String> {
     validate_reclaim_request(request)?;
     let reclaimed = reclaim_expired_inner(
-        wtx,
+        write,
         graph,
         request.now_ms,
         ReclaimScope {
@@ -825,7 +817,7 @@ struct ReclaimScope<'a> {
 }
 
 fn reclaim_expired_inner(
-    wtx: &WriteTransaction,
+    write: &ShardWrite<'_>,
     graph: &str,
     now_ms: u64,
     scope: ReclaimScope<'_>,
@@ -837,11 +829,11 @@ fn reclaim_expired_inner(
         cursor,
         max_count,
     } = scope;
-    let mut leases = wtx.open_table(LEASES).map_err(|e| e.to_string())?;
-    let mut usage = wtx.open_table(USAGE).map_err(|e| e.to_string())?;
+    let rows = write.graph(graph)?;
+    let mut leases = rows.open_scoped_table(LEASES)?;
+    let mut usage = rows.open_scoped_table(USAGE)?;
     let candidates = scan_expired_candidates(
         &leases,
-        graph,
         now_ms,
         ExpiryScanFilter {
             tenant,
@@ -876,12 +868,11 @@ struct ExpiryScanFilter<'a> {
     max_count: usize,
 }
 
-/// Bounded scan of the LEASES table for active/renewed leases past
+/// Bounded scan of this graph's LEASES rows for active/renewed leases past
 /// `now_ms`, honoring the tenant/cell/cursor filter and paging at
 /// `max_count`. Does not mutate anything — callers reclaim the returned rows.
 fn scan_expired_candidates(
-    leases: &redb::Table<'_, (&str, &str), &[u8]>,
-    graph: &str,
+    leases: &CapacityRows<'_>,
     now_ms: u64,
     filter: ExpiryScanFilter<'_>,
     crypto: DurableCrypto<'_>,
@@ -894,12 +885,9 @@ fn scan_expired_candidates(
     } = filter;
     let mut candidates = Vec::new();
     let mut scanned = 0usize;
-    for row in leases.range((graph, "")..).map_err(|e| e.to_string())? {
-        let (key, value) = row.map_err(|e| e.to_string())?;
-        let (row_graph, lease_id) = key.value();
-        if row_graph != graph {
-            break;
-        }
+    for row in leases.scope_rows()? {
+        let (key, value) = row?;
+        let (_, lease_id) = key.value();
         scanned += 1;
         if scanned > MAX_SCAN {
             return Err("capacity expiry scan exceeds native bound".to_string());
@@ -926,8 +914,8 @@ fn scan_expired_candidates(
 /// Mark one already-selected candidate lease Reclaimed and durably record it
 /// plus its cell's decremented usage row.
 fn reclaim_one_lease(
-    leases: &mut redb::Table<'_, (&str, &str), &[u8]>,
-    usage: &mut redb::Table<'_, (&str, &str), &[u8]>,
+    leases: &mut CapacityRows<'_>,
+    usage: &mut CapacityRows<'_>,
     graph: &str,
     lease_id: String,
     mut lease: CapacityLease,
@@ -935,8 +923,7 @@ fn reclaim_one_lease(
 ) -> Result<String, String> {
     lease.state = LeaseState::Reclaimed;
     let mut row = usage
-        .get((graph, lease.cell_id.as_str()))
-        .map_err(|e| e.to_string())?
+        .get((graph, lease.cell_id.as_str()))?
         .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
         .transpose()?
         .unwrap_or_default();
@@ -946,19 +933,15 @@ fn reclaim_one_lease(
         .ok_or_else(|| "capacity usage underflow; ledger requires reconciliation".to_string())?;
     let sealed_usage_bytes = rmp_serde::to_vec_named(&row).map_err(|e| e.to_string())?;
     let sealed_usage = crypto.seal(&sealed_usage_bytes);
-    usage
-        .insert((graph, lease.cell_id.as_str()), sealed_usage.as_ref())
-        .map_err(|e| e.to_string())?;
+    usage.insert((graph, lease.cell_id.as_str()), sealed_usage.as_ref())?;
     let sealed_lease_bytes = rmp_serde::to_vec_named(&lease).map_err(|e| e.to_string())?;
     let sealed_lease = crypto.seal(&sealed_lease_bytes);
-    leases
-        .insert((graph, lease_id.as_str()), sealed_lease.as_ref())
-        .map_err(|e| e.to_string())?;
+    leases.insert((graph, lease_id.as_str()), sealed_lease.as_ref())?;
     Ok(lease_id)
 }
 
 fn update_cell(
-    wtx: &WriteTransaction,
+    write: &ShardWrite<'_>,
     graph: &str,
     request: &CapacityCellUpdateRequest,
     crypto: DurableCrypto<'_>,
@@ -972,10 +955,10 @@ fn update_cell(
     if next_cell.cell_id.len() > MAX_CAPACITY_ID_BYTES || next_cell.epoch == 0 {
         return Err("capacity cell id/epoch is outside native bounds".to_string());
     }
-    let mut cells = wtx.open_table(CELLS).map_err(|e| e.to_string())?;
+    let rows = write.graph(graph)?;
+    let mut cells = rows.open_scoped_table(CELLS)?;
     let current = cells
-        .get((graph, next_cell.cell_id.as_str()))
-        .map_err(|e| e.to_string())?
+        .get((graph, next_cell.cell_id.as_str()))?
         .map(|value| decode_durable::<CapacityCell>(&crypto.unseal(value.value())?))
         .transpose()?;
     if request.expected_epoch != current.as_ref().map(|cell| cell.epoch) {
@@ -993,10 +976,9 @@ fn update_cell(
     {
         return Err("capacity cell epoch must advance monotonically".to_string());
     }
-    let usage = wtx.open_table(USAGE).map_err(|e| e.to_string())?;
+    let usage = rows.open_scoped_table(USAGE)?;
     let leased = usage
-        .get((graph, next_cell.cell_id.as_str()))
-        .map_err(|e| e.to_string())?
+        .get((graph, next_cell.cell_id.as_str()))?
         .map(|value| decode_durable::<DurableUsage>(&crypto.unseal(value.value())?))
         .transpose()?
         .map(|row| row.leased_amount)
@@ -1006,9 +988,7 @@ fn update_cell(
     }
     let sealed_bytes = rmp_serde::to_vec_named(&next_cell).map_err(|e| e.to_string())?;
     let sealed = crypto.seal(&sealed_bytes);
-    cells
-        .insert((graph, next_cell.cell_id.as_str()), sealed.as_ref())
-        .map_err(|e| e.to_string())?;
+    cells.insert((graph, next_cell.cell_id.as_str()), sealed.as_ref())?;
     Ok(CapacityCellUpdateResult {
         schema_version: NativeControlSchemaVersion::V1,
         decision: CapacityDecision::Accepted,
@@ -1225,14 +1205,14 @@ fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, String> {
 }
 
 fn read_replay(
-    wtx: &WriteTransaction,
+    write: &ShardWrite<'_>,
     graph: &str,
     tenant: &str,
     key: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<DurableReplay>, String> {
-    let table = wtx.open_table(IDEMPOTENCY).map_err(|e| e.to_string())?;
-    let found = table.get((graph, tenant, key)).map_err(|e| e.to_string())?;
+    let table = write.graph(graph)?.open_scoped_table(IDEMPOTENCY)?;
+    let found = table.get((graph, tenant, key))?;
     found
         .map(|value| decode_durable(&crypto.unseal(value.value())?))
         .transpose()
@@ -1250,7 +1230,7 @@ struct ReplayKey<'a> {
 }
 
 fn write_replay<T: Serialize>(
-    wtx: &WriteTransaction,
+    write: &ShardWrite<'_>,
     graph: &str,
     replay: ReplayKey<'_>,
     result: &T,
@@ -1270,9 +1250,7 @@ fn write_replay<T: Serialize>(
     };
     let sealed_bytes = rmp_serde::to_vec_named(&replay).map_err(|e| e.to_string())?;
     let sealed = crypto.seal(&sealed_bytes);
-    let mut table = wtx.open_table(IDEMPOTENCY).map_err(|e| e.to_string())?;
-    table
-        .insert((graph, tenant, key), sealed.as_ref())
-        .map_err(|e| e.to_string())?;
+    let mut table = write.graph(graph)?.open_scoped_table(IDEMPOTENCY)?;
+    table.insert((graph, tenant, key), sealed.as_ref())?;
     Ok(())
 }

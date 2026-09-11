@@ -125,7 +125,6 @@ psql "host=127.0.0.1 port=5433 user=agent dbname=__commons__"
 | — | `EPISTEMIC_GRAPH_REQUIRE_OIDC` | unset ⇒ **required** (secure by default since 2026-07-22) | OIDC identity binding is mandatory unless explicitly opted out with `false`/`0`/`no`/`off`; see [deployment.md § Migrating to OIDC-required](deployment.md#migrating-to-oidc-required) |
 | — | `EPISTEMIC_GRAPH_OIDC_JWT_ISSUER` / `EPISTEMIC_GRAPH_OIDC_JWT_AUDIENCE` / `EPISTEMIC_GRAPH_OIDC_JWKS_URL` | — (required unless opted out) | Keycloak realm issuer / audience / JWKS URL |
 | `--persist-dir` | `GRAPH_SERVICE_PERSIST_DIR` | — (**required for served mode**) | Durable redb-authoritative store and replay-ledger dir |
-| — | `EPISTEMIC_GRAPH_REDB_COMMIT_POLICY` | engine default | `each`, `interval`, or positive milliseconds; invalid/zero values fail startup |
 | `--metrics-addr` | `GRAPH_SERVICE_METRICS_ADDR` | unset (no metrics) | Prometheus `/metrics` listener |
 | — | `EPISTEMIC_GRAPH_AUDIENCE` / `EPISTEMIC_GRAPH_TENANT` / `EPISTEMIC_GRAPH_POLICY_VERSION` | — (**required**) | Exact request policy values |
 | — | `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` | — (**required**) | Runtime secret map of trusted operation signer ids to HMAC keys |

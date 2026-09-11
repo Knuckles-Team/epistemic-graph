@@ -70,13 +70,19 @@ pub const ANN_CODES: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
 // `eg-query`'s private admit/idempotency/OCC/fence/outbox ledger onto
 // `MutationKernel`'s: a second mutation ledger inside one kernel-owned file
 // is exactly what RF-RULING-004 forbids. The SQL layout is owner rows only.
-const SQL_STR_BYTES: [TableDefinition<'static, &str, &[u8]>; 6] = [
+/// The one tenant-wide SQL source identity/epoch row. It lives in the same
+/// owner file as the catalog and rows so a fresh catalog mutation can advance
+/// the source epoch in the same owner write; it is not a second ledger.
+pub const SQL_SOURCE_AUTHORITY: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("__sql_source_authority__");
+const SQL_STR_BYTES: [TableDefinition<'static, &str, &[u8]>; 7] = [
     TableDefinition::new("__sql_catalog__"),
     TableDefinition::new("__sql_functions__"),
     TableDefinition::new("__sql_ann_indexes__"),
     TableDefinition::new("__sql_secondary_indexes__"),
     TableDefinition::new("__sql_secondary_index_entries__"),
     TableDefinition::new("__sql_hypertables__"),
+    SQL_SOURCE_AUTHORITY,
 ];
 const SQL_STR_STR: [TableDefinition<'static, &str, &str>; 2] = [
     TableDefinition::new("__sql_views__"),
@@ -107,11 +113,11 @@ const BLOB_CHUNKS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new(
 const BLOB_OBJECTS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("cas_blobs");
 const BLOB_REFS: TableDefinition<'static, &str, u64> = TableDefinition::new("cas_refcount");
 const BLOB_UPLOADS: TableDefinition<'static, u64, &[u8]> = TableDefinition::new("cas_uploads");
-const SEMANTIC_BINDINGS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+pub const SEMANTIC_BINDINGS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
     TableDefinition::new("semantic_bindings");
-const SEMANTIC_HEADS: TableDefinition<'static, (&str, &str), u64> =
+pub const SEMANTIC_HEADS: TableDefinition<'static, (&str, &str), u64> =
     TableDefinition::new("semantic_binding_heads");
-const SEMANTIC_STAGES: TableDefinition<'static, (&str, &str, &str), &[u8]> =
+pub const SEMANTIC_STAGES: TableDefinition<'static, (&str, &str, &str), &[u8]> =
     TableDefinition::new("semantic_stage_transitions");
 /// The binding's durable authority record (model identity and dimensions),
 /// keyed `(tenant, binding)` -- one per binding, not per generation.
@@ -121,7 +127,7 @@ const SEMANTIC_STAGES: TableDefinition<'static, (&str, &str, &str), &[u8]> =
 /// drift `validate_owner_registry_equality` exists to refuse.
 pub const SEMANTIC_STATES: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("semantic_binding_state_transitions");
-const SEMANTIC_SOURCE_PROGRESS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
+pub const SEMANTIC_SOURCE_PROGRESS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
     TableDefinition::new("semantic_source_progress");
 /// The binding's live-generation pointer, keyed `(tenant, binding)`. One row,
 /// so two live generations of one binding are structurally impossible.
@@ -131,23 +137,32 @@ const SEMANTIC_SOURCE_PROGRESS: TableDefinition<'static, (&str, &str, u64, &str)
 /// drift `validate_owner_registry_equality` exists to refuse.
 pub const SEMANTIC_POINTERS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("semantic_active_pointers");
-const SEMANTIC_DEAD_LETTERS: TableDefinition<'static, (&str, &str, u32), &[u8]> =
+pub const SEMANTIC_DEAD_LETTERS: TableDefinition<'static, (&str, &str, &str, u32), &[u8]> =
     TableDefinition::new("semantic_dead_letters");
-const SEMANTIC_TOMBSTONES: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+pub const SEMANTIC_TOMBSTONES: TableDefinition<'static, (&str, &str, u64), &[u8]> =
     TableDefinition::new("semantic_tombstones");
-const SEMANTIC_SQL_SOURCES: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
+pub const SEMANTIC_SQL_SOURCES: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
     TableDefinition::new("semantic_sql_source_manifests");
-const SEMANTIC_GRAPH_PROJECTIONS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
+pub const SEMANTIC_GRAPH_PROJECTIONS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
     TableDefinition::new("semantic_graph_projection_manifests");
-const SEMANTIC_AUTH_RECEIPTS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
+pub const SEMANTIC_AUTH_RECEIPTS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
     TableDefinition::new("semantic_authorization_receipts");
-const SEMANTIC_CHECKPOINTS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
+pub const SEMANTIC_CHECKPOINTS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
     TableDefinition::new("semantic_generation_checkpoints");
-const SEMANTIC_LEXICAL: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+/// The exact current checkpoint for one `(tenant, binding, generation,
+/// source_revision, stage)`. The value is the canonical checkpoint bytes;
+/// the semantic owner cross-checks it against `SEMANTIC_CHECKPOINTS` before
+/// treating the row as authority.
+pub const SEMANTIC_CHECKPOINT_HEADS: TableDefinition<
+    'static,
+    (&str, &str, u64, &str, &str),
+    &[u8],
+> = TableDefinition::new("semantic_generation_checkpoint_heads");
+pub const SEMANTIC_LEXICAL: TableDefinition<'static, (&str, &str, u64), &[u8]> =
     TableDefinition::new("semantic_lexical_manifests");
-const SEMANTIC_ANN: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+pub const SEMANTIC_ANN: TableDefinition<'static, (&str, &str, u64), &[u8]> =
     TableDefinition::new("semantic_ann_manifests");
-const SEMANTIC_VECTORS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
+pub const SEMANTIC_VECTORS: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
     TableDefinition::new("semantic_vectors");
 // Root-binary sidecar owner files. Each is one physical file with one fixed
 // native `ControlPlane` serving scope, so each declares its own layout rather
@@ -165,6 +180,34 @@ const NODE_INFO_META: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("node_info_meta");
 const CLUSTER_HIERARCHY: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("cluster_hierarchy");
+/// Append-only Agent Library revisions. The revision is part of the key so
+/// retained definitions and tombstones remain available after the head moves.
+pub const AGENT_LIBRARY_REVISIONS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+    TableDefinition::new("agent_library");
+/// Current head revision for each `(tenant, agent)` pair.
+pub const AGENT_LIBRARY_HEADS: TableDefinition<'static, (&str, &str), u64> =
+    TableDefinition::new("agent_library_heads");
+/// Append-only agent GRAPH revisions (RF-ADR-008), in the SAME owner as the
+/// entries they compose. A graph is a composition of Agent Library entries, not
+/// a separate entity family, so a second physical owner would split one
+/// authority in two (RF-RULING-004) -- and its revision/replay/receipt/outbox
+/// evidence would then have to be reconciled across two files to answer a
+/// single question.
+pub const AGENT_GRAPH_REVISIONS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+    TableDefinition::new("agent_graph");
+/// Current head revision for each `(tenant, graph)` pair.
+pub const AGENT_GRAPH_HEADS: TableDefinition<'static, (&str, &str), u64> =
+    TableDefinition::new("agent_graph_heads");
+/// Append-only agent COMPONENT revisions (RF-ADR-008 layer 1): the model
+/// profiles, prompts, tools, MCP servers/prompts/resources, skills, schemas
+/// and predicates that agents are assembled from. Same owner as the agents and
+/// graphs that reference them, so one question about an agent system is one
+/// file (RF-RULING-004).
+pub const AGENT_COMPONENT_REVISIONS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+    TableDefinition::new("agent_component");
+/// Current head revision for each `(tenant, component)` pair.
+pub const AGENT_COMPONENT_HEADS: TableDefinition<'static, (&str, &str), u64> =
+    TableDefinition::new("agent_component_heads");
 
 macro_rules! visit_owner_tables {
     ($layout:expr, $visit:ident) => {{
@@ -238,6 +281,7 @@ macro_rules! visit_owner_tables {
                 $visit!(SEMANTIC_GRAPH_PROJECTIONS);
                 $visit!(SEMANTIC_AUTH_RECEIPTS);
                 $visit!(SEMANTIC_CHECKPOINTS);
+                $visit!(SEMANTIC_CHECKPOINT_HEADS);
                 $visit!(SEMANTIC_LEXICAL);
                 $visit!(SEMANTIC_ANN);
                 $visit!(SEMANTIC_VECTORS);
@@ -254,6 +298,14 @@ macro_rules! visit_owner_tables {
             OwnerLayout::ClusterHierarchy => $visit!(CLUSTER_HIERARCHY),
             OwnerLayout::GraphShard => {
                 crate::owner::graph_shard::visit_graph_shard_tables!($visit)
+            }
+            OwnerLayout::AgentLibrary => {
+                $visit!(AGENT_LIBRARY_REVISIONS);
+                $visit!(AGENT_LIBRARY_HEADS);
+                $visit!(AGENT_GRAPH_REVISIONS);
+                $visit!(AGENT_GRAPH_HEADS);
+                $visit!(AGENT_COMPONENT_REVISIONS);
+                $visit!(AGENT_COMPONENT_HEADS);
             }
         }
     }};
@@ -417,6 +469,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "__sql_secondary_indexes__",
             "__sql_secondary_index_entries__",
             "__sql_hypertables__",
+            "__sql_source_authority__",
             "__sql_views__",
             "__sql_extensions__",
             "__sql_rows__",
@@ -443,6 +496,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "semantic_graph_projection_manifests",
             "semantic_authorization_receipts",
             "semantic_generation_checkpoints",
+            "semantic_generation_checkpoint_heads",
             "semantic_lexical_manifests",
             "semantic_ann_manifests",
             "semantic_vectors",
@@ -455,6 +509,14 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
         OwnerLayout::NodeInfo => &["node_info", "node_info_meta"],
         OwnerLayout::ClusterHierarchy => &["cluster_hierarchy"],
         OwnerLayout::GraphShard => crate::owner::graph_shard::GRAPH_SHARD_TABLES,
+        OwnerLayout::AgentLibrary => &[
+            "agent_library",
+            "agent_library_heads",
+            "agent_graph",
+            "agent_graph_heads",
+            "agent_component",
+            "agent_component_heads",
+        ],
     }
 }
 
@@ -542,7 +604,7 @@ where
     Ok(())
 }
 
-pub(crate) fn owner_layouts() -> [OwnerLayout; 17] {
+pub(crate) fn owner_layouts() -> [OwnerLayout; 18] {
     [
         OwnerLayout::LedgerOnly,
         OwnerLayout::Rbac,
@@ -561,6 +623,7 @@ pub(crate) fn owner_layouts() -> [OwnerLayout; 17] {
         OwnerLayout::NodeInfo,
         OwnerLayout::ClusterHierarchy,
         OwnerLayout::GraphShard,
+        OwnerLayout::AgentLibrary,
     ]
 }
 

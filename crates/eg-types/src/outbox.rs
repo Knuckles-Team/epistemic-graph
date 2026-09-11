@@ -7,7 +7,7 @@ use crate::authority::AuthorityScope;
 use crate::contract::{
     BoundedVec, Digest256, OpaqueId, RecordBytes, ResourceId, TenantId, UtcUnixNanos,
 };
-use crate::mutation::{MutationEnvelope, MutationReceipt};
+use crate::mutation::{MutationRequestEnvelope, MutationReceipt};
 
 pub const MAX_OUTBOX_HEADERS: usize = 64;
 
@@ -170,7 +170,7 @@ impl OutboxRecord {
 
     pub fn validate_against(
         &self,
-        envelope: &MutationEnvelope,
+        envelope: &MutationRequestEnvelope,
         mutation_receipt: &MutationReceipt,
         intent_index: usize,
     ) -> Result<(), String> {
@@ -188,7 +188,7 @@ impl OutboxRecord {
 
     fn validate_envelope_binding(
         &self,
-        envelope: &MutationEnvelope,
+        envelope: &MutationRequestEnvelope,
         intent: &OutboxIntent,
         expected_ordinal: u32,
     ) -> Result<(), String> {

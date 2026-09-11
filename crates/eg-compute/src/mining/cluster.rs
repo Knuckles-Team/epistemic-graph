@@ -268,47 +268,17 @@ pub fn gmm(points: &[Point], k: usize, max_iter: usize, seed: u64) -> (Vec<i64>,
 
     for _ in 0..max_iter.max(1) {
         // E-step: responsibilities via log-density for numerical stability.
-        let mut ll = 0.0;
-        for (i, x) in points.iter().enumerate() {
-            let mut log_comp = vec![0.0f64; k];
-            for c in 0..k {
-                log_comp[c] =
-                    weights[c].max(1e-300).ln() + log_gaussian_diag(x, &means[c], &vars[c]);
-            }
-            let max_lc = log_comp.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            let mut sum = 0.0;
-            for c in 0..k {
-                let e = (log_comp[c] - max_lc).exp();
-                resp[i][c] = e;
-                sum += e;
-            }
-            for r in resp[i].iter_mut() {
-                *r /= sum;
-            }
-            ll += max_lc + sum.ln();
-        }
+        let ll = expectation_step(points, &means, &vars, &weights, &mut resp);
 
         // M-step: refit weights, means, diagonal variances.
-        for c in 0..k {
-            let nk: f64 = resp.iter().map(|r| r[c]).sum();
-            let nk_safe = nk.max(1e-300);
-            weights[c] = nk / n as f64;
-            for d in 0..dim {
-                let mut mean = 0.0;
-                for (i, x) in points.iter().enumerate() {
-                    mean += resp[i][c] * x[d];
-                }
-                means[c][d] = mean / nk_safe;
-            }
-            for d in 0..dim {
-                let mut var = 0.0;
-                for (i, x) in points.iter().enumerate() {
-                    let diff = x[d] - means[c][d];
-                    var += resp[i][c] * diff * diff;
-                }
-                vars[c][d] = (var / nk_safe).max(VAR_FLOOR);
-            }
-        }
+        maximization_step(
+            points,
+            &resp,
+            &mut means,
+            &mut vars,
+            &mut weights,
+            VAR_FLOOR,
+        );
 
         if (ll - prev_ll).abs() < 1e-9 * (1.0 + ll.abs()) {
             break;
@@ -318,6 +288,67 @@ pub fn gmm(points: &[Point], k: usize, max_iter: usize, seed: u64) -> (Vec<i64>,
 
     let labels = resp.iter().map(|r| argmax(r) as i64).collect();
     (labels, resp)
+}
+
+fn expectation_step(
+    points: &[Point],
+    means: &[Point],
+    vars: &[Point],
+    weights: &[f64],
+    resp: &mut [Vec<f64>],
+) -> f64 {
+    let k = means.len();
+    let mut ll = 0.0;
+    for (i, x) in points.iter().enumerate() {
+        let mut log_comp = vec![0.0f64; k];
+        for c in 0..k {
+            log_comp[c] = weights[c].max(1e-300).ln() + log_gaussian_diag(x, &means[c], &vars[c]);
+        }
+        let max_lc = log_comp.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let mut sum = 0.0;
+        for c in 0..k {
+            let e = (log_comp[c] - max_lc).exp();
+            resp[i][c] = e;
+            sum += e;
+        }
+        for r in resp[i].iter_mut() {
+            *r /= sum;
+        }
+        ll += max_lc + sum.ln();
+    }
+    ll
+}
+
+fn maximization_step(
+    points: &[Point],
+    resp: &[Vec<f64>],
+    means: &mut [Point],
+    vars: &mut [Point],
+    weights: &mut [f64],
+    var_floor: f64,
+) {
+    let n = points.len();
+    let dim = points[0].len();
+    for c in 0..means.len() {
+        let nk: f64 = resp.iter().map(|r| r[c]).sum();
+        let nk_safe = nk.max(1e-300);
+        weights[c] = nk / n as f64;
+        for d in 0..dim {
+            let mut mean = 0.0;
+            for (i, x) in points.iter().enumerate() {
+                mean += resp[i][c] * x[d];
+            }
+            means[c][d] = mean / nk_safe;
+        }
+        for d in 0..dim {
+            let mut var = 0.0;
+            for (i, x) in points.iter().enumerate() {
+                let diff = x[d] - means[c][d];
+                var += resp[i][c] * diff * diff;
+            }
+            vars[c][d] = (var / nk_safe).max(var_floor);
+        }
+    }
 }
 
 fn feature_variance(points: &[Point], dim: usize) -> Vec<f64> {
@@ -355,15 +386,8 @@ fn feature_variance(points: &[Point], dim: usize) -> Vec<f64> {
 pub fn kmedoids(points: &[Point], k: usize, max_iter: usize) -> Vec<i64> {
     let n = points.len();
     let k = k.clamp(1, n);
-    // Precompute the pairwise distance matrix (n is test/UI-scale here).
-    let mut dm = vec![vec![0.0f64; n]; n];
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let d = euclidean(&points[i], &points[j]);
-            dm[i][j] = d;
-            dm[j][i] = d;
-        }
-    }
+    // Reuse the canonical symmetric pairwise traversal shared with reductions.
+    let dm = eg_geo::distance_matrix(points, |a, b| euclidean(a, b));
 
     // BUILD: first medoid minimizes total distance to all points; each subsequent
     // medoid greedily maximizes the reduction in total assignment cost.
@@ -476,21 +500,13 @@ fn total_cost(medoids: &[usize], dm: &[Vec<f64>]) -> f64 {
 /// noise bucket (id -1) comes first when present.
 fn group(points: &[Point], labels: Vec<i64>, resp: Option<Vec<Vec<f64>>>) -> Clustering {
     let dim = points[0].len();
-    let mut ids: Vec<i64> = labels
-        .iter()
-        .copied()
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    ids.sort_unstable();
+    let mut members_by_id = std::collections::BTreeMap::<i64, Vec<usize>>::new();
+    labels.iter().enumerate().for_each(|(index, &label)| {
+        members_by_id.entry(label).or_default().push(index);
+    });
 
-    let mut clusters = Vec::with_capacity(ids.len());
-    for id in ids {
-        let members: Vec<usize> = labels
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &l)| (l == id).then_some(i))
-            .collect();
+    let mut clusters = Vec::with_capacity(members_by_id.len());
+    for (id, members) in members_by_id {
         let mut centroid = vec![0.0f64; dim];
         for &m in &members {
             for d in 0..dim {
@@ -731,5 +747,18 @@ mod tests {
         let resp = out.responsibilities.expect("gmm returns responsibilities");
         assert_eq!(resp.len(), pts.len());
         assert_eq!(resp[0].len(), 2);
+    }
+
+    #[test]
+    fn group_orders_clusters_and_preserves_member_order() {
+        let pts = vec![vec![0.0, 0.0], vec![2.0, 0.0], vec![0.0, 2.0]];
+        let out = group(&pts, vec![4, -1, 4], None);
+
+        assert_eq!(out.clusters[0].cluster_id, -1);
+        assert_eq!(out.clusters[0].members, vec![1]);
+        assert_eq!(out.clusters[1].cluster_id, 4);
+        assert_eq!(out.clusters[1].members, vec![0, 2]);
+        assert_eq!(out.clusters[1].centroid, vec![0.0, 1.0]);
+        assert!((out.clusters[1].score - 1.0).abs() < 1e-12);
     }
 }

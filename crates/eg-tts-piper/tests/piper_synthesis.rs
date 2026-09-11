@@ -20,6 +20,43 @@ use eg_tts_piper::{
 };
 use support::{sha256_hex_bytes, FixtureConfig};
 
+/// Whether a real onnxruntime shared library is reachable for this run.
+///
+/// Every test below drives REAL inference, so each one needs a loadable
+/// runtime. Under `ort-load-dynamic` the operator supplies it via
+/// `ORT_DYLIB_PATH`; on a pre-AVX2 host that means an onnxruntime built from
+/// source with the ISA-gated options off (this crate's `Cargo.toml` and
+/// `docs/architecture/native_tts_piper.md` "Path 2" carry the exact flags).
+///
+/// Gated at RUNTIME rather than `#[ignore]`d so these tests still run wherever
+/// the runtime IS provided, and announced on stderr rather than skipped
+/// silently — a test that quietly does nothing is indistinguishable from one
+/// that passed.
+fn onnx_runtime_available() -> bool {
+    if !cfg!(feature = "ort-load-dynamic") {
+        return true;
+    }
+    match std::env::var_os("ORT_DYLIB_PATH") {
+        Some(path) if std::path::Path::new(&path).is_file() => true,
+        _ => {
+            eprintln!(
+                "SKIP: ORT_DYLIB_PATH does not name a readable onnxruntime shared library, \
+                 so real ONNX inference cannot run here"
+            );
+            false
+        }
+    }
+}
+
+/// Early-return the enclosing test when no onnxruntime is reachable.
+macro_rules! require_onnx {
+    () => {
+        if !onnx_runtime_available() {
+            return;
+        }
+    };
+}
+
 fn id(s: &str) -> TtsBoundedId {
     TtsBoundedId::new(s).expect("fixture id is a valid bounded token")
 }
@@ -57,6 +94,7 @@ fn clean_sine_template(len: usize, amplitude: f32) -> Vec<f32> {
 /// properties, not just "bytes returned".
 #[test]
 fn full_contract_round_trip_produces_real_audio() {
+    require_onnx!();
     let template = clean_sine_template(256, 0.4);
     let config = FixtureConfig::single_speaker(&['a', 'b']);
     let fixture = support::write_fixture("round-trip", &template, &config);
@@ -183,6 +221,7 @@ fn full_contract_round_trip_produces_real_audio() {
 
 #[test]
 fn cancellation_stops_streaming_before_all_chunks_are_produced() {
+    require_onnx!();
     // A long single phrase, with a tiny max_chunk_decoded_bytes, so it splits into
     // many audio-byte chunks within ONE phrase — cancellation is checked between
     // every sub-chunk, not just between phrases.
@@ -293,6 +332,7 @@ fn digest_mismatch_fails_closed() {
 
 #[test]
 fn malformed_config_json_fails_closed() {
+    require_onnx!();
     let dir = std::env::temp_dir().join(format!("eg-tts-piper-badcfg-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let template = clean_sine_template(64, 0.2);
@@ -312,11 +352,23 @@ fn malformed_config_json_fails_closed() {
     let paths = resolve_voice_paths(&dir, &voice_ref).unwrap();
     verify_voice_digests(&paths, &voice_ref).unwrap();
     let err = LoadedVoice::load(&paths).unwrap_err();
-    assert!(matches!(err, TtsError::ModelUnavailable { .. }));
+    // Assert the REASON, not just the variant. `LoadedVoice::load` also returns
+    // `ModelUnavailable` when no onnxruntime is reachable, which it checks first --
+    // so a variant-only assertion passes on a host with no runtime while never
+    // reaching the malformed config at all, reporting as coverage of a path it
+    // never executed.
+    let TtsError::ModelUnavailable { reason } = err else {
+        panic!("a malformed config must fail closed as ModelUnavailable, got {err:?}");
+    };
+    assert!(
+        reason.contains("not a valid Piper JSON config"),
+        "expected the config-parse rejection, got: {reason}"
+    );
 }
 
 #[test]
 fn malformed_onnx_fails_closed() {
+    require_onnx!();
     let dir = std::env::temp_dir().join(format!("eg-tts-piper-badonnx-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let config = FixtureConfig::single_speaker(&['a']);
@@ -332,11 +384,19 @@ fn malformed_onnx_fails_closed() {
     let paths = resolve_voice_paths(&dir, &voice_ref).unwrap();
     verify_voice_digests(&paths, &voice_ref).unwrap();
     let err = LoadedVoice::load(&paths).unwrap_err();
-    assert!(matches!(err, TtsError::ModelUnavailable { .. }));
+    // Reason, not variant -- see `malformed_config_json_fails_closed`.
+    let TtsError::ModelUnavailable { reason } = err else {
+        panic!("a malformed ONNX graph must fail closed as ModelUnavailable, got {err:?}");
+    };
+    assert!(
+        reason.contains("ONNX session failed to build"),
+        "expected the ONNX session-build rejection, got: {reason}"
+    );
 }
 
 #[test]
 fn unsupported_speaker_id_fails_closed_before_inference() {
+    require_onnx!();
     let template = clean_sine_template(64, 0.2);
     let mut speaker_id_map = HashMap::new();
     speaker_id_map.insert("narrator".to_string(), 0i64);
@@ -371,6 +431,7 @@ fn unsupported_speaker_id_fails_closed_before_inference() {
 
 #[test]
 fn empty_text_input_fails_closed_synchronously() {
+    require_onnx!();
     let template = clean_sine_template(64, 0.2);
     let config = FixtureConfig::single_speaker(&['a']);
     let fixture = support::write_fixture("empty", &template, &config);
@@ -414,6 +475,7 @@ fn empty_text_input_fails_closed_synchronously() {
 
 #[test]
 fn unknown_phoneme_character_fails_closed() {
+    require_onnx!();
     let template = clean_sine_template(64, 0.2);
     // Config only knows 'a' — 'z' has no entry.
     let config = FixtureConfig::single_speaker(&['a']);
@@ -460,6 +522,7 @@ fn unknown_phoneme_character_fails_closed() {
 
 #[test]
 fn output_format_mismatch_fails_closed_synchronously() {
+    require_onnx!();
     let template = clean_sine_template(64, 0.2);
     let config = FixtureConfig::single_speaker(&['a']);
     let fixture = support::write_fixture("format-mismatch", &template, &config);
@@ -503,6 +566,7 @@ fn output_format_mismatch_fails_closed_synchronously() {
 
 #[test]
 fn non_finite_template_is_measured_and_blocks_succeeded_but_not_degraded() {
+    require_onnx!();
     let mut template = clean_sine_template(64, 0.2);
     template[10] = f32::NAN;
     let config = FixtureConfig::single_speaker(&['a']);
@@ -582,6 +646,7 @@ fn non_finite_template_is_measured_and_blocks_succeeded_but_not_degraded() {
 
 #[test]
 fn clipping_template_is_measured() {
+    require_onnx!();
     let mut template = clean_sine_template(64, 0.2);
     template[5] = 1.8; // deliberately above the [-1.0, 1.0] nominal range
     template[6] = -1.5;

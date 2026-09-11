@@ -13,6 +13,7 @@ use super::{
 
 struct LockProbePersistence {
     entered_commit: tokio::sync::Notify,
+    seen_batch: std::sync::Mutex<Option<MutationBatch>>,
 }
 
 #[async_trait::async_trait]
@@ -35,10 +36,11 @@ impl PersistenceBackend for LockProbePersistence {
     async fn commit_mutation_batch(
         &self,
         _graph_fname: &str,
-        _batch: &MutationBatch,
+        batch: &MutationBatch,
         _result_msgpack: Option<&[u8]>,
         _committed_at_ms: u64,
     ) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
+        *self.seen_batch.lock().unwrap() = Some(batch.clone());
         self.entered_commit.notify_one();
         Err("lock-probe-stop".to_string())
     }
@@ -54,6 +56,7 @@ async fn work_item_commit_waits_for_shared_graph_mutation_lane() {
     let held = lock_graph(graph).await;
     let probe = Arc::new(LockProbePersistence {
         entered_commit: tokio::sync::Notify::new(),
+        seen_batch: std::sync::Mutex::new(None),
     });
     let persistence: Arc<dyn PersistenceBackend> = probe.clone();
     let core = Arc::new(GraphCore::new());
@@ -65,6 +68,8 @@ async fn work_item_commit_waits_for_shared_graph_mutation_lane() {
             Some(&persistence),
             &core,
             7,
+            None,
+            None,
             Some("principal:synthetic"),
             graph,
             0,
@@ -97,6 +102,87 @@ async fn work_item_commit_waits_for_shared_graph_mutation_lane() {
     );
     let outcome = task.await.expect("lock-probe task panicked");
     assert_eq!(outcome.unwrap_err(), "lock-probe-stop");
+}
+
+#[tokio::test]
+async fn authenticated_work_item_commit_carries_nonce_and_stable_key() {
+    let graph = "work-item-authenticated-key-probe";
+    let probe = Arc::new(LockProbePersistence {
+        entered_commit: tokio::sync::Notify::new(),
+        seen_batch: std::sync::Mutex::new(None),
+    });
+    let persistence: Arc<dyn PersistenceBackend> = probe.clone();
+    let core = Arc::new(GraphCore::new());
+    let nonce = eg_types::contract::Nonce::from_bytes([0x42; 32]);
+    let retry_nonce = eg_types::contract::Nonce::from_bytes([0x43; 32]);
+    let stable_key = "signed-work-item-operation";
+    let method = || Method::RenewWorkItemLease {
+        tenant: "tenant:authenticated".into(),
+        work_item_id: "work:authenticated".into(),
+        worker_id: "worker:authenticated".into(),
+        lease_epoch: 1,
+        fencing_token: 1,
+        now_ms: 1,
+        lease_ms: 1_000,
+    };
+    assert_eq!(
+        commit_work_item(
+            Some(&persistence),
+            &core,
+            17,
+            Some(nonce),
+            Some(stable_key),
+            Some("principal:authenticated"),
+            graph,
+            0,
+            None,
+            method(),
+        )
+        .await
+        .unwrap_err(),
+        "lock-probe-stop"
+    );
+    let first_batch = probe
+        .seen_batch
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("authenticated WorkItem compile reached persistence");
+    assert_eq!(
+        commit_work_item(
+            Some(&persistence),
+            &core,
+            18,
+            Some(retry_nonce),
+            Some(stable_key),
+            Some("principal:authenticated"),
+            graph,
+            0,
+            None,
+            method(),
+        )
+        .await
+        .unwrap_err(),
+        "lock-probe-stop"
+    );
+    let retry_batch = probe
+        .seen_batch
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("authenticated WorkItem retry compile reached persistence");
+    let envelope = first_batch
+        .envelope
+        .operation()
+        .expect("WorkItem compile emits an operation envelope");
+    assert_eq!(envelope.authority.nonce, nonce);
+    assert_eq!(envelope.idempotency_key(), stable_key);
+    assert_eq!(first_batch.batch_id, retry_batch.batch_id);
+    assert_eq!(first_batch.idempotency_key(), retry_batch.idempotency_key());
+    assert_ne!(
+        envelope.authority.nonce,
+        retry_batch.envelope.operation().unwrap().authority.nonce
+    );
 }
 
 #[test]
@@ -152,6 +238,7 @@ fn terminal_work_item_retry_identity_is_transport_independent_and_scope_bound() 
         idempotency_key: "terminal-key".into(),
         outcome: "succeeded".into(),
         result_ref: Some("result:sha256:one".into()),
+        outcome_extension: None,
         error_ref: None,
         retryable: false,
         now_ms: 1_000,
@@ -191,6 +278,7 @@ fn transaction_compiler_preserves_order_and_fences() {
         CompileBatch {
             batch_id: "txn-1",
             request_id: 1,
+            attempt_nonce: None,
             principal: Some("agent:a"),
             tenant: "tenant-a",
             graph: "graph-a",
@@ -241,6 +329,7 @@ fn change_envelope_projection_failure_never_partially_publishes() {
         CompileBatch {
             batch_id: "projection-atomic",
             request_id: 9,
+            attempt_nonce: None,
             principal: Some("test-principal"),
             tenant: "tenant-a",
             graph: "graph-a",
@@ -313,6 +402,7 @@ fn rdf_adapter_marks_rdf_surface() {
         CompileBatch {
             batch_id: "rdf-1",
             request_id: 2,
+            attempt_nonce: None,
             principal: Some("test-principal"),
             tenant: "tenant-a",
             graph: "graph-a",
@@ -364,6 +454,7 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
     ("TsEvict", "TimeSeries"),
     ("TsDeleteSeries", "TimeSeries"),
     ("AnalyticsJob", "AnalyticsJob"),
+    ("KgDelegate", "ControlPlane"),
     ("SubmitWorkItem", "ControlPlane"),
     ("SubmitWorkItems", "ControlPlane"),
     ("ClaimWorkItem", "ControlPlane"),
@@ -548,6 +639,7 @@ fn graph_routed_compiler_refuses_a_store_authoritative_method() {
         CompileBatch {
             batch_id: "store-authoritative",
             request_id: 1,
+            attempt_nonce: None,
             principal: Some("agent:a"),
             tenant: "tenant-a",
             graph: "graph-a",
@@ -589,6 +681,7 @@ fn a_graph_batch_names_the_serving_principal_and_carries_the_caller_actor() {
         CompileBatch {
             batch_id: "graph-principal",
             request_id: 1,
+            attempt_nonce: None,
             principal: Some("agent:a"),
             tenant: "tenant-a",
             graph: "graph-a",
@@ -607,13 +700,25 @@ fn a_graph_batch_names_the_serving_principal_and_carries_the_caller_actor() {
     .unwrap();
     let actor = crate::server::mutation_batch::principal_fingerprint("agent:a").unwrap();
     assert_eq!(
-        batch.context.principal,
+        batch.serving_principal(),
         crate::server::mutation_batch::ENGINE_LEDGER_PRINCIPAL,
         "a graph batch is admitted through the same owner-row path as any other"
     );
     assert_ne!(
-        batch.context.principal, actor,
-        "the caller must not survive as the context principal on any domain"
+        batch.serving_principal(),
+        actor,
+        "the caller must not survive as the batch's serving principal on any domain"
+    );
+    assert_eq!(
+        batch
+            .envelope
+            .operation()
+            .expect("a compiled batch is a caller operation")
+            .authority
+            .actor
+            .as_str(),
+        actor,
+        "the caller must be inside the stable operation replay identity"
     );
     assert_eq!(
         batch.outbox[0].headers.get("actor"),
@@ -632,6 +737,7 @@ fn no_compiled_batch_on_any_domain_carries_the_caller_as_its_context_principal()
             CompileBatch {
                 batch_id,
                 request_id: 1,
+                attempt_nonce: None,
                 principal: Some("agent:a"),
                 tenant: "tenant-a",
                 graph: "graph-a",
@@ -663,7 +769,7 @@ fn no_compiled_batch_on_any_domain_carries_the_caller_as_its_context_principal()
     ] {
         let batch = compile(tag, methods).unwrap();
         assert_eq!(
-            batch.context.principal,
+            batch.serving_principal(),
             crate::server::mutation_batch::ENGINE_LEDGER_PRINCIPAL,
             "{tag}"
         );
@@ -678,6 +784,7 @@ fn owner_store_batch_names_the_serving_principal_and_carries_the_caller_actor() 
         CompileBatch {
             batch_id: "kv-principal",
             request_id: 1,
+            attempt_nonce: None,
             principal: Some("agent:a"),
             tenant: "tenant-a",
             graph: "kv-scope-a",
@@ -699,7 +806,7 @@ fn owner_store_batch_names_the_serving_principal_and_carries_the_caller_actor() 
     )
     .unwrap();
     assert_eq!(
-        batch.context.principal,
+        batch.serving_principal(),
         crate::store_authority::ENGINE_PRINCIPAL,
         "an owner-store batch must name the principal the store's serving scope is \
          bound under, or `AdmittedMutation::owner_rows` refuses it"
@@ -708,6 +815,179 @@ fn owner_store_batch_names_the_serving_principal_and_carries_the_caller_actor() 
         batch.outbox[0].headers.get("actor"),
         Some(&crate::server::mutation_batch::principal_fingerprint("agent:a").unwrap()),
         "the verified caller is not lost: it is the outbox row's actor"
+    );
+}
+
+fn compile_sql_source_dirty_batch(
+    request_id: u64,
+    attempt_nonce: eg_types::contract::Nonce,
+    expected_version: u64,
+) -> (Method, MutationBatch) {
+    let method = Method::Sql {
+        query: "CREATE TABLE semantic_dirty_rows (id BIGINT PRIMARY KEY)".into(),
+        params_msgpack: Vec::new(),
+    };
+    let batch = crate::server::mutation_batch::compile_opaque_method(
+        CompileBatch {
+            batch_id: "sql-source-dirty-stable-batch",
+            request_id,
+            attempt_nonce: Some(attempt_nonce),
+            principal: Some("agent:semantic-source-writer"),
+            tenant: "tenant-semantic-source",
+            graph: "graph-semantic-source",
+            placement_epoch: 0,
+            idempotency_key: "sql-source-dirty-stable-key",
+            expected_graph_version: Some(expected_version),
+            fencing_token: None,
+            created_at_ms: request_id,
+            default_surface: MutationSurface::Query,
+            authoritative_state: None,
+        },
+        &method,
+        MutationSurface::Query,
+        crate::mutation_batch::DurabilityDomain::SqlCatalog,
+        "sql_catalog_operation",
+    )
+    .unwrap();
+    (method, batch)
+}
+
+#[test]
+fn sql_catalog_compile_declares_one_retry_stable_typed_source_dirty_intent() {
+    use sha2::Digest as _;
+
+    let (method, first) =
+        compile_sql_source_dirty_batch(11, eg_types::contract::Nonce::from_bytes([11; 32]), 0);
+    let (_, retry) =
+        compile_sql_source_dirty_batch(12, eg_types::contract::Nonce::from_bytes([12; 32]), 1);
+    let source_dirty = first
+        .outbox
+        .iter()
+        .filter(|intent| intent.topic == eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC)
+        .collect::<Vec<_>>();
+    assert_eq!(source_dirty.len(), 1);
+    let decoded = eg_types::semantic_index::SemanticSourceDirtyIntent::from_canonical_cbor(
+        &source_dirty[0].payload,
+    )
+    .unwrap();
+    assert_eq!(
+        decoded.source_scope_digest,
+        eg_types::semantic_index::SemanticDigest::from_bytes(
+            *first.identity.binding_digest().as_bytes()
+        )
+    );
+    let encoded_method = rmp_serde::to_vec_named(&method).unwrap();
+    assert_eq!(
+        decoded.input_digest,
+        eg_types::semantic_index::SemanticDigest::from_bytes(
+            sha2::Sha256::digest(encoded_method).into()
+        )
+    );
+    assert_eq!(source_dirty[0].key, first.batch_id);
+
+    let retry_source_dirty = retry
+        .outbox
+        .iter()
+        .find(|intent| intent.topic == eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC)
+        .unwrap();
+    assert_eq!(
+        retry_source_dirty.payload, source_dirty[0].payload,
+        "attempt request, nonce, timestamp, and OCC version must not enter the source-dirty payload"
+    );
+    assert_eq!(retry_source_dirty.key, source_dirty[0].key);
+
+    let non_sql = crate::server::mutation_batch::compile_opaque_method(
+        CompileBatch {
+            batch_id: "non-sql-opaque",
+            request_id: 13,
+            attempt_nonce: None,
+            principal: Some("agent:semantic-source-writer"),
+            tenant: "tenant-semantic-source",
+            graph: "graph-semantic-source",
+            placement_epoch: 0,
+            idempotency_key: "non-sql-opaque",
+            expected_graph_version: Some(0),
+            fencing_token: None,
+            created_at_ms: 13,
+            default_surface: MutationSurface::Graph,
+            authoritative_state: None,
+        },
+        &Method::RemoveNode {
+            node_id: "node-a".into(),
+        },
+        MutationSurface::Graph,
+        crate::mutation_batch::DurabilityDomain::GraphRows,
+        "graph_operation",
+    )
+    .unwrap();
+    assert!(non_sql
+        .outbox
+        .iter()
+        .all(|intent| { intent.topic != eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC }));
+}
+
+#[cfg(all(feature = "query", feature = "redb"))]
+#[test]
+fn sql_source_rows_receipt_version_and_dirty_intent_commit_and_replay_atomically() {
+    let (store, _path) = eg_query::TableStore::open_temp().unwrap();
+    let mut txn = eg_query::TableTxn::new();
+    txn.push(eg_query::TxnOp::CreateTable {
+        schema: eg_query::TableSchema::new(
+            "semantic_dirty_rows",
+            vec![eg_query::Column::new(
+                "id",
+                eg_query::ColumnType::BigInt,
+                false,
+                true,
+            )],
+        ),
+        if_not_exists: false,
+    });
+    let nonce = eg_types::contract::Nonce::from_bytes([21; 32]);
+    let (_, first) = compile_sql_source_dirty_batch(21, nonce, 0);
+    let committed = store.commit_txn_batch(&txn, &first, 21).unwrap();
+    assert!(!committed.replayed);
+    assert_eq!(
+        committed.record.committed_version,
+        crate::mutation_batch::CommittedVersion::Native {
+            source: 0,
+            target: 1,
+        }
+    );
+    assert_eq!(
+        store.list_tables().unwrap(),
+        vec!["semantic_dirty_rows".to_string()]
+    );
+    let durable_outbox = store
+        .mutation_outbox(&first.identity, &first.batch_id)
+        .unwrap();
+    assert_eq!(durable_outbox.len(), first.outbox.len());
+    let dirty = durable_outbox
+        .iter()
+        .find(|record| record.intent.topic == eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC)
+        .expect("the SQL owner transaction persists its typed source-dirty intent");
+    assert_eq!(dirty.committed_version, committed.record.committed_version);
+
+    let (_, consumed) = compile_sql_source_dirty_batch(22, nonce, 1);
+    let error = store.commit_txn_batch(&txn, &consumed, 22).unwrap_err();
+    assert!(error.contains("REPLAY_NONCE_CONSUMED"), "{error}");
+
+    let (_, retry) =
+        compile_sql_source_dirty_batch(23, eg_types::contract::Nonce::from_bytes([23; 32]), 1);
+    let replayed = store.commit_txn_batch(&txn, &retry, 23).unwrap();
+    assert!(replayed.replayed);
+    assert_eq!(replayed.record.committed_version, dirty.committed_version);
+    assert_eq!(
+        store
+            .mutation_outbox(&retry.identity, &retry.batch_id)
+            .unwrap(),
+        durable_outbox,
+        "a fresh-nonce retry must not duplicate the source-dirty event"
+    );
+    assert_eq!(
+        store.list_tables().unwrap(),
+        vec!["semantic_dirty_rows".to_string()],
+        "replay must not execute the SQL owner rows a second time"
     );
 }
 
@@ -742,10 +1022,8 @@ fn served_owner_store_batch_commits_and_its_actor_survives_in_the_ledger() {
         eg_types::ScopeTenantId::new("tenant-a".to_string()).unwrap(),
         crate::mutation_batch::DurabilityDomain::KvStore,
         eg_types::LogicalName::new("kv-scope-a".to_string()).unwrap(),
-        eg_types::IncarnationId::new(
-            crate::server::mutation_batch::COMPILED_BATCH_INCARNATION,
-        )
-        .unwrap(),
+        eg_types::IncarnationId::new(crate::server::mutation_batch::COMPILED_BATCH_INCARNATION)
+            .unwrap(),
     )
     .unwrap();
     let grant = kernel
@@ -763,6 +1041,7 @@ fn served_owner_store_batch_commits_and_its_actor_survives_in_the_ledger() {
         CompileBatch {
             batch_id: "kv-served",
             request_id: 7,
+            attempt_nonce: None,
             principal: Some("agent:a"),
             tenant: "tenant-a",
             graph: "kv-scope-a",
@@ -808,7 +1087,7 @@ fn served_owner_store_batch_commits_and_its_actor_survives_in_the_ledger() {
         crate::mutation_batch::MutationBatchStatus::Committed
     );
     assert_eq!(
-        record.batch.context.principal,
+        record.batch.serving_principal(),
         crate::store_authority::ENGINE_PRINCIPAL
     );
     assert_eq!(
@@ -834,6 +1113,7 @@ fn a_caller_cannot_name_either_reserved_graph_shard_identifier() {
             CompileBatch {
                 batch_id: "reserved",
                 request_id: 1,
+                attempt_nonce: None,
                 principal: Some("agent:a"),
                 tenant,
                 graph,
@@ -851,16 +1131,32 @@ fn a_caller_cannot_name_either_reserved_graph_shard_identifier() {
         )
     };
 
-    let tenant_error = compile_with(eg_storage::GRAPH_SHARD_TENANT, "graph-a").unwrap_err();
-    assert!(
-        tenant_error.contains("reserved scope tenant"),
-        "{tenant_error}"
-    );
-    let graph_error = compile_with("tenant-a", eg_storage::GRAPH_SHARD_CONTROL_GRAPH).unwrap_err();
-    assert!(
-        graph_error.contains("reserved control scope"),
-        "{graph_error}"
-    );
+    #[cfg(feature = "redb")]
+    {
+        let tenant_error = compile_with("__shard__", "graph-a").unwrap_err();
+        assert!(
+            tenant_error.contains("reserved scope tenant"),
+            "{tenant_error}"
+        );
+        let graph_error = compile_with("tenant-a", "__shard_control__").unwrap_err();
+        assert!(
+            graph_error.contains("reserved control scope"),
+            "{graph_error}"
+        );
+    }
+    #[cfg(not(feature = "redb"))]
+    {
+        let tenant_error = compile_with("__shard__", "graph-a").unwrap_err();
+        assert_eq!(
+            tenant_error,
+            "reserved graph-shard identifier cannot be supplied by a caller"
+        );
+        let graph_error = compile_with("tenant-a", "__shard_control__").unwrap_err();
+        assert_eq!(
+            graph_error,
+            "reserved graph-shard identifier cannot be supplied by a caller"
+        );
+    }
 
     // The guard is those two exact names, not a `__…__` shape: `__commons__` is
     // a real user-visible graph and must stay compilable.
@@ -869,4 +1165,91 @@ fn a_caller_cannot_name_either_reserved_graph_shard_identifier() {
         ok.identity.scope().graph_name().map(|n| n.as_str()),
         Some("__commons__")
     );
+}
+
+/// A compiled batch's envelope covers its OWN body, so editing the body after
+/// the mint is refused rather than committed.
+///
+/// This is the property that makes a post-compile outbox append unreachable
+/// instead of merely discouraged. Two producers used to do exactly that --
+/// `compile_crossmodal` pushed its manifest intent onto the finished batch, and
+/// the reasoning wake-up rewrote the projection intent's payload in place -- and
+/// both are now inputs to `finish_batch` rather than edits after it. The digest
+/// they would have invalidated is checked here on both of the fields it covers,
+/// so a third producer cannot reintroduce the shape.
+///
+/// It matters because the digest decides REPLAY: an envelope covering bytes the
+/// batch no longer has could resolve a retry against a recorded result whose
+/// outbox or operations differ from what this attempt proposed.
+#[test]
+fn editing_a_compiled_batch_after_the_mint_is_refused() {
+    let compiled = || {
+        compile_methods(
+            CompileBatch {
+                batch_id: "post-mint-edit",
+                request_id: 1,
+                attempt_nonce: None,
+                principal: Some("agent:a"),
+                tenant: "tenant-a",
+                graph: "graph-a",
+                placement_epoch: 0,
+                idempotency_key: "post-mint-edit",
+                expected_graph_version: Some(0),
+                fencing_token: None,
+                created_at_ms: 1,
+                default_surface: MutationSurface::Graph,
+                authoritative_state: None,
+            },
+            vec![Method::RemoveNode {
+                node_id: "a".into(),
+            }],
+        )
+        .unwrap()
+    };
+    compiled()
+        .validate()
+        .expect("a freshly compiled batch is valid");
+
+    // An outbox intent appended after the mint.
+    let mut appended = compiled();
+    appended
+        .outbox
+        .push(crate::mutation_batch::MutationOutboxIntent {
+            topic: "engine.crossmodal.committed".to_string(),
+            key: "post-mint-edit".to_string(),
+            payload: vec![7],
+            headers: Default::default(),
+        });
+    let error = appended.validate().unwrap_err();
+    assert!(
+        error.contains("canonical payload digest"),
+        "an appended intent must be refused, got: {error}"
+    );
+
+    // An operation rewritten after the mint.
+    let mut rewritten = compiled();
+    rewritten.operations[0].method = Method::RemoveNode {
+        node_id: "some-other-node".into(),
+    };
+    let error = rewritten.validate().unwrap_err();
+    assert!(
+        error.contains("canonical payload digest"),
+        "a rewritten operation must be refused, got: {error}"
+    );
+
+    // And what a PRODUCER does instead -- mint over the final body -- is
+    // accepted: the check is about the envelope describing its batch, not about
+    // the body being frozen.
+    let mut resealed = appended;
+    let schema_digest = resealed
+        .envelope
+        .operation()
+        .expect("a compiled batch is a caller operation")
+        .method_schema_digest;
+    resealed
+        .reseal_envelope(schema_digest)
+        .expect("a re-minted envelope covers the batch it describes");
+    resealed
+        .validate()
+        .expect("a batch whose envelope covers its own body is valid");
 }

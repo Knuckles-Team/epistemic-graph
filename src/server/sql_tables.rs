@@ -110,7 +110,7 @@ pub(crate) fn validate_served_configuration(persist_dir: Option<&Path>) -> std::
 /// tenant-shared data, tenant-shared ACL) so redb's process-local single-open rule
 /// is satisfied by construction: this registry is the ONE place in the whole
 /// process that ever calls [`TableStore::open`] for a given path.
-fn open_or_get(path: &Path) -> Result<TableStore, String> {
+fn open_or_get(path: &Path, tenant_scope: &str) -> Result<TableStore, String> {
     let key = registry_key(path);
     let parent = path
         .parent()
@@ -146,8 +146,9 @@ fn open_or_get(path: &Path) -> Result<TableStore, String> {
     // SAME `EngineScopeAuthority` every other kernel-owned store here uses --
     // there is exactly one grant authority per process, not one per store.
     let authority = crate::store_authority::process_authority();
-    let store = TableStore::open(
+    let store = TableStore::open_scoped(
         path,
+        tenant_scope,
         crate::store_authority::process_verifier(),
         authority.principal(),
         &authority.proof(),
@@ -178,7 +179,10 @@ pub(crate) fn user_table_store(
     let persist_dir = persist_dir.ok_or_else(|| {
         "owner-scoped SQL catalog requires the configured persistence directory".to_string()
     })?;
-    open_or_get(&store_path(authority, persist_dir))
+    open_or_get(
+        &store_path(authority, persist_dir),
+        authority.tenant_scope(),
+    )
 }
 
 /// Resolve the ONE durable SQL catalog shared by every actor in `tenant_scope`
@@ -191,7 +195,7 @@ pub(crate) fn tenant_table_store(
     tenant_scope: &str,
     persist_dir: &Path,
 ) -> Result<TableStore, String> {
-    open_or_get(&tenant_table_path(tenant_scope, persist_dir))
+    open_or_get(&tenant_table_path(tenant_scope, persist_dir), tenant_scope)
 }
 
 /// Resolve the tenant-shared ACL catalog (ownership, grants, and RLS declarations)
@@ -202,7 +206,7 @@ pub(crate) fn tenant_acl_table_store(
     tenant_scope: &str,
     persist_dir: &Path,
 ) -> Result<TableStore, String> {
-    open_or_get(&tenant_acl_path(tenant_scope, persist_dir))
+    open_or_get(&tenant_acl_path(tenant_scope, persist_dir), tenant_scope)
 }
 
 /// The process-local coordination seam owned by the cached tenant ACL handle.
@@ -247,9 +251,9 @@ fn context_cache_registry(
 }
 
 /// Resolve the ONE served-path whole-`SessionContext` cache (CONCEPT:EG-KG.query.served-context-cache) for
-/// `authority`'s owner-scoped SQL catalog — keyed by the SAME owner-hash registry
-/// key [`user_table_store`] uses, so repeated served SQL reads from the SAME
-/// tenant+actor reuse the SAME `SqlContextCache` instance (the entire point:
+/// `authority`'s tenant-scoped SQL catalog — keyed by the SAME tenant-hash registry
+/// key [`tenant_table_store`] uses, so repeated served SQL reads from the SAME
+/// tenant reuse the SAME `SqlContextCache` instance (the entire point:
 /// amortizing the `SessionContext` build ACROSS requests, not just within one). A
 /// fresh, empty cache the first time this owner ever runs a served SQL read.
 pub(crate) fn sql_context_cache(
@@ -259,7 +263,7 @@ pub(crate) fn sql_context_cache(
     let persist_dir = persist_dir.ok_or_else(|| {
         "owner-scoped SQL catalog requires the configured persistence directory".to_string()
     })?;
-    let key = registry_key(&store_path(authority, persist_dir));
+    let key = registry_key(&tenant_table_path(authority.tenant_scope(), persist_dir));
     let mut caches = context_cache_registry()
         .lock()
         .map_err(|_| "owner-scoped SQL context cache registry is unavailable".to_string())?;

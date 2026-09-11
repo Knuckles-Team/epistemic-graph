@@ -15,6 +15,7 @@ pub const AUTHORITY_PROTOCOL_V1: &str = "au-eg.query.v1";
 /// sorted and unique so equal authority never has multiple byte spellings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct AuthorityScope {
     pub kind: ScopeKind,
     pub scope_id: ResourceId,
@@ -88,6 +89,7 @@ impl AuthorityScope {
 /// as the stable operation replay identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct AuthorityContext {
     pub schema_version: ResourceId,
     pub protocol_id: ProtocolId,

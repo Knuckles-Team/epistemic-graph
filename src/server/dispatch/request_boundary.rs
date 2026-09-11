@@ -1,4 +1,6 @@
+#[cfg(feature = "raft")]
 use super::change_envelope::multi_graph_batch_update;
+#[cfg(feature = "raft")]
 use super::consensus::{is_replicated_apply, propose_native_mutation};
 use super::router::dispatch_request_method;
 #[cfg(feature = "sparql-http")]
@@ -186,23 +188,25 @@ fn validate_submit_context(
     if context.graph != graph {
         return Err("SubmitWorkItem context graph does not match request graph".to_string());
     }
-    if !submit_context_matches_authority(context, verified_context) {
+    // The tenant/agent/audience/policy_version identity check is the one comparison
+    // every request boundary shares -- both this native `SubmitWorkItem` command
+    // binding and the `kg-delegate` context validation
+    // (`server::handlers::delegation::validate_request_context`) run the exact same
+    // four-field comparison over the same verified-authority carrier before going on
+    // to check their own request's time window / scope bounds, which ARE
+    // surface-specific and stay local to each caller. `context_matches_verified_authority`
+    // is defined once, in `handlers::delegation` (its `pub(crate)` home), and called
+    // from both boundaries.
+    if !crate::server::handlers::delegation::context_matches_verified_authority(
+        context,
+        verified_context,
+    ) {
         return Err("SubmitWorkItem context does not match verified request authority".to_string());
     }
     if !submit_context_within_carrier_bounds(context, verified_context) {
         return Err("SubmitWorkItem context violates the verified carrier bounds".to_string());
     }
     Ok(())
-}
-
-fn submit_context_matches_authority(
-    context: &crate::epistemic_operations::RequestContext,
-    verified_context: &VerifiedRequestContext,
-) -> bool {
-    context.tenant_id == verified_context.tenant()
-        && context.agent_id == verified_context.agent_id()
-        && context.audience == verified_context.claims().audience
-        && context.policy_version == verified_context.claims().policy_version
 }
 
 fn submit_context_within_carrier_bounds(
@@ -650,6 +654,7 @@ async fn begin_session_control_saga(
     request_id: u64,
     caller: Option<&str>,
     method: &Method,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
 ) -> Result<Option<SessionControlSaga>, String> {
     if !is_session_control_mutation(method) {
         return Ok(None);
@@ -661,12 +666,13 @@ async fn begin_session_control_saga(
     let redb = backend
         .as_redb()
         .ok_or_else(|| "session control mutation requires durable redb coordination".to_string())?;
-    let saga = handlers::admin::begin_admin_saga(
+    let saga = handlers::admin::begin_admin_saga_with_nonce(
         redb,
         request_id,
         caller,
         method,
         crate::mutation_batch::DurabilityDomain::ControlPlane,
+        attempt_nonce,
     )?;
     Ok(Some(SessionControlSaga { backend, saga }))
 }
@@ -677,6 +683,7 @@ async fn begin_session_control_saga(
     _request_id: u64,
     _caller: Option<&str>,
     method: &Method,
+    _attempt_nonce: Option<eg_types::contract::Nonce>,
 ) -> Result<Option<()>, String> {
     if is_session_control_mutation(method) {
         Err("session control mutation requires the redb MutationBatch coordinator".to_string())
@@ -740,7 +747,7 @@ pub(super) fn append_native_capacity_ops(ops: &mut Vec<&'static str>, available:
 
 pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available: bool) {
     if available {
-        ops.extend(["SubmitWorkItem", "SubmitWorkItems"]);
+        ops.extend(["KgDelegate", "SubmitWorkItem", "SubmitWorkItems"]);
     }
 }
 
@@ -771,9 +778,10 @@ mod native_resource_capability_tests {
 }
 
 /// Dispatch a native transport request whose current envelope was verified
-/// before optional QoS admission. This keeps authentication single-pass: the
-/// durable replay nonce is consumed exactly once, and admission plus dispatch
-/// share the same immutable verified context.
+/// before optional QoS admission. This keeps authentication single-pass: a
+/// mutation nonce is consumed by the durable MutationBatch ledger and a
+/// read-only nonce by the transport replay ledger, while admission plus
+/// dispatch share the same immutable verified context.
 pub(crate) async fn dispatch_verified_request(
     state: &Arc<RwLock<ServerState>>,
     req: Request,
@@ -1006,6 +1014,7 @@ fn requested_tenant_ref(method: &Method) -> Option<&str> {
             Some(request.tenant_ref.as_str())
         }
         Method::SubmitWorkItem { request } => Some(request.context.tenant_id.as_str()),
+        Method::KgDelegate { request } => Some(request.context.tenant_id.as_str()),
         Method::SubmitWorkItems { request } => Some(request.context.tenant_id.as_str()),
         _ => None,
     }
@@ -1102,6 +1111,7 @@ async fn check_scope_and_admin_authority(
 fn submit_work_item_contexts(method: &Method) -> Vec<&crate::epistemic_operations::RequestContext> {
     match method {
         Method::SubmitWorkItem { request } => vec![&request.context],
+        Method::KgDelegate { request } => vec![&request.context],
         Method::SubmitWorkItems { request } => std::iter::once(&request.context)
             .chain(request.requests.iter().map(|child| &child.context))
             .collect(),
@@ -1337,9 +1347,11 @@ async fn dispatch_inner(
     mut req: Request,
     context: Option<VerifiedRequestContext>,
 ) -> Response {
-    // External requests verify the current signed context and durably consume
-    // their replay nonce before dispatch. In-process broker bridges provide a
-    // context only after their protocol-specific credential has verified.
+    // External requests verify the current signed context. Mutation nonces are
+    // carried into the durable MutationBatch kernel, while read-only nonces are
+    // checked by the transport replay ledger before dispatch. In-process broker
+    // bridges provide a context only after their protocol-specific credential has
+    // verified.
     let verified_context = match context {
         Some(context) => context,
         None => {
@@ -1378,12 +1390,18 @@ async fn dispatch_inner(
             Ok(v) => v,
             Err(resp) => return resp,
         };
-    let session_control =
-        match begin_session_control_saga(state, req.id, req.agent_id.as_deref(), &req.method).await
-        {
-            Ok(control) => control,
-            Err(error) => return Response::err(req.id, error),
-        };
+    let session_control = match begin_session_control_saga(
+        state,
+        req.id,
+        req.agent_id.as_deref(),
+        &req.method,
+        verified_context.attempt_nonce(),
+    )
+    .await
+    {
+        Ok(control) => control,
+        Err(error) => return Response::err(req.id, error),
+    };
     if let Some(control) = session_control.as_ref() {
         #[cfg(feature = "redb")]
         if let Some(result) = control.saga.replayed.clone() {

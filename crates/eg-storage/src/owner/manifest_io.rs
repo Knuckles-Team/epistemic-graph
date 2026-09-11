@@ -74,7 +74,10 @@ where
     Ok(manifest)
 }
 
-pub(crate) fn write_new_manifest(wtx: &WriteTransaction, manifest: &OwnerManifest) -> Result<(), String> {
+pub(crate) fn write_new_manifest(
+    wtx: &WriteTransaction,
+    manifest: &OwnerManifest,
+) -> Result<(), String> {
     let mut table = wtx
         .open_table(OWNER_MANIFEST)
         .map_err(|error| error.to_string())?;

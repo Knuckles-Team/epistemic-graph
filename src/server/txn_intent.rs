@@ -22,11 +22,13 @@
 //!    idempotency-key derivation `commit_table_txn` already dedupes on.
 //! 4. On full success the intent file is deleted ([`delete_intent`]) —
 //!    nothing left to recover.
-//! 5. On a CLEAN (non-crash) table-commit rejection, the live caller
-//!    compensates synchronously: replays `compensating_methods` under
+//! 5. On a CLEAN (non-crash) first-attempt table-commit rejection, the live
+//!    caller compensates synchronously: replays `compensating_methods` under
 //!    [`CommitIntent::compensation_operation_id`] (a id DETERMINISTIC in the
 //!    original `operation_id`, so a crash mid-compensation is itself
-//!    replay-safe), then deletes the intent.
+//!    replay-safe), then deletes the intent. A durable same-key table replay
+//!    conflict returns without compensation because its graph phase may be the
+//!    already-successful original commit; that conflicting intent is retired.
 //! 6. On a CRASH between step 2 and step 4, the intent file survives on
 //!    disk. The next time THIS OWNER's connection touches its store, a lazy
 //!    sweep (`WireSession::recover_owner_intents`) finds it via
@@ -122,6 +124,32 @@ impl CommitIntent {
         uuid::Uuid::parse_str(&self.operation_id).unwrap_or_else(|_| uuid::Uuid::nil())
     }
 
+    /// Compare the durable replay recipe while ignoring creation time metadata.
+    /// A retry may be reconstructed milliseconds later, but it must carry the
+    /// same graph/table payload under the same operation id before it can reuse
+    /// an intent that survived a crash.
+    fn same_replay_recipe(&self, other: &Self) -> Result<bool, String> {
+        let left = rmp_serde::to_vec_named(&(
+            &self.schema_version,
+            &self.operation_id,
+            &self.graph,
+            &self.forward_methods,
+            &self.compensating_methods,
+            &self.table_steps,
+        ))
+        .map_err(|_| "commit-intent replay recipe encode failed".to_string())?;
+        let right = rmp_serde::to_vec_named(&(
+            &other.schema_version,
+            &other.operation_id,
+            &other.graph,
+            &other.forward_methods,
+            &other.compensating_methods,
+            &other.table_steps,
+        ))
+        .map_err(|_| "commit-intent replay recipe encode failed".to_string())?;
+        Ok(left == right)
+    }
+
     /// Stable payload-free descriptor for the exact table-side replay recipe.
     ///
     /// The SQL MutationBatch stores only the digest of this descriptor, never
@@ -166,20 +194,59 @@ fn owner_dir(authority: &CarrierAuthority, persist_dir: &Path) -> PathBuf {
 }
 
 fn intent_path(dir: &Path, operation_id: uuid::Uuid) -> PathBuf {
-    // The filename is a SHA-256 digest of the (already opaque, random)
-    // operation id, keeping every filename in this durable log the SAME
-    // shape as `sql_tables.rs`'s owner files — a bare digest, never a raw
-    // identifier.
+    // The filename is a SHA-256 digest of the opaque operation id, keeping
+    // every filename in this durable log the SAME shape as `sql_tables.rs`'s
+    // owner files — a bare digest, never a raw identifier.
     let mut digest = Sha256::new();
     digest.update(b"epistemic-graph/txn-intent-file\0");
     digest.update(operation_id.as_bytes());
     dir.join(format!("{}.intent", hex::encode(digest.finalize())))
 }
 
-/// Durably write (and fsync) `intent` to its owner-scoped file, creating the
-/// owner directory if needed. Called BEFORE either half of a mixed commit is
-/// attempted, so a crash at any point after this call returns is
-/// self-healing (see the module doc).
+fn sync_owner_dir(dir: &Path) -> Result<(), String> {
+    let dir_handle = std::fs::File::open(dir)
+        .map_err(|_| "commit-intent directory could not be opened for sync".to_string())?;
+    dir_handle
+        .sync_all()
+        .map_err(|_| "commit-intent directory could not be durably synced".to_string())
+}
+
+#[cfg(test)]
+type PreInstallHook = std::sync::Arc<dyn Fn(&Path, &Path) + Send + Sync>;
+
+#[cfg(test)]
+static PRE_INSTALL_HOOK: std::sync::OnceLock<std::sync::Mutex<Option<PreInstallHook>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn invoke_pre_install_hook(tmp_path: &Path, path: &Path) {
+    let hook = PRE_INSTALL_HOOK
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .expect("pre-install hook lock")
+        .clone();
+    if let Some(hook) = hook {
+        hook(tmp_path, path);
+    }
+}
+
+#[cfg(test)]
+fn set_pre_install_hook(hook: Option<PreInstallHook>) {
+    *PRE_INSTALL_HOOK
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .expect("pre-install hook lock") = hook;
+}
+
+/// Durably publish (and fsync) `intent` at its owner-scoped file, creating the
+/// owner directory if needed. The record is first written and fsynced to a
+/// unique same-directory temporary file, then installed with a no-replace hard
+/// link. The canonical path is therefore either absent or complete; it is
+/// never exposed while its bytes are being written. A concurrent or
+/// crash-retry write cannot replace an existing recipe: an exact replay is
+/// accepted as a no-op, while a changed recipe returns a conflict. Called
+/// BEFORE either half of a mixed commit is attempted, so a crash at any point
+/// after this call returns is self-healing (see the module doc).
 pub(crate) fn write_intent(
     authority: &CarrierAuthority,
     persist_dir: &Path,
@@ -202,31 +269,73 @@ pub(crate) fn write_intent(
     )
     .map_err(|_| "commit-intent record exceeds limits".to_string())?;
     let path = intent_path(&dir, intent.operation_id());
-    let tmp_path = path.with_extension("intent.tmp");
-    {
-        use std::io::Write;
-        let mut file = std::fs::File::create(&tmp_path)
-            .map_err(|_| "commit-intent file could not be created".to_string())?;
-        file.write_all(&bytes)
-            .map_err(|_| "commit-intent file write failed".to_string())?;
-        file.sync_all()
-            .map_err(|_| "commit-intent file could not be durably synced".to_string())?;
-    }
+    let tmp_path = dir.join(format!(
+        ".{}.{}.tmp",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("commit-intent"),
+        uuid::Uuid::new_v4().simple()
+    ));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|_| "commit-intent file permissions could not be applied".to_string())?;
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
     }
-    std::fs::rename(&tmp_path, &path)
-        .map_err(|_| "commit-intent file could not be installed".to_string())?;
-    // Best-effort durability for the rename's directory entry.
-    #[cfg(unix)]
-    {
-        if let Ok(dir_handle) = std::fs::File::open(&dir) {
-            let _ = dir_handle.sync_all();
+    let mut file = options
+        .open(&tmp_path)
+        .map_err(|_| "commit-intent temporary file could not be created".to_string())?;
+    use std::io::Write;
+    file.write_all(&bytes).map_err(|_| {
+        let _ = std::fs::remove_file(&tmp_path);
+        "commit-intent temporary file write failed".to_string()
+    })?;
+    file.sync_all().map_err(|_| {
+        let _ = std::fs::remove_file(&tmp_path);
+        "commit-intent temporary file could not be durably synced".to_string()
+    })?;
+    drop(file);
+
+    #[cfg(test)]
+    invoke_pre_install_hook(&tmp_path, &path);
+
+    // `hard_link` fails with AlreadyExists instead of replacing the canonical
+    // entry, giving us the no-replace publication primitive available in the
+    // standard library. The source and destination share this owner directory,
+    // so publication is atomic and cannot expose a partially written record.
+    match std::fs::hard_link(&tmp_path, &path) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(&tmp_path);
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let _ = std::fs::remove_file(&tmp_path);
+            let existing_bytes = std::fs::read(&path)
+                .map_err(|_| "existing commit-intent could not be read".to_string())?;
+            let existing = eg_types::msgpack::decode_bounded::<CommitIntent>(
+                &existing_bytes,
+                eg_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
+            )
+            .map_err(|_| "existing commit-intent is corrupt or oversized".to_string())?;
+            if existing.operation_id() != intent.operation_id() {
+                return Err("commit-intent path has a different operation id".to_string());
+            }
+            if existing.same_replay_recipe(intent)? {
+                sync_owner_dir(&dir)?;
+                return Ok(());
+            }
+            return Err(
+                "IDEMPOTENCY_CONFLICT: commit-intent recipe differs from the durable retry"
+                    .to_string(),
+            );
+        }
+        Err(_) => {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err("commit-intent file could not be published".to_string());
         }
     }
+
+    sync_owner_dir(&dir)?;
     Ok(())
 }
 
@@ -276,4 +385,191 @@ pub(crate) fn list_intents(authority: &CarrierAuthority, persist_dir: &Path) -> 
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn authority() -> CarrierAuthority {
+        CarrierAuthority::from_verified(
+            &crate::server::authority_context::VerifiedRequestContext::verified_for_test_in_tenant(
+                "intent-test-agent",
+                "intent-test-tenant",
+            ),
+        )
+        .expect("build test authority")
+    }
+
+    struct PreInstallHookReset;
+
+    impl Drop for PreInstallHookReset {
+        fn drop(&mut self) {
+            set_pre_install_hook(None);
+        }
+    }
+
+    fn original_intent(operation_id: uuid::Uuid, created_at_ms: u64) -> CommitIntent {
+        CommitIntent::new(
+            "intent-test-graph".to_string(),
+            operation_id,
+            vec![Method::AddNode {
+                node_id: "intent-test-node".to_string(),
+                properties_msgpack: vec![1, 2, 3],
+            }],
+            vec![Method::RemoveNode {
+                node_id: "intent-test-node".to_string(),
+            }],
+            vec![ReplayStep::Sql(
+                "CREATE TABLE intent_test (id INT)".to_string(),
+            )],
+            created_at_ms,
+        )
+    }
+
+    #[test]
+    fn pre_install_pause_and_crash_retry_publish_complete_recipes() {
+        let authority = authority();
+        let persist_dir = tempfile::tempdir().expect("create intent test directory");
+        let _hook_reset = PreInstallHookReset;
+        let operation_id = uuid::Uuid::from_u128(0x1234);
+        let original = original_intent(operation_id, 1);
+        let dir = owner_dir(&authority, persist_dir.path());
+        let path = intent_path(&dir, operation_id);
+
+        // Pause the real write_intent path after its temporary file is fsynced
+        // and before hard-link publication. The test thread is the concurrent
+        // observer: it can inspect the complete temp record while the
+        // canonical path remains absent, then release the writer.
+        let (staged_tx, staged_rx) = std::sync::mpsc::sync_channel(0);
+        let (resume_tx, resume_rx) = std::sync::mpsc::sync_channel(0);
+        let resume_rx = std::sync::Arc::new(std::sync::Mutex::new(resume_rx));
+        let pause_path = path.clone();
+        let pause_hook: PreInstallHook = std::sync::Arc::new(move |tmp_path, path| {
+            if path != pause_path {
+                return;
+            }
+            staged_tx
+                .send((tmp_path.to_path_buf(), path.to_path_buf()))
+                .expect("report paused publication");
+            resume_rx
+                .lock()
+                .expect("pause lock")
+                .recv()
+                .expect("resume publication");
+        });
+        set_pre_install_hook(Some(pause_hook));
+        let writer_authority = authority.clone();
+        let writer_dir = persist_dir.path().to_path_buf();
+        let writer_intent = original.clone();
+        let writer = std::thread::spawn(move || {
+            write_intent(&writer_authority, &writer_dir, &writer_intent)
+        });
+        let (staged_path, observed_path) = staged_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("observe real pre-install pause");
+        assert_eq!(observed_path, path);
+        assert!(staged_path.exists(), "fsynced temp must remain observable");
+        assert!(
+            !path.exists(),
+            "canonical intent must be absent before hard-link publication"
+        );
+        let staged_bytes = std::fs::read(&staged_path).expect("read fsynced temp");
+        let staged = eg_types::msgpack::decode_bounded::<CommitIntent>(
+            &staged_bytes,
+            eg_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
+        )
+        .expect("fsynced temp must contain a complete recipe");
+        assert!(staged
+            .same_replay_recipe(&original)
+            .expect("compare staged recipe"));
+        resume_tx.send(()).expect("resume real publication");
+        writer
+            .join()
+            .expect("join paused writer")
+            .expect("publish complete intent");
+        set_pre_install_hook(None);
+
+        let published_bytes = std::fs::read(&path).expect("read published intent");
+        let published = eg_types::msgpack::decode_bounded::<CommitIntent>(
+            &published_bytes,
+            eg_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
+        )
+        .expect("published intent must be complete");
+        assert!(published
+            .same_replay_recipe(&original)
+            .expect("compare published recipe"));
+
+        // A same-key retry may reconstruct fresh timestamps, but changing the
+        // graph/table recipe must fail without replacing the durable binding.
+        let mut altered = original_intent(operation_id, 2);
+        altered.table_steps = vec![ReplayStep::Sql(
+            "CREATE TABLE altered_intent_test (id INT)".to_string(),
+        )];
+        let error = write_intent(&authority, persist_dir.path(), &altered)
+            .expect_err("changed same-key recipe must conflict");
+        assert!(error.contains("IDEMPOTENCY_CONFLICT"), "{error}");
+
+        let intents = list_intents(&authority, persist_dir.path());
+        assert_eq!(intents.len(), 1, "the original intent must remain singular");
+        assert_eq!(intents[0].created_at_ms, 1);
+
+        // Simulate a process crash in the real path after temp fsync and
+        // before hard-link. The temp file survives, but a retry can publish a
+        // fresh complete record because no partial canonical file was exposed.
+        let interrupted_id = uuid::Uuid::from_u128(0x5678);
+        let interrupted = original_intent(interrupted_id, 4);
+        let interrupted_path = intent_path(&dir, interrupted_id);
+        let (crashed_tx, crashed_rx) = std::sync::mpsc::sync_channel(0);
+        let crash_path = interrupted_path.clone();
+        let crash_hook: PreInstallHook = std::sync::Arc::new(move |tmp_path, path| {
+            if path != crash_path {
+                return;
+            }
+            crashed_tx
+                .send((tmp_path.to_path_buf(), path.to_path_buf()))
+                .expect("report crashed publication");
+            panic!("simulated crash before hard-link publication");
+        });
+        set_pre_install_hook(Some(crash_hook));
+        let crashed_authority = authority.clone();
+        let crashed_dir = persist_dir.path().to_path_buf();
+        let crashed_intent = interrupted.clone();
+        let crashed_writer = std::thread::spawn(move || {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                write_intent(&crashed_authority, &crashed_dir, &crashed_intent)
+            }))
+        });
+        let (crashed_temp, crashed_path) = crashed_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("observe crashed pre-install path");
+        assert_eq!(crashed_path, interrupted_path);
+        assert!(
+            !crashed_path.exists(),
+            "crash must precede canonical publication"
+        );
+        assert!(
+            crashed_temp.exists(),
+            "crashed temp must remain for diagnosis"
+        );
+        let crashed_result = crashed_writer.join().expect("join crashed writer");
+        assert!(
+            crashed_result.is_err(),
+            "test hook must interrupt publication"
+        );
+        set_pre_install_hook(None);
+
+        write_intent(&authority, persist_dir.path(), &interrupted)
+            .expect("retry after real pre-install crash");
+        let retried_bytes = std::fs::read(&crashed_path).expect("read retried intent");
+        let retried = eg_types::msgpack::decode_bounded::<CommitIntent>(
+            &retried_bytes,
+            eg_types::msgpack::MsgpackLimits::new(MAX_INTENT_BYTES, MAX_INTENT_ITEMS, 64),
+        )
+        .expect("retried intent must be complete");
+        assert!(retried
+            .same_replay_recipe(&interrupted)
+            .expect("compare retried recipe"));
+        let _ = std::fs::remove_file(&crashed_temp);
+    }
 }

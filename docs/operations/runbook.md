@@ -92,7 +92,6 @@ Every listener is opt-in (feature **and** address must be set). Full connect exa
 
 | Var | Effect |
 |-----|--------|
-| `EPISTEMIC_GRAPH_REDB_COMMIT_POLICY` | Commit policy: `each`, `interval`, or positive milliseconds. Invalid values and zero fail startup; durability cannot be disabled. |
 | `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` / `…_REDB_GROUP_SHALLOW` | Group-commit micro-linger window / shallow batch (EG-024). |
 | `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` / `…_REDB_SHARDS` | redb flush threshold / shard count. Every K uses `graph-<n>.redb`; K=1 is `graph-0.redb`. |
 | `EPISTEMIC_GRAPH_MAX_INFLIGHT` / `…_MAX_INFLIGHT_PER_GRAPH` | Admission control / back-pressure. |

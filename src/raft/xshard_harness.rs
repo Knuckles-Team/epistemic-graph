@@ -22,6 +22,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use openraft::async_runtime::watch::WatchReceiver;
 use tokio::sync::RwLock;
 
 use super::cross_shard_txn::{
@@ -88,6 +89,13 @@ async fn bring_up(dir: &str, backend: fixture::Backend) -> Harness {
     (multi, coord, state)
 }
 
+#[cfg(target_os = "linux")]
+fn process_fd_count() -> usize {
+    std::fs::read_dir("/proc/self/fd")
+        .expect("Linux exposes the process fd directory")
+        .count()
+}
+
 /// Reopen the default two-group fixture after a simulated process crash. The shutdown/drop
 /// boundary remains in this helper so every recovery scenario exercises the same file-lock
 /// release and fresh backend initialization before it begins recovery.
@@ -126,9 +134,103 @@ async fn stop_after_prepare_without_decision(
         None,
         "no decision logged"
     );
-    multi.stop_listener();
-    multi.close_group(GROUP_A).await.unwrap();
-    multi.close_group(GROUP_B).await.unwrap();
+    multi.shutdown().await;
+}
+
+/// The complete node teardown must drain an accepted idle connection and release
+/// the backend before an in-process reopen. This is intentionally bounded and
+/// Linux-specific so the executor can run it under the unchanged soft nofile=1024
+/// limit and compare descriptor counts without changing process limits. The outer
+/// test supervises an exact-filter child so unrelated tests cannot perturb the
+/// process-wide `/proc/self/fd` baseline. The connection probe requires TWO new
+/// descriptors after the pre-connect count: the client socket and the listener's
+/// accepted server socket, so a client-only count cannot satisfy it.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shutdown_releases_accepted_connection_and_backend_fds_before_reopen() {
+    const CHILD_ENV: &str = "EG_XSHARD_FD_LIFECYCLE_CHILD";
+    if std::env::var_os(CHILD_ENV).is_none() {
+        let executable = std::env::current_exe().expect("xshard test executable");
+        let mut child = tokio::process::Command::new(executable)
+            .arg("--exact")
+            .arg("raft::xshard_harness::shutdown_releases_accepted_connection_and_backend_fds_before_reopen")
+            .arg("--nocapture")
+            .env(CHILD_ENV, "1")
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn isolated xshard FD child");
+        let status = tokio::time::timeout(Duration::from_secs(90), child.wait())
+            .await
+            .expect("isolated xshard FD child must not hang")
+            .expect("wait for isolated xshard FD child");
+        assert!(
+            status.success(),
+            "isolated xshard FD child failed with status {status}"
+        );
+        return;
+    }
+
+    // Exact restoration makes even a one-descriptor-per-cycle leak fail on
+    // the first cycle; repeating four isolated cycles also exercises cumulative
+    // teardown without accepting a leak budget.
+    const CYCLES: usize = 4;
+    let baseline = process_fd_count();
+
+    for cycle in 0..CYCLES {
+        let dir = fresh_dir(&format!("eg-xshard-fd-lifecycle-cycle-{cycle}"));
+        let backend = fixture::open_backend(&dir).expect("open redb");
+        let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
+        let before_connection = process_fd_count();
+        let group = multi
+            .group(GROUP_A)
+            .await
+            .expect("group A is running for the shared listener probe");
+        let raft_addr = group
+            .raft
+            .metrics()
+            .borrow_watched()
+            .membership_config
+            .get_node(&group.node_id)
+            .expect("group A membership contains this node's listener address")
+            .addr
+            .clone();
+        drop(group);
+        let client = tokio::net::TcpStream::connect(&raft_addr)
+            .await
+            .expect("connect to the shared Raft listener");
+
+        let accepted = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if process_fd_count() >= before_connection + 2 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .is_ok();
+        assert!(
+            accepted,
+            "listener must register the idle accepted connection (client + server FDs)"
+        );
+
+        multi.shutdown().await;
+        drop(client);
+        drop(coord);
+        drop(state);
+        drop(multi);
+        drop(backend);
+
+        let reopened = fixture::open_backend(&dir).expect("reopen after full teardown");
+        reopened.shutdown();
+        drop(reopened);
+        let after = process_fd_count();
+        assert!(
+            after <= baseline,
+            "cycle {cycle} retained descriptors after exact teardown: baseline={baseline}, after={after}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// A two-graph cross-shard txn inserting `a_node` into shardA and `b_node` into shardB.
@@ -207,8 +309,7 @@ async fn span_detection_routes_single_group_to_fast_path() {
     };
     assert!(coord.commit_cross_shard(&one_group).await.is_err());
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -242,8 +343,7 @@ async fn cross_shard_commit_is_atomic_on_all_participants() {
         "decision cleared"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -296,8 +396,7 @@ async fn killed_participant_during_prepare_aborts_with_no_partial_commit() {
         "no leaked prepares"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -328,11 +427,9 @@ async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
         // Nothing applied yet: both graphs are still empty.
         assert_eq!(node_count(&state, GRAPH_A).await, 0);
         assert_eq!(node_count(&state, GRAPH_B).await, 0);
-        // CRASH: stop the listener + drop the groups (the node is gone). Durable
-        // prepare+decision records remain on disk.
-        multi.stop_listener();
-        multi.close_group(GROUP_A).await.unwrap();
-        multi.close_group(GROUP_B).await.unwrap();
+        // CRASH: drain every listener, connection task, group, and writer before
+        // dropping the node. Durable prepare+decision records remain on disk.
+        multi.shutdown().await;
     }
     // Simulate a process restart and recover over the SAME durable files.
     let (backend2, multi2, coord2, state2) = reopen_after_crash(&dir, backend).await;
@@ -356,8 +453,7 @@ async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
     assert!(redb.xshard_scan_prepares().unwrap().is_empty());
     assert_eq!(redb.xshard_decision_get(txn_id).unwrap(), None);
 
-    multi2.stop_listener();
-    backend2.shutdown();
+    multi2.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -401,8 +497,7 @@ async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
         "prepares cleared on abort"
     );
 
-    multi2.stop_listener();
-    backend2.shutdown();
+    multi2.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -559,8 +654,7 @@ async fn user_multigraph_txn_commits_atomically_across_groups() {
         "prepares cleared"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -606,8 +700,7 @@ async fn user_multigraph_txn_atomic_under_participant_kill() {
         "no leaked prepares"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -657,8 +750,7 @@ async fn read_only_participant_skips_prepare_and_phase2() {
         "decision cleared"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -759,8 +851,7 @@ async fn parallel_prepare_multi_writer_commits_atomically() {
         "decision cleared"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -784,10 +875,7 @@ async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
         assert_eq!(node_count(&state, GRAPH_A).await, 0);
         assert_eq!(node_count(&state, GRAPH_B).await, 0);
         assert_eq!(node_count(&state, GRAPH_C).await, 0);
-        multi.stop_listener();
-        multi.close_group(GROUP_A).await.unwrap();
-        multi.close_group(GROUP_B).await.unwrap();
-        multi.close_group(GROUP_C).await.unwrap();
+        multi.shutdown().await;
     }
     backend.shutdown();
     drop(backend);
@@ -819,8 +907,7 @@ async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
     assert!(redb.xshard_scan_prepares().unwrap().is_empty());
     assert_eq!(redb.xshard_decision_get(txn_id).unwrap(), None);
 
-    multi2.stop_listener();
-    backend2.shutdown();
+    multi2.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -914,8 +1001,7 @@ async fn nonblocking_commit_is_atomic_via_replicated_decision() {
         "replicated decision GC'd after commit"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -981,8 +1067,7 @@ async fn nonblocking_coordinator_crash_between_decision_and_apply_does_not_block
         "prepares cleared by the resolver"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1026,8 +1111,7 @@ async fn nonblocking_aborts_like_2pc_on_killed_participant() {
         "replicated ABORT decision GC'd after resolution"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1066,8 +1150,7 @@ async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
         "prepares cleared on presumed-abort"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1112,8 +1195,7 @@ async fn calvin_deterministic_commit_is_atomic_and_vote_free() {
         "replicated sequence GC'd after commit"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1169,8 +1251,7 @@ async fn calvin_crash_after_sequencing_is_resolved_by_replay() {
         "replicated sequence GC'd after replay"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1282,7 +1363,7 @@ async fn calvin_ollp_ordered_readlock_serializes_conflicting_txns() {
     use super::cross_shard_txn::{CalvinSequencer, OrderedLockManager, RecordKey, RwSet};
     use std::collections::BTreeSet;
 
-    let (dir, backend, multi, coord) = bring_up_calvin("calvinollp").await;
+    let (dir, _backend, multi, coord) = bring_up_calvin("calvinollp").await;
 
     // Seed the directory node the OLLP recon reads to discover its footprint. `dir` is
     // NOT written by either txn, so the recon of it is stable (no restart needed).
@@ -1397,8 +1478,7 @@ async fn calvin_ollp_ordered_readlock_serializes_conflicting_txns() {
         "T2 observed T1's committed write per the sequencer total order (serializable)"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1437,7 +1517,7 @@ async fn calvin_ollp_stale_recon_is_restarted_and_commits_serializably() {
     use super::cross_shard_txn::{CalvinSequencer, OrderedLockManager, RecordKey, RwSet};
     use std::collections::BTreeSet;
 
-    let (dir, backend, multi, coord) = bring_up_calvin("calvinrestart").await;
+    let (dir, _backend, multi, coord) = bring_up_calvin("calvinrestart").await;
 
     // Seed the directory + both candidate targets. `dir` is what the writer mutates.
     write_node(
@@ -1566,8 +1646,7 @@ async fn calvin_ollp_stale_recon_is_restarted_and_commits_serializably() {
         "the restarted OLLP txn read k2's committed value (serializable: T_writer then T_ollp)"
     );
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1836,8 +1915,7 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
         );
     }
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1874,8 +1952,7 @@ async fn cross_group_2pc_commits_atomically_across_distinct_shards() {
     assert_eq!(node_count(&state, GRAPH_A).await, 1, "A applied");
     assert_eq!(node_count(&state, GRAPH_B).await, 1, "B applied");
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1930,7 +2007,6 @@ async fn cross_group_2pc_survives_crash_mid_prepare_across_distinct_shards() {
         "prepares cleared on abort"
     );
 
-    multi2.stop_listener();
-    backend2.shutdown();
+    multi2.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }

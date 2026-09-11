@@ -55,7 +55,6 @@ mod test_support;
 
 use std::sync::Arc;
 
-use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::epistemic_operations::{
     ClaimWorkItemRequest, ClaimWorkItemRequestSchemaVersion, ClaimWorkItemResult,
     ClaimWorkItemResultReason,
@@ -231,9 +230,8 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
             .as_nanos()
     ));
     let dir_s = dir.to_string_lossy().into_owned();
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 8192).expect("open redb backend"),
-    );
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir_s.clone(), 8192).expect("open redb backend"));
     let state = state_with(backend.clone(), dir_s.clone());
 
     // ── 1. Submit ──────────────────────────────────────────────────────────
@@ -396,6 +394,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
                 idempotency_key: "adopt-ne036-commit-1".to_string(),
                 outcome: "succeeded".to_string(),
                 result_ref: Some("adopt-ne036-result-ref".to_string()),
+                outcome_extension: None,
                 error_ref: None,
                 retryable: false,
                 now_ms: 10_200,
@@ -423,7 +422,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     let reopened: Arc<dyn PersistenceBackend> = {
         let mut attempt = 0;
         loop {
-            match RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 8192) {
+            match RedbBackend::open(dir_s.clone(), 8192) {
                 Ok(backend) => break Arc::new(backend),
                 Err(error) if attempt < 100 => {
                     attempt += 1;

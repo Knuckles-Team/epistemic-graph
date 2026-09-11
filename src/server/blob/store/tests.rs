@@ -2,11 +2,18 @@
 
 use super::*;
 
-fn coordinator_batch(id: &str, request_id: u64, expected: u64, event_type: &str) -> MutationBatch {
+fn coordinator_batch(
+    id: &str,
+    request_id: u64,
+    nonce: u8,
+    expected: u64,
+    event_type: &str,
+) -> MutationBatch {
     crate::server::mutation_batch::compile_opaque_method(
         crate::server::mutation_batch::CompileBatch {
             batch_id: id,
             request_id,
+            attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([nonce; 32])),
             principal: Some("system"),
             tenant: "tenant-opaque",
             graph: "scope-opaque",
@@ -38,22 +45,39 @@ fn direct_ref_acquire_compensation_and_gc_are_restart_replay_safe() {
     let digest = hex_digest(body);
     {
         let store = RedbChunkStore::open(&path).unwrap();
-        let acquire = coordinator_batch("acquire", 1, 0, "blob_direct_ref_acquire_v1");
+        let acquire = coordinator_batch("acquire", 1, 1, 0, "blob_direct_ref_acquire_v1");
         assert_eq!(
             store.put_chunk_ref_batch(body, &acquire, 1).unwrap(),
             (digest.clone(), true, 1)
         );
+        let consumed = store
+            .put_chunk_ref_batch(body, &acquire, 1)
+            .expect_err("the committed acquire nonce must be consumed");
+        assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
+        assert_eq!(store.refcount(&digest).unwrap(), 1);
+
+        let acquire_retry = coordinator_batch("acquire", 2, 2, 0, "blob_direct_ref_acquire_v1");
         assert_eq!(
-            store.put_chunk_ref_batch(body, &acquire, 1).unwrap(),
+            store.put_chunk_ref_batch(body, &acquire_retry, 2).unwrap(),
             (digest.clone(), true, 1),
-            "acknowledgement-lost acquire must replay without another ref"
+            "a fresh-nonce acknowledgement-lost acquire must replay without another ref"
         );
-        let release = coordinator_batch("release", 2, 1, "blob_direct_ref_release_v1");
-        assert_eq!(store.adjust_ref_batch(&digest, -1, &release, 2).unwrap(), 0);
+
+        let release = coordinator_batch("release", 3, 3, 1, "blob_direct_ref_release_v1");
+        assert_eq!(store.adjust_ref_batch(&digest, -1, &release, 3).unwrap(), 0);
+        let consumed = store
+            .adjust_ref_batch(&digest, -1, &release, 3)
+            .expect_err("the committed release nonce must be consumed");
+        assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
+        assert_eq!(store.refcount(&digest).unwrap(), 0);
+
+        let release_retry = coordinator_batch("release", 4, 4, 1, "blob_direct_ref_release_v1");
         assert_eq!(
-            store.adjust_ref_batch(&digest, -1, &release, 2).unwrap(),
+            store
+                .adjust_ref_batch(&digest, -1, &release_retry, 4)
+                .unwrap(),
             0,
-            "acknowledgement-lost compensation must not underflow"
+            "a fresh-nonce acknowledgement-lost compensation must replay without underflow"
         );
     }
     let store = RedbChunkStore::open(&path).unwrap();

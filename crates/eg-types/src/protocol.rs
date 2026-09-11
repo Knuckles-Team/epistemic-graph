@@ -557,6 +557,35 @@ pub enum Method {
     SubmitWorkItem {
         request: crate::native_control::SubmitWorkItemRequest,
     },
+    /// Publish, retire, inspect, or reconcile one durable EG Agent Library
+    /// definition through the authenticated ControlPlane owner.
+    AgentLibrary {
+        op: crate::agent_library::AgentLibraryOp,
+    },
+    /// Publish, retire, or inspect one durable agent GRAPH -- a composition of
+    /// Agent Library entries -- through the same authenticated ControlPlane
+    /// owner (RF-ADR-008). `AgentLibrary` records what one agent IS; this
+    /// records how several of them are composed to do a task.
+    AgentGraph {
+        op: crate::agent_graph::AgentGraphOp,
+    },
+    /// Publish, retire, inspect, or SEARCH one durable agent component --
+    /// layer 1 of the hierarchy (RF-ADR-008): the model profiles, prompts,
+    /// tools, MCP servers/prompts/resources, skills, schemas and predicates
+    /// agents are assembled from. `Search` is the capability query this layer
+    /// exists for: "what does an agent trying to do XYZ need?"
+    AgentComponent {
+        op: crate::agent_component::AgentComponentOp,
+    },
+    /// Authenticate and lower an Agent Library delegation through the native
+    /// WorkItem admission command log. The retained library entry is resolved
+    /// by the library owner at the handler boundary.
+    KgDelegate {
+        /// Boxed: a pinned delegation request carries the whole Agent Library
+        /// entry reference and would otherwise set the size of EVERY `Method`.
+        /// `Box` is transparent to serde, so the wire form is unchanged.
+        request: Box<crate::delegation::KgDelegateRequest>,
+    },
     /// Bounded all-or-nothing WorkItem admission batch.
     SubmitWorkItems {
         request: crate::native_control::SubmitWorkItemsRequest,
@@ -596,6 +625,16 @@ pub enum Method {
         outcome: String,
         #[serde(default)]
         result_ref: Option<String>,
+        /// Optional RF-020/GOC-20 terminal receipts. When present, the
+        /// mutation compiler lowers the bound receipt nodes to AddNode
+        /// operations and one run-event outbox intent in this same batch.
+        ///
+        /// Boxed because it dominates the size of this variant and, through it,
+        /// of EVERY `Method`. `Option<Box<T>>` and `Option<T>` serialize
+        /// identically, so the wire form -- and the frozen contract -- are
+        /// unchanged; only the in-memory layout moves.
+        #[serde(default)]
+        outcome_extension: Option<Box<crate::outcome_bundle::TerminalOutcomeExtension>>,
         #[serde(default)]
         error_ref: Option<String>,
         #[serde(default)]

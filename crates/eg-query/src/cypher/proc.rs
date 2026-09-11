@@ -292,15 +292,23 @@ impl CypherProcedure for ApocCollMax {
         &["value"]
     }
     fn call(&self, args: &[Value], _view: &GraphView) -> Result<Vec<ProcRow>, String> {
-        let v = coll_nums(coll_arg(args)?)
-            .into_iter()
-            .fold(f64::NEG_INFINITY, f64::max);
-        Ok(single_value_row(if v.is_finite() {
-            number_value(v)
-        } else {
-            Value::Null
-        }))
+        coll_extreme(args, f64::NEG_INFINITY, f64::max)
     }
+}
+
+/// `apoc.coll.max`/`apoc.coll.min`: the numeric extreme of the collection argument, or
+/// null when it holds no finite number. `f64::max`/`f64::min` keep the NaN-skipping fold.
+fn coll_extreme(
+    args: &[Value],
+    seed: f64,
+    fold: fn(f64, f64) -> f64,
+) -> Result<Vec<ProcRow>, String> {
+    let v = coll_nums(coll_arg(args)?).into_iter().fold(seed, fold);
+    Ok(single_value_row(if v.is_finite() {
+        number_value(v)
+    } else {
+        Value::Null
+    }))
 }
 
 struct ApocCollMin;
@@ -312,14 +320,7 @@ impl CypherProcedure for ApocCollMin {
         &["value"]
     }
     fn call(&self, args: &[Value], _view: &GraphView) -> Result<Vec<ProcRow>, String> {
-        let v = coll_nums(coll_arg(args)?)
-            .into_iter()
-            .fold(f64::INFINITY, f64::min);
-        Ok(single_value_row(if v.is_finite() {
-            number_value(v)
-        } else {
-            Value::Null
-        }))
+        coll_extreme(args, f64::INFINITY, f64::min)
     }
 }
 

@@ -231,13 +231,13 @@ fn apply_one_operation(
     match op {
         GraphUpdateOperation::InsertData { data } => {
             for quad in data {
-                apply_quad(store, quad, report, true)?;
+                apply_resolved_quad(store, quad.resolved(), report, true)?;
             }
             Ok(())
         }
         GraphUpdateOperation::DeleteData { data } => {
             for quad in data {
-                apply_ground_quad(store, quad, report, false)?;
+                apply_resolved_quad(store, quad.resolved(), report, false)?;
             }
             Ok(())
         }
@@ -247,9 +247,13 @@ fn apply_one_operation(
             using: _,
             pattern,
         } => exec_delete_insert(store, proj, delete, insert, pattern, report),
-        GraphUpdateOperation::Clear { silent, graph } => clear_target(store, graph, *silent),
+        GraphUpdateOperation::Clear { silent, graph } => {
+            apply_to_target(store, graph, *silent, &|g| store.clear(g))
+        }
         GraphUpdateOperation::Create { silent, graph } => apply_create(store, graph, *silent),
-        GraphUpdateOperation::Drop { silent, graph } => drop_target(store, graph, *silent),
+        GraphUpdateOperation::Drop { silent, graph } => {
+            apply_to_target(store, graph, *silent, &|g| store.drop_graph(g))
+        }
         GraphUpdateOperation::Load {
             silent,
             source,
@@ -428,7 +432,7 @@ fn exec_delete_insert(
     let solutions = crate::sparql::eval_where(&ds, pattern, proj)?;
 
     // DELETE first (SPARQL: the delete sees the pre-update graph), then INSERT.
-    apply_delete_solutions(store, delete, &solutions, report);
+    apply_delete_solutions(store, delete, &solutions, report)?;
     apply_insert_solutions(store, insert, &solutions, report)?;
     Ok(())
 }
@@ -494,18 +498,20 @@ fn apply_delete_solutions(
     delete: &[GroundQuadPattern],
     solutions: &[Solution],
     report: &mut UpdateReport,
-) {
+) -> Result<(), String> {
     for sol in solutions {
         for gqp in delete {
-            if let Some((graph, s, p, obj)) = instantiate_ground(gqp, sol) {
-                if let Some(core) = store.core(graph.as_deref()) {
-                    if delete_triple(&core, &s, &p, &obj) {
-                        report.deleted += 1;
-                    }
-                }
-            }
+            let parts = instantiate(
+                &gqp.graph_name,
+                &gqp.subject,
+                &gqp.predicate,
+                &gqp.object,
+                sol,
+            );
+            apply_resolved_quad(store, parts, report, false)?;
         }
     }
+    Ok(())
 }
 
 /// The INSERT phase of [`exec_delete_insert`]'s WHERE path.
@@ -517,13 +523,8 @@ fn apply_insert_solutions(
 ) -> Result<(), String> {
     for sol in solutions {
         for qp in insert {
-            if let Some((graph, s, p, obj)) = instantiate_quad(qp, sol) {
-                if let Some(core) = store.core(graph.as_deref()) {
-                    if insert_triple(&core, &s, &p, &obj)? {
-                        report.inserted += 1;
-                    }
-                }
-            }
+            let parts = instantiate(&qp.graph_name, &qp.subject, &qp.predicate, &qp.object, sol);
+            apply_resolved_quad(store, parts, report, true)?;
         }
     }
     Ok(())
@@ -607,20 +608,18 @@ fn export_graph_triples(core: &GraphCore, graph_name: &str) -> Result<Vec<oxrdf:
 
 // ── ground-data ops (INSERT DATA / DELETE DATA) ─────────────────────────────────
 
-fn apply_quad(
+/// Write or remove one resolved `(graph, subject, predicate, object)`. A quad whose graph is
+/// absent, or whose object has no representable term, is a no-op — the pre-existing contract.
+fn apply_resolved_quad(
     store: &dyn GraphStore,
-    quad: &Quad,
+    parts: Option<(Option<String>, String, String, ObjTerm)>,
     report: &mut UpdateReport,
     insert: bool,
 ) -> Result<(), String> {
-    let graph = graph_opt(&quad.graph_name);
-    let core = match store.core(graph.as_deref()) {
-        Some(c) => c,
-        None => return Ok(()),
+    let Some((graph, s, p, obj)) = parts else {
+        return Ok(());
     };
-    let s = nob_id(&quad.subject);
-    let p = quad.predicate.as_str().to_string();
-    let Some(obj) = obj_from_term(&quad.object) else {
+    let Some(core) = store.core(graph.as_deref()) else {
         return Ok(());
     };
     if insert {
@@ -633,59 +632,50 @@ fn apply_quad(
     Ok(())
 }
 
-fn apply_ground_quad(
+/// A quad of ground data (INSERT DATA / DELETE DATA), resolved to what the store writes.
+trait GroundQuadData {
+    fn resolved(&self) -> Option<(Option<String>, String, String, ObjTerm)>;
+}
+
+impl GroundQuadData for Quad {
+    fn resolved(&self) -> Option<(Option<String>, String, String, ObjTerm)> {
+        Some((
+            graph_opt(&self.graph_name),
+            nob_id(&self.subject),
+            self.predicate.as_str().to_string(),
+            obj_from_term(&self.object)?,
+        ))
+    }
+}
+
+impl GroundQuadData for GroundQuad {
+    fn resolved(&self) -> Option<(Option<String>, String, String, ObjTerm)> {
+        Some((
+            graph_opt(&self.graph_name),
+            format!("<{}>", self.subject.as_str()),
+            self.predicate.as_str().to_string(),
+            obj_from_ground(&self.object)?,
+        ))
+    }
+}
+
+/// Apply one per-graph store operation across every graph a SPARQL `GraphTarget` names.
+/// `silent` swallows the store's error, per SPARQL 1.1 CLEAR/DROP SILENT.
+fn apply_to_target(
     store: &dyn GraphStore,
-    quad: &GroundQuad,
-    report: &mut UpdateReport,
-    insert: bool,
+    target: &GraphTarget,
+    silent: bool,
+    op: &dyn Fn(Option<&str>) -> Result<(), String>,
 ) -> Result<(), String> {
-    let graph = graph_opt(&quad.graph_name);
-    let core = match store.core(graph.as_deref()) {
-        Some(c) => c,
-        None => return Ok(()),
-    };
-    let s = format!("<{}>", quad.subject.as_str());
-    let p = quad.predicate.as_str().to_string();
-    let Some(obj) = obj_from_ground(&quad.object) else {
-        return Ok(());
-    };
-    if insert {
-        if insert_triple(&core, &s, &p, &obj)? {
-            report.inserted += 1;
-        }
-    } else if delete_triple(&core, &s, &p, &obj) {
-        report.deleted += 1;
-    }
-    Ok(())
-}
-
-fn clear_target(store: &dyn GraphStore, target: &GraphTarget, silent: bool) -> Result<(), String> {
     match target {
-        GraphTarget::DefaultGraph => store.clear(None),
-        GraphTarget::NamedNode(n) => store.clear(Some(n.as_str())),
+        GraphTarget::DefaultGraph => op(None),
+        GraphTarget::NamedNode(n) => op(Some(n.as_str())),
         GraphTarget::NamedGraphs | GraphTarget::AllGraphs => {
             if matches!(target, GraphTarget::AllGraphs) {
-                store.clear(None)?;
+                op(None)?;
             }
             for (name, _) in store.named() {
-                store.clear(Some(&name))?;
-            }
-            Ok(())
-        }
-    }
-    .or_else(|e| if silent { Ok(()) } else { Err(e) })
-}
-
-fn drop_target(store: &dyn GraphStore, target: &GraphTarget, silent: bool) -> Result<(), String> {
-    match target {
-        GraphTarget::DefaultGraph => store.drop_graph(None),
-        GraphTarget::NamedNode(n) => store.drop_graph(Some(n.as_str())),
-        GraphTarget::NamedGraphs | GraphTarget::AllGraphs => {
-            if matches!(target, GraphTarget::AllGraphs) {
-                store.drop_graph(None)?;
-            }
-            for (name, _) in store.named() {
-                store.drop_graph(Some(&name))?;
+                op(Some(&name))?;
             }
             Ok(())
         }
@@ -735,28 +725,77 @@ fn graph_opt(g: &GraphName) -> Option<String> {
 
 // ── pattern instantiation (DELETE/INSERT WHERE) ─────────────────────────────────
 
-/// Instantiate an INSERT `QuadPattern` with a solution → `(graph, subject_id, pred, obj)`.
-fn instantiate_quad(
-    qp: &QuadPattern,
-    sol: &Solution,
-) -> Option<(Option<String>, String, String, ObjTerm)> {
-    let graph = resolve_graph_pattern(&qp.graph_name, sol)?;
-    let s = subject_from_term_pattern(&qp.subject, sol)?;
-    let p = pred_from_pattern(&qp.predicate, sol)?;
-    let obj = object_from_term_pattern(&qp.object, sol)?;
-    Some((graph, s, p, obj))
+/// A pattern position once spargebra's ground (DELETE) and non-ground (INSERT) term
+/// families are collapsed: a formatted resource id, a literal, or a solution variable.
+enum PatternTerm<'a> {
+    Resource(String),
+    Literal(&'a Literal),
+    Variable(&'a str),
 }
 
-/// Instantiate a DELETE `GroundQuadPattern` with a solution.
-fn instantiate_ground(
-    gqp: &GroundQuadPattern,
+/// The projection both spargebra quad-pattern families share.
+trait QuadPatternTerm {
+    fn position(&self) -> Option<PatternTerm<'_>>;
+}
+
+impl QuadPatternTerm for TermPattern {
+    fn position(&self) -> Option<PatternTerm<'_>> {
+        match self {
+            TermPattern::NamedNode(n) => Some(PatternTerm::Resource(format!("<{}>", n.as_str()))),
+            TermPattern::BlankNode(b) => Some(PatternTerm::Resource(format!("_:{}", b.as_str()))),
+            TermPattern::Literal(l) => Some(PatternTerm::Literal(l)),
+            TermPattern::Variable(v) => Some(PatternTerm::Variable(v.as_str())),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        }
+    }
+}
+
+impl QuadPatternTerm for GroundTermPattern {
+    fn position(&self) -> Option<PatternTerm<'_>> {
+        match self {
+            GroundTermPattern::NamedNode(n) => {
+                Some(PatternTerm::Resource(format!("<{}>", n.as_str())))
+            }
+            GroundTermPattern::Literal(l) => Some(PatternTerm::Literal(l)),
+            GroundTermPattern::Variable(v) => Some(PatternTerm::Variable(v.as_str())),
+            #[allow(unreachable_patterns)]
+            _ => None,
+        }
+    }
+}
+
+/// A subject must denote a node: a literal (or a literal binding) has no node id.
+fn subject_id(t: PatternTerm<'_>, sol: &Solution) -> Option<String> {
+    match t {
+        PatternTerm::Resource(id) => Some(id),
+        PatternTerm::Literal(_) => None,
+        PatternTerm::Variable(v) => binding_node_id(sol.get(v)?),
+    }
+}
+
+fn object_term(t: PatternTerm<'_>, sol: &Solution) -> Option<ObjTerm> {
+    match t {
+        PatternTerm::Resource(id) => Some(ObjTerm::Resource(id)),
+        PatternTerm::Literal(l) => Some(ObjTerm::Literal(l.clone())),
+        PatternTerm::Variable(v) => binding_to_obj(sol.get(v)?),
+    }
+}
+
+/// Instantiate one INSERT/DELETE quad pattern with a solution.
+fn instantiate<T: QuadPatternTerm>(
+    graph: &GraphNamePattern,
+    subject: &T,
+    predicate: &NamedNodePattern,
+    object: &T,
     sol: &Solution,
 ) -> Option<(Option<String>, String, String, ObjTerm)> {
-    let graph = resolve_graph_pattern(&gqp.graph_name, sol)?;
-    let s = subject_from_ground_pattern(&gqp.subject, sol)?;
-    let p = pred_from_pattern(&gqp.predicate, sol)?;
-    let obj = object_from_ground_pattern(&gqp.object, sol)?;
-    Some((graph, s, p, obj))
+    Some((
+        resolve_graph_pattern(graph, sol)?,
+        subject_id(subject.position()?, sol)?,
+        pred_from_pattern(predicate, sol)?,
+        object_term(object.position()?, sol)?,
+    ))
 }
 
 /// Outer `Option` = resolvable; inner = `None` default / `Some(iri)` named.
@@ -770,23 +809,6 @@ fn resolve_graph_pattern(g: &GraphNamePattern, sol: &Solution) -> Option<Option<
     }
 }
 
-fn subject_from_term_pattern(t: &TermPattern, sol: &Solution) -> Option<String> {
-    match t {
-        TermPattern::NamedNode(n) => Some(format!("<{}>", n.as_str())),
-        TermPattern::BlankNode(b) => Some(format!("_:{}", b.as_str())),
-        TermPattern::Variable(v) => binding_node_id(sol.get(v.as_str())?),
-        _ => None,
-    }
-}
-
-fn subject_from_ground_pattern(t: &GroundTermPattern, sol: &Solution) -> Option<String> {
-    match t {
-        GroundTermPattern::NamedNode(n) => Some(format!("<{}>", n.as_str())),
-        GroundTermPattern::Variable(v) => binding_node_id(sol.get(v.as_str())?),
-        _ => None,
-    }
-}
-
 fn pred_from_pattern(p: &NamedNodePattern, sol: &Solution) -> Option<String> {
     match p {
         NamedNodePattern::NamedNode(n) => Some(n.as_str().to_string()),
@@ -794,28 +816,6 @@ fn pred_from_pattern(p: &NamedNodePattern, sol: &Solution) -> Option<String> {
     }
 }
 
-fn object_from_term_pattern(t: &TermPattern, sol: &Solution) -> Option<ObjTerm> {
-    match t {
-        TermPattern::NamedNode(n) => Some(ObjTerm::Resource(format!("<{}>", n.as_str()))),
-        TermPattern::BlankNode(b) => Some(ObjTerm::Resource(format!("_:{}", b.as_str()))),
-        TermPattern::Literal(l) => Some(ObjTerm::Literal(l.clone())),
-        TermPattern::Variable(v) => binding_to_obj(sol.get(v.as_str())?),
-        #[allow(unreachable_patterns)]
-        _ => None,
-    }
-}
-
-fn object_from_ground_pattern(t: &GroundTermPattern, sol: &Solution) -> Option<ObjTerm> {
-    match t {
-        GroundTermPattern::NamedNode(n) => Some(ObjTerm::Resource(format!("<{}>", n.as_str()))),
-        GroundTermPattern::Literal(l) => Some(ObjTerm::Literal(l.clone())),
-        GroundTermPattern::Variable(v) => binding_to_obj(sol.get(v.as_str())?),
-        #[allow(unreachable_patterns)]
-        _ => None,
-    }
-}
-
-/// A bound value usable as a node id (a resource binding); `None` if it is a literal.
 fn binding_node_id(b: &Binding) -> Option<String> {
     match b {
         Binding::Node(id) => Some(id.clone()),

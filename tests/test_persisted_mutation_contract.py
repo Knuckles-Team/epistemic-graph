@@ -99,6 +99,7 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
     ]
     assert re.sub(r"\s+", " ", gateway_signature).strip() == (
         "pub(crate) async fn try_handle_gateway( req_id: u64, caller: Option<&str>, "
+        "attempt_nonce: Option<eg_types::contract::Nonce>, "
         "tenant_scope: &str, graph_name: &str, core: &Arc<GraphCore>, "
         "materialization_manifest: Option< "
         "&Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>, >, "
@@ -270,46 +271,39 @@ def test_semantic_coordinator_has_one_closed_native_domain() -> None:
     assert "TextIndex" not in contract
 
 
-def test_m1_freezes_exact_unmigrated_semantic_ship_blocker() -> None:
+def test_m1_freezes_exact_semantic_binding_and_activation_owners() -> None:
     module = _gate_module()
-    authorities = {authority for authority, _ in module._M1_UNMIGRATED_SEMANTIC_MARKERS}
+    authorities = {authority for authority, _ in module._M1_SEMANTIC_MARKERS}
 
     assert authorities == {
-        "query.activation",
-        "query.vector-purge",
-        "query.embedding-binding",
-        "query.work-record",
+        "query.catalog-binding",
+        "query.binding-validation",
         "server.generation-coordinator",
-        "server.cas-purge",
     }
-    with pytest.raises(
-        SystemExit, match="six-authority mutation migration remains blocked"
-    ):
-        module._check_m1_unmigrated_semantic_inventory()
+    module._check_m1_semantic_inventory()
 
 
-def test_m1_semantic_inventory_rejects_partial_migration() -> None:
+def test_m1_semantic_inventory_rejects_storage_bypass() -> None:
     module = _gate_module()
     sources = {
         "query": "\n".join(
             (
-                "into_activation_parts(",
-                "SemanticArtifactPurgeIdentity",
+                "pub struct BindingRequest",
                 "pub struct EmbeddingBinding",
-                "pub struct SemanticWorkRecord",
+                "pub fn bind(",
+                "pub fn validate_binding(",
             )
         ),
         "server": "\n".join(
             (
-                "activate_generation_pair(",
-                "purge_generation_pair(",
-                "purge_ann_cas_binding(",
+                "pub fn activate_one(",
+                "maybe_activate_after_write(",
                 "eg_transaction::begin_partial();",
             )
         ),
     }
-    with pytest.raises(SystemExit, match="partial semantic mutation-ledger migration"):
-        module._check_m1_unmigrated_semantic_inventory(sources)
+    with pytest.raises(SystemExit, match="semantic authority bypasses the mutation owner"):
+        module._check_m1_semantic_inventory(sources)
 
 
 def test_live_mutation_inventory_contract() -> None:
@@ -439,13 +433,13 @@ def test_native_command_catalog_rejects_drift_and_comment_spoofs() -> None:
     source = module.read_compiler_family("src/raft/mod.rs").production
     entry = "            record EvictLRU => GraphState,\n"
     assert entry in source
-    assert len(module._native_method_catalog(source)) == 100
+    assert len(module._native_method_catalog(source)) == 99
 
-    with pytest.raises(SystemExit, match="100 entries"):
+    with pytest.raises(SystemExit, match="99 entries"):
         module._native_method_catalog(source.replace(entry, "", 1))
     with pytest.raises(SystemExit, match="duplicate entry"):
         module._native_method_catalog(source.replace(entry, entry + entry, 1))
-    with pytest.raises(SystemExit, match="100 entries"):
+    with pytest.raises(SystemExit, match="99 entries"):
         module._native_method_catalog(
             source.replace(entry, f"            // {entry.strip()}\n", 1)
         )
@@ -539,14 +533,10 @@ def test_native_store_source_union_contains_root_and_scope_binding_lanes() -> No
     source = module.mutation_kernel_source()
     assert 'TableDefinition::new("mutation_store_root")' in source
     assert 'TableDefinition::new("mutation_scope_bindings")' in source
-    # NOT repointed -- left failing deliberately. `initialize<F>`/`bind_scope<F>`
-    # (caller-supplied-closure atomic bootstrap constructors) were deleted
-    # outright by 064f2d04, not renamed; their replacements
-    # (StorageKernel::{create_owner, open_owner} + authenticate_scope +
-    # bind_serving_scope) take no generic closure at all, so no current text
-    # satisfies this exact marker. See this task's report for the finding.
-    assert "pub fn initialize<F>(" in source
-    assert "pub fn bind_scope<F>(" in source
+    assert "pub fn create_owner<D: OwnerDomain>(" in source
+    assert "pub fn open_owner<D: OwnerDomain>(" in source
+    assert "pub fn authenticate_scope<D: OwnerDomain>(" in source
+    assert "pub fn bind_serving_scope<D: OwnerDomain>(" in source
     # MutationWrite -> AdmittedMutation (the write capability admit() returns).
     assert "pub struct AdmittedMutation<'a, D: OwnerDomain>" in source
     assert "MutationVersionScope" not in source
@@ -560,6 +550,28 @@ def test_product_schema_one_is_disjoint_from_prototype_tables() -> None:
     # (the same commit that closed the storage/ledger key split); re-baselined
     # to the real current name/value.
     assert "pub const STORAGE_KERNEL_SCHEMA_VERSION: u16 = 2;" in source
+    live_tables = (
+        "mutation_store_root",
+        "mutation_scope_bindings",
+        "mutation_owner_manifest",
+        "ledger_batches",
+        "ledger_maintenance",
+        "ledger_versions",
+        "ledger_fences",
+        "ledger_outbox",
+        "mutation_outbox_topic_index",
+        "ledger_private_payloads",
+        "mutation_outbox_consumers",
+        "mutation_outbox_deliveries",
+        "mutation_outbox_cursors",
+        "mutation_outbox_claim_cursors",
+        "mutation_outbox_fairness",
+        "mutation_replay_nonces",
+        "mutation_replay_operations",
+        "mutation_classes",
+    )
+    for name in live_tables:
+        assert f'TableDefinition::new("{name}")' in source
     for stem in (
         "mutation_store_root",
         "mutation_scope_bindings",
@@ -570,7 +582,6 @@ def test_product_schema_one_is_disjoint_from_prototype_tables() -> None:
         "mutation_outbox",
         "mutation_private_payloads",
     ):
-        assert f'TableDefinition::new("{stem}_v1")' in source
         assert f'"{stem}_v3"' in source
 
 
@@ -591,7 +602,11 @@ def test_m1_scanner_rejects_digest_and_owner_write_regressions() -> None:
     with pytest.raises(SystemExit, match="owner-minted write"):
         module.check_m1_mutation_identity(
             contract,
-            native_store.replace("binding_for_write(write", "unchecked_binding("),
+            native_store.replace(
+                "pub(crate) fn binding_for_write(",
+                "pub(crate) fn unchecked_binding(",
+                1,
+            ),
             contract_tests,
             native_store_tests,
             row_delta,
@@ -640,11 +655,9 @@ def test_m1_scanner_rejects_arbitrary_physical_root_and_semantic_bypass() -> Non
             native_store_tests,
             row_delta,
         )
-    with pytest.raises(SystemExit, match="must remain gated"):
+    with pytest.raises(SystemExit, match="semantic index writes must use"):
         module.check_m1_mutation_identity(
-            contract.replace(
-                "semantic index mutations remain unserved", "semantic served", 1
-            ),
+            contract.replace("SemanticIndex", "LegacyIndex"),
             native_store,
             contract_tests,
             native_store_tests,
@@ -719,12 +732,12 @@ def test_m1_production_markers_cannot_be_supplied_by_test_only_source() -> None:
     contract, native_store, contract_tests, native_store_tests, row_delta = _m1_sources(
         module
     )
-    marker = "semantic index mutations remain unserved"
+    marker = "SemanticIndex"
     assert marker in contract and marker in contract_tests
 
-    with pytest.raises(SystemExit, match="must remain gated"):
+    with pytest.raises(SystemExit, match="semantic index writes must use"):
         module.check_m1_mutation_identity(
-            contract.replace(marker, "semantic gate removed", 1),
+            contract.replace(marker, "LegacyIndex"),
             native_store,
             contract_tests,
             native_store_tests,
@@ -1124,7 +1137,6 @@ def test_module_tree_fails_closed_on_unsupported_module_identifier(
     "conditional",
     (
         "custom_attribute",
-        "derive(CustomMacro)",
         "allow::custom",
         "deny::custom",
         "doc::custom",
@@ -1161,6 +1173,7 @@ def test_module_tree_accepts_only_complete_inert_conditional_attribute_shapes(
     (tmp_path / "root.rs").write_text(
         '#![cfg_attr(test, recursion_limit = "256")]\n'
         '#[cfg_attr(feature = "ship", allow(dead_code, unused_variables))]\n'
+        '#[cfg_attr(feature = "ship", derive(CustomMacro))]\n'
         '#[cfg_attr(feature = "ship", warn(clippy::pedantic))]\n'
         '#[cfg_attr(feature = "ship", doc = "guarded item")]\n'
         "fn inert_attribute_marker() {}\n",
@@ -1463,8 +1476,8 @@ def test_balanced_span_rejects_unterminated_rust_block() -> None:
         ),
         (
             "capabilities",
-            '("AddNode", make_policy(true, DurabilityDomain::GraphRedb',
-            '("AddNode", make_policy(true, DurabilityDomain::None',
+            '("AddNode", spec(make_policy(true, DurabilityDomain::GraphRedb',
+            '("AddNode", spec(make_policy(true, DurabilityDomain::None',
             "mutates without a durability domain",
         ),
         (

@@ -15,6 +15,8 @@ pub(crate) mod graph_ops;
 // Engine-native WorkItem lifecycle transitions. The handler owns the six
 // result-producing transition Methods explicitly; their durable effect remains
 // the one MutationBatch commit in `mutation_batch::commit_work_item`.
+// RF-020 — authenticated Agent Library delegation lowers through native WorkItem admission.
+pub(crate) mod delegation;
 pub(crate) mod work_item;
 // Native development-lane hold/quota authority. All six writes and both reads
 // are enumerated in the handler; dispatch does not classify this domain or use

@@ -25,9 +25,8 @@ use eg_jobs::{
     ReproducibilityManifest, ResultColumn, SubmitSpec, TenantJobQuota, TypedJobResult,
 };
 use eg_types::mutation_batch::{
-    DurabilityDomain, MutationBatch, MutationOperation, MutationOutboxIntent,
-    MutationRequestContext, MutationScopeIdentity, MutationSurface, VersionExpectation,
-    MUTATION_BATCH_VERSION,
+    DurabilityDomain, MutationBatch, MutationEnvelope, MutationOperation, MutationOutboxIntent,
+    MutationScopeIdentity, MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use eg_types::protocol::Method;
 use proptest::prelude::*;
@@ -96,6 +95,36 @@ fn analytics_job_scope_identity() -> MutationScopeIdentity {
 /// only -- see the call site: every submission in this script happens before any
 /// executor-driven transition, so the loop index alone is the correct derivation,
 /// with no live read needed).
+/// The operation envelope for the fixture submit batch.
+///
+/// A submit HAS a caller, so it is an operation envelope: `TEST_PRINCIPAL` is
+/// both the caller's fingerprint and this store's serving principal in the
+/// fixture, and `batch_id` is the caller's stable retry key. The attempt nonce
+/// is server-minted, so re-running this builder for the same batch id is a
+/// FRESH attempt over the same stable operation -- exactly the case the kernel
+/// must replay rather than refuse.
+fn submit_envelope(batch_id: &str) -> MutationEnvelope {
+    let method = eg_types::contract::MethodId::new("analytics_job_submit").unwrap();
+    MutationEnvelope::for_scope(
+        eg_types::mutation_batch::CompiledScope {
+            identity: &analytics_job_scope_identity(),
+            actor: TEST_PRINCIPAL,
+            serving_principal: TEST_PRINCIPAL,
+            request_id: 0,
+            idempotency_key: batch_id,
+            nonce: eg_types::contract::Nonce::minted(),
+            now_ms: 0,
+        },
+        eg_types::mutation_batch::CompiledOperation {
+            method_schema_id: eg_types::mutation_batch::method_schema_id(&method).unwrap(),
+            method,
+            method_schema_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
+            canonical_payload_digest: eg_types::contract::Digest256::from_bytes([0_u8; 32]),
+        },
+    )
+    .unwrap()
+}
+
 fn submit_batch(batch_id: &str, committed_at_ms: u64, native_version: u64) -> MutationBatch {
     let operation = MutationOperation {
         ordinal: 0,
@@ -106,20 +135,12 @@ fn submit_batch(batch_id: &str, committed_at_ms: u64, native_version: u64) -> Mu
             query: batch_id.to_string(),
         },
     };
-    let batch = MutationBatch {
+    let mut batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch_id.to_string(),
-        context: MutationRequestContext {
-            request_id: 0,
-            principal: TEST_PRINCIPAL.to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            verified_capabilities: Default::default(),
-        },
+        envelope: submit_envelope(batch_id),
         identity: analytics_job_scope_identity(),
         placement_epoch: 0,
-        idempotency_key: batch_id.to_string(),
         version_expectation: VersionExpectation::Native(native_version),
         fencing_token: None,
         authoritative_state: None,
@@ -132,6 +153,12 @@ fn submit_batch(batch_id: &str, committed_at_ms: u64, native_version: u64) -> Mu
         }],
         created_at_ms: committed_at_ms,
     };
+    // `submit_envelope` mints before the operations and outbox exist, so the
+    // envelope must be re-minted from the final content before it can cover
+    // its own body.
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([0_u8; 32]))
+        .expect("hand-built submit batch must reseal");
     batch
         .validate()
         .expect("hand-built submit batch must validate");

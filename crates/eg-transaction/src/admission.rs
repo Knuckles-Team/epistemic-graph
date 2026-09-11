@@ -2,42 +2,38 @@
 //! owner-row window inside it, and a poisoned write on any unfinished drop.
 
 use crate::admitted::{is_ledger_only, AdmittedMutation};
-use eg_storage::{encode_bounded, MutationClass, OwnerDomain, OwnerLayout};
-use eg_types::MutationBatch;
+use eg_storage::{encode_bounded, OwnerDomain, OwnerLayout};
+use eg_types::{MutationBatch, MutationBatchRecord};
 
 pub(crate) enum AdmissionState {
     Idle,
     Applying {
         batch: Vec<u8>,
         owner: Option<OwnerLayout>,
-        class: MutationClass,
     },
     Finished {
         batch: Vec<u8>,
-        class: MutationClass,
     },
     /// Admission resolved to a terminal receipt that is ALREADY durable, so
     /// this write applies nothing for it.
     ///
-    /// A sole writer aborts on `Begin::Replay` and never reaches commit, but a
-    /// group cannot: its members share one transaction, and one member's retry
-    /// among N — the shard coalescer's ordinary case — must not discard the
-    /// other members' real work. So a replayed member is a first-class
-    /// terminal state: it may be committed with, and it may write nothing.
+    /// A replayed member is a first-class terminal state: it may be aborted
+    /// without consuming its fresh nonce, or committed to consume only that
+    /// nonce. It writes no owner, receipt, version, fence or outbox rows.
     /// `open_owner_admission` and `finish_batch_admission` both refuse it,
     /// which is what "writes nothing" means mechanically.
     Replayed {
         batch: Vec<u8>,
+        /// Boxed only to keep this state machine's own footprint small next to
+        /// the `Idle`/`Applying`/`Finished` steady-state variants; this enum
+        /// is process-local (never encoded), so the box has no wire effect.
+        record: Box<MutationBatchRecord>,
     },
     Poisoned,
 }
 
 impl<D: OwnerDomain> AdmittedMutation<'_, D> {
-    pub(crate) fn admit_apply_batch(
-        &self,
-        batch: &MutationBatch,
-        class: MutationClass,
-    ) -> Result<(), String> {
+    pub(crate) fn admit_apply_batch(&self, batch: &MutationBatch) -> Result<(), String> {
         let encoded = encode_bounded(batch, "admitted mutation batch")?;
         let mut state = self.admission.borrow_mut();
         match &*state {
@@ -45,54 +41,84 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
                 *state = AdmissionState::Applying {
                     batch: encoded,
                     owner: None,
-                    class,
                 };
                 Ok(())
             }
             AdmissionState::Applying { .. } => {
                 Err("another mutation batch is already admitted".to_string())
             }
-            AdmissionState::Replayed { .. } => {
-                Err("a replayed member applies nothing".to_string())
-            }
+            AdmissionState::Replayed { .. } => Err("a replayed member applies nothing".to_string()),
             AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
         }
     }
 
     /// Record that this member's batch resolved to an already-durable receipt.
-    pub(crate) fn admit_replayed_batch(&self, batch: &MutationBatch) -> Result<(), String> {
+    pub(crate) fn remember_replayed_batch(
+        &self,
+        batch: &MutationBatch,
+        record: &MutationBatchRecord,
+    ) -> Result<(), String> {
         let encoded = encode_bounded(batch, "replayed mutation batch")?;
         let mut state = self.admission.borrow_mut();
         match &*state {
             AdmissionState::Idle => {
-                *state = AdmissionState::Replayed { batch: encoded };
+                *state = AdmissionState::Replayed {
+                    batch: encoded,
+                    record: Box::new(record.clone()),
+                };
                 Ok(())
+            }
+            AdmissionState::Replayed {
+                batch: existing,
+                record: existing_record,
+            } if existing.as_slice() == encoded.as_slice() => {
+                let existing_batch =
+                    encode_bounded(&existing_record.batch, "replayed mutation batch")?;
+                let record_batch = encode_bounded(&record.batch, "replayed mutation batch")?;
+                if existing_batch == record_batch {
+                    Ok(())
+                } else {
+                    Err("a replayed batch record does not match its admitted batch".to_string())
+                }
             }
             AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
             _ => Err("a replayed batch cannot follow an admitted one".to_string()),
         }
     }
 
-    pub(crate) fn admit_prepared_batch(&self, batch: &MutationBatch) -> Result<(), String> {
-        self.admit_apply_batch(batch, MutationClass::Operation)
+    /// Mark the already-remembered replay as terminal for a group member.
+    /// `commit::begin` stores the receipt before this compatibility call, so a
+    /// group and a sole writer share one replay state machine.
+    pub(crate) fn admit_replayed_batch(&self, batch: &MutationBatch) -> Result<(), String> {
+        let encoded = encode_bounded(batch, "replayed mutation batch")?;
+        match &*self.admission.borrow() {
+            AdmissionState::Replayed {
+                batch: existing, ..
+            } if existing.as_slice() == encoded.as_slice() => Ok(()),
+            AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
+            _ => Err("a replayed batch cannot follow an admitted one".to_string()),
+        }
     }
 
-    /// The class of the batch this write is applying, or has just finished.
-    ///
-    /// A poisoned write reports poison rather than "no class", so an unfinished
-    /// owner capability still fails with the poison it caused. Replay evidence
-    /// may be recorded either side of `finish`, so `Finished` answers too.
-    pub(crate) fn admitted_class(&self) -> Result<MutationClass, String> {
+    pub(crate) fn replayed_record(
+        &self,
+        batch: &MutationBatch,
+    ) -> Result<Option<MutationBatchRecord>, String> {
+        let encoded = encode_bounded(batch, "replayed mutation batch")?;
         match &*self.admission.borrow() {
-            AdmissionState::Applying { class, .. } | AdmissionState::Finished { class, .. } => {
-                Ok(*class)
-            }
-            AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
+            AdmissionState::Replayed {
+                batch: existing,
+                record,
+            } if existing.as_slice() == encoded.as_slice() => Ok(Some((**record).clone())),
             AdmissionState::Replayed { .. } => {
-                Err("a replayed member has no admitted class".to_string())
+                Err("mutation replay commit does not match its admitted batch".to_string())
             }
-            AdmissionState::Idle => Err("mutation write has no admitted batch".to_string()),
+            _ => Ok(None),
         }
+    }
+
+    pub(crate) fn admit_prepared_batch(&self, batch: &MutationBatch) -> Result<(), String> {
+        self.admit_apply_batch(batch)
     }
 
     pub(crate) fn open_owner_admission(
@@ -141,16 +167,37 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
             AdmissionState::Applying {
                 batch: admitted,
                 owner,
-                class,
             } if admitted.as_slice() == encoded.as_slice()
                 && (is_ledger_only(D::LAYOUT) || owner.is_some()) =>
             {
-                let class = *class;
-                *state = AdmissionState::Finished {
-                    batch: encoded,
-                    class,
-                };
+                *state = AdmissionState::Finished { batch: encoded };
                 Ok(())
+            }
+            AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
+            _ => Err("mutation batch owner work is unfinished or mismatched".to_string()),
+        }
+    }
+
+    /// Check the finish preconditions before any terminal metadata is written.
+    ///
+    /// `finish` persists the receipt, key row, version, fence and outbox before
+    /// it transitions `Applying` to `Finished`. A replayed group member must
+    /// therefore be rejected before those writes, or its failed finish call
+    /// would overwrite the durable replay receipt inside the shared group
+    /// transaction.
+    pub(crate) fn validate_finish_admission(&self, batch: &MutationBatch) -> Result<(), String> {
+        let encoded = encode_bounded(batch, "finished mutation batch")?;
+        match &*self.admission.borrow() {
+            AdmissionState::Applying {
+                batch: admitted,
+                owner,
+            } if admitted.as_slice() == encoded.as_slice()
+                && (is_ledger_only(D::LAYOUT) || owner.is_some()) =>
+            {
+                Ok(())
+            }
+            AdmissionState::Replayed { .. } => {
+                Err("a replayed member cannot be finished".to_string())
             }
             AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
             _ => Err("mutation batch owner work is unfinished or mismatched".to_string()),
@@ -160,18 +207,14 @@ impl<D: OwnerDomain> AdmittedMutation<'_, D> {
     pub(crate) fn validate_commit_admission(&self, batch: &MutationBatch) -> Result<(), String> {
         let encoded = encode_bounded(batch, "committed mutation batch")?;
         match &*self.admission.borrow() {
-            AdmissionState::Finished { batch: finished, .. }
-                if finished.as_slice() == encoded.as_slice() =>
-            {
-                Ok(())
-            }
+            AdmissionState::Finished {
+                batch: finished, ..
+            } if finished.as_slice() == encoded.as_slice() => Ok(()),
             // A replayed member wrote nothing and needs nothing written; its
             // receipt was already durable before this transaction opened.
-            AdmissionState::Replayed { batch: replayed }
-                if replayed.as_slice() == encoded.as_slice() =>
-            {
-                Ok(())
-            }
+            AdmissionState::Replayed {
+                batch: replayed, ..
+            } if replayed.as_slice() == encoded.as_slice() => Ok(()),
             AdmissionState::Poisoned => Err("mutation write is poisoned".to_string()),
             _ => Err("mutation commit does not match a finished batch".to_string()),
         }

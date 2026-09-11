@@ -263,7 +263,6 @@ asyncio.run(main())
 | — | `EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT` | unset (RPC disabled) | Private operator-owned root for logical `.db` import/export names |
 | — | `EPISTEMIC_GRAPH_SQLITE_MAX_BYTES` / `EPISTEMIC_GRAPH_SQLITE_MAX_ROWS` | 256 MiB / 1,000,000 | SQLite transfer resource ceilings |
 | `--persist-dir` | `GRAPH_SERVICE_PERSIST_DIR` | image data volume | Mandatory durable redb store and replay ledger |
-| — | `EPISTEMIC_GRAPH_REDB_COMMIT_POLICY` | engine default | `each`, `interval`, or positive milliseconds; invalid/zero values fail startup and durability cannot be disabled |
 | `--metrics-addr` | `GRAPH_SERVICE_METRICS_ADDR` | `127.0.0.1:9101` (image) | Prometheus `/metrics` listener |
 | — | `EPISTEMIC_GRAPH_RAFT_NODE_ID` | — | Raft node id (`cluster`) |
 | — | `EPISTEMIC_GRAPH_RAFT_PEERS` | — | `id@host:port` peer list (`cluster`) |

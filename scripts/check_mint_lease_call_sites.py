@@ -51,10 +51,15 @@ ALLOWED_PRODUCTION_CALL_MODULE = "src/server/dispatch.rs"
 # builds the capability token itself, from the server auth secret and the
 # verified claims it already holds, rather than accepting one from a caller.
 REQUIRED_MINT_AUTHORIZATION_TOKENS = (
+    "let (auth_secret, isolation)",
     "MintAuthorization::compute_mac(",
     "MintAuthorization::new(",
     "auth_secret",
-    ".claims()",
+    "verified_context.claims()",
+    "CarrierAuthority::from_verified(",
+    "AccessLevel::Read",
+    "KnowledgeStreamAuthority::from_verified_with_lease(",
+    "policy_store()",
 )
 
 # A `fn` item at ANY nesting depth. Rust puts most real code in `impl`/`mod`/

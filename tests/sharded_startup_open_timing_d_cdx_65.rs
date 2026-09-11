@@ -31,7 +31,6 @@
 
 use std::sync::{Arc, Mutex};
 
-use epistemic_graph::durability::DurabilityPolicy;
 use epistemic_graph::protocol::Method;
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
@@ -123,14 +122,7 @@ fn measure_concurrent_vs_sequential_shard_open_d_cdx_65() {
     let build_start = std::time::Instant::now();
     let sizes = [1usize, 3, 2, 1]; // relative multiplier per graph -> uneven shard sizes
     if built_fresh {
-        let backend = Arc::new(
-            RedbBackend::open(
-                dir_s.clone(),
-                DurabilityPolicy::Interval(std::time::Duration::from_millis(50)),
-                8192,
-            )
-            .expect("build store"),
-        );
+        let backend = Arc::new(RedbBackend::open(dir_s.clone(), 8192).expect("build store"));
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(8)
             .enable_all()
@@ -199,8 +191,7 @@ fn measure_concurrent_vs_sequential_shard_open_d_cdx_65() {
     let subscriber = tracing_subscriber::registry().with(collector);
     let _ = tracing::subscriber::set_global_default(subscriber);
     let t0 = std::time::Instant::now();
-    let backend =
-        RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 8192).expect("reopen store");
+    let backend = RedbBackend::open(dir_s.clone(), 8192).expect("reopen store");
     let reopen_wall_clock = t0.elapsed();
     backend.shutdown();
 

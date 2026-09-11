@@ -14,10 +14,14 @@ use crate::epistemic_operations_ext::{
     WorkItemClaimCapabilityRequestSchemaVersion, WorkItemClaimCapabilityResult,
     WorkItemClaimCapabilityResultSchemaVersion, WorkItemClaimCapabilityVerifyRequest,
 };
+use eg_storage::{GraphShardOwner, PhysicalWriteCapability, ScopedOwnerTableMut};
+use eg_transaction::{AdmittedOwnerWrite, OwnerPayloadWrite};
 use rand::RngCore;
-use redb::{ReadableTable, TableDefinition};
+use redb::TableDefinition;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+use super::shard::ShardWrite;
 
 /// Private tables are intentionally disjoint from WorkItem/status/list
 /// projections, MutationBatch/outbox rows, and CDC/audit records.
@@ -40,8 +44,8 @@ pub(crate) const AUTHORITY_UNAVAILABLE: &str = "authority_unavailable";
 
 // Private exact-input storage does not exist in this checkpoint.  This
 // test-only boundary counter is wired to the actual private-row accesses
-// below (the `CAPABILITIES` table get/decode in `mint_in_wtx`/
-// `verify_in_wtx`) so a future payload reader placed before capability
+// below (the `CAPABILITIES` table get/decode in `mint_claim_capability`/
+// `verify_claim_capability`) so a future payload reader placed before capability
 // verification trips a failing test rather than a silent regression. The
 // `NATIVE_WORK_ITEMS`/`NODES` reads performed by `read_live_lease` are the
 // authorization check itself and are deliberately NOT counted here.
@@ -54,8 +58,8 @@ pub(crate) const AUTHORITY_UNAVAILABLE: &str = "authority_unavailable";
 // exactly the parallel-run flake this shape fixes: `private_work_item_body_
 // reads()` observing 1 read instead of the expected 0, attributed to an
 // unrelated sibling test's `mint`/`verify` call landing on a different OS
-// thread during this test's measurement window. `mint_in_wtx`/`verify_in_wtx`
-// run synchronously on the caller's thread (no internal thread spawn), and
+// thread during this test's measurement window. `mint_claim_capability` and
+// `verify_claim_capability` run synchronously on the caller's thread (no internal thread spawn), and
 // this is a plain (non-async) `#[test]`, so a thread-local counter isolates
 // this test's own count perfectly — see `redb_store.rs`'s
 // `COLD_SEED_ROWS_TOUCHED` for the identical fix applied to the same class
@@ -197,106 +201,189 @@ impl Refusal {
     }
 }
 
-pub(crate) fn initialize_tables(wtx: &redb::WriteTransaction) -> Result<(), String> {
-    wtx.open_table(CAPABILITIES)
-        .map_err(|error| error.to_string())?;
-    wtx.open_table(INVOCATIONS)
-        .map_err(|error| error.to_string())?;
-    wtx.open_table(NATIVE_WORK_ITEMS)
-        .map_err(|error| error.to_string())?;
-    Ok(())
+/// One private capability table opened for writing on one graph's scope.
+type CapabilityRows<'a> = ScopedOwnerTableMut<'a, (&'static str, &'static str), &'static [u8]>;
+
+/// How many rows of the bound graph one private table holds, counted no
+/// further than `ceiling + 1`.
+///
+/// Enough to decide any retention bound without walking a whole scope, and
+/// bounded by the capability rather than by a starting key: `scope_rows` is
+/// already confined to this table's own graph.
+fn scope_row_count(table: &CapabilityRows<'_>, ceiling: usize) -> Result<usize, String> {
+    let mut count = 0usize;
+    for row in table.scope_rows()? {
+        row?;
+        count = count.saturating_add(1);
+        if count > ceiling {
+            break;
+        }
+    }
+    Ok(count)
 }
 
-pub(crate) fn clear_graph_rows_in_wtx(
-    wtx: &redb::WriteTransaction,
-    graph: &str,
+/// Remove every row of the bound graph from one of this module's tables,
+/// refusing a scope that already exceeds the table's native retention bound.
+///
+/// The bound is checked before the first removal, so a scope outside contract
+/// is refused whole rather than half-swept -- and it is checked identically
+/// whether the sweep came from a graph clear or from a scope retirement,
+/// because those are the same operation. The removal itself is the kernel's
+/// `ScopedOwnerTableMut::purge_scope_rows`, whose scope comes from the
+/// capability that opened the table and never from an argument.
+fn purge_within_retention(
+    table: &mut CapabilityRows<'_>,
+    retention: usize,
+    exceeded: &str,
 ) -> Result<(), String> {
-    let mut native_work_items = wtx
-        .open_table(NATIVE_WORK_ITEMS)
-        .map_err(|error| error.to_string())?;
-    clear_graph_rows_in_wtx_with_native(wtx, graph, &mut native_work_items)
+    if scope_row_count(table, retention)? > retention {
+        return Err(exceeded.to_string());
+    }
+    table.purge_scope_rows()
+}
+
+/// Drop this module's rows for one graph inside an admitted group, opening the
+/// native provenance table itself.
+pub(crate) fn clear_graph_rows(write: &ShardWrite<'_>, graph: &str) -> Result<(), String> {
+    let mut native_work_items = write.graph(graph)?.open_scoped_table(NATIVE_WORK_ITEMS)?;
+    clear_graph_rows_with_native(write, graph, &mut native_work_items)
 }
 
 /// Clear private capability state when the caller already owns the native
 /// provenance table in this transaction.  redb intentionally rejects opening
 /// one table twice in a write transaction, so graph clear/restore paths must
 /// reuse the existing handle to preserve atomic purge semantics.
-pub(crate) fn clear_graph_rows_in_wtx_with_native(
-    wtx: &redb::WriteTransaction,
+pub(crate) fn clear_graph_rows_with_native(
+    write: &ShardWrite<'_>,
     graph: &str,
-    native_work_items: &mut redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &mut CapabilityRows<'_>,
 ) -> Result<(), String> {
-    let mut capabilities = wtx
-        .open_table(CAPABILITIES)
-        .map_err(|error| error.to_string())?;
-    let mut invocations = wtx
-        .open_table(INVOCATIONS)
-        .map_err(|error| error.to_string())?;
-    let capability_keys = capabilities
-        .range((graph, "")..)
-        .map_err(|error| error.to_string())?
-        .filter_map(|row| row.ok())
-        .take_while(|(key, _)| key.value().0 == graph)
-        .map(|(key, _)| {
-            let (row_graph, digest) = key.value();
-            (row_graph.to_string(), digest.to_string())
-        })
-        .take(MAX_CAPABILITY_ROWS + 1)
-        .collect::<Vec<_>>();
-    if capability_keys.len() > MAX_CAPABILITY_ROWS {
-        return Err("native capability retention bound exceeded".to_string());
+    let rows = write.graph(graph)?;
+    purge_within_retention(
+        &mut rows.open_scoped_table(CAPABILITIES)?,
+        MAX_CAPABILITY_ROWS,
+        "native capability retention bound exceeded",
+    )?;
+    purge_within_retention(
+        &mut rows.open_scoped_table(INVOCATIONS)?,
+        MAX_INVOCATION_ROWS,
+        "native capability invocation retention bound exceeded",
+    )?;
+    purge_within_retention(
+        native_work_items,
+        MAX_NATIVE_WORK_ITEM_ROWS,
+        "native WorkItem authority retention bound exceeded",
+    )
+}
+
+/// Clear this module's graph rows through an already-admitted graph member.
+///
+/// Online reshard/import uses a member of the shard's maintenance group rather
+/// than a [`ShardWrite`] wrapper.  The member's bound identity is the authority
+/// for the scope; the graph argument is checked only to reject a mismatched
+/// caller before any table is opened.
+pub(crate) fn clear_graph_rows_in_wtx(
+    write: &AdmittedOwnerWrite<'_, GraphShardOwner>,
+    graph: &str,
+) -> Result<(), String> {
+    if write
+        .identity()
+        .scope()
+        .graph_name()
+        .map(|name| name.as_str())
+        != Some(graph)
+    {
+        return Err("native capability clear graph does not match admitted scope".to_string());
     }
-    for (row_graph, digest) in capability_keys {
-        capabilities
-            .remove((row_graph.as_str(), digest.as_str()))
-            .map_err(|error| error.to_string())?;
-    }
-    let invocation_keys = invocations
-        .range((graph, "")..)
-        .map_err(|error| error.to_string())?
-        .filter_map(|row| row.ok())
-        .take_while(|(key, _)| key.value().0 == graph)
-        .map(|(key, _)| {
-            let (row_graph, session) = key.value();
-            (row_graph.to_string(), session.to_string())
-        })
-        .take(MAX_INVOCATION_ROWS + 1)
-        .collect::<Vec<_>>();
-    if invocation_keys.len() > MAX_INVOCATION_ROWS {
-        return Err("native capability invocation retention bound exceeded".to_string());
-    }
-    for (row_graph, session) in invocation_keys {
-        invocations
-            .remove((row_graph.as_str(), session.as_str()))
-            .map_err(|error| error.to_string())?;
-    }
-    let native_keys = native_work_items
-        .range((graph, "")..)
-        .map_err(|error| error.to_string())?
-        .filter_map(|row| row.ok())
-        .take_while(|(key, _)| key.value().0 == graph)
-        .map(|(key, _)| {
-            let (row_graph, item) = key.value();
-            (row_graph.to_string(), item.to_string())
-        })
-        .take(MAX_NATIVE_WORK_ITEM_ROWS + 1)
-        .collect::<Vec<_>>();
-    if native_keys.len() > MAX_NATIVE_WORK_ITEM_ROWS {
-        return Err("native WorkItem authority retention bound exceeded".to_string());
-    }
-    for (row_graph, item) in native_keys {
-        native_work_items
-            .remove((row_graph.as_str(), item.as_str()))
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(())
+    let mut native_work_items = write.open_scoped_table(NATIVE_WORK_ITEMS)?;
+    clear_graph_rows_in_wtx_with_native(write, &mut native_work_items)
+}
+
+/// Clear this module's graph rows through the narrow owner-payload capability
+/// used by a graft reservation.  It intentionally has no graph-name argument:
+/// the capability's scope is the authority, and unlike an admitted member it
+/// cannot reach mutation-ledger tables or another graph.
+pub(crate) fn clear_graph_rows_in_payload<W: OwnerPayloadWrite>(write: &W) -> Result<(), String> {
+    let mut native_work_items = write.open_scoped_table(NATIVE_WORK_ITEMS)?;
+    purge_within_retention(
+        &mut write.open_scoped_table(CAPABILITIES)?,
+        MAX_CAPABILITY_ROWS,
+        "native capability retention bound exceeded",
+    )?;
+    purge_within_retention(
+        &mut write.open_scoped_table(INVOCATIONS)?,
+        MAX_INVOCATION_ROWS,
+        "native capability invocation retention bound exceeded",
+    )?;
+    purge_within_retention(
+        &mut native_work_items,
+        MAX_NATIVE_WORK_ITEM_ROWS,
+        "native WorkItem authority retention bound exceeded",
+    )
+}
+
+/// Variant used when the caller already owns the native provenance handle in
+/// this admitted transaction.  Opening a table twice is rejected by redb, so
+/// import/replace paths must reuse that handle while purging the two private
+/// capability tables.
+pub(crate) fn clear_graph_rows_in_wtx_with_native(
+    write: &AdmittedOwnerWrite<'_, GraphShardOwner>,
+    native_work_items: &mut CapabilityRows<'_>,
+) -> Result<(), String> {
+    purge_within_retention(
+        &mut write.open_scoped_table(CAPABILITIES)?,
+        MAX_CAPABILITY_ROWS,
+        "native capability retention bound exceeded",
+    )?;
+    purge_within_retention(
+        &mut write.open_scoped_table(INVOCATIONS)?,
+        MAX_INVOCATION_ROWS,
+        "native capability invocation retention bound exceeded",
+    )?;
+    purge_within_retention(
+        native_work_items,
+        MAX_NATIVE_WORK_ITEM_ROWS,
+        "native WorkItem authority retention bound exceeded",
+    )
+}
+
+/// Retire this module's rows for the capability's own graph scope.
+///
+/// The payload half of a scope retirement (`OwnerPayloadRetirement`): the scope
+/// comes from the capability, never from an argument, so one graph's handle can
+/// never sweep another's rows in the file they share. All three of this
+/// module's tables are listed -- missing one would hand the retired
+/// generation's private capability material to the next binding of the same
+/// graph name, which is the forgery this module exists to make impossible.
+///
+/// The row work is [`purge_within_retention`], the same sweep
+/// [`clear_graph_rows_with_native`] performs and under the same retention
+/// bounds; the two differ only in the capability the caller holds.
+pub(crate) fn retire_graph_rows(
+    write: &PhysicalWriteCapability<'_, GraphShardOwner>,
+) -> Result<(), String> {
+    purge_within_retention(
+        &mut write.scoped_owner_table_mut(CAPABILITIES)?,
+        MAX_CAPABILITY_ROWS,
+        "native capability retention bound exceeded",
+    )?;
+    purge_within_retention(
+        &mut write.scoped_owner_table_mut(INVOCATIONS)?,
+        MAX_INVOCATION_ROWS,
+        "native capability invocation retention bound exceeded",
+    )?;
+    purge_within_retention(
+        &mut write.scoped_owner_table_mut(NATIVE_WORK_ITEMS)?,
+        MAX_NATIVE_WORK_ITEM_ROWS,
+        "native WorkItem authority retention bound exceeded",
+    )
 }
 
 /// Record a successful native claim in the same WriteTransaction as the lease
 /// transition.  The record is deliberately non-reconstructible from a public
 /// owner/lease tuple: capability verification requires this engine-created row.
-pub(crate) fn record_native_claim_in_wtx(
-    native_work_items: &mut redb::Table<(&str, &str), &[u8]>,
+pub(crate) fn record_native_claim(
+    native_work_items: &mut CapabilityRows<'_>,
     graph: &str,
     work_item_id: &str,
     props: &serde_json::Map<String, serde_json::Value>,
@@ -312,14 +399,32 @@ pub(crate) fn record_native_claim_in_wtx(
         claimed_at_ms,
     };
     let encoded = encode_private(&record, crypto)?;
-    native_work_items
-        .insert((graph, work_item_id), encoded.as_slice())
-        .map_err(|error| error.to_string())?;
-    Ok(())
+    native_work_items.insert((graph, work_item_id), encoded.as_slice())
+}
+
+/// Name retained for the claim row's admitted-write call site.  The native
+/// provenance row is written through the caller-owned scoped handle, in the
+/// same transaction as the lease transition.
+pub(crate) fn record_native_claim_in_wtx(
+    native_work_items: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    graph: &str,
+    work_item_id: &str,
+    props: &serde_json::Map<String, serde_json::Value>,
+    claimed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    record_native_claim(
+        native_work_items,
+        graph,
+        work_item_id,
+        props,
+        claimed_at_ms,
+        crypto,
+    )
 }
 
 fn native_claim_exists(
-    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    native_work_items: &CapabilityRows<'_>,
     graph: &str,
     work_item_id: &str,
     crypto: DurableCrypto<'_>,
@@ -419,7 +524,7 @@ fn authority_update_keys(props: &serde_json::Map<String, serde_json::Value>) -> 
     })
 }
 
-type WorkItemTable<'txn> = redb::Table<'txn, (&'static str, &'static str), &'static [u8]>;
+type WorkItemTable<'txn> = CapabilityRows<'txn>;
 
 fn native_claimed(
     native_work_items: &WorkItemTable<'_>,
@@ -429,7 +534,6 @@ fn native_claimed(
     native_work_items
         .get((graph, work_item_id))
         .map(|row| row.is_some())
-        .map_err(|error| error.to_string())
 }
 
 fn existing_work_item(
@@ -438,10 +542,7 @@ fn existing_work_item(
     work_item_id: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<bool, String> {
-    let Some(row) = nodes
-        .get((graph, work_item_id))
-        .map_err(|error| error.to_string())?
-    else {
+    let Some(row) = nodes.get((graph, work_item_id))? else {
         return Ok(false);
     };
     let bytes = crypto.unseal(row.value())?;
@@ -579,8 +680,8 @@ fn validate_generic_batch(
 pub(crate) fn validate_generic_method(
     graph: &str,
     method: &crate::protocol::Method,
-    nodes: &redb::Table<(&str, &str), &[u8]>,
-    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    nodes: &CapabilityRows<'_>,
+    native_work_items: &CapabilityRows<'_>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     let tables = GenericValidationTables::new(nodes, native_work_items, crypto);
@@ -634,8 +735,8 @@ pub(crate) fn validate_snapshot_nodes(nodes: &[(String, Vec<u8>)]) -> Result<(),
 
 /// Atomically mint or replay the capability while the caller's write
 /// transaction is held.  The request contains no mutable authority fields.
-pub(crate) fn mint_in_wtx(
-    wtx: &redb::WriteTransaction,
+pub(crate) fn mint_claim_capability(
+    write: &ShardWrite<'_>,
     graph: &str,
     request: &WorkItemClaimCapabilityMintRequest,
     authority: &AuthenticatedAuthority,
@@ -647,10 +748,9 @@ pub(crate) fn mint_in_wtx(
     {
         return Ok(refusal_result(Refusal::Malformed));
     }
-    let native_work_items = wtx
-        .open_table(NATIVE_WORK_ITEMS)
-        .map_err(|error| error.to_string())?;
-    let nodes = wtx.open_table(NODES).map_err(|error| error.to_string())?;
+    let rows = write.graph(graph)?;
+    let native_work_items = rows.open_scoped_table(NATIVE_WORK_ITEMS)?;
+    let nodes = rows.open_scoped_table(NODES)?;
     // Control-row authorization happens before either private capability table
     // is opened/read.  This is the no-private-row-read-before-authorization
     // checkpoint required by RMDD-29.
@@ -667,37 +767,27 @@ pub(crate) fn mint_in_wtx(
     };
     drop(nodes);
 
-    let mut capabilities = wtx
-        .open_table(CAPABILITIES)
-        .map_err(|error| error.to_string())?;
-    let mut invocations = wtx
-        .open_table(INVOCATIONS)
-        .map_err(|error| error.to_string())?;
+    let mut capabilities = rows.open_scoped_table(CAPABILITIES)?;
+    let mut invocations = rows.open_scoped_table(INVOCATIONS)?;
     prune_expired(
         &mut capabilities,
         &mut invocations,
-        graph,
         authority.now_ms,
         crypto,
     )?;
 
     let request_digest = request_digest(graph, request, authority, &live);
-    // Same private-row boundary as verify_in_wtx: these reads happen only
+    // Same private-row boundary as `verify_claim_capability`: these reads happen only
     // after read_live_lease above has already established authority for this
     // mint/replay request.
     record_private_work_item_body_read();
-    if let Some(stored) = invocations
-        .get((graph, authority.session.as_str()))
-        .map_err(|error| error.to_string())?
-    {
+    if let Some(stored) = invocations.get((graph, authority.session.as_str()))? {
         let invocation: InvocationRecord = decode_private(stored.value(), crypto)?;
         if invocation.request_digest != request_digest {
             return Ok(refusal_result(Refusal::InputConflict));
         }
         record_private_work_item_body_read();
-        let Some(capability) = capabilities
-            .get((graph, invocation.capability_digest.as_str()))
-            .map_err(|error| error.to_string())?
+        let Some(capability) = capabilities.get((graph, invocation.capability_digest.as_str()))?
         else {
             return Ok(refusal_result(Refusal::Stale));
         };
@@ -722,8 +812,8 @@ pub(crate) fn mint_in_wtx(
     // An exact retry must remain replayable even when the bounded native
     // tables are full.  Retention applies only to a new session/capability;
     // it must never turn a lost-ack retry into a second mint or a refusal.
-    if native_row_count(&capabilities, graph)? >= MAX_CAPABILITY_ROWS
-        || native_row_count(&invocations, graph)? >= MAX_INVOCATION_ROWS
+    if scope_row_count(&capabilities, MAX_CAPABILITY_ROWS)? >= MAX_CAPABILITY_ROWS
+        || scope_row_count(&invocations, MAX_INVOCATION_ROWS)? >= MAX_INVOCATION_ROWS
     {
         return Ok(refusal_result(Refusal::RetentionExhausted));
     }
@@ -761,15 +851,11 @@ pub(crate) fn mint_in_wtx(
     };
     let record_bytes = encode_private(&record, crypto)?;
     let invocation_bytes = encode_private(&invocation, crypto)?;
-    capabilities
-        .insert((graph, capability_digest.as_str()), record_bytes.as_slice())
-        .map_err(|error| error.to_string())?;
-    invocations
-        .insert(
-            (graph, authority.session.as_str()),
-            invocation_bytes.as_slice(),
-        )
-        .map_err(|error| error.to_string())?;
+    capabilities.insert((graph, capability_digest.as_str()), record_bytes.as_slice())?;
+    invocations.insert(
+        (graph, authority.session.as_str()),
+        invocation_bytes.as_slice(),
+    )?;
     Ok(WorkItemClaimCapabilityResult {
         schema_version: WorkItemClaimCapabilityResultSchemaVersion::V1,
         decision: WorkItemClaimCapabilityDecision::Minted,
@@ -780,8 +866,8 @@ pub(crate) fn mint_in_wtx(
 
 /// Verify the opaque capability after the authoritative WorkItem control row
 /// has been checked.  No private payload/blob row is touched by this function.
-pub(crate) fn verify_in_wtx(
-    wtx: &redb::WriteTransaction,
+pub(crate) fn verify_claim_capability(
+    write: &ShardWrite<'_>,
     graph: &str,
     request: &WorkItemClaimCapabilityVerifyRequest,
     authority: &AuthenticatedAuthority,
@@ -801,10 +887,9 @@ pub(crate) fn verify_in_wtx(
     {
         return Ok(verification_refusal_result());
     }
-    let native_work_items = wtx
-        .open_table(NATIVE_WORK_ITEMS)
-        .map_err(|error| error.to_string())?;
-    let nodes = wtx.open_table(NODES).map_err(|error| error.to_string())?;
+    let rows = write.graph(graph)?;
+    let native_work_items = rows.open_scoped_table(NATIVE_WORK_ITEMS)?;
+    let nodes = rows.open_scoped_table(NODES)?;
     // The live lease is authoritative.  The private capability table is not
     // consulted until this check succeeds, preventing a forged public tuple or
     // a scope-mismatched caller from probing private rows.
@@ -820,18 +905,13 @@ pub(crate) fn verify_in_wtx(
         Err(_) => return Ok(verification_refusal_result()),
     };
     drop(nodes);
-    let capabilities = wtx
-        .open_table(CAPABILITIES)
-        .map_err(|error| error.to_string())?;
+    let capabilities = rows.open_scoped_table(CAPABILITIES)?;
     let digest = digest_capability(&request.capability);
     // This is the private-row access the zero-private-body-read ordering
     // requirement guards: the capability material itself, fetched only after
     // `read_live_lease` above has already established authority.
     record_private_work_item_body_read();
-    let Some(stored) = capabilities
-        .get((graph, digest.as_str()))
-        .map_err(|error| error.to_string())?
-    else {
+    let Some(stored) = capabilities.get((graph, digest.as_str()))? else {
         return Ok(verification_refusal_result());
     };
     let record: CapabilityRecord = match decode_private(stored.value(), crypto) {
@@ -855,8 +935,8 @@ pub(crate) fn verify_in_wtx(
 }
 
 fn read_live_lease(
-    nodes: &redb::Table<(&str, &str), &[u8]>,
-    native_work_items: &redb::Table<(&str, &str), &[u8]>,
+    nodes: &CapabilityRows<'_>,
+    native_work_items: &CapabilityRows<'_>,
     graph: &str,
     work_item_id: &str,
     authority: &AuthenticatedAuthority,
@@ -1012,45 +1092,17 @@ fn validate_authority(graph: &str, authority: &AuthenticatedAuthority) -> Result
     Ok(())
 }
 
-fn native_row_count(
-    table: &redb::Table<(&str, &str), &[u8]>,
-    graph: &str,
-) -> Result<usize, String> {
-    let mut count = 0usize;
-    for row in table
-        .range((graph, "")..)
-        .map_err(|error| error.to_string())?
-    {
-        let (key, _) = row.map_err(|error| error.to_string())?;
-        if key.value().0 != graph {
-            break;
-        }
-        count = count.saturating_add(1);
-        if count > MAX_CAPABILITY_ROWS {
-            break;
-        }
-    }
-    Ok(count)
-}
-
 fn prune_expired(
-    capabilities: &mut redb::Table<(&str, &str), &[u8]>,
-    invocations: &mut redb::Table<(&str, &str), &[u8]>,
-    graph: &str,
+    capabilities: &mut CapabilityRows<'_>,
+    invocations: &mut CapabilityRows<'_>,
     now_ms: u64,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     let mut capability_keys = Vec::new();
     let mut capability_scanned = 0usize;
-    for row in capabilities
-        .range((graph, "")..)
-        .map_err(|error| error.to_string())?
-    {
-        let (key, value) = row.map_err(|error| error.to_string())?;
+    for row in capabilities.scope_rows()? {
+        let (key, value) = row?;
         let (row_graph, digest) = key.value();
-        if row_graph != graph {
-            break;
-        }
         capability_scanned = capability_scanned.saturating_add(1);
         if capability_scanned > MAX_CAPABILITY_ROWS {
             return Err("native capability retention bound exceeded".to_string());
@@ -1062,21 +1114,13 @@ fn prune_expired(
         }
     }
     for (row_graph, digest) in capability_keys {
-        capabilities
-            .remove((row_graph.as_str(), digest.as_str()))
-            .map_err(|error| error.to_string())?;
+        capabilities.remove((row_graph.as_str(), digest.as_str()))?;
     }
     let mut invocation_keys = Vec::new();
     let mut invocation_scanned = 0usize;
-    for row in invocations
-        .range((graph, "")..)
-        .map_err(|error| error.to_string())?
-    {
-        let (key, value) = row.map_err(|error| error.to_string())?;
+    for row in invocations.scope_rows()? {
+        let (key, value) = row?;
         let (row_graph, session) = key.value();
-        if row_graph != graph {
-            break;
-        }
         invocation_scanned = invocation_scanned.saturating_add(1);
         if invocation_scanned > MAX_INVOCATION_ROWS {
             return Err("native capability invocation retention bound exceeded".to_string());
@@ -1088,9 +1132,7 @@ fn prune_expired(
         }
     }
     for (row_graph, session) in invocation_keys {
-        invocations
-            .remove((row_graph.as_str(), session.as_str()))
-            .map_err(|error| error.to_string())?;
+        invocations.remove((row_graph.as_str(), session.as_str()))?;
     }
     Ok(())
 }
@@ -1115,13 +1157,24 @@ fn verification_refusal_result() -> WorkItemClaimCapabilityResult {
 mod tests {
     use super::*;
     use crate::mutation_batch::{
-        IncarnationId, LogicalName, MutationBatch, DurabilityDomain, MutationOperation,
-        MutationRequestContext, MutationScopeIdentity, MutationSurface, ScopeTenantId,
-        VersionExpectation, MUTATION_BATCH_VERSION,
+        DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationOperation,
+        MutationScopeIdentity, MutationSurface, ScopeTenantId, VersionExpectation,
+        MUTATION_BATCH_VERSION,
     };
     use crate::protocol::Method;
-    use redb::{Database, Durability, ReadableDatabase, ReadableTableMetadata};
+    use crate::redb_store::shard::Shard;
     use std::path::{Path, PathBuf};
+
+    /// One process-unique admission id per ATTEMPT, exactly as the production
+    /// write paths require: a shard batch id is durable, so two admissions in
+    /// one run -- or one run and its restart -- may never share one.
+    fn attempt(tag: &str) -> String {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        format!(
+            "{tag}-{}",
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )
+    }
 
     fn temp_path(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -1134,57 +1187,66 @@ mod tests {
         ))
     }
 
-    fn open(path: &Path) -> Database {
-        let db = Database::create(path).expect("create capability test db");
-        let wtx = db.begin_write().expect("begin table initialization");
-        super::super::initialize_canonical_tables(&wtx).expect("initialize native tables");
-        wtx.commit().expect("commit table initialization");
-        db
+    /// `create_owner` materializes the whole declared shard census, so there is
+    /// no hand-written table bootstrap to run here any more.
+    fn open(path: &Path) -> Shard {
+        Shard::open(path).expect("open capability test shard")
     }
 
-    fn try_commit_method(db: &Database, method: Method) -> Result<(), String> {
+    /// The graph's own authoritative version, read from the kernel ledger
+    /// rather than from a private version row.
+    fn graph_version(shard: &Shard) -> u64 {
+        let handle = shard.graph("graph-a").expect("bind graph-a");
+        let read = shard.read(&handle).expect("read graph-a");
+        eg_transaction::version(&read).expect("graph-a authoritative version")
+    }
+
+    fn try_commit_method(shard: &Shard, method: Method) -> Result<(), String> {
         let mut ops = vec![("graph-a".to_string(), method)];
         let mut raft_log_ops = Vec::new();
         #[cfg(feature = "security")]
         let mut audit_tail = super::super::AuditTailCache::new();
         super::super::commit_ops(
-            db,
+            shard,
             &mut ops,
             &mut raft_log_ops,
-            Durability::Immediate,
+            &attempt("native-method"),
+            0,
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit_tail,
         )
     }
 
-    fn commit_method(db: &Database, method: Method) {
-        try_commit_method(db, method).expect("public native graph mutation");
+    fn commit_method(shard: &Shard, method: Method) {
+        try_commit_method(shard, method).expect("public native graph mutation");
     }
 
-    fn claim_native(db: &Database, id: &str, worker: &str, now_ms: u64, key: &str) {
-        let expected_graph_version = super::super::read_mutation_graph_version(db, "graph-a")
-            .expect("read mutation graph version")
-            .unwrap_or(0);
-        let batch = MutationBatch {
+    fn claim_native(shard: &Shard, id: &str, worker: &str, now_ms: u64, key: &str) {
+        let expected_graph_version = super::super::read_mutation_graph_version(shard, "graph-a")
+            .expect("read mutation graph version");
+        // A CALLER identity: `graph_scope_identity` builds the POST-binding
+        // shard scope `(GRAPH_SHARD_TENANT, graph, incarnation)`, and handing
+        // that to `shard::bind_caller_batch` -- whose contract is to bind a
+        // caller batch ONTO that scope -- is refused with "'__shard__' is the
+        // graph shard's reserved scope tenant and cannot be a caller tenant".
+        // See the same fix in `resource_reservation_tests::resource_batch`.
+        let identity = MutationScopeIdentity::graph(
+            ScopeTenantId::new("tenant-a").expect("valid caller tenant"),
+            LogicalName::new("graph-a").expect("valid graph name"),
+            IncarnationId::new("incarnation:test:work-item-capability").expect("valid incarnation"),
+        );
+        let mut batch = MutationBatch {
             schema_version: MUTATION_BATCH_VERSION,
             batch_id: format!("claim-{key}"),
-            context: MutationRequestContext {
-                request_id: now_ms,
-                principal: format!("principal:sha256:{}", "a".repeat(64)),
-                purpose: None,
-                policy_fingerprint: None,
-                trace_id: None,
-                verified_capabilities: Default::default(),
-            },
-            identity: MutationScopeIdentity::graph(
-                ScopeTenantId::new("tenant-a").expect("static tenant id is valid"),
-                LogicalName::new("graph-a").expect("static graph name is valid"),
-                IncarnationId::new("incarnation:test:work-item-capability")
-                    .expect("static incarnation id is valid"),
+            envelope: super::super::fixture_operation_envelope(
+                &identity,
+                &format!("principal:sha256:{}", "a".repeat(64)),
+                now_ms,
+                &format!("claim-key-{key}"),
             ),
+            identity,
             placement_epoch: 0,
-            idempotency_key: format!("claim-key-{key}"),
             version_expectation: VersionExpectation::Graph(expected_graph_version),
             fencing_token: None,
             authoritative_state: None,
@@ -1211,22 +1273,27 @@ mod tests {
             outbox: Vec::new(),
             created_at_ms: now_ms,
         };
+        batch
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
         #[cfg(feature = "security")]
         let mut audit_tail = super::super::AuditTailCache::new();
         let committed = super::super::commit_mutation_batch_inner(
-            db,
-            "graph-a",
-            &batch,
-            None,
-            None,
-            None,
-            None,
-            now_ms,
+            shard,
+            super::super::BatchCommitInput {
+                graph_fname: "graph-a",
+                batch: &batch,
+                change: None,
+                authoritative_state_msgpack: None,
+                crossmodal: None,
+                result_msgpack: None,
+                committed_at_ms: now_ms,
+                audited: true,
+                crashpoint: None,
+            },
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit_tail,
-            true,
-            None,
         )
         .expect("native claim");
         assert!(
@@ -1235,9 +1302,9 @@ mod tests {
         );
     }
 
-    fn seed_work_item(db: &Database, id: &str) {
+    fn seed_work_item(shard: &Shard, id: &str) {
         commit_method(
-            db,
+            shard,
             Method::AddNode {
                 node_id: id.to_string(),
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -1249,7 +1316,7 @@ mod tests {
                 .expect("encode WorkItem"),
             },
         );
-        claim_native(db, id, "worker-a", 10_000, &format!("seed-{id}"));
+        claim_native(shard, id, "worker-a", 10_000, &format!("seed-{id}"));
     }
 
     fn authority(now_ms: u64) -> AuthenticatedAuthority {
@@ -1266,13 +1333,19 @@ mod tests {
     }
 
     fn mint(
-        db: &Database,
+        shard: &Shard,
         item: &str,
         authority: &AuthenticatedAuthority,
     ) -> WorkItemClaimCapabilityResult {
-        let wtx = db.begin_write().expect("begin capability mint");
-        let result = mint_in_wtx(
-            &wtx,
+        let op_id = attempt("capability-mint");
+        let members = shard.graph_members(&["graph-a"]).expect("bind graph-a");
+        let (group, batches) = shard
+            .admit_maintenance(&members, &op_id)
+            .expect("admit capability mint");
+        let write =
+            ShardWrite::open(shard, &group, &members, &batches).expect("open capability mint");
+        let result = mint_claim_capability(
+            &write,
             "graph-a",
             &WorkItemClaimCapabilityMintRequest {
                 schema_version: WorkItemClaimCapabilityRequestSchemaVersion::V1,
@@ -1282,19 +1355,28 @@ mod tests {
             DurableCrypto::none(),
         )
         .expect("native mint result");
-        wtx.commit().expect("commit capability mint");
+        write.finish().expect("finish capability mint");
+        shard
+            .commit_drain(group, &batches, authority.now_ms)
+            .expect("commit capability mint");
         result
     }
 
     fn verify(
-        db: &Database,
+        shard: &Shard,
         item: &str,
         capability: Vec<u8>,
         authority: &AuthenticatedAuthority,
     ) -> WorkItemClaimCapabilityResult {
-        let wtx = db.begin_write().expect("begin capability verify");
-        let result = verify_in_wtx(
-            &wtx,
+        let op_id = attempt("capability-verify");
+        let members = shard.graph_members(&["graph-a"]).expect("bind graph-a");
+        let (group, batches) = shard
+            .admit_maintenance(&members, &op_id)
+            .expect("admit capability verify");
+        let write =
+            ShardWrite::open(shard, &group, &members, &batches).expect("open capability verify");
+        let result = verify_claim_capability(
+            &write,
             "graph-a",
             &WorkItemClaimCapabilityVerifyRequest {
                 schema_version: WorkItemClaimCapabilityRequestSchemaVersion::V1,
@@ -1305,7 +1387,10 @@ mod tests {
             DurableCrypto::none(),
         )
         .expect("native verify result");
-        wtx.commit().expect("commit capability verify");
+        write.finish().expect("finish capability verify");
+        shard
+            .commit_drain(group, &batches, authority.now_ms)
+            .expect("commit capability verify");
         result
     }
 
@@ -1313,7 +1398,7 @@ mod tests {
     // committed result being asserted on; no natural grouping applies.
     #[allow(clippy::too_many_arguments)]
     fn commit_native_result(
-        db: &Database,
+        shard: &Shard,
         item: &str,
         lease_epoch: u64,
         fencing_token: u64,
@@ -1322,28 +1407,30 @@ mod tests {
         outcome: &str,
         retryable: bool,
     ) {
-        let expected_graph_version = super::super::read_mutation_graph_version(db, "graph-a")
-            .expect("read mutation graph version")
-            .unwrap_or(0);
-        let batch = MutationBatch {
+        let expected_graph_version = super::super::read_mutation_graph_version(shard, "graph-a")
+            .expect("read mutation graph version");
+        // A CALLER identity: `graph_scope_identity` builds the POST-binding
+        // shard scope `(GRAPH_SHARD_TENANT, graph, incarnation)`, and handing
+        // that to `shard::bind_caller_batch` -- whose contract is to bind a
+        // caller batch ONTO that scope -- is refused with "'__shard__' is the
+        // graph shard's reserved scope tenant and cannot be a caller tenant".
+        // See the same fix in `resource_reservation_tests::resource_batch`.
+        let identity = MutationScopeIdentity::graph(
+            ScopeTenantId::new("tenant-a").expect("valid caller tenant"),
+            LogicalName::new("graph-a").expect("valid graph name"),
+            IncarnationId::new("incarnation:test:work-item-capability").expect("valid incarnation"),
+        );
+        let mut batch = MutationBatch {
             schema_version: MUTATION_BATCH_VERSION,
             batch_id: format!("result-{key}"),
-            context: MutationRequestContext {
-                request_id: now_ms,
-                principal: format!("principal:sha256:{}", "a".repeat(64)),
-                purpose: None,
-                policy_fingerprint: None,
-                trace_id: None,
-                verified_capabilities: Default::default(),
-            },
-            identity: MutationScopeIdentity::graph(
-                ScopeTenantId::new("tenant-a").expect("static tenant id is valid"),
-                LogicalName::new("graph-a").expect("static graph name is valid"),
-                IncarnationId::new("incarnation:test:work-item-capability")
-                    .expect("static incarnation id is valid"),
+            envelope: super::super::fixture_operation_envelope(
+                &identity,
+                &format!("principal:sha256:{}", "a".repeat(64)),
+                now_ms,
+                &format!("result-key-{key}"),
             ),
+            identity,
             placement_epoch: 0,
-            idempotency_key: format!("result-key-{key}"),
             version_expectation: VersionExpectation::Graph(expected_graph_version),
             fencing_token: None,
             authoritative_state: None,
@@ -1360,6 +1447,7 @@ mod tests {
                     idempotency_key: format!("work-result-{key}"),
                     outcome: outcome.to_string(),
                     result_ref: None,
+                    outcome_extension: None,
                     error_ref: None,
                     retryable,
                     now_ms,
@@ -1368,44 +1456,55 @@ mod tests {
             outbox: Vec::new(),
             created_at_ms: now_ms,
         };
+        batch
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
         #[cfg(feature = "security")]
         let mut audit_tail = super::super::AuditTailCache::new();
         super::super::commit_mutation_batch_inner(
-            db,
-            "graph-a",
-            &batch,
-            None,
-            None,
-            None,
-            None,
-            now_ms,
+            shard,
+            super::super::BatchCommitInput {
+                graph_fname: "graph-a",
+                batch: &batch,
+                change: None,
+                authoritative_state_msgpack: None,
+                crossmodal: None,
+                result_msgpack: None,
+                committed_at_ms: now_ms,
+                audited: true,
+                crashpoint: None,
+            },
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit_tail,
-            true,
-            None,
         )
         .expect("native WorkItem result");
     }
 
-    fn private_row_counts(db: &Database) -> (usize, usize, usize) {
-        let rtx = db.begin_read().expect("begin private row read");
-        let capabilities = rtx.open_table(CAPABILITIES).expect("open capabilities");
-        let invocations = rtx.open_table(INVOCATIONS).expect("open invocations");
-        let native = rtx
-            .open_table(NATIVE_WORK_ITEMS)
-            .expect("open native provenance");
+    /// A scoped table has no `len()` -- it would have to answer for every graph
+    /// in the file -- so the count is this graph's own rows, walked.
+    fn private_row_counts(shard: &Shard) -> (usize, usize, usize) {
+        let handle = shard.graph("graph-a").expect("bind graph-a");
+        let read = shard.read(&handle).expect("read graph-a");
+        let count = |table: TableDefinition<'static, (&str, &str), &[u8]>| -> usize {
+            read.scoped_owner_table(table)
+                .expect("open private table")
+                .scope_rows()
+                .expect("scan private table")
+                .map(|row| row.expect("private row"))
+                .count()
+        };
         (
-            capabilities.len().expect("count capabilities") as usize,
-            invocations.len().expect("count invocations") as usize,
-            native.len().expect("count native provenance") as usize,
+            count(CAPABILITIES),
+            count(INVOCATIONS),
+            count(NATIVE_WORK_ITEMS),
         )
     }
 
     #[test]
     fn generic_work_item_authority_forgery_is_rejected_before_private_state() {
         let path = temp_path("generic-forgery");
-        let db = open(&path);
+        let shard = open(&path);
         let forged = serde_json::json!({
             "node_type": "WorkItem",
             "kind": "generic",
@@ -1426,7 +1525,7 @@ mod tests {
             "metadata": {"private": "forged"}
         });
         let error = try_commit_method(
-            &db,
+            &shard,
             Method::AddNode {
                 node_id: "forged".to_string(),
                 properties_msgpack: rmp_serde::to_vec_named(&forged).expect("encode forged row"),
@@ -1440,7 +1539,7 @@ mod tests {
             "properties": forged,
         }]);
         let error = try_commit_method(
-            &db,
+            &shard,
             Method::BatchUpdate {
                 operations_msgpack: rmp_serde::to_vec_named(&batch_forgery)
                     .expect("encode forged batch"),
@@ -1448,24 +1547,28 @@ mod tests {
         )
         .expect_err("generic active WorkItem BatchUpdate must refuse");
         assert!(error.contains("native WorkItem authority"));
+        assert!(super::super::read_one_node(
+            &shard,
+            "graph-a",
+            "forged-batch",
+            DurableCrypto::none()
+        )
+        .expect("read forged batch row")
+        .is_none());
         assert!(
-            super::super::read_one_node(&db, "graph-a", "forged-batch", DurableCrypto::none())
-                .expect("read forged batch row")
-                .is_none()
-        );
-        assert!(
-            super::super::read_one_node(&db, "graph-a", "forged", DurableCrypto::none())
+            super::super::read_one_node(&shard, "graph-a", "forged", DurableCrypto::none())
                 .expect("read forged row")
                 .is_none()
         );
-        assert_eq!(private_row_counts(&db), (0, 0, 0));
+        assert_eq!(private_row_counts(&shard), (0, 0, 0));
 
-        seed_work_item(&db, "wi-guard");
-        let before = super::super::read_one_node(&db, "graph-a", "wi-guard", DurableCrypto::none())
-            .expect("read native WorkItem")
-            .expect("native WorkItem exists");
+        seed_work_item(&shard, "wi-guard");
+        let before =
+            super::super::read_one_node(&shard, "graph-a", "wi-guard", DurableCrypto::none())
+                .expect("read native WorkItem")
+                .expect("native WorkItem exists");
         let error = try_commit_method(
-            &db,
+            &shard,
             Method::CompareAndSetNodeFields {
                 node_id: "wi-guard".to_string(),
                 conditions_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -1477,23 +1580,24 @@ mod tests {
         )
         .expect_err("generic authority CAS must refuse");
         assert!(error.contains("native WorkItem authority"));
-        let after = super::super::read_one_node(&db, "graph-a", "wi-guard", DurableCrypto::none())
-            .expect("read native WorkItem after refusal")
-            .expect("native WorkItem remains");
+        let after =
+            super::super::read_one_node(&shard, "graph-a", "wi-guard", DurableCrypto::none())
+                .expect("read native WorkItem after refusal")
+                .expect("native WorkItem remains");
         assert_eq!(
             before, after,
             "refused CAS must not partially mutate the row"
         );
 
         assert!(try_commit_method(
-            &db,
+            &shard,
             Method::RemoveNode {
                 node_id: "wi-guard".to_string()
             }
         )
         .is_err());
         assert!(try_commit_method(
-            &db,
+            &shard,
             Method::SetPose {
                 node_id: "wi-guard".to_string(),
                 pose_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -1503,17 +1607,17 @@ mod tests {
             }
         )
         .is_err());
-        assert_eq!(private_row_counts(&db).0, 0);
-        drop(db);
+        assert_eq!(private_row_counts(&shard).0, 0);
+        drop(shard);
         let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn graph_clear_purges_capability_invocation_and_native_provenance_rows_atomically() {
         let path = temp_path("graph-clear");
-        let db = open(&path);
+        let shard = open(&path);
         commit_method(
-            &db,
+            &shard,
             Method::AddNode {
                 node_id: "wi-clear".to_string(),
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -1525,15 +1629,15 @@ mod tests {
                 .expect("encode replacement WorkItem"),
             },
         );
-        claim_native(&db, "wi-clear", "worker-a", 10_000, "replacement");
-        let first = mint(&db, "wi-clear", &authority(10_000));
+        claim_native(&shard, "wi-clear", "worker-a", 10_000, "replacement");
+        let first = mint(&shard, "wi-clear", &authority(10_000));
         assert_eq!(first.decision, WorkItemClaimCapabilityDecision::Minted);
-        assert_eq!(private_row_counts(&db), (1, 1, 1));
+        assert_eq!(private_row_counts(&shard), (1, 1, 1));
 
-        commit_method(&db, Method::ClearGraph);
-        assert_eq!(private_row_counts(&db), (0, 0, 0));
+        commit_method(&shard, Method::ClearGraph);
+        assert_eq!(private_row_counts(&shard), (0, 0, 0));
         assert!(
-            super::super::read_one_node(&db, "graph-a", "wi-clear", DurableCrypto::none())
+            super::super::read_one_node(&shard, "graph-a", "wi-clear", DurableCrypto::none())
                 .expect("read cleared WorkItem")
                 .is_none()
         );
@@ -1541,7 +1645,7 @@ mod tests {
         // Reusing the graph/item id after a clear requires a new native claim;
         // the old opaque bytes cannot be replayed against the replacement row.
         commit_method(
-            &db,
+            &shard,
             Method::AddNode {
                 node_id: "wi-clear".to_string(),
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -1553,29 +1657,29 @@ mod tests {
                 .expect("encode restored WorkItem"),
             },
         );
-        claim_native(&db, "wi-clear", "worker-a", 10_000, "restored");
-        let second = mint(&db, "wi-clear", &authority(10_000));
+        claim_native(&shard, "wi-clear", "worker-a", 10_000, "restored");
+        let second = mint(&shard, "wi-clear", &authority(10_000));
         assert_eq!(second.decision, WorkItemClaimCapabilityDecision::Minted);
         assert_ne!(second.capability, first.capability);
-        drop(db);
+        drop(shard);
         let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn checkpoint_replacement_purges_private_capability_state_and_requires_new_claim() {
         let path = temp_path("checkpoint-replacement");
-        let db = open(&path);
-        seed_work_item(&db, "wi-checkpoint");
+        let shard = open(&path);
+        seed_work_item(&shard, "wi-checkpoint");
         let owner = authority(10_000);
-        let first = mint(&db, "wi-checkpoint", &owner);
+        let first = mint(&shard, "wi-checkpoint", &owner);
         assert_eq!(first.decision, WorkItemClaimCapabilityDecision::Minted);
         let old_capability = first.capability.clone().expect("checkpoint capability");
-        assert_eq!(private_row_counts(&db), (1, 1, 1));
+        assert_eq!(private_row_counts(&shard), (1, 1, 1));
 
         // A checkpoint is an untrusted public graph image.  Convert the
         // leased image to a fresh ready submission before restoring it; the
         // restore path must never preserve an old lease or its private rows.
-        let dump = super::super::read_graph_dump(&db, "graph-a", DurableCrypto::none())
+        let dump = super::super::read_graph_dump(&shard, "graph-a", DurableCrypto::none())
             .expect("read graph checkpoint")
             .expect("graph checkpoint identity");
         let invalid = super::super::GraphDump::in_place_core_checkpoint(
@@ -1593,7 +1697,7 @@ mod tests {
             },
         );
         let error = super::super::apply_checkpoint(
-            &db,
+            &shard,
             &mut Vec::new(),
             vec![invalid],
             DurableCrypto::none(),
@@ -1601,7 +1705,7 @@ mod tests {
         .expect_err("checkpoint cannot manufacture an active WorkItem image");
         assert!(error.contains("native WorkItem authority"));
         assert_eq!(
-            private_row_counts(&db),
+            private_row_counts(&shard),
             (1, 1, 1),
             "rejected checkpoint must not purge private state"
         );
@@ -1649,11 +1753,16 @@ mod tests {
                 semantic: dump.semantic,
             },
         );
-        super::super::apply_checkpoint(&db, &mut Vec::new(), vec![restored], DurableCrypto::none())
-            .expect("checkpoint replacement commits atomically");
-        assert_eq!(private_row_counts(&db), (0, 0, 0));
+        super::super::apply_checkpoint(
+            &shard,
+            &mut Vec::new(),
+            vec![restored],
+            DurableCrypto::none(),
+        )
+        .expect("checkpoint replacement commits atomically");
+        assert_eq!(private_row_counts(&shard), (0, 0, 0));
         assert_eq!(
-            verify(&db, "wi-checkpoint", old_capability, &owner).decision,
+            verify(&shard, "wi-checkpoint", old_capability, &owner).decision,
             WorkItemClaimCapabilityDecision::Unauthorized,
             "a capability cannot survive graph replacement"
         );
@@ -1661,27 +1770,27 @@ mod tests {
         let mut replacement_owner = authority(30_000);
         replacement_owner.incarnation_id = restored_incarnation.to_string();
         claim_native(
-            &db,
+            &shard,
             "wi-checkpoint",
             "worker-a",
             30_000,
             "checkpoint-reclaim",
         );
-        let second = mint(&db, "wi-checkpoint", &replacement_owner);
+        let second = mint(&shard, "wi-checkpoint", &replacement_owner);
         assert_eq!(second.decision, WorkItemClaimCapabilityDecision::Minted);
         assert_ne!(second.capability, first.capability);
-        assert_eq!(private_row_counts(&db), (1, 1, 1));
+        assert_eq!(private_row_counts(&shard), (1, 1, 1));
 
-        drop(db);
+        drop(shard);
         let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn crossmodal_clear_and_delete_purge_private_capability_state_atomically() {
         let path = temp_path("crossmodal-lifecycle");
-        let db = open(&path);
+        let shard = open(&path);
         commit_method(
-            &db,
+            &shard,
             Method::AddNode {
                 node_id: "wi-crossmodal".to_string(),
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -1694,28 +1803,30 @@ mod tests {
             },
         );
         claim_native(
-            &db,
+            &shard,
             "wi-crossmodal",
             "worker-a",
             10_000,
             "crossmodal-delete",
         );
         assert_eq!(
-            mint(&db, "wi-crossmodal", &authority(10_000)).decision,
+            mint(&shard, "wi-crossmodal", &authority(10_000)).decision,
             WorkItemClaimCapabilityDecision::Minted
         );
-        let before_blob_ref = private_row_counts(&db);
+        let before_blob_ref = private_row_counts(&shard);
         let blob_refs = [("wi-crossmodal".to_string(), "sha256:forged".to_string())];
         let error = {
             #[cfg(feature = "security")]
             let mut audit_tail = super::super::AuditTailCache::new();
             super::super::commit_crossmodal(
-                &db,
+                &shard,
                 "graph-a",
                 super::super::CrossModalStaged {
                     blob_refs: &blob_refs,
                     ..Default::default()
                 },
+                &attempt("crossmodal-refuse"),
+                10_000,
                 DurableCrypto::none(),
                 #[cfg(feature = "security")]
                 &mut audit_tail,
@@ -1723,9 +1834,9 @@ mod tests {
         }
         .expect_err("generic crossmodal blob mutation cannot touch a WorkItem");
         assert!(error.contains("native WorkItem authority"));
-        assert_eq!(private_row_counts(&db), before_blob_ref);
+        assert_eq!(private_row_counts(&shard), before_blob_ref);
         let props =
-            super::super::read_one_node(&db, "graph-a", "wi-crossmodal", DurableCrypto::none())
+            super::super::read_one_node(&shard, "graph-a", "wi-crossmodal", DurableCrypto::none())
                 .expect("read WorkItem after refused blob mutation")
                 .expect("WorkItem remains after refused blob mutation");
         let props: serde_json::Map<String, serde_json::Value> =
@@ -1734,21 +1845,23 @@ mod tests {
         #[cfg(feature = "security")]
         let mut audit_tail = super::super::AuditTailCache::new();
         super::super::commit_crossmodal(
-            &db,
+            &shard,
             "graph-a",
             super::super::CrossModalStaged {
                 methods: &[Method::ClearGraph],
                 ..Default::default()
             },
+            &attempt("crossmodal-clear"),
+            10_000,
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut audit_tail,
         )
         .expect("crossmodal ClearGraph commits");
-        assert_eq!(private_row_counts(&db), (0, 0, 0));
+        assert_eq!(private_row_counts(&shard), (0, 0, 0));
 
         commit_method(
-            &db,
+            &shard,
             Method::AddNode {
                 node_id: "wi-crossmodal".to_string(),
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -1761,20 +1874,20 @@ mod tests {
             },
         );
         claim_native(
-            &db,
+            &shard,
             "wi-crossmodal",
             "worker-a",
             10_000,
             "crossmodal-delete-recreated",
         );
         assert_eq!(
-            mint(&db, "wi-crossmodal", &authority(10_000)).decision,
+            mint(&shard, "wi-crossmodal", &authority(10_000)).decision,
             WorkItemClaimCapabilityDecision::Minted
         );
         #[cfg(feature = "security")]
         let mut delete_audit_tail = super::super::AuditTailCache::new();
         super::super::commit_crossmodal(
-            &db,
+            &shard,
             "graph-a",
             super::super::CrossModalStaged {
                 methods: &[Method::DeleteGraph {
@@ -1782,29 +1895,31 @@ mod tests {
                 }],
                 ..Default::default()
             },
+            &attempt("crossmodal-delete"),
+            10_000,
             DurableCrypto::none(),
             #[cfg(feature = "security")]
             &mut delete_audit_tail,
         )
         .expect("crossmodal DeleteGraph commits");
-        assert_eq!(private_row_counts(&db), (0, 0, 0));
+        assert_eq!(private_row_counts(&shard), (0, 0, 0));
 
-        drop(db);
+        drop(shard);
         let _ = std::fs::remove_file(path);
     }
 
     #[test]
     fn expired_private_rows_are_pruned_with_a_bounded_scan_before_new_mint() {
         let path = temp_path("cleanup");
-        let db = open(&path);
-        seed_work_item(&db, "wi-expired");
+        let shard = open(&path);
+        seed_work_item(&shard, "wi-expired");
         let owner = authority(10_000);
-        let first = mint(&db, "wi-expired", &owner);
+        let first = mint(&shard, "wi-expired", &owner);
         let old_capability = first.capability.expect("initial capability");
-        assert_eq!(private_row_counts(&db), (1, 1, 1));
+        assert_eq!(private_row_counts(&shard), (1, 1, 1));
 
         commit_method(
-            &db,
+            &shard,
             Method::AddNode {
                 node_id: "wi-fresh".to_string(),
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -1816,22 +1931,22 @@ mod tests {
                 .expect("encode fresh WorkItem"),
             },
         );
-        claim_native(&db, "wi-fresh", "worker-a", 200_000, "cleanup-fresh");
+        claim_native(&shard, "wi-fresh", "worker-a", 200_000, "cleanup-fresh");
         let mut fresh_owner = authority(200_000);
         fresh_owner.session = "session-b".to_string();
-        let fresh = mint(&db, "wi-fresh", &fresh_owner);
+        let fresh = mint(&shard, "wi-fresh", &fresh_owner);
         assert_eq!(fresh.decision, WorkItemClaimCapabilityDecision::Minted);
         assert_eq!(
-            private_row_counts(&db),
+            private_row_counts(&shard),
             (1, 1, 2),
             "expired capability and invocation rows are pruned before mint"
         );
         assert_eq!(
-            verify(&db, "wi-expired", old_capability, &owner).decision,
+            verify(&shard, "wi-expired", old_capability, &owner).decision,
             WorkItemClaimCapabilityDecision::Unauthorized
         );
 
-        drop(db);
+        drop(shard);
         let _ = std::fs::remove_file(path);
     }
 
@@ -1839,11 +1954,11 @@ mod tests {
     fn capability_is_opaque_context_bound_restart_persistent_and_fail_closed() {
         let path = temp_path("lifecycle");
         let capability = {
-            let db = open(&path);
-            seed_work_item(&db, "wi-1");
-            seed_work_item(&db, "wi-2");
+            let shard = open(&path);
+            seed_work_item(&shard, "wi-1");
+            seed_work_item(&shard, "wi-2");
             let owner = authority(10_000);
-            let minted = mint(&db, "wi-1", &owner);
+            let minted = mint(&shard, "wi-1", &owner);
             assert_eq!(minted.decision, WorkItemClaimCapabilityDecision::Minted);
             assert!(minted.valid);
             let capability = minted.capability.expect("opaque capability bytes");
@@ -1854,7 +1969,7 @@ mod tests {
                 &[0_u8; CAPABILITY_NONCE_BYTES]
             );
 
-            let verified = verify(&db, "wi-1", capability.clone(), &owner);
+            let verified = verify(&shard, "wi-1", capability.clone(), &owner);
             assert_eq!(verified.decision, WorkItemClaimCapabilityDecision::Verified);
             assert!(verified.valid);
             assert!(
@@ -1864,13 +1979,13 @@ mod tests {
 
             // Lost-ack retry: same authenticated session and live lease returns
             // exactly the persisted opaque bytes, not a second nonce.
-            let replayed = mint(&db, "wi-1", &authority(10_001));
+            let replayed = mint(&shard, "wi-1", &authority(10_001));
             assert_eq!(replayed.decision, WorkItemClaimCapabilityDecision::Replayed);
             assert_eq!(replayed.capability, Some(capability.clone()));
 
             // A changed input on the same idempotency session is rejected, even
             // though the second WorkItem is a valid live lease.
-            let conflict = mint(&db, "wi-2", &owner);
+            let conflict = mint(&shard, "wi-2", &owner);
             assert_eq!(
                 conflict.decision,
                 WorkItemClaimCapabilityDecision::InputConflict
@@ -1896,16 +2011,21 @@ mod tests {
             // opened for these — this is the ordering RMDD-29 requires and
             // the counter below fails the test if that ordering regresses.
             reset_private_work_item_body_reads();
-            let malformed = verify(&db, "wi-1", vec![0_u8; MAX_CAPABILITY_BYTES + 1], &owner);
+            let malformed = verify(&shard, "wi-1", vec![0_u8; MAX_CAPABILITY_BYTES + 1], &owner);
             assert_denied(malformed);
-            assert_denied(verify(&db, "wi-1", vec![1, 2, 3], &owner));
-            assert_denied(verify(&db, "unknown-work-item", capability.clone(), &owner));
+            assert_denied(verify(&shard, "wi-1", vec![1, 2, 3], &owner));
+            assert_denied(verify(
+                &shard,
+                "unknown-work-item",
+                capability.clone(),
+                &owner,
+            ));
             let mut wrong_tenant = owner.clone();
             wrong_tenant.tenant = "tenant-b".to_string();
-            assert_denied(verify(&db, "wi-1", capability.clone(), &wrong_tenant));
+            assert_denied(verify(&shard, "wi-1", capability.clone(), &wrong_tenant));
             let mut wrong_owner = owner.clone();
             wrong_owner.agent_id = "worker-b".to_string();
-            assert_denied(verify(&db, "wi-1", capability.clone(), &wrong_owner));
+            assert_denied(verify(&shard, "wi-1", capability.clone(), &wrong_owner));
             assert_eq!(
                 private_work_item_body_reads(),
                 0,
@@ -1923,33 +2043,38 @@ mod tests {
             // outcome remains the same normalized denial either way.
             let mut wrong_audience = owner.clone();
             wrong_audience.audience = "other-audience".to_string();
-            assert_denied(verify(&db, "wi-1", capability.clone(), &wrong_audience));
+            assert_denied(verify(&shard, "wi-1", capability.clone(), &wrong_audience));
             let mut wrong_principal = owner.clone();
             wrong_principal.principal = format!("principal:sha256:{}", "b".repeat(64));
-            assert_denied(verify(&db, "wi-1", capability.clone(), &wrong_principal));
+            assert_denied(verify(&shard, "wi-1", capability.clone(), &wrong_principal));
             let mut wrong_session = owner.clone();
             wrong_session.session = "session-b".to_string();
-            assert_denied(verify(&db, "wi-1", capability.clone(), &wrong_session));
+            assert_denied(verify(&shard, "wi-1", capability.clone(), &wrong_session));
             let mut wrong_epoch = owner.clone();
             wrong_epoch.authority_epoch = 8;
-            assert_denied(verify(&db, "wi-1", capability.clone(), &wrong_epoch));
+            assert_denied(verify(&shard, "wi-1", capability.clone(), &wrong_epoch));
             let mut wrong_incarnation = owner.clone();
             wrong_incarnation.incarnation_id = "incarnation-b".to_string();
-            assert_denied(verify(&db, "wi-1", capability.clone(), &wrong_incarnation));
+            assert_denied(verify(
+                &shard,
+                "wi-1",
+                capability.clone(),
+                &wrong_incarnation,
+            ));
 
             // Authoritative expiry, terminal state, and a reclaimed lease all
             // invalidate the previously minted capability.
-            let expired = verify(&db, "wi-1", capability.clone(), &authority(110_000));
+            let expired = verify(&shard, "wi-1", capability.clone(), &authority(110_000));
             assert_denied(expired);
             // A native retryable failure returns the row to ready, then the
             // native claim authority advances both lease epoch and fence.
-            commit_native_result(&db, "wi-1", 1, 1, 10_001, "retry", "failed", true);
-            claim_native(&db, "wi-1", "worker-a", 20_000, "reclaim");
-            assert_denied(verify(&db, "wi-1", capability.clone(), &owner));
+            commit_native_result(&shard, "wi-1", 1, 1, 10_001, "retry", "failed", true);
+            claim_native(&shard, "wi-1", "worker-a", 20_000, "reclaim");
+            assert_denied(verify(&shard, "wi-1", capability.clone(), &owner));
             // The new lease can be completed only through the native result
             // operation; generic CAS is no longer an authority path.
-            commit_native_result(&db, "wi-1", 2, 2, 20_001, "terminal", "succeeded", false);
-            assert_denied(verify(&db, "wi-1", capability.clone(), &owner));
+            commit_native_result(&shard, "wi-1", 2, 2, 20_001, "terminal", "succeeded", false);
+            assert_denied(verify(&shard, "wi-1", capability.clone(), &owner));
 
             capability
         };
@@ -1957,8 +2082,8 @@ mod tests {
         // Capability and invocation rows are native durable state, not public
         // WorkItem metadata; reopening the same database still returns the
         // exact replay bytes and remains fail-closed after the lease changed.
-        let db = open(&path);
-        let replay_after_restart = mint(&db, "wi-1", &authority(10_001));
+        let shard = open(&path);
+        let replay_after_restart = mint(&shard, "wi-1", &authority(10_001));
         assert_ne!(
             replay_after_restart.decision,
             WorkItemClaimCapabilityDecision::Minted

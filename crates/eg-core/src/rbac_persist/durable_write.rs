@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use eg_storage::RbacOwner;
 use eg_transaction::{AdmittedOwnerWrite, Begin};
@@ -29,12 +29,7 @@ pub(super) fn save_authority_state(
     if is_current(store, &encoded)? {
         return Ok(());
     }
-    let expected = store.current_version()?;
-    let target = expected.checked_add(1).ok_or_else(|| {
-        RbacPersistError::Redb("identity/RBAC state version overflow".to_string())
-    })?;
-    let batch = authority_batch(store, expected, target, &encoded.digest);
-    persist_authority_state(store, &batch, &encoded)
+    persist_authority_state(store, &encoded)
 }
 
 fn encode_authority_state(
@@ -92,22 +87,21 @@ fn authority_batch(
     eg_types::MutationBatch {
         schema_version: eg_types::MUTATION_BATCH_VERSION,
         batch_id: batch_id.clone(),
-        context: eg_types::MutationRequestContext {
-            request_id: 0,
-            // The batch actor must be the principal the storage kernel
-            // authenticated this store's serving scope for; the mutation kernel
-            // rejects any batch whose context names a different one.
-            principal: store.owner.principal().to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // OCC supplies the expected version, so this path claims no
-            // unversioned-system-mutation capability.
-            verified_capabilities: BTreeSet::new(),
-        },
+        // An RBAC authority write has no caller: it publishes the whole
+        // policy/identity/bootstrap image the process already authorized, so it
+        // is a MAINTENANCE mutation (RF-RULING-005) with no operation replay
+        // identity and no attempt nonce. Its serving principal is the one the
+        // storage kernel authenticated this store's scope for; the mutation
+        // kernel rejects any batch naming a different one.
+        envelope: eg_types::mutation_batch::MutationEnvelope::maintenance(
+            store.owner.principal(),
+            "rbac_authority",
+            digest,
+            &batch_id,
+        )
+        .expect("an RBAC authority digest is a canonical resource id"),
         identity: store.owner.identity().clone(),
         placement_epoch: 0,
-        idempotency_key: batch_id.clone(),
         version_expectation: eg_types::VersionExpectation::Native(expected),
         fencing_token: None,
         authoritative_state: None,
@@ -132,12 +126,11 @@ fn authority_batch(
 
 fn persist_authority_state(
     store: &RbacStore,
-    batch: &eg_types::MutationBatch,
     encoded: &EncodedAuthorityState,
 ) -> Result<(), RbacPersistError> {
     let outcome = rmp_serde::to_vec_named(&true)
         .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
-    commit_authority_mutation(store, batch, Some(outcome), |owner_write| {
+    commit_authority_mutation(store, &encoded.digest, Some(outcome), |owner_write| {
         let mut table = owner_write
             .open_table(RBAC_TABLE)
             .map_err(RbacPersistError::Redb)?;
@@ -162,12 +155,7 @@ pub(super) fn remove_authority_record(
     store: &RbacStore,
     key: &'static str,
 ) -> Result<(), RbacPersistError> {
-    let expected = store.current_version()?;
-    let target = expected.checked_add(1).ok_or_else(|| {
-        RbacPersistError::Redb("identity/RBAC state version overflow".to_string())
-    })?;
-    let batch = authority_batch(store, expected, target, &format!("remove-{key}"));
-    commit_authority_mutation(store, &batch, None, |owner_write| {
+    commit_authority_mutation(store, &format!("remove-{key}"), None, |owner_write| {
         owner_write
             .open_table(RBAC_TABLE)
             .map_err(RbacPersistError::Redb)?
@@ -177,23 +165,31 @@ pub(super) fn remove_authority_record(
     })
 }
 
-/// Admit `batch`, apply `apply_rows` to the `rbac` owner table inside that
-/// one admitted write, and commit. The write transaction is minted by the
-/// storage kernel's single mutation authority and is never reachable here: the
-/// only handle this crate is given is the layout-bounded
+/// Mint and admit the maintenance batch, apply `apply_rows` to the `rbac` owner
+/// table inside that one admitted write, and commit. The write transaction is
+/// minted by the storage kernel's single mutation authority and is never
+/// reachable here: the only handle this crate is given is the layout-bounded
 /// [`AdmittedOwnerWrite`], valid between `owner_rows` and `finish_owner`.
 fn commit_authority_mutation<F>(
     store: &RbacStore,
-    batch: &eg_types::MutationBatch,
+    digest: &str,
     result_msgpack: Option<Vec<u8>>,
     apply_rows: F,
 ) -> Result<(), RbacPersistError>
 where
     F: FnOnce(&AdmittedOwnerWrite<'_, RbacOwner>) -> Result<(), RbacPersistError>,
 {
-    let (write, begun) = store
+    // The authority image's maintenance claim must be minted from the version
+    // resolved while this write is held.  A pre-lock version read lets two
+    // concurrent bootstrap updates produce the same durable claim.
+    let (write, batch, begun) = store
         .mutations
-        .admit(&store.owner, batch)
+        .admit_current(&store.owner, |expected| {
+            let target = expected
+                .checked_add(1)
+                .ok_or_else(|| "identity/RBAC state version overflow".to_string())?;
+            Ok(authority_batch(store, expected, target, digest))
+        })
         .map_err(RbacPersistError::Redb)?;
     let source_version = match begun {
         // The idempotency key already names a terminally committed receipt:
@@ -203,16 +199,16 @@ where
         Begin::Apply { source_version } => source_version,
     };
     let owner_write = write
-        .owner_rows(&store.owner, batch)
+        .owner_rows(&store.owner, &batch)
         .map_err(RbacPersistError::Redb)?;
     apply_rows(&owner_write)?;
     owner_write.finish_owner().map_err(RbacPersistError::Redb)?;
     store
         .mutations
-        .finish(&write, batch, result_msgpack, 0, source_version)
+        .finish(&write, &batch, result_msgpack, 0, source_version)
         .map_err(RbacPersistError::Redb)?;
     store
         .mutations
-        .commit(write, batch)
+        .commit(write, &batch)
         .map_err(RbacPersistError::Redb)
 }

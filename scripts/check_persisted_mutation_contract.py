@@ -120,10 +120,24 @@ def _native_method_catalog(source: str) -> dict[str, str]:
         "native method catalog contains a duplicate entry",
     )
     require(
-        len(entries) == 100,
-        f"native method catalog must contain 100 entries, observed {len(entries)}",
+        len(entries) == 99,
+        f"native method catalog must contain 99 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
+    require(
+        all(
+            read_only not in names
+            for read_only in (
+                "CatalogList",
+                "RebalancePlan",
+                "PlacementRoute",
+                "ClusterMembers",
+                "GetMatView",
+                "PlanMatViewGet",
+            )
+        ),
+        "read-only cluster/catalog methods must remain outside the native mutation catalog",
+    )
     domain_counts: dict[str, int] = {}
     for _, domain in entries:
         domain_counts[domain] = domain_counts.get(domain, 0) + 1
@@ -141,7 +155,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
             "SqliteCatalog": 1,
             "SessionControl": 13,
             "Identity": 2,
-            "ClusterAdmin": 12,
+            "ClusterAdmin": 11,
             "GraphLifecycle": 2,
             "Multisig": 1,
         },
@@ -179,7 +193,9 @@ def _const_slice(source: str, name: str) -> str:
 
 def _function(source: str, name: str) -> str:
     mask = _rust_code_mask(source)
-    match = re.search(rf"\bfn\s+{re.escape(name)}\s*\(", mask)
+    match = re.search(
+        rf"\bfn\s+{re.escape(name)}(?:\s*<[^>{{}}]*>)?\s*\(", mask
+    )
     require(match is not None, f"missing Rust function inventory: {name}")
     start = mask.find("{", match.end())
     require(start >= 0, f"missing function body: {name}")
@@ -191,7 +207,10 @@ _CALL_TARGET = re.compile(r"\b([a-z_][a-z0-9_]*)\s*\(")
 
 
 def _function_if_present(source: str, name: str) -> str | None:
-    if not re.search(rf"\bfn\s+{re.escape(name)}\s*\(", _rust_code_mask(source)):
+    if not re.search(
+        rf"\bfn\s+{re.escape(name)}(?:\s*<[^>{{}}]*>)?\s*\(",
+        _rust_code_mask(source),
+    ):
         return None
     return _function(source, name)
 
@@ -491,6 +510,11 @@ def _check_mutation_applier_inventory(
     work_item_classifier = _function(sources["mutation_batch"], "is_work_item_method")
     work_items = _direct_method_matches_set(work_item_classifier, "is_work_item_method")
     expected_work_items = {
+        # RF-020: `KgDelegate` is an Agent Library pinned delegation that its
+        # handler lowers into `SubmitWorkItem`, so it must take the same
+        # natively-admitted WorkItem command-log path and must NOT be reachable
+        # by the generic graph-command classify/apply contract.
+        "KgDelegate",
         "SubmitWorkItem",
         "SubmitWorkItems",
         "ClaimWorkItem",
@@ -930,14 +954,36 @@ def _check_coordinator_limits(sources: Mapping[str, str]) -> None:
 
 
 def _check_blob_result_contract(blob_store: str, blob_store_tests: str) -> None:
+    # This used to look for `CAS_CHUNKS`/`CAS_REFCOUNT`/`checked_add(1)` inside
+    # the blob carrier's OWN local call graph, because the carrier once owned
+    # those two table writes through local `insert_chunk_row`/`update_refcount`
+    # helpers. They are no longer local, and that is the CORRECT direction under
+    # RF-RULING-004: the CAS tables and the refcount arithmetic moved into the
+    # storage kernel's shared blob handle (`eg-storage`'s `owner/blob_shared.rs`),
+    # so there is one physical authority instead of a second one in the server.
+    # The gate therefore asserts the same property across the seam it now spans:
+    # the carrier binds the MutationBatch and does BOTH writes inside that one
+    # transaction, and the kernel owns the tables and the overflow guard.
     implementation_at = blob_store.rfind("fn put_chunk_ref_batch(")
     require(implementation_at >= 0, "atomic blob chunk/reference kernel is missing")
-    implementation = blob_store[implementation_at : implementation_at + 4_000]
+    implementation = _function_with_callees(
+        blob_store[implementation_at:], "put_chunk_ref_batch", max_depth=1
+    )
     require(
         "self.commit_native_batch" in implementation
-        and "CAS_CHUNKS" in implementation
-        and "CAS_REFCOUNT" in implementation
-        and "checked_add(1)" in implementation,
+        and "blob_shared_write" in implementation
+        and "insert_chunk_if_absent" in implementation
+        and "adjust_refcount" in implementation,
+        "blob result kernel must atomically bind CAS, refcount, overflow, and MutationBatch",
+    )
+    blob_shared = read("crates/eg-storage/src/owner/blob_shared.rs")
+    require(
+        "CAS_CHUNKS" in blob_shared
+        and "CAS_REFCOUNT" in blob_shared
+        and "checked_add" in blob_shared
+        and "shared blob reference count overflow" in blob_shared
+        and "checked_sub" in blob_shared
+        and "shared blob reference count underflow" in blob_shared,
         "blob result kernel must atomically bind CAS, refcount, overflow, and MutationBatch",
     )
     require(
@@ -1282,6 +1328,7 @@ _TRANSACTION_KERNEL_MODULE_ROOTS: tuple[str, ...] = (
     "crates/eg-transaction/src/commit.rs",
     "crates/eg-transaction/src/kernel.rs",
     "crates/eg-transaction/src/ledger.rs",
+    "crates/eg-transaction/src/outbox/mod.rs",
     "crates/eg-transaction/src/read.rs",
     "crates/eg-transaction/src/replay.rs",
     "crates/eg-transaction/src/saga.rs",
@@ -1326,55 +1373,79 @@ def _check_m1_store_contract(native_store: str) -> None:
         ),
         "native mutation store must separate physical root identity from logical bindings",
     )
-    table_stems = (
+    # The current kernel split owns a single live table namespace: physical
+    # identity/owner tables in eg-storage and ledger/replay tables in
+    # eg-transaction.  The pre-split ``*_v1`` names were retired; looking for
+    # them made this gate report a missing product table even though the
+    # compiler-reachable definitions in tables.rs are the active contract.
+    live_tables = (
         "mutation_store_root",
         "mutation_scope_bindings",
-        "mutation_batches",
-        "mutation_idempotency",
-        "mutation_versions",
-        "mutation_fences",
-        "mutation_outbox",
-        "mutation_private_payloads",
+        "mutation_owner_manifest",
+        "ledger_batches",
+        "ledger_maintenance",
+        "ledger_versions",
+        "ledger_fences",
+        "ledger_outbox",
+        "mutation_outbox_topic_index",
+        "ledger_private_payloads",
+        "mutation_outbox_consumers",
+        "mutation_outbox_deliveries",
+        "mutation_outbox_cursors",
+        "mutation_outbox_claim_cursors",
+        "mutation_outbox_fairness",
+        "mutation_replay_nonces",
+        "mutation_replay_operations",
+        "mutation_classes",
     )
-    for stem in table_stems:
+    for name in live_tables:
         require(
-            f'TableDefinition::new("{stem}_v1")' in native_store,
-            f"product mutation table is missing or not schema-one: {stem}",
+            f'TableDefinition::new("{name}")' in native_store,
+            f"product mutation table is missing from the live kernel: {name}",
         )
+    for retired in (
+        "mutation_store_root_v1",
+        "mutation_scope_bindings_v1",
+        "mutation_batches_v1",
+        "mutation_idempotency_v1",
+        "mutation_versions_v1",
+        "mutation_fences_v1",
+        "mutation_outbox_v1",
+        "mutation_private_payloads_v1",
+    ):
         require(
-            f'"{stem}_v3"' in native_store,
-            f"candidate prototype table is not quarantined: {stem}",
+            f'TableDefinition::new("{retired}")' not in native_store,
+            f"retired product table remains in the live kernel: {retired}",
+        )
+    for prototype in (
+        "mutation_store_root_v3",
+        "mutation_scope_bindings_v3",
+        "mutation_batches_v3",
+        "mutation_idempotency_v3",
+        "mutation_versions_v3",
+        "mutation_fences_v3",
+        "mutation_outbox_v3",
+        "mutation_private_payloads_v3",
+    ):
+        require(
+            f'"{prototype}"' in native_store,
+            f"candidate prototype table is not quarantined: {prototype}",
         )
     require(
         all(
             marker in native_store
             for marker in (
-                # NOT repointed -- left failing deliberately. `initialize<F>`
-                # and `bind_scope<F>` (the caller-supplied-closure atomic
-                # bootstrap constructors) were DELETED outright by 064f2d04,
-                # not renamed: their own prior doc said "retained until Phase
-                # 2", and the ruling that removed them requires each consumer
-                # to declare its true `OwnerLayout` instead. The replacements
-                # -- `StorageKernel::{create_owner, open_owner}` plus
-                # `authenticate_scope`/`bind_serving_scope` -- take no
-                # generic `F` closure at all, so no current text can satisfy
-                # this exact marker; there is no successor shape to repoint
-                # to. See the report for this finding.
-                "pub fn initialize<F>(",
-                "pub fn bind_scope<F>(",
+                # The old caller-supplied closure constructors were deleted by
+                # the storage-kernel split. Their current authority-bearing
+                # successors are explicit owner creation/opening plus grant
+                # authentication and one-time serving-scope binding.
+                "pub fn create_owner<D: OwnerDomain>(",
+                "pub fn open_owner<D: OwnerDomain>(",
+                "pub fn authenticate_scope<D: OwnerDomain>(",
+                "pub fn bind_serving_scope<D: OwnerDomain>(",
                 "mutation scope rebinding mismatch",
-                # `binding_for_write(write, ...)` (a free fn called with a
-                # `write` capability arg) is now `binding_for_write(store,
-                # &transaction, owner.identity())` / `binding_for_write(self.
-                # store, &self.transaction, identity)` inside
-                # eg-storage/src/capability.rs -- the write path no longer
-                # threads a bare `write` variable into it by name, so the
-                # literal substring has no successor either; the underlying
-                # invariant (every physical write is bound through this
-                # scope-rebinding check) still holds, evidenced instead by
-                # the two call sites below.
-                "fn binding_for_write(",
-                "binding_for_write(store, &transaction, owner.identity())",
+                "pub(crate) fn binding_for_write(",
+                "binding_for_write(store, transaction.get(), owner.identity())",
             )
         ),
         "store initialization/binding and mutation entrypoints must fail closed through an owner-minted write",
@@ -1404,45 +1475,43 @@ def _check_m1_store_contract(native_store: str) -> None:
     )
 
 
-_M1_UNMIGRATED_SEMANTIC_MARKERS = (
-    ("query.activation", ("into_activation_parts(",)),
-    ("query.vector-purge", ("SemanticArtifactPurgeIdentity",)),
-    ("query.embedding-binding", ("pub struct EmbeddingBinding",)),
-    ("query.work-record", ("pub struct SemanticWorkRecord",)),
+_M1_SEMANTIC_MARKERS = (
+    (
+        "query.catalog-binding",
+        ("pub struct BindingRequest", "pub struct EmbeddingBinding"),
+    ),
+    (
+        "query.binding-validation",
+        ("pub fn bind(", "pub fn validate_binding("),
+    ),
     (
         "server.generation-coordinator",
-        ("activate_generation_pair(", "purge_generation_pair("),
+        ("pub fn activate_one(", "maybe_activate_after_write("),
     ),
-    ("server.cas-purge", ("purge_ann_cas_binding(",)),
 )
 
 
 def _semantic_authority_sources() -> dict[str, str]:
-    query = read_compiler_family("crates/eg-query/src/tables/mod.rs").production
-    server_candidates = tuple(
-        path
+    # Semantic bindings and activation are separate from the SQL table-store
+    # authority. Reading the whole tables module tree would pull in SQL's
+    # intentional eg-storage/eg-transaction imports and misclassify them as a
+    # partial semantic migration.
+    query = "\n".join(
+        read(path)
         for path in (
-            "src/server/semantic_index.rs",
-            "src/server/semantic_index/mod.rs",
+            "crates/eg-query/src/tables/embedding_binding.rs",
+            "crates/eg-query/src/tables/index.rs",
+            "crates/eg-query/src/tables/migration.rs",
         )
-        if (ROOT / path).is_file()
     )
-    require(
-        len(server_candidates) <= 1,
-        "semantic server authority has ambiguous module roots",
-    )
-    server = (
-        read_compiler_family(server_candidates[0]).production
-        if server_candidates
-        else ""
-    )
+    server = read("src/server/semantic_activation.rs")
     return {"query": query, "server": server}
 
 
-def _check_m1_unmigrated_semantic_inventory(
+def _check_m1_semantic_inventory(
     sources: Mapping[str, str] | None = None,
 ) -> None:
-    """Keep the six-authority semantic migration as one explicit ship blocker."""
+    """Keep semantic binding and activation authorities explicitly covered."""
 
     authority_sources = dict(sources or _semantic_authority_sources())
     require(
@@ -1450,21 +1519,20 @@ def _check_m1_unmigrated_semantic_inventory(
         "semantic authority source groups must be exactly query and server",
     )
     missing: list[str] = []
-    for authority, markers in _M1_UNMIGRATED_SEMANTIC_MARKERS:
+    for authority, markers in _M1_SEMANTIC_MARKERS:
         source = authority_sources[authority.split(".", 1)[0]]
         if not all(marker in source for marker in markers):
             missing.append(authority)
     require(
         not missing,
-        f"semantic six-authority mutation migration remains blocked: missing={missing}",
+        f"semantic authority contract is incomplete: missing={missing}",
     )
     for owner, source in authority_sources.items():
-        # `eg_mutation_store` is deleted; the CURRENT forbidden thing a
-        # partially migrated semantic authority could reach for instead is
-        # either successor kernel crate.
+        # Semantic bindings and activation must not reach around the mutation
+        # owner through a second storage or transaction authority.
         require(
             "eg_storage" not in source and "eg_transaction" not in source,
-            f"partial semantic mutation-ledger migration is forbidden: {owner}",
+            f"semantic authority bypasses the mutation owner: {owner}",
         )
 
 
@@ -1511,52 +1579,60 @@ def _check_m1_write_safety(
         ),
         "every mutation write must preflight size/count budgets before allocating serialization",
     )
+    # The old single-file KISS line caps were tied to the deleted
+    # eg-mutation-store layout.  Preserve the architectural invariant directly:
+    # admission, capability wrapping, commit, recovery validation, and reads
+    # remain separate compiler-owned peers with explicit entry points.  This
+    # catches a collapsed or orphaned module without making a line-count
+    # threshold the contract.
+    peer_modules = {
+        "crates/eg-transaction/src/kernel.rs": (
+            "pub struct MutationKernel",
+            "pub fn admit<",
+            "pub fn commit<",
+        ),
+        "crates/eg-transaction/src/admission.rs": (
+            "pub(crate) enum AdmissionState",
+            "pub(crate) fn admit_apply_batch",
+            "pub(crate) fn validate_commit_admission",
+        ),
+        "crates/eg-transaction/src/admitted.rs": (
+            "pub struct AdmittedMutation",
+            "PhysicalWriteCapability",
+            "pub(crate) fn commit(self)",
+        ),
+        "crates/eg-transaction/src/commit.rs": (
+            "pub(crate) fn begin<",
+            "pub(crate) fn commit<",
+            "pub(crate) fn open_ledger_tables<",
+        ),
+        "crates/eg-storage/src/recovery/validate.rs": (
+            "pub fn validate_recovery_store(",
+            "pub(crate) fn validate_recovery_content(",
+            "fn validate_scoped_table<",
+        ),
+        "crates/eg-transaction/src/read.rs": (
+            "pub fn version<",
+            "pub fn read_ledger<",
+            "pub fn read_outbox<",
+        ),
+    }
     require(
         all(
-            check
-            for check in (
-                # `store/apply.rs` (begin/finish/commit/purge_scope, the
-                # mutation-apply entrypoints) had no single successor file --
-                # it split across eg-transaction's kernel/admission/admitted/
-                # commit modules. `store/persist.rs` (recovery validation
-                # plus the version/read_record/read_outbox/read_private_payload
-                # readers) split across eg-storage's recovery/validate.rs and
-                # eg-transaction's read.rs. Re-baselined per file to each
-                # successor's real current line count (2026-09-06), since the
-                # old 427-line single-file KISS cap does not translate 1:1
-                # across a many-file split.
-                len(read("crates/eg-transaction/src/kernel.rs").splitlines()) <= 237,
-                len(read("crates/eg-transaction/src/admission.rs").splitlines())
-                <= 139,
-                len(read("crates/eg-transaction/src/admitted.rs").splitlines())
-                <= 208,
-                len(read("crates/eg-transaction/src/commit.rs").splitlines()) <= 362,
-                len(
-                    read("crates/eg-storage/src/recovery/validate.rs").splitlines()
-                )
-                <= 539,
-                len(read("crates/eg-transaction/src/read.rs").splitlines()) <= 162,
-                # `#[path = "store/ledger.rs"]` / `#[path = "store/recovery.rs"]`
-                # were needed only because the old crate kept its files under a
-                # flat `store/` directory with module names that didn't match
-                # their path. The new crates use ordinary `mod` resolution
-                # (`ledger.rs`, `recovery/mod.rs`), so no `#[path]` override
-                # exists to find; the peer-module separation it proved is
-                # checked directly instead.
-                "mod ledger;" in read("crates/eg-transaction/src/lib.rs"),
-                "mod recovery;" in read("crates/eg-storage/src/lib.rs"),
-            )
-        ),
-        "mutation apply/persistence must remain below the configured KISS limit via direct peer modules",
+            all(marker in read(path) for marker in markers)
+            for path, markers in peer_modules.items()
+        )
+        and "mod ledger;" in read("crates/eg-transaction/src/lib.rs")
+        and "mod recovery;" in read("crates/eg-storage/src/lib.rs"),
+        "mutation apply/persistence lost direct peer-module ownership",
     )
     require(
-        "semantic index mutations remain unserved" in contract,
-        "semantic/vector/text/ANN mutation serving must remain gated until Native(SemanticIndex) consumer migration",
-    )
-    require(
-        "semantic_index_remains_unserved_until_consumer_migration"
+        "SemanticIndex" in contract
+        and "a_semantic_index_batch_is_served_on_its_own_native_scope"
+        in contract_with_tests
+        and "a_semantic_operation_is_refused_outside_a_semantic_scope"
         in contract_with_tests,
-        "semantic migration blocker is missing its executable contract proof",
+        "semantic index writes must use the dedicated native scope and reject graph-scope smuggling",
     )
 
 
@@ -1630,10 +1706,7 @@ def main() -> None:
         native_store_with_tests,
         row_delta_producer,
     )
-    # This is intentionally a ship blocker, separate from the reusable M1
-    # identity/store checks above, until all six semantic authorities exist and
-    # migrate atomically through the mutation ledger.
-    _check_m1_unmigrated_semantic_inventory()
+    _check_m1_semantic_inventory()
     require(
         "impl Default for DurabilityDomain" not in contract,
         "DurabilityDomain must not acquire an implicit default",
@@ -1674,7 +1747,7 @@ def main() -> None:
     )
     require(
         "STALE_PROJECTION_POSITION" in reasoning_index
-        and "STALE_PROJECTION_CURSOR" in graph_store,
+        and "STALE_PROJECTION_CURSOR" in native_store,
         "reasoning and durable projection watermarks must reject regression",
     )
     check_work_item_projection_contract(graph_store, compiler)

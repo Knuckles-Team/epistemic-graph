@@ -3,7 +3,9 @@
 mod backup_replay;
 mod confinement;
 mod fault_restart;
+mod graft;
 mod ledger;
+mod outbox;
 mod recovery_binding;
 mod replay;
 mod scope_group;
@@ -27,7 +29,7 @@ use eg_types::contract::{
 };
 use eg_types::mutation::{MutationReceipt, MutationResult};
 use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, DurabilityDomain, MutationRequestContext, MutationSurface, ScopeTenantId,
+    IncarnationId, LogicalName, DurabilityDomain, MutationSurface, ScopeTenantId,
     VersionExpectation,
 };
 use eg_types::protocol::Method;
@@ -106,21 +108,87 @@ fn native_identity(tenant: &str, incarnation: &str) -> MutationScopeIdentity {
     .unwrap()
 }
 
+/// One caller-operation batch on `identity`, admitted under `PRINCIPAL`.
+///
+/// The envelope is minted through the one public constructor, so a fixture
+/// cannot become a second minting path: everything it does not name is this
+/// deployment's documented constant, exactly as a producer with no verified
+/// request carrier gets.
+/// The operation envelope a fixture batch carries.
+///
+/// The attempt nonce is server-minted, exactly as a producer's is: it is the
+/// ATTEMPT identity, so two distinct batches in one scope must never share one,
+/// and a retry of the SAME operation is a FRESH attempt over an unchanged stable
+/// identity -- the case the kernel must replay.
+fn operation_envelope(
+    identity: &MutationScopeIdentity,
+    batch_id: &str,
+) -> eg_types::mutation_batch::MutationEnvelope {
+    let method =
+        eg_types::contract::MethodId::new(eg_types::mutation_batch::BATCH_COMPILED_METHODS)
+            .unwrap();
+    eg_types::mutation_batch::MutationEnvelope::for_scope(
+        eg_types::mutation_batch::CompiledScope {
+            identity,
+            actor: PRINCIPAL,
+            serving_principal: PRINCIPAL,
+            request_id: 1,
+            idempotency_key: &format!("retry-{batch_id}"),
+            nonce: eg_types::contract::Nonce::minted(),
+            now_ms: 1,
+        },
+        eg_types::mutation_batch::CompiledOperation {
+            method_schema_id: eg_types::mutation_batch::method_schema_id(&method).unwrap(),
+            method,
+            method_schema_digest: eg_types::contract::Digest256::from_bytes([1_u8; 32]),
+            canonical_payload_digest: eg_types::contract::Digest256::from_bytes([2_u8; 32]),
+        },
+    )
+    .unwrap()
+}
+
+/// The SAME operation, retried: a FRESH attempt nonce over an unchanged stable
+/// identity.
+///
+/// That is what a producer builds on a retry -- `finish_batch` mints a new nonce
+/// every time it compiles -- and it is the case the kernel must resolve
+/// `ReplayedResult` for. Re-submitting the byte-identical batch value instead is
+/// a duplicated ATTEMPT, which is a caller bug and is refused by name.
+fn retry_of(batch: &MutationBatch) -> MutationBatch {
+    let mut retried = batch.clone();
+    retried.envelope = operation_envelope(&retried.identity, &retried.batch_id);
+    retried
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .expect("a retried fixture batch reseals its envelope");
+    retried
+}
+
+/// One owner-MAINTENANCE batch on `identity` (RF-RULING-005).
+///
+/// A maintenance write has no caller, so its envelope carries no authority to
+/// derive an operation identity from and no attempt nonce to consume. Admitting
+/// an operation batch as maintenance is now refused by `commit::begin`, which is
+/// what makes the class structural rather than an admission argument.
+fn maintenance_batch(identity: MutationScopeIdentity, batch_id: &str) -> MutationBatch {
+    let mut batch = batch(identity, batch_id);
+    batch.envelope = eg_types::mutation_batch::MutationEnvelope::maintenance(
+        PRINCIPAL,
+        "fixture_maintenance",
+        batch_id,
+        &format!("retry-{batch_id}"),
+    )
+    .expect("a fixture maintenance envelope is valid");
+    batch
+}
+
 fn batch(identity: MutationScopeIdentity, batch_id: &str) -> MutationBatch {
-    MutationBatch {
+    let envelope = operation_envelope(&identity, batch_id);
+    let mut batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: batch_id.to_string(),
-        context: MutationRequestContext {
-            request_id: 1,
-            principal: PRINCIPAL.to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            verified_capabilities: BTreeSet::new(),
-        },
+        envelope,
         identity,
         placement_epoch: 0,
-        idempotency_key: format!("retry-{batch_id}"),
         version_expectation: VersionExpectation::Native(0),
         fencing_token: None,
         authoritative_state: None,
@@ -135,7 +203,11 @@ fn batch(identity: MutationScopeIdentity, batch_id: &str) -> MutationBatch {
         }],
         outbox: Vec::new(),
         created_at_ms: 1,
-    }
+    };
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .expect("a fixture batch reseals its envelope over its final body");
+    batch
 }
 
 fn recovery_batch(identity: MutationScopeIdentity, batch_id: &str) -> (MutationBatch, Vec<u8>) {
@@ -145,6 +217,9 @@ fn recovery_batch(identity: MutationScopeIdentity, batch_id: &str) -> (MutationB
         event_type: "transaction_recovery_plan".to_string(),
         query: format!("sha256:{digest}"),
     };
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+        .expect("a fixture batch reseals its envelope over its final body");
     (batch, format!("sealed:{digest}").into_bytes())
 }
 

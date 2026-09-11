@@ -10,9 +10,11 @@ impl MutationBatch {
     pub fn validate(&self) -> Result<(), String> {
         validate_record_schema(self.schema_version, "batch")?;
         self.validate_identity()?;
-        validate_principal(&self.context.principal)?;
+        self.envelope.validate()?;
+        validate_envelope_covers_this_batch(self)?;
+        super::model::validate_serving_principal(self.serving_principal())?;
         validate_required(&self.batch_id, "mutation batch_id")?;
-        validate_required(&self.idempotency_key, "mutation idempotency_key")?;
+        validate_required(self.idempotency_key(), "mutation idempotency_key")?;
         validate_operations(self)?;
         validate_version_expectation(self)?;
         validate_authoritative_state(self)?;
@@ -33,20 +35,18 @@ impl MutationBatch {
         let mut headers = 0usize;
         for value in [
             self.batch_id.as_str(),
-            self.idempotency_key.as_str(),
-            self.context.principal.as_str(),
+            self.idempotency_key(),
+            self.serving_principal(),
         ] {
             account_write_bytes(&mut bytes, value.len())?;
         }
-        for value in [
-            self.context.purpose.as_deref(),
-            self.context.policy_fingerprint.as_deref(),
-            self.context.trace_id.as_deref(),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            account_write_bytes(&mut bytes, value.len())?;
+        // The envelope's remaining bytes are bounded by their own contract types
+        // (`ActorId`, `TenantId`, `ResourceId`, `IdempotencyKey` all carry a
+        // maximum), so accounting them again here would double-count a value
+        // whose ceiling is already fixed. Only the two unbounded `String`s above
+        // -- the batch id and the serving principal -- need a budget.
+        if let Some(operation) = self.envelope.operation() {
+            account_write_bytes(&mut bytes, operation.authority.actor.as_str().len())?;
         }
         if let Some(state) = &self.authoritative_state {
             account_write_bytes(&mut bytes, state.algorithm.len())?;
@@ -77,20 +77,37 @@ fn account_write_bytes(total: &mut usize, added: usize) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_principal(principal: &str) -> Result<(), String> {
-    let valid = principal
-        .strip_prefix("principal:sha256:")
-        .is_some_and(|digest| {
-            digest.len() == 64
-                && digest
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        });
-    if valid {
-        Ok(())
-    } else {
-        Err("mutation principal authority must be an opaque digest".to_string())
+/// The envelope's canonical payload digest must be the digest OF THIS BATCH.
+///
+/// The envelope is minted from a batch's content, so a producer that then edits
+/// the content -- appends an outbox intent, rewrites an operation -- leaves an
+/// envelope that under-covers or mis-covers its own body. That is the same
+/// defect class as a mismatched identity: a replay resolved on such a digest
+/// could return a recorded result whose outbox or operations differ from what
+/// this attempt proposed. Checking it here makes the edit-after-mint refused at
+/// admission rather than committed, because `validate_write_budget` (and
+/// therefore `commit::begin`) runs this on every batch.
+///
+/// A maintenance envelope covers nothing and is exempt by construction: it has
+/// no operation identity, so there is no digest to disagree with.
+fn validate_envelope_covers_this_batch(batch: &MutationBatch) -> Result<(), String> {
+    let Some(operation) = batch.envelope.operation() else {
+        return Ok(());
+    };
+    let content = canonical_payload_digest(
+        &batch.identity,
+        &batch.operations,
+        &batch.outbox,
+        batch.authoritative_state.as_ref(),
+    )?;
+    if operation.canonical_payload_digest == content {
+        return Ok(());
     }
+    Err(
+        "mutation batch content does not match its envelope's canonical payload digest -- \
+         the envelope must be minted from the batch's FINAL operations and outbox"
+            .to_string(),
+    )
 }
 
 fn validate_required(value: &str, label: &str) -> Result<(), String> {
@@ -119,7 +136,9 @@ fn validate_operations(batch: &MutationBatch) -> Result<(), String> {
             // store-authoritative domain (one with its own counter) is rejected
             // here; see `DurabilityDomain::requires_native_scope`.
             MutationScope::Graph { .. } if operation.domain.forbidden_in_graph_scope() => {
-                return Err("graph mutation scope contains a store-authoritative operation".to_string());
+                return Err(
+                    "graph mutation scope contains a store-authoritative operation".to_string(),
+                );
             }
             MutationScope::Native { domain, .. } if operation.domain != *domain => {
                 return Err("native mutation scope domain does not match its operation".to_string());
@@ -140,9 +159,10 @@ fn validate_version_expectation(batch: &MutationBatch) -> Result<(), String> {
                 DurabilityDomain::ControlPlane | DurabilityDomain::Lifecycle
             );
             let authorized_capability = batch
-                .context
-                .verified_capabilities
-                .contains(&MutationCapability::UnversionedSystemMutation);
+                .verified_capabilities()
+                .is_some_and(|capabilities| {
+                    capabilities.contains(&MutationCapability::UnversionedSystemMutation)
+                });
             if batch.identity.tenant().is_system() && authorized_domain && authorized_capability {
                 Ok(())
             } else {
@@ -352,27 +372,22 @@ fn validate_committed_scope(
 
 #[cfg(test)]
 mod commit_tests {
-    use std::collections::BTreeSet;
 
     use crate::protocol::Method;
 
     use super::*;
 
     fn graph_batch(identity: MutationScopeIdentity) -> MutationBatch {
-        MutationBatch {
+        let mut batch = MutationBatch {
             schema_version: MUTATION_BATCH_VERSION,
             batch_id: "commit-validation".to_string(),
-            context: MutationRequestContext {
-                request_id: 7,
-                principal: format!("principal:sha256:{}", "a".repeat(64)),
-                purpose: None,
-                policy_fingerprint: None,
-                trace_id: None,
-                verified_capabilities: BTreeSet::new(),
-            },
+            envelope: crate::mutation_batch::tests::test_envelope(
+                &identity,
+                7,
+                "commit-validation-key",
+            ),
             identity,
             placement_epoch: 0,
-            idempotency_key: "commit-validation-key".to_string(),
             version_expectation: VersionExpectation::Graph(4),
             fencing_token: None,
             authoritative_state: None,
@@ -386,7 +401,11 @@ mod commit_tests {
             }],
             outbox: Vec::new(),
             created_at_ms: 10,
-        }
+        };
+        batch
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
+        batch
     }
 
     fn graph_commit(status: MutationBatchStatus) -> MutationBatchCommit {

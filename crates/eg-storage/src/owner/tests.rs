@@ -31,15 +31,16 @@ fn owner_layout_registry_has_frozen_cardinality() {
     assert_eq!(owner_table_names(OwnerLayout::TimeSeries).len(), 3);
     assert_eq!(owner_table_names(OwnerLayout::Kv).len(), 2);
     assert_eq!(owner_table_names(OwnerLayout::Blob).len(), 4);
-    // Sixteen, unchanged: `eg_ann` gained a typed `OwnerTable` row
-    // (`AnnCodeRows`) and a generation-scoped key, but it was already declared
-    // physically, so no table was added or removed by that change.
-    assert_eq!(owner_table_names(OwnerLayout::SemanticIndex).len(), 16);
-    // 17: the 20 the cutover inherited, PLUS the two SQL/PGQ property-graph
+    // Seventeen: the checkpoint-head pointer is a separate durable registry
+    // table alongside the existing generation checkpoint rows.
+    let semantic_tables = owner_table_names(OwnerLayout::SemanticIndex);
+    assert!(semantic_tables.contains(&"semantic_generation_checkpoint_heads"));
+    assert_eq!(semantic_tables.len(), 17);
+    // 18: the 20 the cutover inherited, PLUS the two SQL/PGQ property-graph
     // catalog tables `eg-query` wrote without declaring, MINUS the five
     // `__sql_mutation_*__` tables of the private ledger RF-RULING-006 retired
     // onto `MutationKernel`'s.
-    assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 17);
+    assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 18);
     assert_eq!(owner_table_names(OwnerLayout::PathIndex).len(), 1);
     // Six root-binary sidecar layouts. Each is one physical file with one
     // fixed native ControlPlane scope, so each declares only its own table(s):
@@ -51,6 +52,7 @@ fn owner_layout_registry_has_frozen_cardinality() {
     assert_eq!(owner_table_names(OwnerLayout::TenantCatalog).len(), 1);
     assert_eq!(owner_table_names(OwnerLayout::NodeInfo).len(), 2);
     assert_eq!(owner_table_names(OwnerLayout::ClusterHierarchy).len(), 1);
+    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 2);
     // The authoritative graph shard `graph-N.redb`: 53 tables. That is the
     // complete physical census of the shard file (39 in `redb_store.rs`, 4
     // capacity-lease, 3 work-item-capability, 10 development-lane, plus
@@ -60,7 +62,7 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // private ledger, which RF-RULING-004 gives to `MutationKernel` alone:
     // 39 + 4 + 3 + 10 + 2 + 3 - 8 = 53.
     assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 53);
-    assert_eq!(owner_layouts().len(), 17);
+    assert_eq!(owner_layouts().len(), 18);
 }
 
 #[test]
@@ -95,7 +97,7 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
         .count();
     // 66 owner tables across the sixteen layouts: RF-RULING-004 puts the
     // complete physical registry in the storage kernel, so the consumer-owned
-    // tables (`path_index`, `eg_ann`, `eg_kvcache_cold`, and the 17
+    // tables (`path_index`, `eg_ann`, `eg_kvcache_cold`, and the 18
     // `__sql_*`) are declared here rather than by the crates that read them.
     // +7 over the previous 62: the seven tables of the six root-binary
     // sidecar owner files, which stopped being raw `Database::create` sites.
@@ -108,8 +110,10 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // which (`series_chunks`, `series_meta`, `series_projection_state`) were
     // already declared by `OwnerLayout::TimeSeries` and so add no new name.
     // Every shard table is `DomainService`, so the two `SharedService` names
-    // (`cas_chunks`, `cas_refcount`) are unchanged: 116 = 114 + 2.
-    assert_eq!((names.len(), service, shared), (116, 114, 2));
+    // (`cas_chunks`, `cas_refcount`) are unchanged; the Agent Library adds
+    // two Agent Library tables, and the SQL source-authority plus checkpoint
+    // head rows add one each: 120 = 116 + 2 + 1 + 1.
+    assert_eq!((names.len(), service, shared), (120, 118, 2));
 }
 
 #[test]
@@ -244,6 +248,7 @@ fn every_owner_table_declares_its_partition_boundary() {
                             | OwnerLayout::TenantCatalog
                             | OwnerLayout::NodeInfo
                             | OwnerLayout::ClusterHierarchy
+                            | OwnerLayout::AgentLibrary
                             | OwnerLayout::GraphShard
                     ));
                 }
@@ -377,16 +382,33 @@ fn owner_contract(layout: OwnerLayout, name: &str) -> TableContract {
     .unwrap()
 }
 
+/// The five contract fields one owner table is asserted against.
+///
+/// Bundled rather than passed positionally: `key`/`value`/`codec` are three
+/// adjacent `&str`s, which is precisely the shape a caller can transpose
+/// without the compiler noticing.
+struct ExpectedOwnerContract<'a> {
+    key: &'a str,
+    value: &'a str,
+    scope: TableScope,
+    codec: &'a str,
+    capabilities: u16,
+    index: bool,
+}
+
 fn assert_signed_owner_contract(
     layout: OwnerLayout,
     name: &str,
-    key: &str,
-    value: &str,
-    scope: TableScope,
-    codec: &str,
-    capabilities: u16,
-    index: bool,
+    expected: ExpectedOwnerContract<'_>,
 ) {
+    let ExpectedOwnerContract {
+        key,
+        value,
+        scope,
+        codec,
+        capabilities,
+        index,
+    } = expected;
     let table = owner_contract(layout, name);
     assert_eq!(table.key_type_id, key);
     assert_eq!(table.value_type_id, value);
@@ -403,12 +425,14 @@ fn signed_store_private_layouts_match_current_provider_schemas() {
     assert_signed_owner_contract(
         OwnerLayout::Rbac,
         "rbac",
-        "&str",
-        "&[u8]",
-        TableScope::StorePrivate,
-        "json-utf8-v1",
-        rw,
-        false,
+        ExpectedOwnerContract {
+            key: "&str",
+            value: "&[u8]",
+            scope: TableScope::StorePrivate,
+            codec: "json-utf8-v1",
+            capabilities: rw,
+            index: false,
+        },
     );
     for (name, caps) in [
         ("statechart_defs", CAP_READ | CAP_INSERT),
@@ -417,23 +441,27 @@ fn signed_store_private_layouts_match_current_provider_schemas() {
         assert_signed_owner_contract(
             OwnerLayout::Statechart,
             name,
-            "&str",
-            "&[u8]",
-            TableScope::StorePrivate,
-            "msgpack-v1",
-            caps,
-            false,
+            ExpectedOwnerContract {
+                key: "&str",
+                value: "&[u8]",
+                scope: TableScope::StorePrivate,
+                codec: "msgpack-v1",
+                capabilities: caps,
+                index: false,
+            },
         );
     }
     assert_signed_owner_contract(
         OwnerLayout::Kv,
         "kv",
-        "(&str,&str)",
-        "&[u8]",
-        TableScope::StorePrivate,
-        "raw-bytes-v1",
-        CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE | CAP_CAS,
-        false,
+        ExpectedOwnerContract {
+            key: "(&str,&str)",
+            value: "&[u8]",
+            scope: TableScope::StorePrivate,
+            codec: "raw-bytes-v1",
+            capabilities: CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE | CAP_CAS,
+            index: false,
+        },
     );
 }
 
@@ -448,12 +476,14 @@ fn signed_timeseries_layout_matches_encoded_scope_provider_schema() {
         assert_signed_owner_contract(
             OwnerLayout::TimeSeries,
             name,
-            key,
-            "&[u8]",
-            TableScope::Serving,
-            codec,
-            caps,
-            false,
+            ExpectedOwnerContract {
+                key,
+                value: "&[u8]",
+                scope: TableScope::Serving,
+                codec,
+                capabilities: caps,
+                index: false,
+            },
         );
     }
 }
@@ -569,9 +599,9 @@ fn signed_semantic_layout_is_closed_domain_service_authority() {
 /// `semantic_ann_codes::tests::two_generations_coexist_and_retiring_one_leaves_the_other_serving`.
 #[test]
 fn the_ann_code_table_is_keyed_by_generation_so_two_can_coexist() {
-    use crate::owner::table_api::{AnnCodeRows, OwnerTable};
-    use crate::owner::registry::ANN_CODES;
     use crate::owner::domain::SemanticIndexOwner;
+    use crate::owner::registry::ANN_CODES;
+    use crate::owner::table_api::{AnnCodeRows, OwnerTable};
 
     assert_eq!(
         <AnnCodeRows as OwnerTable<SemanticIndexOwner>>::TABLE_ID,
@@ -622,9 +652,7 @@ fn the_ann_code_table_is_keyed_by_generation_so_two_can_coexist() {
     let wtx = store.database().begin_write().unwrap();
     {
         let mut codes = wtx.open_table(ANN_CODES).unwrap();
-        codes
-            .retain(|key, _| key.2 != 1)
-            .unwrap();
+        codes.retain(|key, _| key.2 != 1).unwrap();
     }
     wtx.commit().unwrap();
     let rtx = store.database().begin_read().unwrap();
@@ -695,7 +723,7 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     for layout in owner_layouts() {
         names.extend(owner_table_names(layout));
     }
-    // 18 ledger + 116 owner tables across the seventeen layouts. The
+    // 18 ledger + 120 owner tables across the eighteen layouts. The
     // consumer-owned tables `path_index`, `eg_ann`, `eg_kvcache_cold` and
     // the 17 `__sql_*` tables joined the registry because RF-RULING-004 puts
     // the complete physical table registry in the storage kernel; the seven
@@ -703,8 +731,9 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // the two property-graph catalog tables when the SQL store was cut, while
     // the five `__sql_mutation_*__` tables of the retired private ledger left;
     // and the graph shard's 50 new names joined it with
-    // `OwnerLayout::GraphShard`. 18 + 66 + 50 = 134.
-    assert_eq!(names.len(), 134);
+    // `OwnerLayout::GraphShard`, plus the two Agent Library tables. 18 + 66 +
+    // 50 + 2 + the tenant-wide SQL source authority and checkpoint-head rows = 138.
+    assert_eq!(names.len(), 138);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

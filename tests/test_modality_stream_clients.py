@@ -62,7 +62,7 @@ class _FakeClient:
             return {
                 "schema_version": 1,
                 "family": request["query"]["family"],
-                "projection": "arrow_ipc_v1",
+                "projection": "arrow_ipc",
                 "cursor": _cursor(
                     family=request["query"]["family"],
                     batch_size=request["batch_size"],
@@ -152,7 +152,7 @@ async def test_knowledge_stream_uses_one_current_arrow_pull_shape() -> None:
                     "limit": 20,
                 },
                 "batch_size": 2,
-                "projection": "arrow_ipc_v1",
+                "projection": "arrow_ipc",
             }
         },
     )

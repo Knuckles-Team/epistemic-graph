@@ -150,11 +150,9 @@ impl<D: OwnerDomain> SidecarStore<D> {
             event,
             &subject,
         );
-        let (txn, batch, begun) = self.mutations.admit_current(
-            &self.owner,
-            eg_storage::MutationClass::Maintenance,
-            |version| write.for_scope_version(&self.owner, version),
-        )?;
+        let (txn, batch, begun) = self.mutations.admit_current(&self.owner, |version| {
+            write.for_scope_version(&self.owner, version)
+        })?;
         let source_version = match begun {
             // The same version can only be written once, so a replay means this
             // exact attempt already committed; re-applying it would double the

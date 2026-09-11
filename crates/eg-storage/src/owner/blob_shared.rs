@@ -213,7 +213,6 @@ impl BlobSharedWrite<'_> {
                 Ok(value.value().to_vec())
             })
             .transpose()
-    
         })
     }
 
@@ -229,7 +228,6 @@ impl BlobSharedWrite<'_> {
                 .map_err(|error| error.to_string())?
                 .is_some();
             Ok(present)
-    
         })
     }
 
@@ -240,7 +238,6 @@ impl BlobSharedWrite<'_> {
                 .open_table(CAS_CHUNKS)?
                 .len()
                 .map_err(|error| error.to_string())
-    
         })
     }
 
@@ -251,7 +248,6 @@ impl BlobSharedWrite<'_> {
         self.guard(|| {
             self.insert_chunks_if_absent(&[(digest, bytes)])
                 .map(|was_new| was_new[0])
-    
         })
     }
 
@@ -278,7 +274,6 @@ impl BlobSharedWrite<'_> {
                 was_new.push(absent);
             }
             Ok(was_new)
-    
         })
     }
 
@@ -292,7 +287,6 @@ impl BlobSharedWrite<'_> {
                 .map_err(|error| error.to_string())?
                 .is_some();
             Ok(removed)
-    
         })
     }
 
@@ -307,7 +301,6 @@ impl BlobSharedWrite<'_> {
                 .map(|value| value.value())
                 .unwrap_or(0);
             Ok(count)
-    
         })
     }
 
@@ -338,7 +331,6 @@ impl BlobSharedWrite<'_> {
             refs.insert(digest, updated)
                 .map_err(|error| error.to_string())?;
             Ok(updated)
-    
         })
     }
 
@@ -379,7 +371,6 @@ impl BlobSharedWrite<'_> {
                 .map_err(|error| error.to_string())?
                 .is_some();
             Ok(removed)
-    
         })
     }
 
@@ -390,7 +381,6 @@ impl BlobSharedWrite<'_> {
                 .open_table(CAS_REFCOUNT)?
                 .len()
                 .map_err(|error| error.to_string())
-    
         })
     }
 

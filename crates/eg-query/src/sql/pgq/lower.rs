@@ -15,7 +15,7 @@ use super::relational::{
     RelationalSelect,
 };
 use crate::tables::property_graph::{
-    CanonicalCatalogName, EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution,
+    CanonicalCatalogName, EdgeEndpoint, EdgeTableDefinition, ElementKeyResolution, ElementTable,
     EndpointResolution, LabelDefinition, PropertyGraphDefinition, PropertySet, SqlIdentifier,
     VertexTableDefinition,
 };
@@ -616,62 +616,44 @@ fn resolve_property(
     Ok(matches.into_iter().next().expect("one property"))
 }
 
-fn vertex_candidates<'a>(
+/// The catalog element tables a pattern can match. Every label the pattern names must
+/// exist somewhere in the catalog, and at least one table must match the label
+/// expression. `T::KIND` names the element kind in both diagnostics.
+fn candidates<'a, T: ElementTable>(
     pattern: &ElementPattern,
-    definition: &'a PropertyGraphDefinition,
-) -> Result<Vec<&'a VertexTableDefinition>, String> {
+    tables: &'a [T],
+) -> Result<Vec<&'a T>, String> {
     for label in referenced_labels(pattern) {
-        if !definition
-            .vertex_tables
+        if !tables
             .iter()
-            .any(|table| vertex_has_label(table, label))
+            .any(|table| table.labels().iter().any(|item| &item.name == label))
         {
-            return Err(format!("unknown vertex label: {}", label.value()));
+            return Err(format!("unknown {} label: {}", T::KIND, label.value()));
         }
     }
-    let values = definition
-        .vertex_tables
+    let values = tables
         .iter()
-        .filter(|table| labels_match(pattern.label_expr.as_ref(), &table.labels))
+        .filter(|table| labels_match(pattern.label_expr.as_ref(), table.labels()))
         .collect::<Vec<_>>();
     if values.is_empty() {
-        Err("vertex pattern matches no catalog element".into())
+        Err(format!("{} pattern matches no catalog element", T::KIND))
     } else {
         Ok(values)
     }
 }
 
-fn vertex_has_label(table: &VertexTableDefinition, label: &SqlIdentifier) -> bool {
-    table.labels.iter().any(|item| &item.name == label)
+fn vertex_candidates<'a>(
+    pattern: &ElementPattern,
+    definition: &'a PropertyGraphDefinition,
+) -> Result<Vec<&'a VertexTableDefinition>, String> {
+    candidates(pattern, &definition.vertex_tables)
 }
 
 fn edge_candidates<'a>(
     pattern: &ElementPattern,
     definition: &'a PropertyGraphDefinition,
 ) -> Result<Vec<&'a EdgeTableDefinition>, String> {
-    for label in referenced_labels(pattern) {
-        if !definition
-            .edge_tables
-            .iter()
-            .any(|table| edge_has_label(table, label))
-        {
-            return Err(format!("unknown edge label: {}", label.value()));
-        }
-    }
-    let values = definition
-        .edge_tables
-        .iter()
-        .filter(|table| labels_match(pattern.label_expr.as_ref(), &table.labels))
-        .collect::<Vec<_>>();
-    if values.is_empty() {
-        Err("edge pattern matches no catalog element".into())
-    } else {
-        Ok(values)
-    }
-}
-
-fn edge_has_label(table: &EdgeTableDefinition, label: &SqlIdentifier) -> bool {
-    table.labels.iter().any(|item| &item.name == label)
+    candidates(pattern, &definition.edge_tables)
 }
 
 fn generated_alias(kind: &str, index: usize) -> Result<SqlIdentifier, String> {

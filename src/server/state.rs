@@ -48,6 +48,23 @@ fn cached_positive_usize_from_env(
     })
 }
 
+/// Parse a positive runtime limit directly from the environment.
+///
+/// Unlike the served-response caps above, runtime maintenance limits are read
+/// at each call so a process can observe an operator's current setting.
+/// Trimming and rejecting zero preserve the contract shared by the maintenance
+/// limit accessors; the concrete unsigned type remains with each caller.
+pub(crate) fn positive_runtime_limit_from_env<T>(variable: &str, default: T) -> T
+where
+    T: std::str::FromStr + PartialOrd + Default,
+{
+    std::env::var(variable)
+        .ok()
+        .and_then(|value| value.trim().parse::<T>().ok())
+        .filter(|value| *value > T::default())
+        .unwrap_or(default)
+}
+
 /// Resolve the `GetNodes` full-dump node cap, read ONCE from
 /// `EPISTEMIC_GRAPH_MAX_RESPONSE_NODES` (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation). Cached in a
 /// `OnceLock` so the env var is parsed a single time at first use, matching the
@@ -163,6 +180,11 @@ pub struct ServerState {
     /// commit barrier before acknowledgement. `None` is retained only for embedded
     /// read-only/test construction; mutation paths fail closed without a backend.
     pub persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    /// EG-owned RF-020 Agent Library owner. The handle is opened lazily after
+    /// startup has supplied `persist_dir`, then retained so backup/restore and
+    /// every typed route use the same kernel authority.
+    #[cfg(feature = "redb")]
+    pub agent_library: Option<Arc<crate::server::persistence::agent_library::AgentLibraryStore>>,
     /// Cold-tenant access tracker (CONCEPT:EG-KG.sharding.eg-r6/EG-040, R6), feature `redb`. The
     /// dispatch read+write path calls `touch(graph)` on every graph access so the
     /// periodic cold-offload sweep (`offload_cold_tenants`) can hibernate graphs idle
@@ -432,6 +454,8 @@ impl ServerState {
             persist_dir: None,
             persistence: None,
             #[cfg(feature = "redb")]
+            agent_library: None,
+            #[cfg(feature = "redb")]
             cold_tracker: Arc::new(
                 crate::server::persistence::cold_offload::ColdTenantTracker::new(),
             ),
@@ -497,6 +521,24 @@ impl ServerState {
             state
         };
         state
+    }
+
+    #[cfg(feature = "redb")]
+    pub fn ensure_agent_library(
+        &mut self,
+    ) -> Result<Arc<crate::server::persistence::agent_library::AgentLibraryStore>, String> {
+        if let Some(store) = self.agent_library.as_ref() {
+            return Ok(Arc::clone(store));
+        }
+        let persist_dir = self
+            .persist_dir
+            .as_deref()
+            .ok_or_else(|| "Agent Library requires a configured persist directory".to_string())?;
+        let store = Arc::new(
+            crate::server::persistence::agent_library::AgentLibraryStore::open(persist_dir)?,
+        );
+        self.agent_library = Some(Arc::clone(&store));
+        Ok(store)
     }
 
     /// Build the standard single-system-agent isolation used by wire-level

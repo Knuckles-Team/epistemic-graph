@@ -1837,7 +1837,7 @@ fn jsonpath_filter(view: &GraphView, input: RowSet, pred: &Pred) -> Result<RowSe
         .rows()
         .iter()
         .filter(|r| {
-            row_json(view, &r.id).is_some_and(|v| match op {
+            row_value(view, &r.id).is_some_and(|v| match op {
                 JsonPathOp::Exists => eg_core::jsonpath::path_exists(&v, path),
                 JsonPathOp::Eq { value } => eg_core::jsonpath::path_eq(&v, path, value),
                 JsonPathOp::Contains { value } => eg_core::jsonpath::path_contains(&v, path, value),
@@ -1848,9 +1848,8 @@ fn jsonpath_filter(view: &GraphView, input: RowSet, pred: &Pred) -> Result<RowSe
     Ok(input.intersect_keep_order(&keep))
 }
 
-/// Decode node `id`'s stored property blob to a `serde_json::Value` (CONCEPT:EG-KG.compute.json-deep-indexing) —
-/// the JSON leg's counterpart to `row_geometry`.
-fn row_json(view: &GraphView, id: &str) -> Option<serde_json::Value> {
+/// Decode node `id`'s stored property blob once at the executor's row-reading seam.
+fn row_value(view: &GraphView, id: &str) -> Option<serde_json::Value> {
     let blob = view.node_properties.get(id)?;
     eg_types::msgpack::decode_property_value(blob.as_slice()).ok()
 }
@@ -2056,8 +2055,7 @@ fn apply_spatial_op(
 /// Read node `id`'s geometry from the WKT string in property `column` of its blob.
 #[cfg(feature = "geo")]
 fn row_geometry(view: &GraphView, id: &str, column: &str) -> Option<eg_geo::Geometry> {
-    let blob = view.node_properties.get(id)?;
-    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
+    let v = row_value(view, id)?;
     let wkt = v.get(column)?.as_str()?;
     eg_geo::parse_wkt(wkt).ok()
 }
@@ -2074,8 +2072,7 @@ fn geometry_from_value(v: &serde_json::Value) -> Option<eg_geo::Geometry> {
 /// column-free read used by `Op::SpatialOp`, CONCEPT:EG-KG.ontology.concept-9).
 #[cfg(feature = "geo")]
 fn row_geometry_conv(view: &GraphView, id: &str) -> Option<eg_geo::Geometry> {
-    let blob = view.node_properties.get(id)?;
-    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
+    let v = row_value(view, id)?;
     geometry_from_value(&v)
 }
 
@@ -2084,8 +2081,7 @@ fn row_geometry_conv(view: &GraphView, id: &str) -> Option<eg_geo::Geometry> {
 /// is `None` when the stored WKT carries no EWKT prefix.
 #[cfg(feature = "geo")]
 fn row_geometry_srid(view: &GraphView, id: &str) -> Option<(Option<u32>, eg_geo::Geometry)> {
-    let blob = view.node_properties.get(id)?;
-    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
+    let v = row_value(view, id)?;
     let wkt = v.get("geometry").or_else(|| v.get("geom"))?.as_str()?;
     eg_geo::parse_with_srid(wkt).ok()
 }
@@ -2171,8 +2167,7 @@ fn tensor_op(
 /// (CONCEPT:EG-KG.storage.content-addressed-dedup), decoding the typed serde form.
 #[cfg(feature = "tensor")]
 fn row_tensor(view: &GraphView, id: &str) -> Option<eg_tensor::Tensor> {
-    let blob = view.node_properties.get(id)?;
-    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
+    let v = row_value(view, id)?;
     tensor_from_value(&v)
 }
 
@@ -2242,8 +2237,7 @@ fn probabilistic_op(view: &GraphView, input: RowSet, query: &eg_types::wire::Pro
 /// blob (CONCEPT:EG-KG.compute.uncertainty-values), decoding the tagged serde form of `eg_types::Distribution`.
 #[cfg(feature = "probabilistic")]
 fn row_distribution(view: &GraphView, id: &str) -> Option<eg_types::Distribution> {
-    let blob = view.node_properties.get(id)?;
-    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
+    let v = row_value(view, id)?;
     serde_json::from_value::<eg_types::Distribution>(v.get("distribution")?.clone()).ok()
 }
 
@@ -2358,18 +2352,31 @@ fn seed_or_filter(input: RowSet, matches: &HashSet<String>) -> RowSet {
     input.intersect_keep_order(&keep)
 }
 
+/// Run one belief-edge lookup through the shared graph construction and seed/filter seam.
+#[cfg(feature = "epistemic")]
+fn linked_op(
+    view: &GraphView,
+    input: RowSet,
+    node_id: &str,
+    kinds: &[eg_epistemic::EdgeKind],
+    direction: EdgeDir,
+) -> RowSet {
+    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
+    let matches = linked_ids(&bg, node_id, kinds, direction);
+    seed_or_filter(input, &matches)
+}
+
 /// `EvidenceFor { claim_id }` — the nodes with an INCOMING `Supports` edge into
 /// `claim_id` (CONCEPT:EG-KG.epistemic.epistemic-substrate).
 #[cfg(feature = "epistemic")]
 fn evidence_for_op(view: &GraphView, input: RowSet, claim_id: &str) -> RowSet {
-    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
-    let matches = linked_ids(
-        &bg,
+    linked_op(
+        view,
+        input,
         claim_id,
         &[eg_epistemic::EdgeKind::Supports],
         EdgeDir::Incoming,
-    );
-    seed_or_filter(input, &matches)
+    )
 }
 
 /// `Contradicts { node_id }` — the nodes with an INCOMING `Contradicts` OR `Attacks` edge
@@ -2377,31 +2384,29 @@ fn evidence_for_op(view: &GraphView, input: RowSet, claim_id: &str) -> RowSet {
 /// CONCEPT:EG-KG.epistemic.epistemic-substrate).
 #[cfg(feature = "epistemic")]
 fn contradicts_op(view: &GraphView, input: RowSet, node_id: &str) -> RowSet {
-    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
-    let matches = linked_ids(
-        &bg,
+    linked_op(
+        view,
+        input,
         node_id,
         &[
             eg_epistemic::EdgeKind::Contradicts,
             eg_epistemic::EdgeKind::Attacks,
         ],
         EdgeDir::Incoming,
-    );
-    seed_or_filter(input, &matches)
+    )
 }
 
 /// `SupportedBy { node_id }` — the nodes reached by an OUTGOING `Supports` edge FROM
 /// `node_id` (the mirror direction of `EvidenceFor`, CONCEPT:EG-KG.epistemic.epistemic-substrate).
 #[cfg(feature = "epistemic")]
 fn supported_by_op(view: &GraphView, input: RowSet, node_id: &str) -> RowSet {
-    let bg = eg_epistemic::BeliefGraph::from_graph_view(view);
-    let matches = linked_ids(
-        &bg,
+    linked_op(
+        view,
+        input,
         node_id,
         &[eg_epistemic::EdgeKind::Supports],
         EdgeDir::Outgoing,
-    );
-    seed_or_filter(input, &matches)
+    )
 }
 
 /// `BELIEF AS OF <ts>` (`Op::BeliefAsOf`) — pin the TRANSACTION-time axis (reuses
@@ -2574,8 +2579,7 @@ fn cep_op(view: &GraphView, input: RowSet, spec: &eg_types::wire::CepPatternSpec
 /// empty) and `attrs` (object, defaults to empty).
 #[cfg(feature = "stream")]
 fn row_event(view: &GraphView, id: &str) -> Option<eg_stream::Event> {
-    let blob = view.node_properties.get(id)?;
-    let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
+    let v = row_value(view, id)?;
     let ts = v.get("ts").and_then(|t| t.as_u64())?;
     let key = v
         .get("key")
@@ -2851,17 +2855,18 @@ pub(crate) fn bfs_reached(
     while depth < max && !frontier.is_empty() {
         depth += 1;
         let mut next = Vec::new();
-        for &node in &frontier {
-            for e in view
-                .graph
-                .edges_directed(node, petgraph::Direction::Outgoing)
-            {
-                let from_id = &view.graph[e.source()];
-                let to_id = &view.graph[e.target()];
-                if !rel_matches(view, from_id, to_id, rel) {
-                    continue;
-                }
-                let nbr = e.target();
+        frontier
+            .iter()
+            .flat_map(|&node| {
+                view.graph
+                    .edges_directed(node, petgraph::Direction::Outgoing)
+                    .filter_map(|edge| {
+                        let from_id = &view.graph[edge.source()];
+                        let to_id = &view.graph[edge.target()];
+                        rel_matches(view, from_id, to_id, rel).then_some(edge.target())
+                    })
+            })
+            .for_each(|nbr| {
                 if visited.insert(nbr) {
                     next.push(nbr);
                 }
@@ -2871,8 +2876,7 @@ pub(crate) fn bfs_reached(
                         out.push(id);
                     }
                 }
-            }
-        }
+            });
         frontier = next;
     }
     out

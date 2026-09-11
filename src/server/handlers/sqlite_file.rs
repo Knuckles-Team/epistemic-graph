@@ -31,9 +31,10 @@ use eg_sqlite_format::{ColumnDef as SqliteColumnDef, Reader, Value as SqliteValu
 use serde_json::Value as JsonValue;
 use std::path::{Path, PathBuf};
 
-use crate::mutation_batch::{MutationBatch, DurabilityDomain, MutationSurface};
+use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
+use eg_types::contract::Nonce;
 
 mod transfer_fs;
 
@@ -117,6 +118,7 @@ pub(crate) async fn try_handle(
     state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
     req_id: u64,
     authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
     method: Method,
 ) -> Result<Response, Method> {
     if let Err(error) = authority.require_admin("SQLite user-table import/export") {
@@ -135,9 +137,10 @@ pub(crate) async fn try_handle(
             // lifecycle into one owned blocking job.
             let now = crate::server::dispatch::authoritative_now_ms();
             let out = run_transfer_job("import", move || {
-                import_sqlite_lifecycle(
+                import_sqlite_lifecycle_with_nonce(
                     req_id,
                     &owner_authority,
+                    attempt_nonce,
                     &original_method,
                     &path,
                     &persist_dir,
@@ -181,9 +184,10 @@ where
         .map_err(|_| format!("SQLite {operation} task failed"))?
 }
 
-fn import_sqlite_lifecycle(
+fn import_sqlite_lifecycle_with_nonce(
     req_id: u64,
     authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
     method: &Method,
     logical_path: &str,
     persist_dir: &Path,
@@ -193,23 +197,19 @@ fn import_sqlite_lifecycle(
     crate::server::sql_catalog_acl::with_source_authority_write(persist_dir, authority, |source| {
         let store =
             crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?;
-        let batch = compile_import_batch(&store, req_id, authority, method, now)?;
-        if let Some(report) = committed_import_report(&store, &batch)? {
-            register_import_owners(source, &batch.batch_id, &report)?;
-            return Ok(report);
+        let batch =
+            compile_import_batch_with_nonce(&store, req_id, authority, method, now, attempt_nonce)?;
+        if let Some(committed_report) =
+            store.probe_txn_batch_replay(&batch, decode_committed_import_report)?
+        {
+            register_import_owners(source, &batch.batch_id, &committed_report)?;
+            return Ok(committed_report);
         }
-
         let reader = transfer_fs::open_import(logical_path, sqlite_limits()?.0)?;
         let (txn, report) = prepare_sqlite_import(&reader)?;
         let result = rmp_serde::to_vec_named(&report).map_err(|e| e.to_string())?;
         let committed = store.commit_txn_batch_result(&txn, &batch, result, now)?;
-        let bytes = committed
-            .record
-            .result_msgpack
-            .as_deref()
-            .ok_or_else(|| "committed SQLite import batch has no result".to_string())?;
-        let committed_report = eg_types::msgpack::decode_property_value(bytes)
-            .map_err(|_| "committed SQLite import batch has an invalid result".to_string())?;
+        let committed_report = decode_committed_import_report(&committed)?;
         register_import_owners(source, &batch.batch_id, &committed_report)?;
         Ok(committed_report)
     })
@@ -229,67 +229,18 @@ fn export_sqlite_lifecycle(
     )
 }
 
-/// The stored report of an import whose durable batch already committed, or
-/// `None` if this exact request has no receipt yet.
-///
-/// This is NOT a second replay authority. `TableStore::commit_txn_batch_result`
-/// is the one authority on replay-versus-conflict, and it decides on BYTE
-/// identity of the whole `MutationBatch` -- which a rebuilt attempt can never
-/// satisfy, because `created_at_ms` and the observed OCC version legitimately
-/// differ between attempts (RF-RULING-006's stated cost, restored for free once
-/// `OperationReplayIdentity` lands). What this answers is the different, and
-/// strictly narrower, question the recovery path actually asks: *is the durable
-/// effect of THIS caller's THIS request already committed?* It is the same shape
-/// and the same reasoning as `server::wire::committed_sql_replay_receipt` --
-/// every stable identity field plus the caller's outbox `actor` header is
-/// compared, the volatile OCC expectation and timestamps deliberately are not --
-/// and it exists because the source `.db` may be gone by the time a crashed
-/// import is retried: without it, recovery dies re-opening a file whose whole
-/// content is already durable.
-///
-/// Any mismatch is a refusal, never a fabrication: a batch id whose receipt does
-/// not answer to this caller's request never yields a report.
-fn committed_import_report(
-    store: &TableStore,
-    batch: &MutationBatch,
-) -> Result<Option<JsonValue>, String> {
-    let Some(record) = store.mutation_batch(&batch.identity, &batch.batch_id)? else {
-        return Ok(None);
-    };
-    let actor = |candidate: &MutationBatch| {
-        candidate
-            .outbox
-            .iter()
-            .find_map(|intent| intent.headers.get("actor"))
-            .cloned()
-    };
-    // `MutationOperation` carries no `PartialEq` (it is a wire type owned by
-    // `eg-types`), so the operation list is compared on its canonical encoding
-    // -- the same bytes the kernel's own replay identity is taken over, just
-    // over this one field instead of the whole batch.
-    let operations = |candidate: &MutationBatch| {
-        rmp_serde::to_vec_named(&candidate.operations).map_err(|error| error.to_string())
-    };
-    let exact = record.status == eg_types::mutation_batch::MutationBatchStatus::Committed
-        && record.batch.batch_id == batch.batch_id
-        && record.batch.idempotency_key == batch.idempotency_key
-        && record.batch.context.request_id == batch.context.request_id
-        && record.batch.identity == batch.identity
-        && operations(&record.batch)? == operations(batch)?
-        && actor(&record.batch).is_some()
-        && actor(&record.batch) == actor(batch);
-    if !exact {
-        return Err(
-            "IDEMPOTENCY_CONFLICT: SQLite import request identity changed".to_string(),
-        );
-    }
-    let bytes = record
+fn decode_committed_import_report(
+    committed: &eg_types::mutation_batch::MutationBatchCommit,
+) -> Result<JsonValue, String> {
+    let bytes = committed
+        .record
         .result_msgpack
         .as_deref()
         .ok_or_else(|| "committed SQLite import batch has no result".to_string())?;
-    eg_types::msgpack::decode_property_value(bytes)
-        .map(Some)
-        .map_err(|_| "committed SQLite import batch has an invalid result".to_string())
+    let report = eg_types::msgpack::decode_property_value(bytes)
+        .map_err(|_| "committed SQLite import batch has an invalid result".to_string())?;
+    validated_import_tables(&report)?;
+    Ok(report)
 }
 
 fn compile_import_batch(
@@ -299,19 +250,36 @@ fn compile_import_batch(
     method: &Method,
     now: u64,
 ) -> Result<MutationBatch, String> {
+    compile_import_batch_with_nonce(store, req_id, authority, method, now, None)
+}
+
+fn compile_import_batch_with_nonce(
+    store: &TableStore,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    method: &Method,
+    now: u64,
+    attempt_nonce: Option<Nonce>,
+) -> Result<MutationBatch, String> {
     let scope = authority.namespace("sqlite-import", "global-user-tables");
     let expected = store.mutation_version(authority.tenant_scope(), &scope)?;
-    let batch_id =
-        crate::server::mutation_batch::opaque_request_key("sqlite-import", &scope, req_id, method);
+    let batch_id = crate::server::mutation_batch::opaque_idempotency_key_for_context(
+        "sqlite-import",
+        authority.tenant_scope(),
+        &scope,
+        Some(authority.actor_scope()),
+        authority.idempotency_key(),
+    );
     let batch = crate::server::mutation_batch::compile_opaque_method(
         crate::server::mutation_batch::CompileBatch {
             batch_id: &batch_id,
             request_id: req_id,
+            attempt_nonce,
             principal: Some(authority.actor_scope()),
             tenant: authority.tenant_scope(),
             graph: &scope,
             placement_epoch: 0,
-            idempotency_key: &batch_id,
+            idempotency_key: authority.idempotency_key(),
             expected_graph_version: Some(expected),
             fencing_token: None,
             created_at_ms: now,
@@ -326,7 +294,6 @@ fn compile_import_batch(
     Ok(batch)
 }
 
-
 /// Register ownership from the durable result on both the fresh-commit and replay
 /// paths. Registration is idempotent, so a retry repairs a crash or failure that
 /// happened after the table transaction committed but before ACL registration.
@@ -335,6 +302,17 @@ fn register_import_owners(
     parent_operation: &str,
     report: &JsonValue,
 ) -> Result<(), String> {
+    for table in validated_import_tables(report)? {
+        crate::server::sql_catalog_acl::register_owner_after_create_in(
+            source,
+            table,
+            crate::server::sql_catalog_acl::stable_source_operation_id(parent_operation),
+        )?;
+    }
+    Ok(())
+}
+
+fn validated_import_tables(report: &JsonValue) -> Result<Vec<&str>, String> {
     let tables = report
         .get("imported_tables")
         .and_then(JsonValue::as_array)
@@ -345,6 +323,7 @@ fn register_import_owners(
         return Err("committed SQLite import batch has an invalid result".to_string());
     }
     let mut seen = std::collections::BTreeSet::new();
+    let mut names = Vec::with_capacity(tables.len());
     for item in tables {
         let table = item
             .get("table")
@@ -354,13 +333,9 @@ fn register_import_owners(
         if !seen.insert(table) {
             return Err("committed SQLite import batch has an invalid result".to_string());
         }
-        crate::server::sql_catalog_acl::register_owner_after_create_in(
-            source,
-            table,
-            crate::server::sql_catalog_acl::stable_source_operation_id(parent_operation),
-        )?;
+        names.push(table);
     }
-    Ok(())
+    Ok(names)
 }
 
 // ── Import (CONCEPT:EG-KG.query.eg-feature) ───────────────────────────────────────────────────
@@ -719,30 +694,11 @@ mod tests {
 
     use super::*;
 
-    #[cfg(feature = "raft")]
-    struct EnvVarRestore {
-        key: &'static str,
-        previous: Option<std::ffi::OsString>,
-    }
-
-    #[cfg(feature = "raft")]
-    impl EnvVarRestore {
-        fn set(key: &'static str, value: &str) -> Self {
-            let previous = std::env::var_os(key);
-            std::env::set_var(key, value);
-            Self { key, previous }
-        }
-    }
-
-    #[cfg(feature = "raft")]
-    impl Drop for EnvVarRestore {
-        fn drop(&mut self) {
-            match self.previous.take() {
-                Some(value) => std::env::set_var(self.key, value),
-                None => std::env::remove_var(self.key),
-            }
-        }
-    }
+    // The env-var save/restore guard lives once, beside the backup tests that
+    // first needed it (`persistence::backup::EnvVarGuard`); this module had an
+    // identical private copy.
+    #[cfg(any(feature = "raft", target_os = "linux"))]
+    use crate::server::persistence::backup::EnvVarGuard as EnvVarRestore;
 
     fn authority(agent: &str, tenant: &str) -> CarrierAuthority {
         CarrierAuthority::from_verified(
@@ -1019,10 +975,20 @@ mod tests {
         assert_eq!(error, "SQL source authority has no replicated ordering");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn missing_source_replay_repairs_simulated_post_commit_process_loss() {
         use crate::server::sql_catalog_acl::{open_authorized_table, SqlPrivilege};
+        use std::os::unix::fs::PermissionsExt;
 
+        let _env_lock = crate::crypto::acquire_test_env_lock_blocking();
+        let transfer_root = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(transfer_root.path(), std::fs::Permissions::from_mode(0o700))
+            .unwrap();
+        let _env_restore = EnvVarRestore::set(
+            "EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT",
+            transfer_root.path().to_str().unwrap(),
+        );
         let persist_dir = crate::server::sql_tables::test_persist_dir();
         let authority = authority("sqlite-owner", "sqlite-owner-repair");
         let store =
@@ -1031,7 +997,11 @@ mod tests {
         let method = Method::ImportSqliteFile {
             path: "missing-after-commit.db".to_string(),
         };
-        let batch = compile_import_batch(&store, 91, &authority, &method, 3).unwrap();
+        let import_scope = authority.namespace("sqlite-import", "global-user-tables");
+        let first_nonce = Nonce::from_bytes([1; 32]);
+        let batch =
+            compile_import_batch_with_nonce(&store, 91, &authority, &method, 3, Some(first_nonce))
+                .unwrap();
         let mut txn = TableTxn::new();
         txn.push(TxnOp::CreateTable {
             schema: TableSchema::new(
@@ -1047,6 +1017,12 @@ mod tests {
         store
             .commit_txn_batch_result(&txn, &batch, rmp_serde::to_vec_named(&report).unwrap(), 3)
             .unwrap();
+        let committed_version = store
+            .mutation_version(authority.tenant_scope(), &import_scope)
+            .unwrap();
+        let committed_outbox = store
+            .mutation_outbox(&batch.identity, &batch.batch_id)
+            .unwrap();
 
         // The physical effect exists without its ACL child, exactly the durable
         // state left by process loss after the table commit. The source never exists.
@@ -1054,23 +1030,61 @@ mod tests {
             open_authorized_table(&authority, &persist_dir, "repaired", SqlPrivilege::Select)
                 .is_err()
         );
-        for _ in 0..2 {
-            assert_eq!(
-                import_sqlite_lifecycle(
-                    91,
-                    &authority,
-                    &method,
-                    "missing-after-commit.db",
-                    &persist_dir,
-                    4,
-                )
-                .unwrap(),
-                report
-            );
-        }
+        assert_eq!(
+            import_sqlite_lifecycle_with_nonce(
+                92,
+                &authority,
+                Some(Nonce::from_bytes([2; 32])),
+                &method,
+                "missing-after-commit.db",
+                &persist_dir,
+                4,
+            )
+            .unwrap(),
+            report
+        );
         assert!(
             open_authorized_table(&authority, &persist_dir, "repaired", SqlPrivilege::Select)
                 .is_ok()
         );
+        assert_eq!(
+            store
+                .mutation_version(authority.tenant_scope(), &import_scope)
+                .unwrap(),
+            committed_version
+        );
+        assert_eq!(
+            store
+                .mutation_outbox(&batch.identity, &batch.batch_id)
+                .unwrap(),
+            committed_outbox
+        );
+
+        let consumed = import_sqlite_lifecycle_with_nonce(
+            93,
+            &authority,
+            Some(first_nonce),
+            &method,
+            "missing-after-commit.db",
+            &persist_dir,
+            5,
+        )
+        .unwrap_err();
+        assert!(consumed.contains("REPLAY_NONCE_CONSUMED"), "{consumed}");
+
+        let changed = Method::ImportSqliteFile {
+            path: "different-missing-source.db".to_string(),
+        };
+        let conflict = import_sqlite_lifecycle_with_nonce(
+            94,
+            &authority,
+            Some(Nonce::from_bytes([3; 32])),
+            &changed,
+            "different-missing-source.db",
+            &persist_dir,
+            6,
+        )
+        .unwrap_err();
+        assert!(conflict.contains("IDEMPOTENCY_CONFLICT"), "{conflict}");
     }
 }

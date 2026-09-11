@@ -103,9 +103,7 @@ pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String>
 
     let tree = parser.parse(source, None).ok_or("Failed to parse source")?;
 
-    let mut state = WalkState::new();
-
-    let file_node_id = format!("file:{}", file_path);
+    let mut state = WalkState::new(file_path, lang_label);
 
     // SQL DDL takes a dedicated extraction path (CONCEPT:AU-KG.ontology.emits-database-ontology-entities): it emits
     // database-ontology entities (tables/columns/views + FK edges), NOT :Code
@@ -115,16 +113,7 @@ pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String>
         return Ok(state.result);
     }
 
-    walk_node(
-        tree.root_node(),
-        source,
-        file_path,
-        lang_label,
-        &file_node_id,
-        "",
-        &[],
-        &mut state,
-    );
+    walk_node(tree.root_node(), source, "", &[], &mut state);
 
     Ok(state.result)
 }
@@ -682,17 +671,26 @@ fn class_relations(node: Node, source: &[u8], language: &str) -> (Vec<String>, V
                 if ch.kind() == "class_heritage" {
                     let mut c2 = ch.walk();
                     for clause in ch.children(&mut c2) {
-                        match clause.kind() {
-                            "extends_clause" => collect_type_names(clause, source, &mut inh),
-                            "implements_clause" => collect_type_names(clause, source, &mut real),
-                            _ => {}
-                        }
+                        append_heritage_relation(clause, source, &mut inh, &mut real);
                     }
                 }
             }
             (inh, real)
         }
         _ => (Vec::new(), Vec::new()),
+    }
+}
+
+fn append_heritage_relation(
+    clause: Node,
+    source: &[u8],
+    inherits: &mut Vec<String>,
+    realizes: &mut Vec<String>,
+) {
+    match clause.kind() {
+        "extends_clause" => collect_type_names(clause, source, inherits),
+        "implements_clause" => collect_type_names(clause, source, realizes),
+        _ => {}
     }
 }
 
@@ -768,29 +766,31 @@ fn py_class_bases(node: Node, source: &[u8]) -> Vec<String> {
 fn py_class_methods(node: Node, source: &[u8]) -> (Vec<String>, bool) {
     let mut methods = Vec::new();
     let mut has_abstract = false;
-    if let Some(body) = node.child_by_field_name("body") {
-        let mut cursor = body.walk();
-        for child in body.children(&mut cursor) {
-            let fdef = if child.kind() == "decorated_definition" {
+    let Some(body) = node.child_by_field_name("body") else {
+        return (methods, has_abstract);
+    };
+    let mut cursor = body.walk();
+    for child in body.children(&mut cursor) {
+        let fdef = match child.kind() {
+            "decorated_definition" => {
                 let mut c2 = child.walk();
-                let kids: Vec<Node> = child.children(&mut c2).collect();
-                kids.into_iter().find(|n| n.kind() == "function_definition")
-            } else if child.kind() == "function_definition" {
-                Some(child)
-            } else {
-                None
-            };
-            if let Some(f) = fdef {
-                if let Some(n) = f.child_by_field_name("name") {
-                    methods.push(get_node_text(n, source));
-                }
-                for d in py_decorators(f, source) {
-                    if d.contains("abstractmethod") {
-                        has_abstract = true;
-                    }
-                }
+                let function = child
+                    .children(&mut c2)
+                    .find(|n| n.kind() == "function_definition");
+                function
             }
+            "function_definition" => Some(child),
+            _ => None,
+        };
+        let Some(f) = fdef else {
+            continue;
+        };
+        if let Some(n) = f.child_by_field_name("name") {
+            methods.push(get_node_text(n, source));
         }
+        has_abstract |= py_decorators(f, source)
+            .iter()
+            .any(|decorator| decorator.contains("abstractmethod"));
     }
     (methods, has_abstract)
 }
@@ -1032,10 +1032,13 @@ struct WalkState {
     result: ParseResult,
     /// (symbol_type, qualified_symbol) -> declarations already emitted in this file.
     occurrences: HashMap<(String, String), u64>,
+    file_path: String,
+    language: &'static str,
+    file_node_id: String,
 }
 
 impl WalkState {
-    fn new() -> Self {
+    fn new(file_path: &str, language: &'static str) -> Self {
         Self {
             result: ParseResult {
                 nodes: Vec::new(),
@@ -1043,6 +1046,9 @@ impl WalkState {
                 symbols_extracted: 0,
             },
             occurrences: HashMap::new(),
+            file_path: file_path.to_string(),
+            language,
+            file_node_id: format!("file:{file_path}"),
         }
     }
 
@@ -1081,13 +1087,10 @@ fn hash_fields(fields: &[&str]) -> String {
 fn emit_symbol(
     node: Node,
     source: &[u8],
-    file_path: &str,
-    language: &str,
     symbol_type: &str,
     kind_detail: &str,
     name: String,
     qualified_symbol: String,
-    file_node_id: &str,
     extra: HashMap<String, String>,
     state: &mut WalkState,
 ) {
@@ -1102,7 +1105,7 @@ fn emit_symbol(
     let symbol_id = format!(
         "symbol:{}",
         hash_fields(&[
-            file_path,
+            state.file_path.as_str(),
             symbol_type,
             &qualified_symbol,
             &ordinal.to_string(),
@@ -1113,7 +1116,7 @@ fn emit_symbol(
     properties.insert("name".to_string(), name);
     properties.insert("symbol_type".to_string(), symbol_type.to_string());
     properties.insert("kind_detail".to_string(), kind_detail.to_string());
-    properties.insert("language".to_string(), language.to_string());
+    properties.insert("language".to_string(), state.language.to_string());
     properties.insert(
         "line".to_string(),
         (node.start_position().row + 1).to_string(),
@@ -1144,7 +1147,7 @@ fn emit_symbol(
     // ordinal the occurrence id was derived from, kept readable for consumers
     // that want to reconstruct or explain the id.
     properties.insert("occurrence_index".to_string(), ordinal.to_string());
-    properties.insert("file_path".to_string(), file_path.to_string());
+    properties.insert("file_path".to_string(), state.file_path.clone());
     // CONCEPT:EG-KG.compute.model-free-similar-code — model-free similarity signature (MinHash over normalized
     // AST leaf trigrams). The cross-file resolver LSH-bands these into `similar_to`
     // edges; it is a resolution-only input and is stripped from the graph nodes.
@@ -1162,7 +1165,7 @@ fn emit_symbol(
         properties,
     });
     state.result.edges.push(ExtractedEdge {
-        source: file_node_id.to_string(),
+        source: state.file_node_id.clone(),
         target: symbol_id,
         edge_type: "IMPLEMENTS".to_string(),
         properties: HashMap::new(),
@@ -1170,20 +1173,10 @@ fn emit_symbol(
     state.result.symbols_extracted += 1;
 }
 
-#[allow(clippy::too_many_arguments)]
-fn walk_node(
-    node: Node,
-    source: &[u8],
-    file_path: &str,
-    language: &str,
-    file_node_id: &str,
-    scope: &str,
-    qual: &[String],
-    state: &mut WalkState,
-) {
-    let kind = node.kind();
+fn walk_node(node: Node, source: &[u8], scope: &str, qual: &[String], state: &mut WalkState) {
     // CONCEPT:EG-KG.compute.qualified-symbol — the lexical ancestor chain children
     // inherit. Allocates only at a real container, not at every AST node.
+    let language = state.language;
     let descend_qual_owned: Option<Vec<String>> = qual_segment(node, source, language).map(|seg| {
         let mut v = Vec::with_capacity(qual.len() + 1);
         v.extend_from_slice(qual);
@@ -1191,193 +1184,198 @@ fn walk_node(
         v
     });
     let descend_qual: &[String] = descend_qual_owned.as_deref().unwrap_or(qual);
-    // The enclosing-class name children inherit (CONCEPT:EG-KG.compute.type-scope-resolved-call scope tracking);
-    // defaults to propagating the current scope unless this node is a named class.
-    let mut descend_scope = scope.to_string();
-
-    if let Some(detail) = class_like_kind(kind) {
-        if let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) {
-            let mut extra = HashMap::new();
-            // CONCEPT:EG-KG.compute.type-scope-resolved-call — inheritance/realization facts across grammars.
-            let (inherits, realizes) = class_relations(node, source, language);
-            extra.insert("scope".to_string(), scope.to_string());
-            extra.insert("bases".to_string(), inherits.join(","));
-            extra.insert("interfaces".to_string(), realizes.join(","));
-            descend_scope = name.clone();
-            // CONCEPT:EG-KG.storage.nonblocking-checkpoint — Python structural facts for design-pattern detection.
-            if language == "python" {
-                let (methods, has_abstract) = py_class_methods(node, source);
-                let decorators = py_decorators(node, source);
-                extra.insert("methods".to_string(), methods.join(","));
-                extra.insert(
-                    "decorators".to_string(),
-                    decorators
-                        .iter()
-                        .map(|d| d.trim_start_matches('@').to_string())
-                        .collect::<Vec<_>>()
-                        .join(","),
-                );
-                extra.insert("is_abstract".to_string(), has_abstract.to_string());
-                extra.insert("method_count".to_string(), methods.len().to_string());
-            }
-            let qualified = join_qualified(qual, &name, language);
-            emit_symbol(
-                node,
-                source,
-                file_path,
-                language,
-                "Class",
-                detail,
-                name,
-                qualified,
-                file_node_id,
-                extra,
-                state,
-            );
-        }
-    } else if let Some(detail) = function_like_kind(kind) {
-        if let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) {
-            let mut extra = HashMap::new();
-            extra.insert("scope".to_string(), scope.to_string());
-            // Structured call sites (receiver/callee/argc) for type/scope-resolved
-            // call edges, plus the bare callee names kept as `calls` for the
-            // name-only fallback + COVERS. (CONCEPT:EG-KG.compute.type-scope-resolved-call / KG-2.8)
-            let mut sites = BTreeSet::new();
-            collect_call_sites(node, source, &mut sites);
-            let sites: Vec<CallSite> = sites.into_iter().collect();
-            let calls: Vec<String> = sites
-                .iter()
-                .map(|site| site.callee.clone())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .collect();
-            extra.insert("calls".to_string(), calls.join(","));
-            extra.insert("call_sites".to_string(), encode_call_sites(&sites));
-            extra.insert(
-                "arity".to_string(),
-                param_count(node, source, language).to_string(),
-            );
-
-            // CONCEPT:EG-KG.storage.nonblocking-checkpoint — native Python test-quality metrics on the symbol.
-            if language == "python" {
-                let decorators = py_decorators(node, source);
-                // CONCEPT:EG-KG.compute.raw-decorator-strings — keep the raw decorator strings so the route
-                // pass can detect HTTP route definitions (@app.route/@router.get…).
-                extra.insert(
-                    "decorators".to_string(),
-                    decorators
-                        .iter()
-                        .map(|d| d.trim_start_matches('@').to_string())
-                        .collect::<Vec<_>>()
-                        .join("\u{1f}"),
-                );
-                let marks = py_marks(&decorators);
-                let is_skipped = marks
-                    .iter()
-                    .any(|m| m == "skip" || m == "skipif" || m == "xfail");
-                let mock_decos = decorators
-                    .iter()
-                    .filter(|d| {
-                        let l = d.to_lowercase();
-                        l.contains("patch") || l.contains("mock")
-                    })
-                    .count();
-                let is_test = name.starts_with("test");
-
-                let mut m = TestMetrics::default();
-                collect_test_metrics(node, source, &mut m);
-
-                extra.insert("is_test".to_string(), is_test.to_string());
-                extra.insert("assert_count".to_string(), m.assert_count.to_string());
-                extra.insert("raises_count".to_string(), m.raises_count.to_string());
-                extra.insert(
-                    "mock_count".to_string(),
-                    (m.mock_count + mock_decos).to_string(),
-                );
-                extra.insert(
-                    "fixture_count".to_string(),
-                    py_param_count(node, source).to_string(),
-                );
-                extra.insert("marks".to_string(), marks.join(","));
-                extra.insert("is_skipped".to_string(), is_skipped.to_string());
-            }
-            let qualified = join_qualified(qual, &name, language);
-            emit_symbol(
-                node,
-                source,
-                file_path,
-                language,
-                "Function",
-                detail,
-                name,
-                qualified,
-                file_node_id,
-                extra,
-                state,
-            );
-        }
-    } else if kind == "call" || kind == "call_expression" {
-        if let Some(function_node) = node.child_by_field_name("function") {
-            let callee = get_node_text(function_node, source);
-            let mut properties = HashMap::new();
-            properties.insert("raw".to_string(), callee.clone());
-            state.result.edges.push(ExtractedEdge {
-                source: file_node_id.to_string(),
-                target: callee,
-                edge_type: "calls_raw".to_string(),
-                properties,
-            });
-        }
-    } else if kind == "method_invocation" {
-        // Java call site: `obj.method(...)` exposes the method via `name`.
-        if let Some(name_node) = node.child_by_field_name("name") {
-            let callee = get_node_text(name_node, source);
-            let mut properties = HashMap::new();
-            properties.insert("raw".to_string(), callee.clone());
-            state.result.edges.push(ExtractedEdge {
-                source: file_node_id.to_string(),
-                target: callee,
-                edge_type: "calls_raw".to_string(),
-                properties,
-            });
-        }
-    } else if matches!(
-        kind,
-        "import_statement"
-            | "import_from_statement"
-            | "import_declaration"
-            | "import_spec"
-            | "use_declaration"
-            | "preproc_include"
-    ) {
-        // The raw module/path string (no longer an `"import_target"` placeholder):
-        // `resolve::resolve_import` maps it to the in-batch file that defines it
-        // to build a resolved `depends_on` edge. Unreadable imports emit nothing.
-        if let Some(module) = import_module(node, source) {
-            let mut properties = HashMap::new();
-            properties.insert("raw".to_string(), module.clone());
-            state.result.edges.push(ExtractedEdge {
-                source: file_node_id.to_string(),
-                target: module,
-                edge_type: "depends_on_raw".to_string(),
-                properties,
-            });
-        }
-    }
+    let descend_scope = visit_node(node, source, scope, qual, state);
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        walk_node(
-            child,
-            source,
-            file_path,
-            language,
-            file_node_id,
-            &descend_scope,
-            descend_qual,
-            state,
-        );
+        walk_node(child, source, &descend_scope, descend_qual, state);
     }
+}
+
+fn visit_node(
+    node: Node,
+    source: &[u8],
+    scope: &str,
+    qual: &[String],
+    state: &mut WalkState,
+) -> String {
+    if let Some(detail) = class_like_kind(node.kind()) {
+        return emit_class_symbol(node, source, detail, scope, qual, state);
+    }
+    if let Some(detail) = function_like_kind(node.kind()) {
+        emit_function_symbol(node, source, detail, scope, qual, state);
+    } else {
+        emit_raw_edge(node, source, state);
+    }
+    scope.to_string()
+}
+
+fn emit_class_symbol(
+    node: Node,
+    source: &[u8],
+    detail: &str,
+    scope: &str,
+    qual: &[String],
+    state: &mut WalkState,
+) -> String {
+    let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) else {
+        return scope.to_string();
+    };
+    let mut extra = HashMap::new();
+    // CONCEPT:EG-KG.compute.type-scope-resolved-call — inheritance/realization facts across grammars.
+    let (inherits, realizes) = class_relations(node, source, state.language);
+    extra.insert("scope".to_string(), scope.to_string());
+    extra.insert("bases".to_string(), inherits.join(","));
+    extra.insert("interfaces".to_string(), realizes.join(","));
+    // CONCEPT:EG-KG.storage.nonblocking-checkpoint — Python structural facts for design-pattern detection.
+    if state.language == "python" {
+        let (methods, has_abstract) = py_class_methods(node, source);
+        let decorators = py_decorators(node, source);
+        extra.insert("methods".to_string(), methods.join(","));
+        extra.insert(
+            "decorators".to_string(),
+            decorators
+                .iter()
+                .map(|d| d.trim_start_matches('@').to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        extra.insert("is_abstract".to_string(), has_abstract.to_string());
+        extra.insert("method_count".to_string(), methods.len().to_string());
+    }
+    let qualified = join_qualified(qual, &name, state.language);
+    emit_symbol(
+        node,
+        source,
+        "Class",
+        detail,
+        name.clone(),
+        qualified,
+        extra,
+        state,
+    );
+    name
+}
+
+fn emit_function_symbol(
+    node: Node,
+    source: &[u8],
+    detail: &str,
+    scope: &str,
+    qual: &[String],
+    state: &mut WalkState,
+) {
+    let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) else {
+        return;
+    };
+    let mut extra = HashMap::new();
+    extra.insert("scope".to_string(), scope.to_string());
+    // Structured call sites (receiver/callee/argc) for type/scope-resolved
+    // call edges, plus the bare callee names kept as `calls` for the
+    // name-only fallback + COVERS. (CONCEPT:EG-KG.compute.type-scope-resolved-call / KG-2.8)
+    let mut sites = BTreeSet::new();
+    collect_call_sites(node, source, &mut sites);
+    let sites: Vec<CallSite> = sites.into_iter().collect();
+    let calls: Vec<String> = sites
+        .iter()
+        .map(|site| site.callee.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    extra.insert("calls".to_string(), calls.join(","));
+    extra.insert("call_sites".to_string(), encode_call_sites(&sites));
+    extra.insert(
+        "arity".to_string(),
+        param_count(node, source, state.language).to_string(),
+    );
+
+    if state.language == "python" {
+        append_python_function_metrics(node, source, &name, &mut extra);
+    }
+    let qualified = join_qualified(qual, &name, state.language);
+    emit_symbol(
+        node, source, "Function", detail, name, qualified, extra, state,
+    );
+}
+
+/// Add Python test/decorator facts after the language-independent function facts.
+fn append_python_function_metrics(
+    node: Node,
+    source: &[u8],
+    name: &str,
+    extra: &mut HashMap<String, String>,
+) {
+    let decorators = py_decorators(node, source);
+    // CONCEPT:EG-KG.compute.raw-decorator-strings — keep the raw decorator strings so the route
+    // pass can detect HTTP route definitions (@app.route/@router.get…).
+    extra.insert(
+        "decorators".to_string(),
+        decorators
+            .iter()
+            .map(|d| d.trim_start_matches('@').to_string())
+            .collect::<Vec<_>>()
+            .join("\u{1f}"),
+    );
+    let marks = py_marks(&decorators);
+    let is_skipped = marks
+        .iter()
+        .any(|m| m == "skip" || m == "skipif" || m == "xfail");
+    let mock_decos = decorators
+        .iter()
+        .filter(|d| {
+            let l = d.to_lowercase();
+            l.contains("patch") || l.contains("mock")
+        })
+        .count();
+    let is_test = name.starts_with("test");
+
+    let mut m = TestMetrics::default();
+    collect_test_metrics(node, source, &mut m);
+
+    extra.insert("is_test".to_string(), is_test.to_string());
+    extra.insert("assert_count".to_string(), m.assert_count.to_string());
+    extra.insert("raises_count".to_string(), m.raises_count.to_string());
+    extra.insert(
+        "mock_count".to_string(),
+        (m.mock_count + mock_decos).to_string(),
+    );
+    extra.insert(
+        "fixture_count".to_string(),
+        py_param_count(node, source).to_string(),
+    );
+    extra.insert("marks".to_string(), marks.join(","));
+    extra.insert("is_skipped".to_string(), is_skipped.to_string());
+}
+
+fn emit_raw_edge(node: Node, source: &[u8], state: &mut WalkState) {
+    match node.kind() {
+        "call" | "call_expression" => node
+            .child_by_field_name("function")
+            .map(|function| get_node_text(function, source))
+            .map(|callee| append_raw_edge(callee, "calls_raw", state)),
+        "method_invocation" => node
+            .child_by_field_name("name")
+            .map(|name| get_node_text(name, source))
+            .map(|callee| append_raw_edge(callee, "calls_raw", state)),
+        "import_statement"
+        | "import_from_statement"
+        | "import_declaration"
+        | "import_spec"
+        | "use_declaration"
+        | "preproc_include" => import_module(node, source)
+            .map(|module| append_raw_edge(module, "depends_on_raw", state)),
+        _ => None,
+    };
+}
+
+fn append_raw_edge(target: String, edge_type: &str, state: &mut WalkState) {
+    let properties = HashMap::from([("raw".to_string(), target.clone())]);
+    state.result.edges.push(ExtractedEdge {
+        source: state.file_node_id.clone(),
+        target,
+        edge_type: edge_type.to_string(),
+        properties,
+    });
 }
 
 fn get_node_text(node: Node, source: &[u8]) -> String {

@@ -14,7 +14,15 @@ class _FakeGraphClient:
         self.result = result
         self.calls: list[tuple[str, dict[str, object]]] = []
 
-    async def _send(self, method: str, params: dict[str, object]) -> dict[str, object]:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, object],
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict[str, object]:
+        del graph, idempotency_key
         self.calls.append((method, params))
         return self.result
 

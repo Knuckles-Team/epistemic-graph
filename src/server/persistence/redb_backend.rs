@@ -6,18 +6,23 @@
 //! all tenants share the same tables (not a file per graph). The in-memory graph is
 //! a bounded resident projection with durability-gated read-through eviction.
 //!
-//! ## The #1 risk: never one WriteTransaction per mutation
+//! ## The #1 risk: never one commit per mutation
 //!
-//! A redb `WriteTransaction::commit` is a B-tree + WAL + (optional) fsync — orders
-//! of magnitude more expensive than a single row write. Committing one per graph
-//! mutation would collapse write p99. So this backend reuses the EXACT threading
-//! model in [`crate::durability`]: a dedicated OS thread owns the
-//! `Database`, drains a bounded channel, and folds MANY mutations into ONE
-//! `WriteTransaction` per group-commit interval. The [`DurabilityPolicy`] cadence maps
-//! onto redb `Durability`:
-//!   * `Interval` → commit once per interval with `Durability::Immediate`
-//!     (group-commit fsync; bounds hard-power loss to the interval).
-//!   * `Each`     → commit `Durability::Immediate` after every drained batch.
+//! A shard commit is a B-tree + WAL + fsync — orders of magnitude more expensive
+//! than a row write, so one per graph mutation would collapse write p99. A
+//! dedicated OS thread therefore owns the file's
+//! [`Shard`](crate::redb_store::shard::Shard), drains a bounded channel, and
+//! folds MANY mutations into ONE admitted scope group per group-commit boundary.
+//!
+//! ## Every shard commit is `Durability::Immediate`, and there is no runtime knob
+//!
+//! The level is not this backend's to choose any more: `eg_storage`'s
+//! `physical::root::WRITE_DURABILITY` is a CONSTANT `Durability::Immediate` on
+//! the one `begin_write` every kernel mutation takes, because a weaker level
+//! would let redb roll a committed ledger back on crash — un-consuming an
+//! acknowledged replay nonce and re-enabling the double apply. Group commit still
+//! folds N ops into ONE Immediate fsync, while every batch pays that real fsync at
+//! the group-commit boundary.
 //!
 //! Backpressure is bounded and lossless: when the writer queue is full, producers
 //! wait for capacity rather than shedding persistence work. Authoritative batch
@@ -38,13 +43,12 @@ use std::time::Duration;
 
 use tokio::sync::oneshot;
 
-use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{ReadableTable, TableDefinition};
 use tokio::sync::RwLock;
 
 use crate::change_envelope::{
     ChangeCursor, ChangeEnvelope, ChangeEnvelopeCommit, ChangeEnvelopeRecord, ContentVersion,
 };
-use crate::durability::DurabilityPolicy;
 use crate::graph::GraphCore;
 use crate::mutation_batch::{
     MutationBatch, MutationBatchCommit, MutationBatchRecord, MutationOutboxLease,
@@ -62,30 +66,48 @@ use super::PersistenceBackend;
 // durable format with no Tokio. This backend reuses them verbatim — ONE format,
 // never duplicated — and adds only the off-reactor group-commit writer thread +
 // the `PersistenceBackend` async trait wiring on top.
+use crate::redb_store::shard::{Shard, ShardWrite};
 #[cfg(any(feature = "compute-dist", feature = "matview"))]
 use crate::redb_store::MatViewScanResult;
 use crate::redb_store::{
-    ack_mutation_outbox, claim_mutation_outbox, clear_xshard_decision, clear_xshard_prepare,
-    commit_change_envelope, commit_change_envelopes, commit_crossmodal, commit_mutation_batch,
-    commit_mutation_batch_crossmodal, commit_mutation_batch_state, commit_ops,
-    durable_node_presence as read_durable_node_presence, get_xshard_decision,
-    get_xshard_decision_retain, get_xshard_prepare, purge_graph_rows, put_xshard_decision,
-    put_xshard_prepare, put_xshard_recoverable_pending, read_all_dumps, read_all_graph_meta,
-    read_change_cursor as read_change_cursor_record,
+    clear_xshard_decision, clear_xshard_prepare, commit_change_envelope, commit_change_envelopes,
+    commit_crossmodal, commit_mutation_batch, commit_mutation_batch_crossmodal,
+    commit_mutation_batch_state, commit_ops, durable_node_presence as read_durable_node_presence,
+    get_xshard_decision, get_xshard_decision_retain, get_xshard_prepare, purge_graph_rows,
+    put_xshard_decision, put_xshard_prepare, put_xshard_recoverable_pending, read_all_dumps,
+    read_all_graph_meta, read_change_cursor as read_change_cursor_record,
     read_change_envelope as read_change_envelope_record,
     read_content_version as read_content_version_record, read_graph_dump,
     read_mutation_batch_for_graph as read_mutation_batch_record,
     read_mutation_graph_version as read_mutation_graph_version_record,
-    read_mutation_lifecycle_head as read_mutation_lifecycle_head_record,
-    read_mutation_outbox as read_mutation_outbox_records,
-    read_mutation_projection_cursor as read_mutation_projection_cursor_record, read_one_node,
+    read_mutation_outbox as read_mutation_outbox_records, read_one_node,
     read_resource_reservation as read_resource_reservation_record,
     read_resource_reservation_status as read_resource_reservation_status_record,
     scan_xshard_decisions, scan_xshard_prepares, write_graph_meta, GraphDump, XshardDecisionScan,
     XshardPrepareScan, RAFT_LOG,
 };
+use eg_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
 /// `(first, last)` present Raft log index for a group, or an error (CONCEPT:EG-KG.storage.one-fsync-covers-raft).
 type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
+
+/// Per-ATTEMPT identity for one shard write this backend admits.
+///
+/// The kernel resolves a batch id that already carries a durable receipt to
+/// `Begin::Replay` and SKIPS it, so a reused id would silently drop a drain after
+/// a restart. Hence `(pid, one nonce per process, counter)` — never derived from
+/// `(raft_group, index)` or any caller key; see `redb_store::shard::drain_batch`.
+fn shard_write_attempt_id(label: &str) -> String {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    static NONCE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    let nonce = *NONCE.get_or_init(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos() as u64)
+            .unwrap_or(0)
+    });
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("{label}/{}-{nonce}:{seq}", std::process::id())
+}
 const MAX_DURABLE_SEMANTIC_BYTES: usize = 384 * 1024 * 1024;
 const MAX_DURABLE_SEMANTIC_ITEMS: usize = 4_000_000;
 
@@ -110,8 +132,8 @@ pub(crate) const RAFT_META: TableDefinition<(u64, &str), &[u8]> = TableDefinitio
 /// Encryption-at-rest key-mismatch canary (GOC-16 / BUG-248). The table carries one
 /// AEAD-sealed canary row plus one non-secret, versioned key-binding row. The sealed
 /// plaintext includes the binding, so changing the plaintext metadata alone cannot
-/// make a different key reference appear valid. `Shard::open` verifies both before
-/// spawning a writer thread or binding a listener.
+/// make a different key reference appear valid. `ShardWriter::open` verifies both
+/// before spawning a writer thread or binding a listener.
 ///
 /// The table is copied verbatim by online backup, offline shard migration, and
 /// restore. A backup therefore preserves the key identity/version boundary; restore
@@ -152,26 +174,29 @@ enum CanaryOutcome {
 /// [`TXN_RECOVERY_KEY_ENV`](crate::crypto::TXN_RECOVERY_KEY_ENV) doc already names that
 /// as "a destructive-read operation on a populated plaintext store, not a config
 /// toggle"; this is the probe that lets the open path refuse it.
+/// Asked of the file's CATALOG, which is the only reader class that exists before
+/// any graph scope is bound — and this runs at open, before one is. That is not a
+/// weakening: `graph_meta` is file-wide, and every graph that receives a row gets
+/// its catalog entry backfilled in the SAME admitted group as those rows
+/// (`redb_store::backfill_graph_meta_row`), so a shard with rows always has a
+/// catalog entry. The one direction this can be wrong — a registered graph that
+/// never received a row — refuses to establish a canary on a store that is empty
+/// in fact, which is the safe direction to be wrong in.
 #[cfg(feature = "security")]
-fn shard_holds_durable_rows(db: &Database) -> Result<bool, String> {
-    use redb::ReadableTableMetadata as _;
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    macro_rules! non_empty {
-        ($definition:expr) => {{
-            if let Ok(table) = rtx.open_table($definition) {
-                if table.len().map_err(|e| e.to_string())? > 0 {
-                    return Ok(true);
-                }
+fn shard_holds_durable_rows(shard: &Shard) -> Result<bool, String> {
+    let control = shard.control_read()?;
+    let catalog = control.open_owner_table(crate::redb_store::GRAPH_META)?;
+    let has_rows = {
+        let mut rows = catalog.iter().map_err(|e| e.to_string())?;
+        match rows.next() {
+            None => false,
+            Some(row) => {
+                row.map_err(|e| e.to_string())?;
+                true
             }
-        }};
-    }
-    non_empty!(crate::redb_store::GRAPH_META);
-    non_empty!(crate::redb_store::NODES);
-    non_empty!(crate::redb_store::EDGES);
-    non_empty!(crate::redb_store::LEDGER);
-    non_empty!(crate::redb_store::SEMANTIC);
-    non_empty!(crate::redb_store::AUDIT);
-    Ok(false)
+        }
+    };
+    Ok(has_rows)
 }
 
 /// Does this shard carry encryption-at-rest metadata (BUG-PE-055)?
@@ -180,11 +205,9 @@ fn shard_holds_durable_rows(db: &Database) -> Result<bool, String> {
 /// are sealed opened cleanly with no key at all and then failed per-read. Startup is
 /// where that belongs.
 #[cfg(feature = "security")]
-fn shard_carries_encryption_metadata(db: &Database) -> Result<bool, String> {
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let Ok(table) = rtx.open_table(ENCRYPTION_CANARY) else {
-        return Ok(false);
-    };
+fn shard_carries_encryption_metadata(shard: &Shard) -> Result<bool, String> {
+    let control = shard.control_read()?;
+    let table = control.open_owner_table(ENCRYPTION_CANARY)?;
     for key in [ENCRYPTION_CANARY_KEY, ENCRYPTION_KEY_BINDING_KEY] {
         if table.get(key).map_err(|e| e.to_string())?.is_some() {
             return Ok(true);
@@ -194,8 +217,8 @@ fn shard_carries_encryption_metadata(db: &Database) -> Result<bool, String> {
 }
 
 /// Verify (or, on first use, establish) that `cipher` is the SAME key and stable
-/// identity/version that sealed this shard's previous data. Called from `Shard::open`
-/// before any writer thread spawns or any listener binds.
+/// identity/version that sealed this shard's previous data. Called from
+/// `ShardWriter::open` before any writer thread spawns or any listener binds.
 ///
 /// A pre-key-lifecycle store may have only the original fixed plaintext canary. That
 /// legacy row is verified and upgraded atomically with the new binding record. A
@@ -203,14 +226,12 @@ fn shard_carries_encryption_metadata(db: &Database) -> Result<bool, String> {
 /// fails closed; neither half is ever silently recreated.
 #[cfg(feature = "security")]
 fn verify_or_establish_encryption_canary(
-    db: &Database,
+    shard: &Shard,
     cipher: &crate::crypto::ValueCipher,
 ) -> Result<CanaryOutcome, String> {
     let (existing_canary, existing_binding) = {
-        let rtx = db.begin_read().map_err(|e| e.to_string())?;
-        let table = rtx
-            .open_table(ENCRYPTION_CANARY)
-            .map_err(|e| e.to_string())?;
+        let control = shard.control_read()?;
+        let table = control.open_owner_table(ENCRYPTION_CANARY)?;
         let canary = table
             .get(ENCRYPTION_CANARY_KEY)
             .map_err(|e| e.to_string())?
@@ -277,19 +298,7 @@ fn verify_or_establish_encryption_canary(
             let binding = crate::crypto::EncryptionKeyBinding::from_key_ref(configured_ref);
             let binding_bytes = binding.encode()?;
             let sealed = cipher.seal(&expected_plaintext);
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            {
-                let mut table = wtx
-                    .open_table(ENCRYPTION_CANARY)
-                    .map_err(|e| e.to_string())?;
-                table
-                    .insert(ENCRYPTION_CANARY_KEY, sealed.as_slice())
-                    .map_err(|e| e.to_string())?;
-                table
-                    .insert(ENCRYPTION_KEY_BINDING_KEY, binding_bytes.as_slice())
-                    .map_err(|e| e.to_string())?;
-            }
-            wtx.commit().map_err(|e| e.to_string())?;
+            write_encryption_canary(shard, &sealed, &binding_bytes)?;
             Ok(CanaryOutcome::UpgradedLegacy)
         }
         (None, Some(_)) => Err(
@@ -304,7 +313,7 @@ fn verify_or_establish_encryption_canary(
             // "redb encryption-at-rest ENABLED". Every pre-existing value then became
             // unreadable one read at a time. Establishing a canary is only ever
             // correct on an EMPTY store.
-            if shard_holds_durable_rows(db)? {
+            if shard_holds_durable_rows(shard)? {
                 return Err(format!(
                     "refusing to open the durable graph store: {} is set but this store \
                      carries no encryption canary and already holds durable rows, so it \
@@ -320,35 +329,33 @@ fn verify_or_establish_encryption_canary(
             let binding = crate::crypto::EncryptionKeyBinding::from_key_ref(configured_ref);
             let binding_bytes = binding.encode()?;
             let sealed = cipher.seal(&expected_plaintext);
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            {
-                let mut table = wtx
-                    .open_table(ENCRYPTION_CANARY)
-                    .map_err(|e| e.to_string())?;
-                table
-                    .insert(ENCRYPTION_CANARY_KEY, sealed.as_slice())
-                    .map_err(|e| e.to_string())?;
-                table
-                    .insert(ENCRYPTION_KEY_BINDING_KEY, binding_bytes.as_slice())
-                    .map_err(|e| e.to_string())?;
-            }
-            wtx.commit().map_err(|e| e.to_string())?;
+            write_encryption_canary(shard, &sealed, &binding_bytes)?;
             Ok(CanaryOutcome::Established)
         }
     }
 }
 
-// Time-series tables (CONCEPT:AU-KG.retrieval.god-nodes-communities). The CANONICAL `(series_id, bucket_start)`
-// chunk schema is declared once in the eg-tsdb crate (where the store/query logic
-// lives) and re-exported here so it sits WITH the durable tier's other table
-// definitions. They use the SAME redb composite-key range-scan idiom as
-// NODES/EDGES/LEDGER. The series store opens its OWN `series.redb` file (redb holds
-// an exclusive per-process file lock, so it cannot share this backend's shard handle)
-// — these aliases document the schema beside the graph tables; the actual
-// open + I/O lives in `eg_tsdb::store::SeriesStore`.
-#[cfg(feature = "tsdb")]
-#[allow(unused_imports)]
-pub(crate) use eg_tsdb::store::{SERIES_CHUNKS, SERIES_META};
+/// Write the sealed canary and its key-binding row as ONE control-only commit, so
+/// a crash leaves the store's previous state or the complete new pair, never half.
+/// Control-only because `encryption_canary` is file-wide: it belongs to the file,
+/// not to any graph it hosts.
+#[cfg(feature = "security")]
+fn write_encryption_canary(
+    shard: &Shard,
+    sealed: &[u8],
+    binding_bytes: &[u8],
+) -> Result<(), String> {
+    in_control_write(shard, "encryption_canary", |write| {
+        let mut table = write.control().open_table(ENCRYPTION_CANARY)?;
+        table
+            .insert(ENCRYPTION_CANARY_KEY, sealed)
+            .map_err(|e| e.to_string())?;
+        table
+            .insert(ENCRYPTION_KEY_BINDING_KEY, binding_bytes)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+}
 
 /// Boxed payload of a [`Cmd::CrossModalCommit`] (CONCEPT:EG-KG.txn.reader-never-sees-node + EG-360). Holds ONE
 /// graph's full multi-modal write-set — graph methods (incl. lowered OWL-axiom /
@@ -454,19 +461,12 @@ pub(crate) enum Cmd {
         graph: String,
         done: oneshot::Sender<Result<(), String>>,
     },
-    /// Read the full store back as owned dumps. redb holds an EXCLUSIVE per-process
-    /// file lock, so the load MUST go through the one thread that owns the
-    /// `Database` rather than opening a second handle (which errors "Database
-    /// already open"). The async caller rebuilds the registry from the dumps.
-    Load {
-        reply: std::sync::mpsc::Sender<Result<Vec<GraphDump>, String>>,
-    },
     /// Read ONE graph's durable rows back as an owned dump (CONCEPT:EG-KG.storage.100m-tenant — tenant
     /// rehydration). Goes through the owner thread (exclusive file lock) and flushes
     /// pending writes first so the rehydrated dump reflects the latest durable state.
     ReadGraphDump {
         graph: String,
-        reply: std::sync::mpsc::Sender<Result<Option<GraphDump>, String>>,
+        reply: std::sync::mpsc::SyncSender<Result<Option<GraphDump>, String>>,
     },
     /// Read ONE BOUNDED page of one graph's durable rows (CONCEPT:EG-KG.sharding.paged-lazy-open, L38
     /// "paged adjacency") — the memory-bounded sibling of `ReadGraphDump` a paged
@@ -477,37 +477,31 @@ pub(crate) enum Cmd {
     ReadGraphDumpPage {
         graph: String,
         query: Box<PageQuery>,
-        reply: std::sync::mpsc::Sender<Result<Option<crate::redb_store::GraphDumpPage>, String>>,
+        reply: std::sync::mpsc::SyncSender<Result<Option<crate::redb_store::GraphDumpPage>, String>>,
     },
     /// Export ONE graph's rows VERBATIM for an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs
     /// on the SOURCE shard's writer: flush pending first (so the snapshot is complete),
     /// then scan the raw value blobs (encryption + audit chain untouched).
     ExportGraphRaw {
         graph: String,
-        reply: std::sync::mpsc::Sender<Result<super::online_reshard::RawGraphRows, String>>,
+        reply: std::sync::mpsc::SyncSender<Result<super::online_reshard::RawGraphRows, String>>,
     },
     /// Import ONE graph's verbatim rows on an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs on
-    /// the DESTINATION shard's writer and lands them in ONE `Durability::Immediate` commit
-    /// — the commit-before-ack point of the move.
+    /// the DESTINATION shard's writer and lands them in ONE commit — the
+    /// commit-before-ack point of the move.
     ImportGraphRaw {
         graph: String,
         rows: Box<super::online_reshard::RawGraphRows>,
-        reply: std::sync::mpsc::Sender<Result<(), String>>,
+        reply: std::sync::mpsc::SyncSender<Result<(), String>>,
     },
     /// Import ONLY the DELTA of an online shard move (CONCEPT:EG-KG.backend.flush-pending-first, R1 delta-copy). Runs
     /// on the DESTINATION shard's writer under the exclusive routing quiesce; lands the
     /// small set of rows that changed since the bulk pass (upserts + removals) in ONE
-    /// `Durability::Immediate` commit — the short under-quiesce write that shrinks the pause.
+    /// commit — the short under-quiesce write that shrinks the pause.
     ImportGraphDelta {
         graph: String,
         delta: Box<super::online_reshard::RawGraphDelta>,
-        reply: std::sync::mpsc::Sender<Result<(), String>>,
-    },
-    /// Remove replay/outbox and audit history from the old shard after an online
-    /// route flip. Tenant deletion uses `PurgeGraph` and deliberately retains history.
-    PurgeMovedMutationRows {
-        graph: String,
-        reply: std::sync::mpsc::Sender<Result<(), String>>,
+        reply: std::sync::mpsc::SyncSender<Result<(), String>>,
     },
     /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security).
     /// Flushes pending first so the walk reflects the latest durable entries, then
@@ -515,14 +509,14 @@ pub(crate) enum Cmd {
     #[cfg(feature = "security")]
     AuditVerify {
         graph: String,
-        reply: std::sync::mpsc::Sender<Result<crate::protocol::AuditReport, String>>,
+        reply: std::sync::mpsc::SyncSender<Result<crate::protocol::AuditReport, String>>,
     },
     /// TEST-ONLY tamper of one audit entry (see `test_tamper_audit_entry`).
     #[cfg(all(test, feature = "security"))]
     TestTamperAudit {
         graph: String,
         seq: u64,
-        reply: std::sync::mpsc::Sender<Result<(), String>>,
+        reply: std::sync::mpsc::SyncSender<Result<(), String>>,
     },
     /// Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security): durably append a Merkle root over an
     /// ALREADY-HASHED `:ToolCall`/`:RunTrace` window into the graph's tamper-evident
@@ -537,7 +531,7 @@ pub(crate) enum Cmd {
         graph: String,
         root: crate::audit::Hash,
         members: Vec<(String, crate::audit::Hash)>,
-        reply: std::sync::mpsc::Sender<Result<Option<u64>, String>>,
+        reply: std::sync::mpsc::SyncSender<Result<Option<u64>, String>>,
     },
     /// Produce + verify a Merkle inclusion proof for one node against a prior
     /// provenance anchor (CONCEPT:EG-KG.sharding.row-level-security; `Method::AuditProveInclusion`). Routed
@@ -548,7 +542,7 @@ pub(crate) enum Cmd {
         graph: String,
         node_id: String,
         anchor_seq: Option<u64>,
-        reply: std::sync::mpsc::Sender<Result<crate::protocol::MerkleInclusionReport, String>>,
+        reply: std::sync::mpsc::SyncSender<Result<crate::protocol::MerkleInclusionReport, String>>,
     },
     /// **Cross-modal ACID commit (CONCEPT:EG-KG.txn.reader-never-sees-node).** Land a graph, vector, blob-ref,
     /// and property write-set for ONE graph in ONE `WriteTransaction`, all-or-nothing,
@@ -593,9 +587,9 @@ pub(crate) enum Cmd {
     },
     /// Native development-lane hold/quota mutation (RMDD-28: Reserve/Renew/
     /// Observe/Finish/Cleanup/UpdateQuota). Flushes pending graph mutations
-    /// first, then runs the kernel's own self-contained begin_write()/commit()
-    /// against the native `development_lane_*` tables in one writer-owned
-    /// transaction, same shape as the claim-capability commands above.
+    /// first, then admits its own group over the native `development_lane_*`
+    /// tables in one writer-owned commit, same shape as the claim-capability
+    /// commands above.
     CommitDevelopmentLane {
         graph: String,
         method: Box<Method>,
@@ -622,30 +616,40 @@ pub(crate) enum Cmd {
         payload: Box<ChangeEnvelopesPayload>,
         done: oneshot::Sender<Result<Vec<ChangeEnvelopeCommit>, (usize, String)>>,
     },
+    /// Durably bind one projection consumer to its outbox topic on the writer
+    /// thread. Subscription and claim both use the same shard-owned ledger;
+    /// keeping this as a command prevents a read-then-write backend adapter
+    /// from bypassing the single-writer authority.
+    MutationOutboxSubscribe {
+        graph: String,
+        consumer: String,
+        topic: String,
+        done: oneshot::Sender<Result<(), String>>,
+    },
     /// Lease pending transactional-outbox events on the writer thread so claim
     /// selection and lease installation are one durable transaction.
     MutationOutboxClaim {
         graph: String,
         consumer: String,
-        now_ms: u64,
-        lease_ms: u64,
-        limit: usize,
-        done: oneshot::Sender<Result<Vec<MutationOutboxLease>, String>>,
+        budget: Box<OutboxClaimBudget>,
+        done: oneshot::Sender<Result<(OutboxClaimOutcome, OutboxClaimBudget), String>>,
     },
-    /// Fence-aware ack plus monotonic projection cursor advancement.
+    /// Ack one held lease. The ack IS the projection-cursor advance — the kernel
+    /// marks the row delivered and moves the consumer's watermark in ONE
+    /// transaction, so there is no separate "advance the cursor" step (and no
+    /// crash window between the two) for this command to carry.
     MutationOutboxAck {
         graph: String,
         lease: Box<MutationOutboxLease>,
-        projection: String,
         now_ms: u64,
         done: oneshot::Sender<Result<MutationProjectionCursor, String>>,
     },
     Shutdown {
-        reply: std::sync::mpsc::Sender<()>,
+        reply: std::sync::mpsc::SyncSender<()>,
     },
     // ── Raft log/meta (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — all on the writer thread because redb
     // holds an EXCLUSIVE per-process file lock, so log + M2 graph data must go
-    // through the ONE thread that owns the Database. ──────────────────────────
+    // through the ONE thread that owns the shard. ─────────────────────────────
     /// Append Raft log entries `(group_id, index) -> blob` and await durable commit.
     /// Buffered into the SAME `Pending` batch as M2 mutations so a log append and a
     /// graph mutation coalesce into ONE group-commit `WriteTransaction` / one fsync
@@ -661,7 +665,7 @@ pub(crate) enum Cmd {
         group_id: u64,
         lo: u64,
         hi: u64,
-        reply: std::sync::mpsc::Sender<Result<Vec<Vec<u8>>, String>>,
+        reply: std::sync::mpsc::SyncSender<Result<Vec<Vec<u8>>, String>>,
     },
     /// Delete entries with index >= `from` for one group (conflict truncation).
     RaftLogDeleteFrom {
@@ -678,7 +682,7 @@ pub(crate) enum Cmd {
     /// (first, last) present log index for one group, for `get_log_state`.
     RaftLogBounds {
         group_id: u64,
-        reply: std::sync::mpsc::Sender<LogBoundsResult>,
+        reply: std::sync::mpsc::SyncSender<LogBoundsResult>,
     },
     /// Durably write one Raft metadata key (vote / applied-state / last-purged).
     RaftMetaPut {
@@ -691,7 +695,7 @@ pub(crate) enum Cmd {
     RaftMetaGet {
         group_id: u64,
         key: String,
-        reply: std::sync::mpsc::Sender<Result<Option<Vec<u8>>, String>>,
+        reply: std::sync::mpsc::SyncSender<Result<Option<Vec<u8>>, String>>,
     },
     // ── Cross-shard 2PC durable records (CONCEPT:EG-KG.storage.lane-n-increment) ──────────────────
     /// Durably persist ONE participant group's PREPARE slice for a cross-shard txn
@@ -706,7 +710,7 @@ pub(crate) enum Cmd {
     XshardPrepareGet {
         txn_id: String,
         group_id: u64,
-        reply: std::sync::mpsc::Sender<Result<Option<Vec<u8>>, String>>,
+        reply: std::sync::mpsc::SyncSender<Result<Option<Vec<u8>>, String>>,
     },
     /// Durably write the coordinator's DECISION for a cross-shard txn (the atomic
     /// commit point), optionally retained until a separate parent is terminal.
@@ -734,21 +738,21 @@ pub(crate) enum Cmd {
     },
     /// Scan ALL in-doubt prepare records (txn_id, group_id, slice) for recovery.
     XshardScanPrepares {
-        reply: std::sync::mpsc::Sender<XshardPrepareScan>,
+        reply: std::sync::mpsc::SyncSender<XshardPrepareScan>,
     },
     /// Scan digest-only decisions for parent-aware startup cleanup.
     XshardScanDecisions {
-        reply: std::sync::mpsc::Sender<XshardDecisionScan>,
+        reply: std::sync::mpsc::SyncSender<XshardDecisionScan>,
     },
     /// Read a txn's decision (Some(true)=commit, Some(false)=abort, None=undecided).
     XshardDecisionGet {
         txn_id: String,
-        reply: std::sync::mpsc::Sender<Result<Option<bool>, String>>,
+        reply: std::sync::mpsc::SyncSender<Result<Option<bool>, String>>,
     },
     /// Is this decision/pending marker retained for a MutationBatch parent?
     XshardDecisionRetainGet {
         txn_id: String,
-        reply: std::sync::mpsc::Sender<Result<bool, String>>,
+        reply: std::sync::mpsc::SyncSender<Result<bool, String>>,
     },
     /// Durably upsert a named materialized view's blob (CONCEPT:EG-KG.storage.feature).
     #[cfg(feature = "compute-dist")]
@@ -760,7 +764,7 @@ pub(crate) enum Cmd {
     /// Scan every persisted materialized view `(name, blob)` for reload on boot.
     #[cfg(feature = "compute-dist")]
     MatViewScan {
-        reply: std::sync::mpsc::Sender<MatViewScanResult>,
+        reply: std::sync::mpsc::SyncSender<MatViewScanResult>,
     },
     /// Durably upsert a PLAN-BACKED matview definition (CONCEPT:EG-KG.storage.plan-backed-matview).
     #[cfg(feature = "matview")]
@@ -778,7 +782,7 @@ pub(crate) enum Cmd {
     /// Scan every persisted plan-backed matview `(name, blob)` for reload on boot.
     #[cfg(feature = "matview")]
     PlanMatViewScan {
-        reply: std::sync::mpsc::Sender<MatViewScanResult>,
+        reply: std::sync::mpsc::SyncSender<MatViewScanResult>,
     },
     /// Durably upsert an incremental matview's operator-state snapshot
     /// (CONCEPT:EG-KG.storage.incremental-matview).
@@ -797,7 +801,7 @@ pub(crate) enum Cmd {
     /// Scan every persisted incremental-matview operator-state snapshot.
     #[cfg(feature = "matview")]
     MatViewOperatorStateScan {
-        reply: std::sync::mpsc::Sender<MatViewScanResult>,
+        reply: std::sync::mpsc::SyncSender<MatViewScanResult>,
     },
 }
 
@@ -823,7 +827,7 @@ pub(crate) enum Cmd {
 #[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct RedbGroupCommitTestControl {
-    entered: std::sync::mpsc::Sender<()>,
+    entered: std::sync::mpsc::SyncSender<()>,
     release: std::sync::Mutex<Option<std::sync::mpsc::Receiver<()>>>,
 }
 
@@ -832,10 +836,10 @@ impl RedbGroupCommitTestControl {
     pub(crate) fn new() -> (
         Arc<Self>,
         std::sync::mpsc::Receiver<()>,
-        std::sync::mpsc::Sender<()>,
+        std::sync::mpsc::SyncSender<()>,
     ) {
-        let (entered, entered_rx) = std::sync::mpsc::channel();
-        let (release, release_rx) = std::sync::mpsc::channel();
+        let (entered, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release, release_rx) = std::sync::mpsc::sync_channel(1);
         (
             Arc::new(Self {
                 entered,
@@ -855,6 +859,32 @@ impl RedbGroupCommitTestControl {
             .take();
         if let Some(release) = release {
             let _ = release.recv();
+        }
+    }
+}
+
+#[cfg(test)]
+struct ReleaseOnDrop(Option<std::sync::mpsc::SyncSender<()>>);
+
+#[cfg(test)]
+impl ReleaseOnDrop {
+    fn new(sender: std::sync::mpsc::SyncSender<()>) -> Self {
+        Self(Some(sender))
+    }
+
+    fn release(&mut self) -> Result<(), std::sync::mpsc::SendError<()>> {
+        self.0
+            .take()
+            .expect("release guard must be used at most once")
+            .send(())
+    }
+}
+
+#[cfg(test)]
+impl Drop for ReleaseOnDrop {
+    fn drop(&mut self) {
+        if let Some(sender) = self.0.take() {
+            let _ = sender.send(());
         }
     }
 }
@@ -1078,26 +1108,30 @@ fn resolve_flush_threshold(capacity: usize) -> usize {
     automatic
 }
 
-/// One durable shard (CONCEPT:EG-KG.backend.sharded-k-way-durable): its OWN redb file + off-reactor group-commit
-/// writer thread + bounded channel + `Pending` (incl. the EG-024 linger + EG-025
-/// audit tail cache) + drop/commit counters. Single-writer-per-FILE, so K shards
-/// commit in parallel on K cores.
-struct Shard {
+/// The WRITER of one durable shard (CONCEPT:EG-KG.backend.sharded-k-way-durable): the off-reactor
+/// group-commit thread that owns one shard file, its bounded channel, its `Pending`
+/// (incl. the EG-024 linger + EG-025 audit tail cache) and its commit counters.
+/// Single-writer-per-FILE, so K writers commit in parallel on K cores.
+///
+/// It is NOT the store: the store is [`crate::redb_store::shard::Shard`], the
+/// kernel-owned `OwnerLayout::GraphShard` file this writer commits into and every
+/// off-writer snapshot read is issued from. This type is the thread and the queue
+/// in front of it, which is what its name says.
+struct ShardWriter {
     db_path: String,
-    /// `Weak` handle to THIS shard's redb `Database` (CONCEPT:EG-KG.storage.snapshot-read-off-writer — snapshot reads
-    /// off the writer). redb 4.1 is MVCC: `Database::begin_read()` opens a consistent
-    /// read snapshot that runs CONCURRENTLY with the single writer (no writer
-    /// involvement, no commit). The writer thread owns the SOLE STRONG `Arc`; the
-    /// point-read / read-through path `upgrade()`s this `Weak` to serve an evicted node
-    /// DIRECTLY off a `begin_read()` snapshot on the SAME handle WITHOUT routing through
-    /// the writer's channel and WITHOUT forcing a group-commit. Holding a `Weak` (not a
-    /// strong clone) is deliberate: the exclusive per-process file lock then releases
-    /// EXACTLY when the writer thread exits on `shutdown` (the strong Arc drops),
-    /// preserving the pre-EG-027 lifetime — a reopen of the same persist dir after
-    /// shutdown succeeds, and a read after shutdown fails fast (upgrade ⇒ `None`)
-    /// instead of pinning the file lock. Opening a SECOND `Database` on the file would
-    /// hit redb's exclusive lock, which is why reads share this handle.
-    db: Weak<Database>,
+    /// `Weak` handle to THIS shard's kernel-owned store (CONCEPT:EG-KG.storage.snapshot-read-off-writer —
+    /// snapshot reads off the writer). redb 4.1 is MVCC: a kernel-issued `ScopedRead`
+    /// runs CONCURRENTLY with the single writer, so the point-read / read-through
+    /// path `upgrade()`s this `Weak` and serves an evicted node DIRECTLY off
+    /// `shard.read(&shard.graph(g)?)` without touching the writer's channel and
+    /// without forcing a group-commit. `Weak`, not a strong clone, is deliberate:
+    /// the writer thread owns the SOLE STRONG `Arc`, so the exclusive per-process
+    /// file lock releases EXACTLY when that thread exits on `shutdown` — a reopen of
+    /// the persist dir then succeeds, and a read after shutdown fails fast
+    /// (upgrade ⇒ `None`) instead of pinning the lock. The `Shard` (not a raw
+    /// database) is what is shared because it carries the bound-handle cache, so a
+    /// warm graph never re-binds.
+    shard: Weak<Shard>,
     tx: SyncSender<Cmd>,
     /// Group-commit batch-size / linger counters (CONCEPT:EG-KG.backend.adaptive-linger-coalesce), per shard.
     stats: Arc<RedbCommitStats>,
@@ -1121,37 +1155,28 @@ struct Shard {
     handle: parking_lot::Mutex<Option<JoinHandle<()>>>,
 }
 
-impl Shard {
-    /// Open (or create) `db_path` and spawn its dedicated group-commit writer thread.
+impl ShardWriter {
+    /// Open (or create) `db_path` as a kernel-owned store and spawn its dedicated
+    /// group-commit writer thread.
     fn open(
         db_path: String,
         thread_name: String,
-        policy: DurabilityPolicy,
         capacity: usize,
         flush_threshold: usize,
         group_commit: RedbGroupCommitConfig,
     ) -> Result<Self, String> {
-        // ONE shared `Database` handle per shard (CONCEPT:EG-KG.storage.snapshot-read-off-writer). The writer thread
-        // and the snapshot-read path both hold a clone of this `Arc`; redb's MVCC lets
-        // a `begin_read()` on this handle run concurrently with the writer's
-        // `begin_write()`, so reads never route through the writer. (A SECOND
-        // `Database::create` on the same file would error on the exclusive file lock —
-        // hence one shared handle, not a re-open.)
-        let db = Arc::new(Database::create(&db_path).map_err(|e| e.to_string())?);
-        // Materialize the shared authoritative schema plus the server-only Raft
-        // metadata table in one transaction. Read transactions cannot open a table
-        // that has never been created.
-        {
-            let wtx = db.begin_write().map_err(|e| e.to_string())?;
-            crate::redb_store::initialize_canonical_tables(&wtx)?;
-            // Unconditional, like every other declared table: the shard file's
-            // table set is its format identity, not a property of the build
-            // that opened it. See `init_canonical_misc_tables`.
-            wtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
-            wtx.open_table(ENCRYPTION_CANARY)
-                .map_err(|e| e.to_string())?;
-            wtx.commit().map_err(|e| e.to_string())?;
-        }
+        // ONE shared `Shard` per file (CONCEPT:EG-KG.storage.snapshot-read-off-writer): the writer thread and
+        // the snapshot-read path both hold a clone of this `Arc`, and redb's exclusive
+        // per-file lock is why reads share it rather than re-opening.
+        //
+        // No schema bootstrap runs here any more. `StorageKernel::create_owner`
+        // materializes the WHOLE declared `OwnerLayout::GraphShard` census — the 41
+        // scope-prefixed tables, the 12 file-wide ones (`raft_meta` and
+        // `encryption_canary` among them) and the ledger — and re-validates it on
+        // every open, so the hand-written `initialize_canonical_tables` bootstrap
+        // that used to run here is deleted: beside `create_owner` it would be a
+        // second physical authority over the same file.
+        let shard = Arc::new(Shard::open(std::path::Path::new(&db_path))?);
         let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
         // Adaptive group-commit micro-linger config + observability (CONCEPT:EG-KG.backend.adaptive-linger-coalesce).
         // Resolved once by the backend open path (Configuration discipline); the
@@ -1186,7 +1211,7 @@ impl Shard {
                 // before the check ran, so it appeared even on a store that was about
                 // to be refused — and, worse, it read identically whether the key was
                 // the store's existing key or a brand-new one being imposed on it.
-                match verify_or_establish_encryption_canary(&db, c)? {
+                match verify_or_establish_encryption_canary(&shard, c)? {
                     CanaryOutcome::Verified => tracing::info!(
                         "redb encryption-at-rest ENABLED (value blobs sealed with \
                          ChaCha20-Poly1305); the configured key matches this store's \
@@ -1215,7 +1240,7 @@ impl Shard {
                 // material"). This is the symmetric partner of the wrong-key refusal
                 // above, and it holds regardless of the required-mode posture — a
                 // missing key for an encrypted store is not a posture choice.
-                if shard_carries_encryption_metadata(&db)? {
+                if shard_carries_encryption_metadata(&shard)? {
                     return Err(format!(
                         "refusing to open the durable graph store: this store carries \
                          encryption-at-rest metadata (its value blobs are sealed) but {} \
@@ -1268,14 +1293,13 @@ impl Shard {
         // thread below takes the SOLE STRONG `Arc`, so the redb file lock releases
         // exactly when that thread exits on shutdown — matching the pre-EG-027 lifetime
         // (a reopen after shutdown succeeds; a read after shutdown upgrades to `None`).
-        let db_weak = Arc::downgrade(&db);
+        let shard_weak = Arc::downgrade(&shard);
         let handle = std::thread::Builder::new()
             .name(thread_name)
             .spawn(move || {
                 run(
                     rx,
-                    db,
-                    policy,
+                    shard,
                     group_commit,
                     stats_writer,
                     flush_threshold,
@@ -1286,7 +1310,7 @@ impl Shard {
             .map_err(|e| e.to_string())?;
         Ok(Self {
             db_path,
-            db: db_weak,
+            shard: shard_weak,
             tx,
             stats,
             #[cfg(feature = "security")]
@@ -1301,12 +1325,23 @@ impl Shard {
     fn shutdown(&self) {
         let handle = self.handle.lock().take();
         if let Some(handle) = handle {
-            let (reply, rx) = std::sync::mpsc::channel();
+            let (reply, rx) = std::sync::mpsc::sync_channel(1);
             if self.tx.send(Cmd::Shutdown { reply }).is_ok() {
                 let _ = rx.recv();
             }
             let _ = handle.join();
         }
+    }
+}
+
+impl Drop for ShardWriter {
+    fn drop(&mut self) {
+        // A backend may be released through its last `Arc` without an explicit
+        // shutdown (test states and startup-error paths do this). Join the writer
+        // here so its sole strong `Shard` handle and redb file lock are released
+        // before the next in-process open, rather than detaching a resource-owning
+        // thread until the scheduler happens to observe channel disconnect.
+        self.shutdown();
     }
 }
 
@@ -1352,8 +1387,8 @@ impl eg_storage::PrivatePayloadIntegrity for TxnRecoveryPrivateIntegrity {
 
 /// Resolve the admin-mutations store's private-payload integrity authority. Reads the
 /// SAME `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` (falling back to the shared data key) as every
-/// [`Shard`]'s own `txn_recovery_cipher`, but as a function of the environment rather
-/// than of any one shard (none is constructed yet at this call site). `None` without the
+/// [`ShardWriter`]'s own `txn_recovery_cipher`, but as a function of the environment
+/// rather than of any one shard (none is constructed yet at this call site). `None` without the
 /// `security` feature or the key: the write/read path already fails closed itself there.
 #[cfg(feature = "security")]
 pub(crate) fn admin_mutations_private_integrity(
@@ -1399,11 +1434,11 @@ fn open_admin_mutations(path: &std::path::Path) -> Result<AdminMutationStore, St
 
 /// Handle to the redb write-through tier (CONCEPT:EG-KG.storage.kg-kg / EG-026). The dispatch
 /// path holds an `Arc` of this and calls `record`/`record_durable`; each routes by
-/// graph to one of K independent single-writer [`Shard`]s, so K cores commit in
+/// graph to one of K independent single-writer [`ShardWriter`]s, so K cores commit in
 /// parallel. K=1 holds exactly one shard backed by canonical `graph-0.redb`.
 pub struct RedbBackend {
     /// The K shards (len >= 1). Index `shard_index(graph_fname, K)` owns a graph.
-    shards: Vec<Shard>,
+    shards: Vec<ShardWriter>,
     /// Optional tenant catalog OVERRIDE for graph→shard routing (CONCEPT:EG-KG.sharding.empty-catalog-routing, M3).
     /// `None` (the default) ⇒ pure EG-026 FNV-1a routing, byte-for-byte unchanged. When
     /// `Some` AND it holds an explicit entry for a graph, that entry's shard wins
@@ -1442,13 +1477,8 @@ impl RedbBackend {
     /// count K is auto-sized (`resolve_shard_count`) and reconciled against any
     /// existing current on-disk layout. The exclusive per-file redb lock for every
     /// shard is acquired here at open.
-    pub fn open(
-        persist_dir: String,
-        policy: DurabilityPolicy,
-        capacity: usize,
-    ) -> Result<Self, String> {
-        let backend =
-            Self::open_with_shards(persist_dir.clone(), policy, capacity, resolve_shard_count())?;
+    pub fn open(persist_dir: String, capacity: usize) -> Result<Self, String> {
+        let backend = Self::open_with_shards(persist_dir.clone(), capacity, resolve_shard_count())?;
         Ok(backend.maybe_attach_catalog_from_env(&persist_dir))
     }
 
@@ -1504,13 +1534,11 @@ impl RedbBackend {
     /// still reconciled against the on-disk layout so an existing dir's K wins.
     pub fn open_with_shards(
         persist_dir: String,
-        policy: DurabilityPolicy,
         capacity: usize,
         requested_k: usize,
     ) -> Result<Self, String> {
         Self::open_with_shards_and_config(
             persist_dir,
-            policy,
             capacity,
             requested_k,
             RedbGroupCommitConfig::from_env(),
@@ -1520,16 +1548,14 @@ impl RedbBackend {
     #[cfg(test)]
     fn open_with_group_commit_config(
         persist_dir: String,
-        policy: DurabilityPolicy,
         capacity: usize,
         group_commit: RedbGroupCommitConfig,
     ) -> Result<Self, String> {
-        Self::open_with_shards_and_config(persist_dir, policy, capacity, 1, group_commit)
+        Self::open_with_shards_and_config(persist_dir, capacity, 1, group_commit)
     }
 
     fn open_with_shards_and_config(
         persist_dir: String,
-        policy: DurabilityPolicy,
         capacity: usize,
         requested_k: usize,
         group_commit: RedbGroupCommitConfig,
@@ -1554,9 +1580,9 @@ impl RedbBackend {
             );
         }
         // D-CDX-65: open all K shards CONCURRENTLY instead of one at a time. Each
-        // shard's `Database::create` (redb's own header/allocator validation pass over
+        // shard's `Shard::open` (redb's own header/allocator validation pass over
         // its file, proportional to file size, not row count) is completely independent
-        // of every other shard until the `Shard` structs are collected below — no
+        // of every other shard until the `ShardWriter` structs are collected below — no
         // cross-shard state is touched during open. The prior sequential loop paid
         // sum(per-shard open time) with ZERO log lines in between (a multi-minute
         // startup gap that reads as "dead" — see D-CDX-65: a live incident measured
@@ -1580,7 +1606,7 @@ impl RedbBackend {
             };
             shard_specs.push((i, db_path, thread_name));
         }
-        let opened: Vec<Result<Shard, String>> = std::thread::scope(|scope| {
+        let opened: Vec<Result<ShardWriter, String>> = std::thread::scope(|scope| {
             let handles: Vec<_> = shard_specs
                 .into_iter()
                 .map(|(i, db_path, thread_name)| {
@@ -1594,10 +1620,9 @@ impl RedbBackend {
                                 .unwrap_or_else(|| "new".to_string())
                         );
                         let t0 = std::time::Instant::now();
-                        let result = Shard::open(
+                        let result = ShardWriter::open(
                             db_path.clone(),
                             thread_name,
-                            policy,
                             capacity,
                             flush_threshold,
                             group_commit,
@@ -1773,11 +1798,32 @@ impl RedbBackend {
         // import(bulk) committed -> import(delta) committed -> catalog flip durable ->
         // purge(src) (a crash before the flip leaves the data on `src` where the route
         // still points; after the flip on `dst` where both bulk+delta already landed).
-        let (s1, d1, g1) = (src_tx.clone(), dst_tx.clone(), graph.clone());
-        let bulk =
-            tokio::task::spawn_blocking(move || super::online_reshard::bulk_copy(&s1, &d1, &g1))
-                .await
-                .map_err(|e| format!("reshard bulk join error: {e}"))??;
+        let source_shard = self.shards[src_idx]
+            .shard
+            .upgrade()
+            .ok_or_else(|| "redb source writer thread is gone".to_string())?;
+        let destination_shard = self.shards[dst_idx]
+            .shard
+            .upgrade()
+            .ok_or_else(|| "redb destination writer thread is gone".to_string())?;
+        let s1 = src_tx.clone();
+        let d1 = dst_tx.clone();
+        let g1 = graph.clone();
+        let bulk_source = Arc::clone(&source_shard);
+        let bulk_destination = Arc::clone(&destination_shard);
+        let bulk = tokio::task::spawn_blocking(move || {
+            let endpoints = super::online_reshard::ReshardEndpoints {
+                source: bulk_source.as_ref(),
+                source_tx: &s1,
+                source_index: src_idx,
+                destination: bulk_destination.as_ref(),
+                destination_tx: &d1,
+                destination_index: dst_idx,
+            };
+            super::online_reshard::bulk_copy(&endpoints, &g1)
+        })
+        .await
+        .map_err(|e| format!("reshard bulk join error: {e}"))??;
 
         // Exclusive routing quiesce held ONLY across the delta + flip (the small window):
         // no catalog-attached write can resolve/enqueue while the route flips, so the flip
@@ -1786,9 +1832,15 @@ impl RedbBackend {
         let quiesce = self.routing_epoch.clone().write_owned().await;
         tokio::task::spawn_blocking(move || {
             let _held = quiesce;
-            super::online_reshard::delta_flip_purge(
-                &src_tx, &dst_tx, &catalog, &graph, src_idx, dst_idx, bulk,
-            )
+            let endpoints = super::online_reshard::ReshardEndpoints {
+                source: source_shard.as_ref(),
+                source_tx: &src_tx,
+                source_index: src_idx,
+                destination: destination_shard.as_ref(),
+                destination_tx: &dst_tx,
+                destination_index: dst_idx,
+            };
+            super::online_reshard::delta_flip_purge(&endpoints, catalog.as_ref(), &graph, bulk)
         })
         .await
         .map_err(|e| format!("reshard delta join error: {e}"))?
@@ -1818,7 +1870,7 @@ impl RedbBackend {
     /// no catalog, or a graph the catalog has no entry for — this is the unchanged
     /// EG-026 `FNV-1a(graph_fname) % K`. `resolve_shard` folds both cases + clamps to
     /// the live shard count, so the override can never index out of range.
-    fn shard_for(&self, graph_fname: &str) -> &Shard {
+    fn shard_for(&self, graph_fname: &str) -> &ShardWriter {
         let idx = match &self.catalog {
             Some(cat) => cat.resolve_shard(graph_fname, self.shards.len()),
             None => shard_index(graph_fname, self.shards.len()),
@@ -1842,7 +1894,7 @@ impl RedbBackend {
         let graph = graph_fname.to_string();
         tokio::task::spawn_blocking(move || {
             let _routing_guard = routing_guard;
-            let (reply, receive) = std::sync::mpsc::channel();
+            let (reply, receive) = std::sync::mpsc::sync_channel(1);
             tx.send(Cmd::ExportGraphRaw { graph, reply })
                 .map_err(|_| "redb writer thread is gone".to_string())?;
             receive
@@ -1870,7 +1922,7 @@ impl RedbBackend {
         let graph = graph_fname.to_string();
         tokio::task::spawn_blocking(move || {
             let _routing_guard = routing_guard;
-            let (reply, receive) = std::sync::mpsc::channel();
+            let (reply, receive) = std::sync::mpsc::sync_channel(1);
             tx.send(Cmd::ImportGraphRaw {
                 graph,
                 rows: Box::new(rows),
@@ -1889,7 +1941,7 @@ impl RedbBackend {
     /// log/meta + cross-shard 2PC + materialized views. Under K=1 this is also
     /// the only shard; under active multi-Raft, each group's graph data/log stays
     /// co-located with its own shard while global records remain on shard 0.
-    fn shard0(&self) -> &Shard {
+    fn shard0(&self) -> &ShardWriter {
         &self.shards[0]
     }
 
@@ -1903,7 +1955,7 @@ impl RedbBackend {
     /// `configure_group_ring` (`0..K`) with K == N it reduces to the identity `g → shard g`.
     /// `K == 1` collapses every group onto `graph-0.redb` — byte-for-byte the pre-ADR-2
     /// single-shard behavior an un-migrated store keeps.
-    fn shard_for_group(&self, group_id: u64) -> &Shard {
+    fn shard_for_group(&self, group_id: u64) -> &ShardWriter {
         &self.shards[(group_id as usize) % self.shards.len()]
     }
 
@@ -1922,9 +1974,9 @@ impl RedbBackend {
     }
 
     /// Take an ONLINE consistent backup of the whole durable store into `dst_dir`
-    /// (CONCEPT:EG-KG.sharding.reshard-on-restore), while the engine keeps serving. Per shard, opens a
-    /// `Database::begin_read()` MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer) on the LIVE writer's
-    /// shared handle and streams every table verbatim into a bundle shard file named by
+    /// (CONCEPT:EG-KG.sharding.reshard-on-restore), while the engine keeps serving. Per shard, opens an
+    /// MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer) on the LIVE writer's shared
+    /// `Shard` and streams every table verbatim into a bundle shard file named by
     /// the EG-026 [`shard_filename`] scheme, then writes a `MANIFEST.json`
     /// ([`super::backup::BackupManifest`]). No quiesce: MVCC lets the snapshot read the
     /// shard's latest committed state concurrently with the writer, and commit-before-ack
@@ -1955,7 +2007,7 @@ impl RedbBackend {
             eg_storage::recovery_store_fingerprint(self.admin_mutations.kernel())?;
         let shard0 = self
             .shard0()
-            .db
+            .shard
             .upgrade()
             .ok_or_else(|| "redb writer thread is gone".to_string())?;
         let xshard_boundary_before = backup::xshard_recovery_fingerprint(&shard0)?;
@@ -1969,12 +2021,14 @@ impl RedbBackend {
             // Every shard in one persist-dir must be bound to the same stable key
             // reference.  Capture only the non-secret identity in the manifest; raw
             // key material never crosses this boundary.
-            let key_ref = self
-                .shards
-                .iter()
-                .find_map(|shard| shard.cipher.as_ref().map(|cipher| cipher.key_ref().clone()));
-            if self.shards.iter().any(|shard| {
-                shard
+            let key_ref = self.shards.iter().find_map(|writer| {
+                writer
+                    .cipher
+                    .as_ref()
+                    .map(|cipher| cipher.key_ref().clone())
+            });
+            if self.shards.iter().any(|writer| {
+                writer
                     .cipher
                     .as_ref()
                     .map(|cipher| Some(cipher.key_ref()) != key_ref.as_ref())
@@ -1990,15 +2044,15 @@ impl RedbBackend {
                 report.encryption_key_version = Some(key_ref.version);
             }
         }
-        for (i, shard) in self.shards.iter().enumerate() {
-            // Upgrade the `Weak` to the writer's shared `Database` (CONCEPT:EG-KG.storage.snapshot-read-off-writer).
+        for (i, writer) in self.shards.iter().enumerate() {
+            // Upgrade the `Weak` to the writer's shared `Shard` (CONCEPT:EG-KG.storage.snapshot-read-off-writer).
             // `None` only after shutdown dropped the writer's strong Arc.
-            let db = shard
-                .db
+            let shard = writer
+                .shard
                 .upgrade()
                 .ok_or_else(|| "redb writer thread is gone".to_string())?;
             let dst_path = dst_dir.join(shard_filename(i));
-            let counts = backup::write_bundle_shard(&db, &dst_path, i == 0)?;
+            let counts = backup::write_bundle_shard(&shard, &dst_path)?;
             report.add_shard(counts);
         }
         report.admin_mutations = eg_storage::backup_recovery_store(
@@ -2047,7 +2101,7 @@ impl RedbBackend {
         tracing::info!(
             "online backup complete: {} shards, {} graphs, {} non-shard durable store(s)",
             report.shards,
-            report.graphs,
+            report.graph_scopes(),
             report.bundled_stores.len()
         );
         Ok(report)
@@ -2075,7 +2129,7 @@ impl RedbBackend {
     /// thread (exclusive file lock).
     #[cfg(all(test, feature = "security"))]
     pub fn test_tamper_audit_entry(&self, graph_fname: &str, seq: u64) -> Result<(), String> {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard_for(graph_fname)
             .tx
             .send(Cmd::TestTamperAudit {
@@ -2096,7 +2150,7 @@ impl RedbBackend {
         &self,
         graph_fname: &str,
     ) -> Result<crate::protocol::AuditReport, String> {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard_for(graph_fname)
             .tx
             .send(Cmd::AuditVerify {
@@ -2118,13 +2172,13 @@ impl RedbBackend {
         graph_fname: &str,
         node_ids: &[String],
     ) -> Result<Vec<(String, crate::audit::Hash)>, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
             .upgrade()
             .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
-        crate::redb_store::provenance_leaf_hashes(&db, graph_fname, node_ids, crypto)
+        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
+        crate::redb_store::provenance_leaf_hashes(&shard, graph_fname, node_ids, crypto)
     }
 
     /// Durably anchor an already-hashed provenance window (CONCEPT:EG-KG.sharding.row-level-security,
@@ -2138,7 +2192,7 @@ impl RedbBackend {
         root: crate::audit::Hash,
         members: Vec<(String, crate::audit::Hash)>,
     ) -> Result<Option<u64>, String> {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard_for(graph_fname)
             .tx
             .send(Cmd::ProvenanceAnchorCommit {
@@ -2162,7 +2216,7 @@ impl RedbBackend {
         node_id: &str,
         anchor_seq: Option<u64>,
     ) -> Result<crate::protocol::MerkleInclusionReport, String> {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard_for(graph_fname)
             .tx
             .send(Cmd::AuditProveInclusion {
@@ -2182,7 +2236,7 @@ impl RedbBackend {
     /// image; cross-store moves use [`Self::reshard_graph`]. `None` means the graph
     /// has no durable identity.
     pub fn read_graph_dump_blocking(&self, graph_fname: &str) -> Result<Option<GraphDump>, String> {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard_for(graph_fname)
             .tx
             .send(Cmd::ReadGraphDump {
@@ -2206,7 +2260,7 @@ impl RedbBackend {
         edge_after: Option<(String, String, u32)>,
         page_size: usize,
     ) -> Result<Option<crate::redb_store::GraphDumpPage>, String> {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard_for(graph_fname)
             .tx
             .send(Cmd::ReadGraphDumpPage {
@@ -2233,8 +2287,8 @@ impl RedbBackend {
         // PARALLEL cross-shard read fan-out (CONCEPT:AU-KG.backend.roadmap-f-parallel-cross, roadmap F). Each shard's
         // writer owns only the graphs routed to it, so the registry is rebuilt from the
         // union of all K shards' dumps. Instead of routing each shard's dump SERIALLY
-        // through its writer thread's `Cmd::Load` channel, each shard now dumps OFF its
-        // OWN `begin_read()` MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer) on the blocking pool, so the
+        // through its writer thread's channel, each shard now dumps OFF its
+        // OWN kernel-issued MVCC snapshot (CONCEPT:EG-KG.storage.snapshot-read-off-writer) on the blocking pool, so the
         // K reads run CONCURRENTLY on K cores and NEVER touch a writer thread (the EG-027
         // invariant — a read never forces a group-commit nor serializes behind a write).
         //
@@ -2242,23 +2296,22 @@ impl RedbBackend {
         // state. `load_all` runs at boot BEFORE serving (no concurrent writes), and even
         // under concurrency commit-before-ack (KG-2.187) guarantees any ACKED write is
         // already committed and thus visible — exactly the EG-027 `read_node` reasoning.
-        // One closure per shard captures its upgraded `Database` + cipher; build them ALL
+        // One closure per shard captures its upgraded `Shard` + cipher; build them ALL
         // first, then await them, so the fan-out overlaps (a spawn-then-await-each loop
-        // would serialize). The `Cmd::Load` writer-thread path is left intact but unused.
         let mut tasks = Vec::with_capacity(self.shards.len());
-        for shard in &self.shards {
-            let db = shard
-                .db
+        for writer in &self.shards {
+            let shard = writer
+                .shard
                 .upgrade()
                 .ok_or_else(|| "redb writer thread is gone".to_string())?;
             #[cfg(feature = "security")]
-            let cipher = shard.cipher.clone();
+            let cipher = writer.cipher.clone();
             tasks.push(move || {
                 #[cfg(feature = "security")]
                 let crypto = crate::redb_store::DurableCrypto::new(cipher.as_ref());
                 #[cfg(not(feature = "security"))]
                 let crypto = crate::redb_store::DurableCrypto::none();
-                read_all_dumps(&db, crypto)
+                read_all_dumps(&shard, crypto)
             });
         }
         let dumps: Vec<GraphDump> = join_blocking_in_order(tasks)
@@ -2329,12 +2382,12 @@ impl RedbBackend {
         // fallback genuinely one-time (and is a no-op on an already-current
         // store, so it costs one read pass per shard at startup and nothing else).
         let mut upgrade_tasks = Vec::with_capacity(self.shards.len());
-        for shard in &self.shards {
-            let db = shard
-                .db
+        for writer in &self.shards {
+            let shard = writer
+                .shard
                 .upgrade()
                 .ok_or_else(|| "redb writer thread is gone".to_string())?;
-            upgrade_tasks.push(move || crate::redb_store::upgrade_legacy_graph_meta(&db));
+            upgrade_tasks.push(move || crate::redb_store::upgrade_legacy_graph_meta(&shard));
         }
         let upgraded: usize = join_blocking_in_order(upgrade_tasks)
             .await?
@@ -2349,12 +2402,12 @@ impl RedbBackend {
         }
 
         let mut tasks = Vec::with_capacity(self.shards.len());
-        for shard in &self.shards {
-            let db = shard
-                .db
+        for writer in &self.shards {
+            let shard = writer
+                .shard
                 .upgrade()
                 .ok_or_else(|| "redb writer thread is gone".to_string())?;
-            tasks.push(move || read_all_graph_meta(&db));
+            tasks.push(move || read_all_graph_meta(&shard));
         }
         let rows: Vec<(String, String, GraphType, String)> = join_blocking_in_order(tasks)
             .await?
@@ -2386,6 +2439,28 @@ impl RedbBackend {
         Ok(count)
     }
 
+    /// Enqueue one writer command for `graph_fname`.
+    ///
+    /// When a tenant catalog is attached, the routing-quiesce READ guard is held
+    /// across both the shard resolve and the send, so an online reshard cannot flip
+    /// the route between the two (no lost or misrouted write). With no catalog —
+    /// the default — there is no guard and this is the plain EG-026 send.
+    async fn enqueue(&self, graph_fname: &str, cmd: Cmd, what: &str) -> Result<(), String> {
+        let routing = if self.catalog.is_some() {
+            Some(self.routing_epoch.clone().read_owned().await)
+        } else {
+            None
+        };
+        let tx = self.shard_for(graph_fname).tx.clone();
+        tokio::task::spawn_blocking(move || {
+            let _routing = routing;
+            tx.send(cmd).map_err(|_| ())
+        })
+        .await
+        .map_err(|error| format!("{what} join error: {error}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())
+    }
+
     /// Run one typed MVCC read on Tokio's blocking pool. Redb snapshot reads
     /// are independent of the writer channel, but opening a snapshot and
     /// decoding rows are still synchronous work; keeping that shell here makes
@@ -2403,7 +2478,7 @@ impl RedbBackend {
     async fn read_snapshot<T, F>(&self, graph_fname: &str, read: F) -> Result<T, String>
     where
         T: Send + 'static,
-        F: for<'a> FnOnce(&'a Database, crate::redb_store::DurableCrypto<'a>) -> Result<T, String>
+        F: for<'a> FnOnce(&'a Shard, crate::redb_store::DurableCrypto<'a>) -> Result<T, String>
             + Send
             + 'static,
     {
@@ -2412,20 +2487,20 @@ impl RedbBackend {
         } else {
             None
         };
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
             .upgrade()
             .ok_or_else(|| "redb writer thread is gone".to_string())?;
         #[cfg(feature = "security")]
-        let cipher = shard.cipher.clone();
+        let cipher = writer.cipher.clone();
         tokio::task::spawn_blocking(move || {
             let _routing_guard = routing_guard;
             #[cfg(feature = "security")]
             let crypto = crate::redb_store::DurableCrypto::new(cipher.as_ref());
             #[cfg(not(feature = "security"))]
             let crypto = crate::redb_store::DurableCrypto::none();
-            read(db.as_ref(), crypto)
+            read(shard.as_ref(), crypto)
         })
         .await
         .map_err(|error| format!("redb snapshot read join error: {error}"))?
@@ -2531,21 +2606,21 @@ impl PersistenceBackend for RedbBackend {
         graph_fname: &str,
     ) -> Result<Option<(crate::graph::GraphSnapshot, u64)>, String> {
         let graph = graph_fname.to_string();
-        let shard = self.shard_for(graph_fname);
-        let tx = shard.tx.clone();
-        let db = shard
-            .db
+        let writer = self.shard_for(graph_fname);
+        let tx = writer.tx.clone();
+        let shard = writer
+            .shard
             .upgrade()
             .ok_or_else(|| "redb writer thread is gone".to_string())?;
         let version_graph = graph_fname.to_string();
         let read = move || {
-            let (reply, rx) = std::sync::mpsc::channel();
+            let (reply, rx) = std::sync::mpsc::sync_channel(1);
             tx.send(Cmd::ReadGraphDump { graph, reply })
                 .map_err(|_| "redb writer thread is gone".to_string())?;
             let dump = rx
                 .recv()
                 .map_err(|_| "redb writer dropped authoritative snapshot reply".to_string())??;
-            let version = read_mutation_graph_version_record(&db, &version_graph)?.unwrap_or(0);
+            let version = read_mutation_graph_version_record(&shard, &version_graph)?;
             Ok::<_, String>((dump, version))
         };
         let (dump, version) = if self.catalog.is_some() {
@@ -2724,23 +2799,8 @@ impl PersistenceBackend for RedbBackend {
             }),
             done,
         };
-        if self.catalog.is_some() {
-            let guard = self.routing_epoch.clone().read_owned().await;
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || {
-                let _routing = guard;
-                tx.send(cmd).map_err(|_| ())
-            })
-            .await
-            .map_err(|e| format!("commit_mutation_batch join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
-        } else {
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
-                .await
-                .map_err(|e| format!("commit_mutation_batch join error: {e}"))?
-                .map_err(|_| "redb writer thread is gone".to_string())?;
-        }
+        self.enqueue(graph_fname, cmd, "commit_mutation_batch")
+            .await?;
         rx.await
             .map_err(|_| "redb writer dropped MutationBatch completion".to_string())?
     }
@@ -2766,23 +2826,8 @@ impl PersistenceBackend for RedbBackend {
             }),
             done,
         };
-        if self.catalog.is_some() {
-            let guard = self.routing_epoch.clone().read_owned().await;
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || {
-                let _routing = guard;
-                tx.send(cmd).map_err(|_| ())
-            })
-            .await
-            .map_err(|e| format!("commit_mutation_batch_state join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
-        } else {
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
-                .await
-                .map_err(|e| format!("commit_mutation_batch_state join error: {e}"))?
-                .map_err(|_| "redb writer thread is gone".to_string())?;
-        }
+        self.enqueue(graph_fname, cmd, "commit_mutation_batch_state")
+            .await?;
         rx.await
             .map_err(|_| "redb writer dropped staged MutationBatch completion".to_string())?
     }
@@ -2806,23 +2851,8 @@ impl PersistenceBackend for RedbBackend {
             }),
             done,
         };
-        if self.catalog.is_some() {
-            let guard = self.routing_epoch.clone().read_owned().await;
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || {
-                let _routing = guard;
-                tx.send(cmd).map_err(|_| ())
-            })
-            .await
-            .map_err(|e| format!("commit_mutation_batch_crossmodal join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
-        } else {
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
-                .await
-                .map_err(|e| format!("commit_mutation_batch_crossmodal join error: {e}"))?
-                .map_err(|_| "redb writer thread is gone".to_string())?;
-        }
+        self.enqueue(graph_fname, cmd, "commit_mutation_batch_crossmodal")
+            .await?;
         rx.await
             .map_err(|_| "redb writer dropped cross-modal MutationBatch completion".to_string())?
     }
@@ -2834,19 +2864,19 @@ impl PersistenceBackend for RedbBackend {
     ) -> Result<Option<MutationBatchRecord>, String> {
         let batch_id = batch_id.to_owned();
         let requested_graph = graph_fname.to_owned();
-        self.read_snapshot(graph_fname, move |db, crypto| {
-            read_mutation_batch_record(db, &requested_graph, &batch_id, crypto)
+        self.read_snapshot(graph_fname, move |shard, _crypto| {
+            read_mutation_batch_record(shard, &requested_graph, &batch_id)
         })
         .await
     }
 
     async fn read_mutation_graph_version(&self, graph_fname: &str) -> Result<Option<u64>, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
             .upgrade()
             .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        read_mutation_graph_version_record(&db, graph_fname)
+        read_mutation_graph_version_record(&shard, graph_fname).map(Some)
     }
 
     async fn read_mutation_outbox(
@@ -2855,112 +2885,93 @@ impl PersistenceBackend for RedbBackend {
         batch_id: &str,
     ) -> Result<Vec<MutationOutboxRecord>, String> {
         let batch_id = batch_id.to_owned();
-        self.read_snapshot(graph_fname, move |db, crypto| {
-            read_mutation_outbox_records(db, &batch_id, crypto)
+        let requested_graph = graph_fname.to_owned();
+        self.read_snapshot(graph_fname, move |shard, _crypto| {
+            read_mutation_outbox_records(shard, &requested_graph, &batch_id)
         })
         .await
+    }
+
+    async fn subscribe_mutation_outbox(
+        &self,
+        graph_fname: &str,
+        consumer: &str,
+        topic: &str,
+    ) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        let cmd = Cmd::MutationOutboxSubscribe {
+            graph: graph_fname.to_string(),
+            consumer: consumer.to_string(),
+            topic: topic.to_string(),
+            done,
+        };
+        self.enqueue(graph_fname, cmd, "subscribe_mutation_outbox")
+            .await?;
+        rx.await
+            .map_err(|_| "redb writer dropped outbox subscription completion".to_string())?
     }
 
     async fn claim_mutation_outbox(
         &self,
         graph_fname: &str,
         consumer: &str,
-        now_ms: u64,
-        lease_ms: u64,
-        limit: usize,
-    ) -> Result<Vec<MutationOutboxLease>, String> {
+        budget: &mut OutboxClaimBudget,
+    ) -> Result<OutboxClaimOutcome, String> {
         let (done, rx) = oneshot::channel();
         let cmd = Cmd::MutationOutboxClaim {
             graph: graph_fname.to_string(),
             consumer: consumer.to_string(),
-            now_ms,
-            lease_ms,
-            limit,
+            budget: Box::new(budget.clone()),
             done,
         };
-        if self.catalog.is_some() {
-            let guard = self.routing_epoch.clone().read_owned().await;
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || {
-                let _routing = guard;
-                tx.send(cmd).map_err(|_| ())
-            })
+        self.enqueue(graph_fname, cmd, "claim_mutation_outbox")
+            .await?;
+        let (outcome, updated) = rx
             .await
-            .map_err(|e| format!("claim_mutation_outbox join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
-        } else {
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
-                .await
-                .map_err(|e| format!("claim_mutation_outbox join error: {e}"))?
-                .map_err(|_| "redb writer thread is gone".to_string())?;
-        }
-        rx.await
-            .map_err(|_| "redb writer dropped outbox claim completion".to_string())?
+            .map_err(|_| "redb writer dropped outbox claim completion".to_string())??;
+        *budget = updated;
+        Ok(outcome)
     }
 
     async fn ack_mutation_outbox(
         &self,
         graph_fname: &str,
         lease: &MutationOutboxLease,
-        projection: &str,
         now_ms: u64,
     ) -> Result<MutationProjectionCursor, String> {
         let (done, rx) = oneshot::channel();
         let cmd = Cmd::MutationOutboxAck {
             graph: graph_fname.to_string(),
             lease: Box::new(lease.clone()),
-            projection: projection.to_string(),
             now_ms,
             done,
         };
-        if self.catalog.is_some() {
-            let guard = self.routing_epoch.clone().read_owned().await;
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || {
-                let _routing = guard;
-                tx.send(cmd).map_err(|_| ())
-            })
-            .await
-            .map_err(|e| format!("ack_mutation_outbox join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
-        } else {
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
-                .await
-                .map_err(|e| format!("ack_mutation_outbox join error: {e}"))?
-                .map_err(|_| "redb writer thread is gone".to_string())?;
-        }
+        self.enqueue(graph_fname, cmd, "ack_mutation_outbox")
+            .await?;
         rx.await
             .map_err(|_| "redb writer dropped outbox ack completion".to_string())?
     }
 
+    /// One consumer's durable projection watermark.
+    ///
+    /// `projection` and `consumer` were two names for one thing and are now one:
+    /// under a single ledger the cursor is keyed `(scope, consumer)`. The caller's
+    /// tenant left the key with them — a graph shard's scope is
+    /// `(GRAPH_SHARD_TENANT, graph)` (RF-RULING-004 application note 2), so the
+    /// graph name IS the isolation here, as it has always been for every other
+    /// shard row.
     async fn read_mutation_projection_cursor(
         &self,
         graph_fname: &str,
-        projection: &str,
-        tenant: &str,
+        consumer: &str,
     ) -> Result<Option<MutationProjectionCursor>, String> {
         let graph_fname = graph_fname.to_owned();
         let routing_graph = graph_fname.clone();
-        let projection = projection.to_owned();
-        let tenant = tenant.to_owned();
-        self.read_snapshot(&routing_graph, move |db, crypto| {
-            read_mutation_projection_cursor_record(db, &graph_fname, &projection, &tenant, crypto)
+        let consumer = consumer.to_owned();
+        self.read_snapshot(&routing_graph, move |shard, _crypto| {
+            shard.outbox_cursor(&graph_fname, &consumer)
         })
         .await
-    }
-
-    async fn read_mutation_lifecycle_head(
-        &self,
-        graph_fname: &str,
-    ) -> Result<Option<String>, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        read_mutation_lifecycle_head_record(&db, graph_fname)
     }
 
     async fn commit_change_envelope(
@@ -2978,23 +2989,8 @@ impl PersistenceBackend for RedbBackend {
             }),
             done,
         };
-        if self.catalog.is_some() {
-            let guard = self.routing_epoch.clone().read_owned().await;
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || {
-                let _routing = guard;
-                tx.send(cmd).map_err(|_| ())
-            })
-            .await
-            .map_err(|e| format!("commit_change_envelope join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
-        } else {
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
-                .await
-                .map_err(|e| format!("commit_change_envelope join error: {e}"))?
-                .map_err(|_| "redb writer thread is gone".to_string())?;
-        }
+        self.enqueue(graph_fname, cmd, "commit_change_envelope")
+            .await?;
         rx.await
             .map_err(|_| "redb writer dropped ChangeEnvelope completion".to_string())?
     }
@@ -3045,8 +3041,8 @@ impl PersistenceBackend for RedbBackend {
         let graph_fname = graph_fname.to_owned();
         let routing_graph = graph_fname.clone();
         let envelope_id = envelope_id.to_owned();
-        self.read_snapshot(&routing_graph, move |db, crypto| {
-            read_change_envelope_record(db, &graph_fname, &envelope_id, crypto)
+        self.read_snapshot(&routing_graph, move |shard, crypto| {
+            read_change_envelope_record(shard, &graph_fname, &envelope_id, crypto)
         })
         .await
     }
@@ -3061,8 +3057,8 @@ impl PersistenceBackend for RedbBackend {
         let routing_graph = graph_fname.clone();
         let tenant = tenant.to_owned();
         let object_id = object_id.to_owned();
-        self.read_snapshot(&routing_graph, move |db, crypto| {
-            read_content_version_record(db, &tenant, &graph_fname, &object_id, crypto)
+        self.read_snapshot(&routing_graph, move |shard, crypto| {
+            read_content_version_record(shard, &tenant, &graph_fname, &object_id, crypto)
         })
         .await
     }
@@ -3079,8 +3075,8 @@ impl PersistenceBackend for RedbBackend {
         let tenant = tenant.to_owned();
         let source = source.to_owned();
         let partition = partition.to_owned();
-        self.read_snapshot(&routing_graph, move |db, crypto| {
-            read_change_cursor_record(db, &tenant, &graph_fname, &source, &partition, crypto)
+        self.read_snapshot(&routing_graph, move |shard, crypto| {
+            read_change_cursor_record(shard, &tenant, &graph_fname, &source, &partition, crypto)
         })
         .await
     }
@@ -3093,8 +3089,8 @@ impl PersistenceBackend for RedbBackend {
         let graph_fname = graph_fname.to_owned();
         let routing_graph = graph_fname.clone();
         let request = request.clone();
-        self.read_snapshot(&routing_graph, move |db, crypto| {
-            read_resource_reservation_record(db, &graph_fname, &request, crypto)
+        self.read_snapshot(&routing_graph, move |shard, crypto| {
+            read_resource_reservation_record(shard, &graph_fname, &request, crypto)
         })
         .await
     }
@@ -3107,8 +3103,8 @@ impl PersistenceBackend for RedbBackend {
         let graph_fname = graph_fname.to_owned();
         let routing_graph = graph_fname.clone();
         let request = request.clone();
-        self.read_snapshot(&routing_graph, move |db, crypto| {
-            read_resource_reservation_status_record(db, &graph_fname, &request, crypto)
+        self.read_snapshot(&routing_graph, move |shard, crypto| {
+            read_resource_reservation_status_record(shard, &graph_fname, &request, crypto)
         })
         .await
     }
@@ -3249,20 +3245,20 @@ impl PersistenceBackend for RedbBackend {
         graph_fname: &str,
         request: &eg_types::native_control::CapacityStatusRequest,
     ) -> Result<eg_types::native_control::CapacityStatusResult, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
             .upgrade()
             .ok_or_else(|| "redb writer thread is gone".to_string())?;
         #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
+        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
         #[cfg(not(feature = "security"))]
         let crypto = crate::redb_store::DurableCrypto::none();
-        crate::redb_store::capacity_lease::read(&db, graph_fname, request, crypto)
+        crate::redb_store::capacity_lease::read(&shard, graph_fname, request, crypto)
     }
 
     /// Exact authenticated native development-lane hold/tombstone read (RMDD-28).
-    /// An MVCC snapshot read off the writer shard's shared `Database`, same
+    /// An MVCC snapshot read off the writer shard's shared `Shard`, same
     /// posture as `read_resource_reservation` above -- never routed through the
     /// writer thread channel.
     async fn read_development_lane(
@@ -3271,17 +3267,17 @@ impl PersistenceBackend for RedbBackend {
         request: &crate::epistemic_operations::DevelopmentLaneQueryRequest,
         now_ms: u64,
     ) -> Result<crate::epistemic_operations::DevelopmentLaneQueryResult, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
             .upgrade()
             .ok_or_else(|| "redb writer thread is gone".to_string())?;
         #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
+        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
         #[cfg(not(feature = "security"))]
         let crypto = crate::redb_store::DurableCrypto::none();
         crate::redb_store::development_lane::read_development_lane(
-            &db,
+            &shard,
             graph_fname,
             request,
             now_ms,
@@ -3297,17 +3293,17 @@ impl PersistenceBackend for RedbBackend {
         request: &crate::epistemic_operations::DevelopmentLaneStatusRequest,
         now_ms: u64,
     ) -> Result<crate::epistemic_operations::DevelopmentLaneStatusResult, String> {
-        let shard = self.shard_for(graph_fname);
-        let db = shard
-            .db
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
             .upgrade()
             .ok_or_else(|| "redb writer thread is gone".to_string())?;
         #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
+        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
         #[cfg(not(feature = "security"))]
         let crypto = crate::redb_store::DurableCrypto::none();
         crate::redb_store::development_lane::read_development_lane_status(
-            &db,
+            &shard,
             graph_fname,
             request,
             now_ms,
@@ -3341,23 +3337,7 @@ impl PersistenceBackend for RedbBackend {
         };
         // CONCEPT:EG-KG.backend.catalog-shard-resolve — same routing-epoch quiesce as `record_durable` when a catalog
         // is attached, so a cross-modal commit cannot race an online reshard's route flip.
-        if self.catalog.is_some() {
-            let guard = self.routing_epoch.clone().read_owned().await;
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || {
-                let _routing = guard;
-                tx.send(cmd).map_err(|_| ())
-            })
-            .await
-            .map_err(|e| format!("commit_crossmodal join error: {e}"))?
-            .map_err(|_| "redb writer thread is gone".to_string())?;
-        } else {
-            let tx = self.shard_for(graph_fname).tx.clone();
-            tokio::task::spawn_blocking(move || tx.send(cmd).map_err(|_| ()))
-                .await
-                .map_err(|e| format!("commit_crossmodal join error: {e}"))?
-                .map_err(|_| "redb writer thread is gone".to_string())?;
-        }
+        self.enqueue(graph_fname, cmd, "commit_crossmodal").await?;
         match rx.await {
             Ok(res) => res,
             Err(_) => Err("redb writer dropped commit_crossmodal completion".to_string()),
@@ -3414,12 +3394,12 @@ impl PersistenceBackend for RedbBackend {
         graph_fname: &str,
         node_ids: &[String],
     ) -> Result<Vec<bool>, String> {
-        let shard = self.shard_for(graph_fname);
-        let database = shard
-            .db
+        let writer = self.shard_for(graph_fname);
+        let shard = writer
+            .shard
             .upgrade()
             .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        read_durable_node_presence(&database, graph_fname, node_ids)
+        read_durable_node_presence(&shard, graph_fname, node_ids)
     }
 
     fn read_node_blocking(
@@ -3429,7 +3409,7 @@ impl PersistenceBackend for RedbBackend {
     ) -> Result<Option<Vec<u8>>, String> {
         // CONCEPT:EG-KG.storage.snapshot-read-off-writer — SNAPSHOT READ OFF THE WRITER. The read-through point-read
         // (only hit on a RAM miss, CONCEPT:EG-KG.storage.read-through-seam-exercised) now serves the node DIRECTLY from
-        // a `begin_read()` MVCC snapshot on the TARGET SHARD's shared `Database`
+        // a kernel-issued MVCC snapshot on the TARGET SHARD's shared `Shard`
         // (routed by the SAME EG-026 `shard_for` the writer uses). It NEVER routes
         // through the writer thread's channel and NEVER forces a group-commit, so a
         // read can no longer block on / be serialized behind the durable write path —
@@ -3437,24 +3417,24 @@ impl PersistenceBackend for RedbBackend {
         //
         // Consistency: redb is MVCC, so the snapshot sees the LATEST COMMITTED state
         // of this shard. Commit-before-ack (CONCEPT:EG-KG.backend.authoritative-dispatch) guarantees any ACKED
-        // write is already committed, so a `begin_read()` opened after that ack sees
+        // write is already committed, so a snapshot opened after that ack sees
         // it. Writes still buffered in the writer's `Pending` are NOT yet acked (no
         // happens-before to any reader), so omitting the old forced commit changes no
         // observable read result. Eviction is durability-gated (a node leaves RAM only
         // after redb confirms it on disk), so an evicted node is always served here.
-        let shard = self.shard_for(graph_fname);
-        // Upgrade the `Weak` to the writer's shared `Database` (CONCEPT:EG-KG.storage.snapshot-read-off-writer). `None`
+        let writer = self.shard_for(graph_fname);
+        // Upgrade the `Weak` to the writer's shared `Shard` (CONCEPT:EG-KG.storage.snapshot-read-off-writer). `None`
         // only after shutdown dropped the writer's strong Arc — fail fast like the old
         // "writer thread is gone" channel error.
-        let db = shard
-            .db
+        let shard = writer
+            .shard
             .upgrade()
             .ok_or_else(|| "redb writer thread is gone".to_string())?;
         #[cfg(feature = "security")]
-        let crypto = crate::redb_store::DurableCrypto::new(shard.cipher.as_ref());
+        let crypto = crate::redb_store::DurableCrypto::new(writer.cipher.as_ref());
         #[cfg(not(feature = "security"))]
         let crypto = crate::redb_store::DurableCrypto::none();
-        read_one_node(&db, graph_fname, node_id, crypto)
+        read_one_node(&shard, graph_fname, node_id, crypto)
     }
 
     fn shutdown(&self) {
@@ -3510,9 +3490,9 @@ impl RedbBackend {
     /// partially-replayed crash window is closed exactly, never duplicated. Any
     /// non-canonical key fails startup rather than guessing an owner.
     ///
-    /// Read-only against each authoritative shard: uses the SAME shared `Weak<Database>` handle the
-    /// snapshot-read path (`read_node_blocking`) upgrades, so this never opens a SECOND
-    /// `Database` on the file (redb's exclusive per-process file lock would reject that) —
+    /// Read-only against each authoritative shard: uses the SAME shared `Weak<Shard>` handle the
+    /// snapshot-read path (`read_node_blocking`) upgrades, so this never opens the
+    /// file a SECOND time (redb's exclusive per-process file lock would reject that) —
     /// see `eg_tsdb::store::{list_series_in_rtx, meta_in_rtx, range_in_rtx}`, the read-only
     /// counterparts of `append_batch_in_wtx` extracted for exactly this caller.
     pub async fn reconcile_time_series(
@@ -3525,14 +3505,17 @@ impl RedbBackend {
             points_replayed: 0,
             projection_cursors_written: 0,
         };
-        for shard in &self.shards {
+        for writer in &self.shards {
             // A shard whose writer thread already exited (shutdown mid-boot-sequence,
             // never happens in the normal boot path but guarded like every other
             // snapshot-read consumer of this handle) has nothing left to reconcile.
-            let Some(db) = shard.db.upgrade() else {
+            let Some(shard) = writer.shard.upgrade() else {
                 continue;
             };
-            let rtx = db.begin_read().map_err(|e| e.to_string())?;
+            // The three series tables are FILE-WIDE, so the control scope is the
+            // reader class that owns them — and it is the one scope that exists
+            // before any graph is bound.
+            let rtx = shard.control_read()?;
             let series_ids = eg_tsdb::store::list_series_in_rtx(&rtx).map_err(|e| e.to_string())?;
             for series_id in series_ids {
                 if eg_tsdb::store::SeriesKey::decode(&series_id).is_none() {
@@ -3540,7 +3523,12 @@ impl RedbBackend {
                 }
                 let graph_meta = eg_tsdb::store::meta_in_rtx(&rtx, &series_id)
                     .map_err(|e| e.to_string())?
-                    .expect("series id just came from this same SERIES_META scan");
+                    .ok_or_else(|| {
+                        format!(
+                            "durable time-series '{series_id}' has no meta row in the scan \
+                             that named it"
+                        )
+                    })?;
                 let source_cursor = eg_tsdb::store::ProjectionCursor::from(&graph_meta);
                 let projection = tsdb_store
                     .projection_health_by_storage_key(&series_id)
@@ -3654,7 +3642,7 @@ fn missing_points(
 }
 
 // ── Durable Raft log API (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — inherent methods ────────────────
-// The Raft log lives in the SAME authoritative shard Database, written by the SAME
+// The Raft log lives in the SAME authoritative shard file, written by the SAME
 // off-reactor group-commit thread, keyed by `(group_id, index)` so one table
 // serves every group (CONCEPT:EG-KG.sharding.raft-resharding). Sharing the writer is what lets a log
 // append and its graph mutation coalesce into ONE fsync. The raft/xshard methods are
@@ -3697,7 +3685,7 @@ impl RedbBackend {
     /// Read an inclusive `[lo, hi]` log index range for a group, in order.
     #[cfg(feature = "raft")]
     pub fn raft_log_read(&self, group_id: u64, lo: u64, hi: u64) -> Result<Vec<Vec<u8>>, String> {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard_for_group(group_id)
             .tx
             .send(Cmd::RaftLogRead {
@@ -3754,7 +3742,7 @@ impl RedbBackend {
     /// `(first, last)` present log index for a group (for `get_log_state`).
     #[cfg(feature = "raft")]
     pub fn raft_log_bounds(&self, group_id: u64) -> LogBoundsResult {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard_for_group(group_id)
             .tx
             .send(Cmd::RaftLogBounds { group_id, reply })
@@ -3795,7 +3783,7 @@ impl RedbBackend {
     /// Read one Raft metadata key for a group.
     #[cfg(feature = "raft")]
     pub fn raft_meta_get(&self, group_id: u64, key: &str) -> Result<Option<Vec<u8>>, String> {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard_for_group(group_id)
             .tx
             .send(Cmd::RaftMetaGet {
@@ -3849,7 +3837,7 @@ impl RedbBackend {
         txn_id: &str,
         group_id: u64,
     ) -> Result<Option<Vec<u8>>, String> {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard0()
             .tx
             .send(Cmd::XshardPrepareGet {
@@ -3969,7 +3957,7 @@ impl RedbBackend {
     /// Scan every in-doubt prepare record `(txn_id, group_id, slice)` (for recovery).
     #[cfg(feature = "raft")]
     pub fn xshard_scan_prepares(&self) -> XshardPrepareScan {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard0()
             .tx
             .send(Cmd::XshardScanPrepares { reply })
@@ -3981,7 +3969,7 @@ impl RedbBackend {
     /// Scan digest-only decision states (no source payloads).
     #[cfg(feature = "raft")]
     pub fn xshard_scan_decisions(&self) -> XshardDecisionScan {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard0()
             .tx
             .send(Cmd::XshardScanDecisions { reply })
@@ -3993,7 +3981,7 @@ impl RedbBackend {
     /// Read a txn's durable decision (Some(true)=commit, Some(false)=abort, None=undecided).
     #[cfg(feature = "raft")]
     pub fn xshard_decision_get(&self, txn_id: &str) -> Result<Option<bool>, String> {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard0()
             .tx
             .send(Cmd::XshardDecisionGet {
@@ -4008,7 +3996,7 @@ impl RedbBackend {
     /// Whether this marker is retained for a separate parent receipt.
     #[cfg(feature = "raft")]
     pub fn xshard_decision_retain_get(&self, txn_id: &str) -> Result<bool, String> {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard0()
             .tx
             .send(Cmd::XshardDecisionRetainGet {
@@ -4041,7 +4029,7 @@ impl RedbBackend {
     /// Scan every persisted materialized view `(name, blob)` (reload on boot).
     #[cfg(feature = "compute-dist")]
     pub fn matview_scan(&self) -> MatViewScanResult {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard0()
             .tx
             .send(Cmd::MatViewScan { reply })
@@ -4088,7 +4076,7 @@ impl RedbBackend {
     /// Scan every persisted plan-backed matview `(name, blob)` (reload on boot).
     #[cfg(feature = "matview")]
     pub fn plan_matview_scan(&self) -> MatViewScanResult {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard0()
             .tx
             .send(Cmd::PlanMatViewScan { reply })
@@ -4140,7 +4128,7 @@ impl RedbBackend {
     /// Scan every persisted incremental-matview operator-state snapshot `(name, blob)`.
     #[cfg(feature = "matview")]
     pub fn matview_operator_state_scan(&self) -> MatViewScanResult {
-        let (reply, rx) = std::sync::mpsc::channel();
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
         self.shard0()
             .tx
             .send(Cmd::MatViewOperatorStateScan { reply })
@@ -4152,14 +4140,21 @@ impl RedbBackend {
 
 // ── off-reactor group-commit writer thread ───────────────────────────────
 
+/// How long the writer waits for work before flushing whatever it holds.
+///
+/// A commit-before-ack write never waits for this (a pending barrier commits the
+/// instant the channel drains), so it bounds only how long a NON-acknowledged
+/// internal batch sits unflushed. This is the fixed group-commit boundary; it
+/// never changes the Immediate durability level.
+const GROUP_COMMIT_TICK: Duration = Duration::from_millis(100);
+
 fn run(
     rx: Receiver<Cmd>,
-    // Shared `Database` handle (CONCEPT:EG-KG.storage.snapshot-read-off-writer): the writer OWNS one clone of the Arc
-    // (kept alive for the thread's whole life); the Shard holds another for off-writer
-    // snapshot reads. Rebound to `&Database` immediately so the commit path below is
-    // byte-for-byte the pre-EG-027 single-`Database` writer loop.
-    db: Arc<Database>,
-    policy: DurabilityPolicy,
+    // Shared kernel-owned `Shard` (CONCEPT:EG-KG.storage.snapshot-read-off-writer): the writer OWNS one clone of
+    // the Arc (kept alive for the thread's whole life); the `ShardWriter` holds a
+    // `Weak` for off-writer snapshot reads. Rebound to `&Shard` immediately so every
+    // commit below reads as the same single-writer loop it has always been.
+    shard: Arc<Shard>,
     group_commit: RedbGroupCommitConfig,
     stats: Arc<RedbCommitStats>,
     // Auto-sized early-flush op threshold (CONCEPT:AU-KG.backend.b-auto-sizeb), per shard.
@@ -4168,14 +4163,14 @@ fn run(
 ) {
     // Borrow the shared handle for the rest of the loop; the owned Arc above stays
     // alive until `run` returns, so this reference is valid for the whole thread.
-    let db: &Database = &db;
+    let shard: &Shard = &shard;
     // Build the durable-crypto handle ONCE (borrows the owned cipher for the thread's
     // lifetime). No-op handle when encryption is off / not compiled.
     #[cfg(feature = "security")]
     let crypto = crate::redb_store::DurableCrypto::new(cipher.as_ref());
     #[cfg(not(feature = "security"))]
     let crypto = crate::redb_store::DurableCrypto::none();
-    let tick = policy.tick();
+    let tick = GROUP_COMMIT_TICK;
     // Pending mutations folded into the NEXT group commit, each with its optional
     // commit-before-ack completion sender (CONCEPT:EG-KG.backend.authoritative-dispatch). After a commit, EVERY
     // sender in the batch is fired with the batch's result — one fsync, N notified.
@@ -4183,37 +4178,46 @@ fn run(
     // CONCEPT:EG-KG.backend.adaptive-linger-coalesce — record the group-commit batch size (ops-per-fsync), then
     // commit+notify. Only counts a batch that actually carried work; `lingered` marks
     // commits that paid a micro-linger window so the win is measurable.
-    let commit_now = |pending: &mut Pending, durability: Durability, lingered: bool| {
+    //
+    // There is no runtime durability argument. `eg_storage`'s
+    // `physical::root::WRITE_DURABILITY` is a CONSTANT
+    // `redb::Durability::Immediate` on the one `begin_write` every kernel mutation
+    // takes, "because a weaker level would let redb roll a committed ledger back on
+    // crash — un-consuming an acknowledged replay nonce and re-enabling the double
+    // apply". Every commit this loop makes is therefore Immediate. The coalescing
+    // is untouched: N ops still fold into ONE Immediate fsync.
+    let commit_now = |pending: &mut Pending, lingered: bool| {
         if !pending.is_empty() {
             stats.record(pending.ops.len(), lingered);
         }
-        commit_and_notify(db, pending, durability, crypto);
+        commit_and_notify(shard, pending, crypto);
     };
     loop {
         match rx.recv_timeout(tick) {
             Ok(cmd) => {
-                if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto, &stats) {
+                if handle_cmd(cmd, shard, &mut pending, flush_threshold, crypto, &stats) {
                     // shutdown: flush whatever is pending durably, then stop.
-                    commit_now(&mut pending, Durability::Immediate, false);
+                    commit_now(&mut pending, false);
                     break;
                 }
                 // Drain the rest of the burst so it coalesces into one commit.
                 let mut stop = false;
                 while let Ok(cmd) = rx.try_recv() {
-                    if handle_cmd(cmd, db, &mut pending, flush_threshold, crypto, &stats) {
+                    if handle_cmd(cmd, shard, &mut pending, flush_threshold, crypto, &stats) {
                         stop = true;
                         break;
                     }
                 }
                 if stop {
-                    commit_now(&mut pending, Durability::Immediate, false);
+                    commit_now(&mut pending, false);
                     return;
                 }
                 // Any awaiting commit-before-ack op in the batch MUST be made durable
-                // now (don't leave an awaited write parked until the next tick): if a
-                // barrier op is pending, commit immediately; otherwise honor policy.
-                let must_commit_now =
-                    pending.has_barrier() || matches!(policy, DurabilityPolicy::Each);
+                // now — don't leave an awaited write parked until the next tick. With
+                // the policy gone this is the ONLY immediacy trigger besides the tick,
+                // which is what it always effectively was: `Each` differed from
+                // `Interval` only for batches that had no waiter to keep waiting.
+                let must_commit_now = pending.has_barrier();
                 if must_commit_now {
                     // CONCEPT:EG-KG.backend.adaptive-linger-coalesce — adaptive group-commit micro-linger. The commit
                     // trigger fires the instant the channel drains, so with low in-flight
@@ -4250,46 +4254,46 @@ fn run(
                             Ok(cmd) => {
                                 if handle_cmd(
                                     cmd,
-                                    db,
+                                    shard,
                                     &mut pending,
                                     flush_threshold,
                                     crypto,
                                     &stats,
                                 ) {
-                                    commit_now(&mut pending, Durability::Immediate, true);
+                                    commit_now(&mut pending, true);
                                     return;
                                 }
                                 // Drain everyone who arrived during the linger window.
                                 while let Ok(cmd) = rx.try_recv() {
                                     if handle_cmd(
                                         cmd,
-                                        db,
+                                        shard,
                                         &mut pending,
                                         flush_threshold,
                                         crypto,
                                         &stats,
                                     ) {
-                                        commit_now(&mut pending, Durability::Immediate, true);
+                                        commit_now(&mut pending, true);
                                         return;
                                     }
                                 }
                             }
                             Err(RecvTimeoutError::Timeout) => {}
                             Err(RecvTimeoutError::Disconnected) => {
-                                commit_now(&mut pending, Durability::Immediate, true);
+                                commit_now(&mut pending, true);
                                 break;
                             }
                         }
                     }
-                    commit_now(&mut pending, Durability::Immediate, lingered);
+                    commit_now(&mut pending, lingered);
                 }
             }
             Err(RecvTimeoutError::Timeout) => {
                 // Group-commit boundary: flush pending mutations.
-                commit_now(&mut pending, Durability::Immediate, false);
+                commit_now(&mut pending, false);
             }
             Err(RecvTimeoutError::Disconnected) => {
-                commit_now(&mut pending, Durability::Immediate, false);
+                commit_now(&mut pending, false);
                 break;
             }
         }
@@ -4338,7 +4342,7 @@ impl Pending {
 /// immediately (it carries its own reply).
 fn handle_cmd(
     cmd: Cmd,
-    db: &Database,
+    shard: &Shard,
     pending: &mut Pending,
     // Auto-sized early-flush op threshold (CONCEPT:AU-KG.backend.b-auto-sizeb).
     flush_threshold: usize,
@@ -4363,7 +4367,7 @@ fn handle_cmd(
         if !pending.is_empty() {
             stats.record(pending.ops.len(), false);
         }
-        commit_and_notify(db, pending, Durability::Immediate, crypto);
+        commit_and_notify(shard, pending, crypto);
     };
     match cmd {
         Cmd::Mutation {
@@ -4391,7 +4395,7 @@ fn handle_cmd(
             // Flush pending mutations first so a graph's rows and its meta land in a
             // consistent order, then durably write the graph_meta row.
             flush(pending);
-            let res = write_graph_meta(db, &graph, &name, graph_type);
+            let res = write_graph_meta(shard, &graph, &name, graph_type);
             let _ = done.send(res);
             false
         }
@@ -4400,20 +4404,14 @@ fn handle_cmd(
             // re-apply a buffered op for it out of order, then drop ALL of its rows
             // (incl. graph_meta) in one durable transaction.
             flush(pending);
-            let _ = done.send(purge_graph_rows(db, &graph, crypto));
-            false
-        }
-        Cmd::Load { reply } => {
-            // Flush pending so the read sees the latest, then scan the owned DB.
-            flush(pending);
-            let _ = reply.send(read_all_dumps(db, crypto));
+            let _ = done.send(purge_graph_rows(shard, &graph));
             false
         }
         Cmd::ReadGraphDump { graph, reply } => {
             // Flush pending so the rehydrated dump reflects the latest durable state,
             // then range-scan ONE graph's rows (CONCEPT:EG-KG.storage.100m-tenant).
             flush(pending);
-            let _ = reply.send(read_graph_dump(db, &graph, crypto));
+            let _ = reply.send(read_graph_dump(shard, &graph, crypto));
             false
         }
         Cmd::ReadGraphDumpPage {
@@ -4425,7 +4423,7 @@ fn handle_cmd(
             // fetch ONE bounded page straight off the durable store (CONCEPT:EG-KG.sharding.paged-lazy-open, L38).
             flush(pending);
             let _ = reply.send(crate::redb_store::read_graph_dump_page(
-                db,
+                shard,
                 &graph,
                 crypto,
                 crate::redb_store::PageCursorRef {
@@ -4444,14 +4442,16 @@ fn handle_cmd(
             // CONCEPT:EG-KG.backend.catalog-shard-resolve — flush pending so every committed mutation is captured, then
             // scan this graph's rows VERBATIM (raw blobs — encryption + audit chain kept).
             flush(pending);
-            let _ = reply.send(super::online_reshard::export_graph_raw(db, &graph));
+            let _ = reply.send(super::online_reshard::export_graph_raw(shard, &graph));
             false
         }
         Cmd::ImportGraphRaw { graph, rows, reply } => {
             // CONCEPT:EG-KG.backend.catalog-shard-resolve — flush pending first (consistency), then land the migrated
             // rows verbatim in ONE durable commit (the move's commit-before-ack point).
             flush(pending);
-            let _ = reply.send(super::online_reshard::import_graph_raw(db, &graph, &rows));
+            let _ = reply.send(super::online_reshard::import_graph_raw(
+                shard, &graph, &rows,
+            ));
             false
         }
         Cmd::ImportGraphDelta {
@@ -4463,13 +4463,8 @@ fn handle_cmd(
             // rows (upserts + removals) in ONE durable commit (the under-quiesce write).
             flush(pending);
             let _ = reply.send(super::online_reshard::import_graph_delta(
-                db, &graph, &delta,
+                shard, &graph, &delta,
             ));
-            false
-        }
-        Cmd::PurgeMovedMutationRows { graph, reply } => {
-            flush(pending);
-            let _ = reply.send(super::online_reshard::purge_moved_mutation_rows(db, &graph));
             false
         }
         #[cfg(feature = "security")]
@@ -4477,34 +4472,28 @@ fn handle_cmd(
             // Flush pending so the chain walk includes the latest durable audit
             // entries, then verify the hash chain (CONCEPT:EG-KG.sharding.row-level-security).
             flush(pending);
-            let _ = reply.send(crate::redb_store::verify_audit(db, &graph));
+            let _ = reply.send(crate::redb_store::verify_audit(shard, &graph));
             false
         }
         #[cfg(all(test, feature = "security"))]
         Cmd::TestTamperAudit { graph, seq, reply } => {
             flush(pending);
-            let res = (|| {
-                let wtx = db.begin_write().map_err(|e| e.to_string())?;
-                {
-                    let mut audit = wtx
-                        .open_table(crate::redb_store::AUDIT)
-                        .map_err(|e| e.to_string())?;
-                    let original = audit
-                        .get((graph.as_str(), seq))
-                        .map_err(|e| e.to_string())?
-                        .ok_or_else(|| "no such audit entry".to_string())?
-                        .value()
-                        .to_vec();
-                    let mut mutated = original;
-                    let last = mutated.len() - 1;
-                    mutated[last] ^= 0xFF;
-                    audit
-                        .insert((graph.as_str(), seq), mutated.as_slice())
-                        .map_err(|e| e.to_string())?;
-                }
-                wtx.commit().map_err(|e| e.to_string())?;
-                Ok(())
-            })();
+            let res = in_graph_write(shard, &graph, "test_tamper_audit", |write| {
+                let mut audit = write
+                    .graph(&graph)?
+                    .open_scoped_table(crate::redb_store::AUDIT)?;
+                let mut mutated = audit
+                    .get((graph.as_str(), seq))?
+                    .ok_or_else(|| "no such audit entry".to_string())?
+                    .value()
+                    .to_vec();
+                let last = mutated
+                    .len()
+                    .checked_sub(1)
+                    .ok_or_else(|| "audit entry is empty".to_string())?;
+                mutated[last] ^= 0xFF;
+                audit.insert((graph.as_str(), seq), mutated.as_slice())
+            });
             let _ = reply.send(res);
             false
         }
@@ -4520,7 +4509,7 @@ fn handle_cmd(
             // AuditVerify/TestTamperAudit above.
             flush(pending);
             let res = crate::redb_store::provenance_anchor_commit(
-                db,
+                shard,
                 &mut pending.provenance_anchor_cache,
                 &mut pending.audit_tail,
                 &graph,
@@ -4538,7 +4527,8 @@ fn handle_cmd(
             reply,
         } => {
             flush(pending);
-            let res = crate::redb_store::prove_inclusion(db, &graph, &node_id, anchor_seq, crypto);
+            let res =
+                crate::redb_store::prove_inclusion(shard, &graph, &node_id, anchor_seq, crypto);
             let _ = reply.send(res);
             false
         }
@@ -4554,8 +4544,9 @@ fn handle_cmd(
             // state (its vector read-modify-write of the SEMANTIC blob must start from
             // the committed store), then land ALL modalities in ONE WriteTransaction.
             flush(pending);
+            let op_id = shard_write_attempt_id("commit_crossmodal");
             let res = commit_crossmodal(
-                db,
+                shard,
                 &graph,
                 crate::redb_store::CrossModalStaged {
                     methods: &methods,
@@ -4563,6 +4554,8 @@ fn handle_cmd(
                     blob_refs: &blob_refs,
                     measurements: &measurements,
                 },
+                &op_id,
+                crate::server::txn::now_ms(),
                 crypto,
                 // Shares the writer's persistent tail cache (CONCEPT:EG-KG.storage.embedded-store).
                 #[cfg(feature = "security")]
@@ -4586,7 +4579,7 @@ fn handle_cmd(
             // modality and every universal coordinator record.
             flush(pending);
             let res = commit_mutation_batch_crossmodal(
-                db,
+                shard,
                 crate::redb_store::CrossModalCommitInput {
                     graph_fname: &graph,
                     batch: &batch,
@@ -4621,7 +4614,7 @@ fn handle_cmd(
             flush(pending);
             let res = if let Some(state) = authoritative_state_msgpack.as_deref() {
                 commit_mutation_batch_state(
-                    db,
+                    shard,
                     crate::redb_store::StateCommitInput {
                         graph_fname: &graph,
                         batch: &batch,
@@ -4636,7 +4629,7 @@ fn handle_cmd(
                 )
             } else {
                 commit_mutation_batch(
-                    db,
+                    shard,
                     &graph,
                     &batch,
                     result_msgpack.as_deref(),
@@ -4656,16 +4649,11 @@ fn handle_cmd(
             done,
         } => {
             flush(pending);
-            let res = (|| {
-                let mut wtx = db.begin_write().map_err(|error| error.to_string())?;
-                wtx.set_durability(Durability::Immediate)
-                    .map_err(|error| error.to_string())?;
-                let result = crate::redb_store::work_item_capability::mint_in_wtx(
-                    &wtx, &graph, &request, &authority, crypto,
-                )?;
-                wtx.commit().map_err(|error| error.to_string())?;
-                Ok(result)
-            })();
+            let res = in_graph_write(shard, &graph, "work_item_capability_mint", |write| {
+                crate::redb_store::work_item_capability::mint_claim_capability(
+                    write, &graph, &request, &authority, crypto,
+                )
+            });
             let _ = done.send(res);
             false
         }
@@ -4676,16 +4664,11 @@ fn handle_cmd(
             done,
         } => {
             flush(pending);
-            let res = (|| {
-                let mut wtx = db.begin_write().map_err(|error| error.to_string())?;
-                wtx.set_durability(Durability::Immediate)
-                    .map_err(|error| error.to_string())?;
-                let result = crate::redb_store::work_item_capability::verify_in_wtx(
-                    &wtx, &graph, &request, &authority, crypto,
-                )?;
-                wtx.commit().map_err(|error| error.to_string())?;
-                Ok(result)
-            })();
+            let res = in_graph_write(shard, &graph, "work_item_capability_verify", |write| {
+                crate::redb_store::work_item_capability::verify_claim_capability(
+                    write, &graph, &request, &authority, crypto,
+                )
+            });
             let _ = done.send(res);
             false
         }
@@ -4697,7 +4680,7 @@ fn handle_cmd(
         } => {
             flush(pending);
             let res = crate::redb_store::development_lane::commit_development_lane(
-                db, &graph, &method, now_ms, crypto,
+                shard, &graph, &method, now_ms, crypto,
             );
             let _ = done.send(res);
             false
@@ -4709,7 +4692,7 @@ fn handle_cmd(
         } => {
             flush(pending);
             let res = crate::redb_store::capacity_lease::commit(
-                db,
+                shard,
                 &graph,
                 &method,
                 crypto,
@@ -4729,7 +4712,7 @@ fn handle_cmd(
             // commit first, then this envelope owns one indivisible fsync point.
             flush(pending);
             let res = commit_change_envelope(
-                db,
+                shard,
                 &graph,
                 &envelope,
                 committed_at_ms,
@@ -4750,7 +4733,7 @@ fn handle_cmd(
             // grouped writes first, then this whole page owns one indivisible fsync.
             flush(pending);
             let res = commit_change_envelopes(
-                db,
+                shard,
                 &graph,
                 &envelopes,
                 committed_at_ms,
@@ -4762,31 +4745,53 @@ fn handle_cmd(
             let _ = done.send(res);
             false
         }
+        Cmd::MutationOutboxSubscribe {
+            graph,
+            consumer,
+            topic,
+            done,
+        } => {
+            // The subscription is an immediate ledger write. Flush pending
+            // graph mutations first so a subsequent claim sees one committed
+            // ordering, then let the shard/kernel enforce same-topic
+            // idempotence and cross-topic refusal atomically.
+            flush(pending);
+            let result = shard.outbox_subscribe(&graph, &consumer, &topic);
+            let _ = done.send(result);
+            false
+        }
         Cmd::MutationOutboxClaim {
             graph,
             consumer,
-            now_ms,
-            lease_ms,
-            limit,
+            budget,
             done,
         } => {
             // A claim observes every prior batch/outbox write and installs all
-            // returned leases atomically before any worker is notified.
+            // returned leases atomically before any worker is notified. The budget is
+            // the value a sweep carries between scopes. The command owns a clone
+            // while the writer executes, then returns the updated state with the
+            // complete claim outcome so the caller can continue the same sweep
+            // without losing an explicit deferral reason.
             flush(pending);
-            let result =
-                claim_mutation_outbox(db, &graph, &consumer, now_ms, lease_ms, limit, crypto);
+            let mut budget = *budget;
+            let result = shard
+                .outbox_claim(&graph, &consumer, &mut budget)
+                .map(|outcome| (outcome, budget));
             let _ = done.send(result);
             false
         }
         Cmd::MutationOutboxAck {
             graph,
             lease,
-            projection,
             now_ms,
             done,
         } => {
+            // One call, not two: the kernel marks the lease delivered and advances
+            // this consumer's projection cursor in the SAME transaction, so the
+            // crash window between "delivered" and "watermark moved" that a separate
+            // cursor write left open is not representable any more.
             flush(pending);
-            let result = ack_mutation_outbox(db, &graph, &lease, &projection, now_ms, crypto);
+            let result = shard.outbox_ack(&graph, &lease, now_ms);
             let _ = done.send(result);
             false
         }
@@ -4816,7 +4821,7 @@ fn handle_cmd(
             reply,
         } => {
             flush(pending);
-            let _ = reply.send(read_raft_log_range(db, group_id, lo, hi, crypto));
+            let _ = reply.send(read_raft_log_range(shard, group_id, lo, hi, crypto));
             false
         }
         Cmd::RaftLogDeleteFrom {
@@ -4825,7 +4830,7 @@ fn handle_cmd(
             done,
         } => {
             flush(pending);
-            let _ = done.send(delete_raft_log_from(db, group_id, from));
+            let _ = done.send(delete_raft_log_from(shard, group_id, from));
             false
         }
         Cmd::RaftLogPurgeUpto {
@@ -4834,12 +4839,12 @@ fn handle_cmd(
             done,
         } => {
             flush(pending);
-            let _ = done.send(purge_raft_log_upto(db, group_id, upto));
+            let _ = done.send(purge_raft_log_upto(shard, group_id, upto));
             false
         }
         Cmd::RaftLogBounds { group_id, reply } => {
             flush(pending);
-            let _ = reply.send(raft_log_bounds(db, group_id));
+            let _ = reply.send(raft_log_bounds(shard, group_id));
             false
         }
         Cmd::RaftMetaPut {
@@ -4851,7 +4856,7 @@ fn handle_cmd(
             // Flush pending first so meta ordering is consistent with the log, then
             // durably write the meta row in its own transaction.
             flush(pending);
-            let _ = done.send(put_raft_meta(db, group_id, &key, &val));
+            let _ = done.send(put_raft_meta(shard, group_id, &key, &val));
             false
         }
         Cmd::RaftMetaGet {
@@ -4860,7 +4865,7 @@ fn handle_cmd(
             reply,
         } => {
             flush(pending);
-            let _ = reply.send(get_raft_meta(db, group_id, &key));
+            let _ = reply.send(get_raft_meta(shard, group_id, &key));
             false
         }
         Cmd::XshardPreparePut {
@@ -4870,7 +4875,7 @@ fn handle_cmd(
             done,
         } => {
             flush(pending);
-            let _ = done.send(put_xshard_prepare(db, &txn_id, group_id, &slice, crypto));
+            let _ = done.send(put_xshard_prepare(shard, &txn_id, group_id, &slice, crypto));
             false
         }
         Cmd::XshardPrepareGet {
@@ -4879,7 +4884,7 @@ fn handle_cmd(
             reply,
         } => {
             flush(pending);
-            let _ = reply.send(get_xshard_prepare(db, &txn_id, group_id, crypto));
+            let _ = reply.send(get_xshard_prepare(shard, &txn_id, group_id, crypto));
             false
         }
         Cmd::XshardDecisionPut {
@@ -4889,12 +4894,17 @@ fn handle_cmd(
             done,
         } => {
             flush(pending);
-            let _ = done.send(put_xshard_decision(db, &txn_id, commit, retain_for_parent));
+            let _ = done.send(put_xshard_decision(
+                shard,
+                &txn_id,
+                commit,
+                retain_for_parent,
+            ));
             false
         }
         Cmd::XshardRecoverablePendingPut { txn_id, done } => {
             flush(pending);
-            let _ = done.send(put_xshard_recoverable_pending(db, &txn_id));
+            let _ = done.send(put_xshard_recoverable_pending(shard, &txn_id));
             false
         }
         Cmd::XshardPrepareClear {
@@ -4903,106 +4913,121 @@ fn handle_cmd(
             done,
         } => {
             flush(pending);
-            let _ = done.send(clear_xshard_prepare(db, &txn_id, group_id));
+            let _ = done.send(clear_xshard_prepare(shard, &txn_id, group_id));
             false
         }
         Cmd::XshardDecisionClear { txn_id, done } => {
             flush(pending);
-            let _ = done.send(clear_xshard_decision(db, &txn_id));
+            let _ = done.send(clear_xshard_decision(shard, &txn_id));
             false
         }
         Cmd::XshardScanPrepares { reply } => {
             flush(pending);
-            let _ = reply.send(scan_xshard_prepares(db, crypto));
+            let _ = reply.send(scan_xshard_prepares(shard, crypto));
             false
         }
         Cmd::XshardScanDecisions { reply } => {
             flush(pending);
-            let _ = reply.send(scan_xshard_decisions(db));
+            let _ = reply.send(scan_xshard_decisions(shard));
             false
         }
         Cmd::XshardDecisionGet { txn_id, reply } => {
             flush(pending);
-            let _ = reply.send(get_xshard_decision(db, &txn_id));
+            let _ = reply.send(get_xshard_decision(shard, &txn_id));
             false
         }
         Cmd::XshardDecisionRetainGet { txn_id, reply } => {
             flush(pending);
-            let _ = reply.send(get_xshard_decision_retain(db, &txn_id));
+            let _ = reply.send(get_xshard_decision_retain(shard, &txn_id));
             false
         }
         #[cfg(feature = "compute-dist")]
         Cmd::MatViewPut { name, blob, done } => {
             flush(pending);
-            let _ = done.send(crate::redb_store::put_matview(db, &name, &blob));
+            let _ = done.send(crate::redb_store::put_matview(shard, &name, &blob));
             false
         }
         #[cfg(feature = "compute-dist")]
         Cmd::MatViewScan { reply } => {
             flush(pending);
-            let _ = reply.send(crate::redb_store::scan_matviews(db));
+            let _ = reply.send(crate::redb_store::scan_matviews(shard));
             false
         }
         #[cfg(feature = "matview")]
         Cmd::PlanMatViewPut { name, blob, done } => {
             flush(pending);
-            let _ = done.send(crate::redb_store::put_plan_matview(db, &name, &blob));
+            let _ = done.send(crate::redb_store::put_plan_matview(shard, &name, &blob));
             false
         }
         #[cfg(feature = "matview")]
         Cmd::PlanMatViewDelete { name, done } => {
             flush(pending);
-            let _ = done.send(crate::redb_store::delete_plan_matview(db, &name));
+            let _ = done.send(crate::redb_store::delete_plan_matview(shard, &name));
             false
         }
         #[cfg(feature = "matview")]
         Cmd::PlanMatViewScan { reply } => {
             flush(pending);
-            let _ = reply.send(crate::redb_store::scan_plan_matviews(db));
+            let _ = reply.send(crate::redb_store::scan_plan_matviews(shard));
             false
         }
         #[cfg(feature = "matview")]
         Cmd::MatViewOperatorStatePut { name, blob, done } => {
             flush(pending);
             let _ = done.send(crate::redb_store::put_matview_operator_state(
-                db, &name, &blob,
+                shard, &name, &blob,
             ));
             false
         }
         #[cfg(feature = "matview")]
         Cmd::MatViewOperatorStateDelete { name, done } => {
             flush(pending);
-            let _ = done.send(crate::redb_store::delete_matview_operator_state(db, &name));
+            let _ = done.send(crate::redb_store::delete_matview_operator_state(
+                shard, &name,
+            ));
             false
         }
         #[cfg(feature = "matview")]
         Cmd::MatViewOperatorStateScan { reply } => {
             flush(pending);
-            let _ = reply.send(crate::redb_store::scan_matview_operator_state(db));
+            let _ = reply.send(crate::redb_store::scan_matview_operator_state(shard));
             false
         }
     }
 }
 
-/// Commit all buffered mutations in ONE write transaction at the given durability,
-/// then fire EVERY commit-before-ack waiter for the ops in this batch with the
-/// batch's result (CONCEPT:EG-KG.backend.authoritative-dispatch). Coalescing is preserved: N awaiting writers
-/// ride one `WriteTransaction` / one fsync and are all notified after it commits.
-/// A waiter is only signalled `Ok` once its op is provably on disk.
+/// Commit all buffered mutations as ONE admitted scope group — the control member
+/// plus one member per touched graph — then fire EVERY commit-before-ack waiter for
+/// the ops in this batch with the batch's result (CONCEPT:EG-KG.backend.authoritative-dispatch).
+/// Coalescing is preserved: N awaiting writers ride one commit / one fsync and are
+/// all notified after it lands, and the Raft entries in the same `Pending` ride that
+/// same fsync on the control member. A waiter is only signalled `Ok` once its op is
+/// provably on disk.
+///
+/// There is no durability argument: every commit is `eg_storage`'s constant
+/// `WRITE_DURABILITY` (`Durability::Immediate`) — see `run`'s `commit_now`.
+///
+/// A burst wider than one group does NOT fail and is not split by luck:
+/// `commit_ops` sorts the drain by graph into a `BTreeMap`, splits that key list
+/// with `redb_store::shard::chunk_graphs` (`MAX_SHARD_GROUP_GRAPHS` = 1023, the
+/// kernel's member budget less the always-present control member) and commits
+/// each chunk as one group / one fsync, deterministically and in order, so two
+/// replicas chunk the same burst the same way. Handing it the WHOLE drain in ONE
+/// call is what lets it see the full burst — this function must not pre-split.
 fn commit_and_notify(
-    db: &Database,
+    shard: &Shard,
     pending: &mut Pending,
-    durability: Durability,
     crypto: crate::redb_store::DurableCrypto<'_>,
 ) {
     if pending.is_empty() {
         return;
     }
     let res = commit_ops(
-        db,
+        shard,
         &mut pending.ops,
         &mut pending.raft_log_ops,
-        durability,
+        &shard_write_attempt_id("shard_drain"),
+        crate::server::txn::now_ms(),
         crypto,
         // O(1) audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store), persistent across batches.
         #[cfg(feature = "security")]
@@ -5018,11 +5043,76 @@ fn commit_and_notify(
 // commit_ops / write_graph_meta / read_one_node now live in `crate::redb_store`
 // (imported above) — shared verbatim with the embedded path, ONE durable format.
 
+// ── One-shot writer-thread commits ───────────────────────────────────────
+//
+// The writer's own bookkeeping — a Raft truncation, a meta pointer, a minted
+// capability, a planted test row — carries no caller operation identity, so under
+// RF-RULING-005 it is the ledgered MAINTENANCE class: durable and version-bumping
+// like any other mutation, but outside operation-replay conflict semantics. Both
+// helpers ABORT the group on failure rather than dropping it: a dropped
+// unfinished admission poisons the shared transaction; an aborted one decides
+// nothing.
+
+/// Run `rows` in ONE control-only maintenance group: the 12 file-wide tables.
+fn in_control_write<T>(
+    shard: &Shard,
+    label: &str,
+    rows: impl FnOnce(&ShardWrite<'_>) -> Result<T, String>,
+) -> Result<T, String> {
+    in_write(shard, &[], label, rows)
+}
+
+/// Run `rows` in ONE maintenance group carrying `graph` plus the control member.
+fn in_graph_write<T>(
+    shard: &Shard,
+    graph: &str,
+    label: &str,
+    rows: impl FnOnce(&ShardWrite<'_>) -> Result<T, String>,
+) -> Result<T, String> {
+    let members = shard.graph_members(&[graph])?;
+    in_write(shard, &members, label, rows)
+}
+
+type ShardMember = (
+    String,
+    Arc<eg_storage::OwnedStoreHandle<eg_storage::GraphShardOwner>>,
+);
+
+fn in_write<T>(
+    shard: &Shard,
+    members: &[ShardMember],
+    label: &str,
+    rows: impl FnOnce(&ShardWrite<'_>) -> Result<T, String>,
+) -> Result<T, String> {
+    let op_id = shard_write_attempt_id(label);
+    let (group, batches) = shard.admit_maintenance(members, &op_id)?;
+    let applied = (|| {
+        let write = ShardWrite::open(shard, &group, members, &batches)?;
+        let value = rows(&write)?;
+        write.finish()?;
+        Ok(value)
+    })();
+    match applied {
+        Ok(value) => {
+            shard.commit_drain(group, &batches, crate::server::txn::now_ms())?;
+            Ok(value)
+        }
+        Err(error) => {
+            shard.mutations().abort_group(group)?;
+            Err(error)
+        }
+    }
+}
+
 // ── Raft log/meta helpers (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — run on the writer thread ───────
+//
+// `raft_log` and `raft_meta` are FILE-WIDE rows: their keys lead with the Raft
+// group id, not with a graph name, so they belong to the shard file's own control
+// scope and are reached through `write.control()` / `read.open_owner_table`.
 
 /// Read a `[lo, hi]` inclusive log range for one group, in index order.
 fn read_raft_log_range(
-    db: &Database,
+    shard: &Shard,
     gid: u64,
     lo: u64,
     hi: u64,
@@ -5030,8 +5120,8 @@ fn read_raft_log_range(
 ) -> Result<Vec<Vec<u8>>, String> {
     const MAX_RAFT_LOG_READ_ENTRIES: usize = 100_000;
     const MAX_RAFT_LOG_READ_BYTES: usize = 1024 * 1024 * 1024;
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let t = rtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
+    let rtx = shard.control_read()?;
+    let t = rtx.open_owner_table(RAFT_LOG)?;
     let mut out = Vec::new();
     let mut total_bytes = 0usize;
     for kv in t.range((gid, lo)..=(gid, hi)).map_err(|e| e.to_string())? {
@@ -5050,12 +5140,9 @@ fn read_raft_log_range(
 }
 
 /// Delete entries with index >= `from` for one group (conflict truncation).
-fn delete_raft_log_from(db: &Database, gid: u64, from: u64) -> Result<(), String> {
-    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-    wtx.set_durability(Durability::Immediate)
-        .map_err(|e| e.to_string())?;
-    {
-        let mut t = wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
+fn delete_raft_log_from(shard: &Shard, gid: u64, from: u64) -> Result<(), String> {
+    in_control_write(shard, "raft_log_delete_from", |write| {
+        let mut t = write.control().open_table(RAFT_LOG)?;
         let keys: Vec<u64> = t
             .range((gid, from)..=(gid, u64::MAX))
             .map_err(|e| e.to_string())?
@@ -5064,18 +5151,14 @@ fn delete_raft_log_from(db: &Database, gid: u64, from: u64) -> Result<(), String
         for idx in keys {
             t.remove((gid, idx)).map_err(|e| e.to_string())?;
         }
-    }
-    wtx.commit().map_err(|e| e.to_string())?;
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Delete entries with index <= `upto` for one group (purge/compaction).
-fn purge_raft_log_upto(db: &Database, gid: u64, upto: u64) -> Result<(), String> {
-    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-    wtx.set_durability(Durability::Immediate)
-        .map_err(|e| e.to_string())?;
-    {
-        let mut t = wtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
+fn purge_raft_log_upto(shard: &Shard, gid: u64, upto: u64) -> Result<(), String> {
+    in_control_write(shard, "raft_log_purge_upto", |write| {
+        let mut t = write.control().open_table(RAFT_LOG)?;
         let keys: Vec<u64> = t
             .range((gid, 0)..=(gid, upto))
             .map_err(|e| e.to_string())?
@@ -5084,15 +5167,14 @@ fn purge_raft_log_upto(db: &Database, gid: u64, upto: u64) -> Result<(), String>
         for idx in keys {
             t.remove((gid, idx)).map_err(|e| e.to_string())?;
         }
-    }
-    wtx.commit().map_err(|e| e.to_string())?;
-    Ok(())
+        Ok(())
+    })
 }
 
 /// (first, last) present log index for one group.
-fn raft_log_bounds(db: &Database, gid: u64) -> LogBoundsResult {
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let t = rtx.open_table(RAFT_LOG).map_err(|e| e.to_string())?;
+fn raft_log_bounds(shard: &Shard, gid: u64) -> LogBoundsResult {
+    let rtx = shard.control_read()?;
+    let t = rtx.open_owner_table(RAFT_LOG)?;
     let mut range = t
         .range((gid, 0)..=(gid, u64::MAX))
         .map_err(|e| e.to_string())?;
@@ -5109,30 +5191,68 @@ fn raft_log_bounds(db: &Database, gid: u64) -> LogBoundsResult {
 }
 
 /// Durably write one Raft metadata key for a group.
-fn put_raft_meta(db: &Database, gid: u64, key: &str, val: &[u8]) -> Result<(), String> {
-    let mut wtx = db.begin_write().map_err(|e| e.to_string())?;
-    wtx.set_durability(Durability::Immediate)
-        .map_err(|e| e.to_string())?;
-    {
-        let mut t = wtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
+fn put_raft_meta(shard: &Shard, gid: u64, key: &str, val: &[u8]) -> Result<(), String> {
+    in_control_write(shard, "raft_meta_put", |write| {
+        let mut t = write.control().open_table(RAFT_META)?;
         t.insert((gid, key), val).map_err(|e| e.to_string())?;
-    }
-    wtx.commit().map_err(|e| e.to_string())?;
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Read one Raft metadata key for a group.
-fn get_raft_meta(db: &Database, gid: u64, key: &str) -> Result<Option<Vec<u8>>, String> {
-    let rtx = db.begin_read().map_err(|e| e.to_string())?;
-    let t = rtx.open_table(RAFT_META).map_err(|e| e.to_string())?;
+fn get_raft_meta(shard: &Shard, gid: u64, key: &str) -> Result<Option<Vec<u8>>, String> {
+    let rtx = shard.control_read()?;
+    let t = rtx.open_owner_table(RAFT_META)?;
     Ok(t.get((gid, key))
         .map_err(|e| e.to_string())?
         .map(|v| v.value().to_vec()))
 }
 
+/// Insert one raw row directly into `table` for a shard file, bypassing every
+/// request/validation path (WD5-BUG-04: the RESOURCE_*/development_lane_*/
+/// capacity_lease_* subsystems require heavy native-operation preconditions — a
+/// registered host, a matching WorkItem node, a pre-existing reservation — that a
+/// raw seed sidesteps, exactly like `shard_migrate.rs`'s own `seed_raw_two_tuple_row`
+/// test helper). Generic over the table's key/value shape: every raw-seed idiom
+/// this lane's coverage needs — `(graph, second_key) -> blob`, `(graph, seq) ->
+/// blob`, `graph -> u64`, `name -> blob` — is the same open/begin_write/
+/// open_table/insert/commit sequence, differing only in what `K`/`V` happen to
+/// be. `backup.rs`'s own raw-seed coverage reaches the identical shard files
+/// through this same helper rather than carrying a second copy. Test-only:
+/// production code reaches these tables through the shard's admitted write.
+#[cfg(test)]
+pub(crate) fn seed_raw_row<'k, 'v, K, V>(
+    shard_path: &std::path::Path,
+    table: TableDefinition<K, V>,
+    key: K::SelfType<'k>,
+    value: V::SelfType<'v>,
+) where
+    K: redb::Key + 'static,
+    V: redb::Value + 'static,
+{
+    let db = redb::Database::open(shard_path).expect("open shard for raw seed");
+    let wtx = db.begin_write().expect("begin write");
+    {
+        let mut t = wtx.open_table(table).expect("open table for raw seed");
+        t.insert(key, value).expect("insert raw seed row");
+    }
+    wtx.commit().expect("commit raw seed row");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    // A raw `redb::Database` survives HERE and nowhere else: these fixtures plant
+    // rows the production paths deliberately refuse to write, so they must reach
+    // the file underneath the kernel's admission. Each opens the file only after
+    // the backend that owns it shut down (redb's lock admits one holder).
+    use redb::{Database, ReadableDatabase};
+
+    use crate::mutation_batch::{
+        DurabilityDomain, IncarnationId, LogicalName, MutationOperation, MutationOutboxIntent,
+        MutationScopeIdentity, MutationSurface, ScopeTenantId, VersionExpectation,
+        MUTATION_ACTOR_HEADER, MUTATION_BATCH_VERSION,
+    };
     use crate::protocol::Request;
     use crate::server::auth::{
         build_shared_test_request, dispatch_test_on_heap as dispatch_on_heap,
@@ -5184,6 +5304,141 @@ mod tests {
         rmp_serde::to_vec_named(&v).unwrap()
     }
 
+    fn caller_outbox_batch(graph: &str, batch_id: &str) -> MutationBatch {
+        let identity = MutationScopeIdentity::graph(
+            ScopeTenantId::new("caller-tenant").unwrap(),
+            LogicalName::new(graph).unwrap(),
+            IncarnationId::new("incarnation:test:redb-backend").unwrap(),
+        );
+        let actor = format!("principal:sha256:{}", "b".repeat(64));
+        let mut batch = MutationBatch {
+            schema_version: MUTATION_BATCH_VERSION,
+            batch_id: batch_id.to_string(),
+            envelope: crate::redb_store::fixture_operation_envelope(
+                &identity, &actor, 17, batch_id,
+            ),
+            identity,
+            placement_epoch: 1,
+            version_expectation: VersionExpectation::Graph(0),
+            fencing_token: Some(1),
+            authoritative_state: None,
+            operations: vec![MutationOperation {
+                ordinal: 0,
+                surface: MutationSurface::Transaction,
+                domain: DurabilityDomain::GraphRows,
+                method: Method::AddNode {
+                    node_id: "backend-outbox-node".to_string(),
+                    properties_msgpack: props(serde_json::json!({"source": "backend"})),
+                },
+            }],
+            outbox: vec![MutationOutboxIntent {
+                topic: "projection.backend".to_string(),
+                key: batch_id.to_string(),
+                payload: rmp_serde::to_vec_named(&serde_json::json!({"event": "backend"})).unwrap(),
+                headers: std::collections::BTreeMap::from([(
+                    MUTATION_ACTOR_HEADER.to_string(),
+                    actor,
+                )]),
+            }],
+            created_at_ms: 10,
+        };
+        let schema_digest = batch
+            .envelope
+            .operation()
+            .expect("fixture carries an operation envelope")
+            .method_schema_digest;
+        batch.reseal_envelope(schema_digest).unwrap();
+        batch
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn redb_backend_outbox_subscription_is_durable_and_topic_bound() {
+        let dir = std::env::temp_dir().join(format!(
+            "eg-redb-outbox-subscribe-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dir_s = dir.to_string_lossy().to_string();
+        let graph = "backend-outbox-graph";
+        let consumer = "backend-projection";
+        let topic = "projection.backend";
+        let batch = caller_outbox_batch(graph, "backend-outbox-batch");
+
+        let backend = RedbBackend::open(dir_s.clone(), 64).expect("open redb backend");
+        PersistenceBackend::commit_mutation_batch(&backend, graph, &batch, None, 11)
+            .await
+            .expect("caller batch commits through the backend");
+        PersistenceBackend::subscribe_mutation_outbox(&backend, graph, consumer, topic)
+            .await
+            .expect("first subscription commits");
+        PersistenceBackend::subscribe_mutation_outbox(&backend, graph, consumer, topic)
+            .await
+            .expect("same-topic subscription is idempotent");
+        let conflict = PersistenceBackend::subscribe_mutation_outbox(
+            &backend,
+            graph,
+            consumer,
+            "projection.other",
+        )
+        .await
+        .unwrap_err();
+        assert!(conflict.contains("already subscribed to another topic"));
+        backend.shutdown();
+        drop(backend);
+
+        let backend = RedbBackend::open(dir_s.clone(), 64).expect("reopen redb backend");
+        PersistenceBackend::subscribe_mutation_outbox(&backend, graph, consumer, topic)
+            .await
+            .expect("subscription survives restart");
+        let mut budget = OutboxClaimBudget::new(8, 100, 100).unwrap();
+        let outcome =
+            PersistenceBackend::claim_mutation_outbox(&backend, graph, consumer, &mut budget)
+                .await
+                .expect("subscribed backend claim succeeds");
+        assert!(!outcome.claims.is_empty());
+        backend.shutdown();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// An implicit last-owner drop must synchronously join every shard writer.
+    /// Reopening the same directory repeatedly catches the redb lock leak, while
+    /// the per-open timeout catches a detached writer join without changing the
+    /// process limit. The isolated xshard lifecycle child covers process-wide FD
+    /// accumulation around an accepted Raft connection.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn implicit_drop_releases_writer_before_reopen() {
+        #[cfg(feature = "security")]
+        let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        let dir = std::env::temp_dir().join(format!(
+            "eg-redb-implicit-drop-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        let dir_s = dir.to_string_lossy().to_string();
+
+        for _ in 0..8 {
+            let open_dir = dir_s.clone();
+            tokio::time::timeout(
+                Duration::from_secs(5),
+                tokio::task::spawn_blocking(move || {
+                    let _backend = RedbBackend::open(open_dir, 64)
+                        .expect("implicit drop must release the writer before reopen");
+                }),
+            )
+            .await
+            .expect("implicit writer drop must not hang")
+            .expect("implicit writer-drop worker must join");
+        }
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     /// Row count of ONE table in a shard file opened fresh, offline (WD5-BUG-04 —
     /// mirrors `shard_migrate.rs`'s own test helper of the same name).
     fn table_row_count<K, V>(path: &std::path::Path, def: redb::TableDefinition<K, V>) -> usize
@@ -5199,64 +5454,6 @@ mod tests {
         }
     }
 
-    /// Insert one raw `(graph, second_key) -> blob` row directly into `table` for a
-    /// shard file, bypassing every request/validation path (WD5-BUG-04: the
-    /// RESOURCE_*/development_lane_*/capacity_lease_* subsystems require heavy
-    /// native-operation preconditions — a registered host, a matching WorkItem node,
-    /// a pre-existing reservation — that a raw seed sidesteps, same technique
-    /// `shard_migrate.rs`'s own coverage test uses).
-    fn seed_raw_two_str_row(
-        shard_path: &std::path::Path,
-        table: redb::TableDefinition<(&str, &str), &[u8]>,
-        graph: &str,
-        second_key: &str,
-        value: &[u8],
-    ) {
-        let db = Database::open(shard_path).expect("open shard for raw seed");
-        let wtx = db.begin_write().expect("begin write");
-        {
-            let mut t = wtx.open_table(table).expect("open table for raw seed");
-            t.insert((graph, second_key), value)
-                .expect("insert raw seed row");
-        }
-        wtx.commit().expect("commit raw seed row");
-    }
-
-    /// Insert one raw `(graph, seq) -> blob` row (e.g. `PROVENANCE_ANCHOR_MEMBERS`).
-    #[cfg(feature = "security")]
-    fn seed_raw_graph_u64_row(
-        shard_path: &std::path::Path,
-        table: redb::TableDefinition<(&str, u64), &[u8]>,
-        graph: &str,
-        seq: u64,
-        value: &[u8],
-    ) {
-        let db = Database::open(shard_path).expect("open shard for raw seed");
-        let wtx = db.begin_write().expect("begin write");
-        {
-            let mut t = wtx.open_table(table).expect("open table for raw seed");
-            t.insert((graph, seq), value).expect("insert raw seed row");
-        }
-        wtx.commit().expect("commit raw seed row");
-    }
-
-    /// Insert one raw `graph -> u64` row (`WORK_ITEM_COMMAND_SEQUENCE` — a single
-    /// scalar value per graph, unlike every other table in this lane's scope).
-    fn seed_raw_scalar_u64_row(
-        shard_path: &std::path::Path,
-        table: redb::TableDefinition<&str, u64>,
-        key: &str,
-        value: u64,
-    ) {
-        let db = Database::open(shard_path).expect("open shard for raw seed");
-        let wtx = db.begin_write().expect("begin write");
-        {
-            let mut t = wtx.open_table(table).expect("open table for raw seed");
-            t.insert(key, value).expect("insert raw seed row");
-        }
-        wtx.commit().expect("commit raw seed row");
-    }
-
     /// Seed ONE valid, purge-safe `RESOURCE_RESERVATIONS` row (plus its matching
     /// `RESOURCE_RESERVATION_TENANT_INDEX` entry).
     ///
@@ -5266,7 +5463,7 @@ mod tests {
     /// is PRE-EXISTING lifecycle-authority validation, unrelated to this lane's
     /// routing fix, that decodes every reservation row as a real
     /// `DurableResourceReservation` and requires a matching tenant-index entry
-    /// before it will clear the source. A raw junk blob (`seed_raw_two_str_row`)
+    /// before it will clear the source. A raw junk blob (`seed_raw_row`)
     /// fails that decode with "durable value is invalid" — not a fix defect, a
     /// seed-strategy mismatch. This builds a real, terminal/zero-held record (so
     /// `resource_reservation_row_is_active` is false) that the purge accepts.
@@ -5561,8 +5758,7 @@ mod tests {
         let dir_s = dir.to_string_lossy().to_string();
 
         // ── write side ──
-        let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
-            .expect("open redb backend");
+        let backend = RedbBackend::open(dir_s.clone(), 64).expect("open redb backend");
         backend
             .register_graph("__commons__", "__commons__", GraphType::Commons)
             .await
@@ -5628,8 +5824,7 @@ mod tests {
         drop(backend);
 
         // ── reload side: fresh backend + fresh empty state ──
-        let backend2 = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
-            .expect("reopen redb backend");
+        let backend2 = RedbBackend::open(dir_s.clone(), 64).expect("reopen redb backend");
         let state2 = new_state(Some(dir_s.clone()));
         let loaded = backend2.load_all(&state2).await.unwrap();
         assert_eq!(loaded, 2, "g1 + __commons__ reloaded from redb");
@@ -5733,7 +5928,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
-        let result = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64);
+        let result = RedbBackend::open(dir_s.clone(), 64);
 
         // `unwrap_err()` would require `RedbBackend: Debug` (it formats the Ok
         // side on failure); the backend deliberately does not derive it, since
@@ -5764,7 +5959,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
-        let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+        let backend = RedbBackend::open(dir_s.clone(), 64)
             .expect("a configured key must open cleanly under ENCRYPTION_REQUIRED=on");
         backend.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -5786,7 +5981,7 @@ mod tests {
 
         {
             let _guard = EncryptionRequiredEnvGuard::set(Some("original-key-material"), "warn");
-            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            let backend = RedbBackend::open(dir_s.clone(), 64)
                 .expect("first open with a fresh key must establish the canary and succeed");
             backend.shutdown();
         }
@@ -5794,7 +5989,7 @@ mod tests {
         let result = {
             let _guard =
                 EncryptionRequiredEnvGuard::set(Some("a-completely-different-key"), "warn");
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            RedbBackend::open(dir_s.clone(), 64)
         };
         let message = match result {
             Ok(_) => panic!("reopening with the WRONG key must fail closed, not open silently"),
@@ -5825,7 +6020,7 @@ mod tests {
         {
             let _guard =
                 EncryptionRequiredEnvGuard::set_with_ref("stable-key-material", "kms/graph", "1");
-            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            let backend = RedbBackend::open(dir_s.clone(), 64)
                 .expect("first open must establish the pinned reference");
             backend.shutdown();
         }
@@ -5833,7 +6028,7 @@ mod tests {
         let result = {
             let _guard =
                 EncryptionRequiredEnvGuard::set_with_ref("stable-key-material", "kms/graph", "2");
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            RedbBackend::open(dir_s.clone(), 64)
         };
         let message = match result {
             Ok(_) => panic!("changing key version must fail closed before writer startup"),
@@ -5858,7 +6053,7 @@ mod tests {
         let dir_s = dir.to_string_lossy().to_string();
 
         for _ in 0..3 {
-            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            let backend = RedbBackend::open(dir_s.clone(), 64)
                 .expect("reopening with the SAME key must keep succeeding");
             backend.shutdown();
         }
@@ -5879,7 +6074,7 @@ mod tests {
         let dir_s = dir.to_string_lossy().to_string();
 
         for _ in 0..2 {
-            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            let backend = RedbBackend::open(dir_s.clone(), 64)
                 .expect("no key configured must keep opening exactly as before");
             backend.shutdown();
         }
@@ -5910,8 +6105,7 @@ mod tests {
         // Write real durable rows with encryption OFF — a plaintext store.
         {
             let _guard = EncryptionRequiredEnvGuard::set(None, "off");
-            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
-                .expect("plaintext open");
+            let backend = RedbBackend::open(dir_s.clone(), 64).expect("plaintext open");
             backend
                 .register_graph("plain", "plain", crate::protocol::GraphType::Global)
                 .await
@@ -5922,7 +6116,7 @@ mod tests {
         // Now hand it a key it has never seen.
         let result = {
             let _guard = EncryptionRequiredEnvGuard::set(Some("a-brand-new-key"), "warn");
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            RedbBackend::open(dir_s.clone(), 64)
         };
         let message = match result {
             Ok(_) => panic!(
@@ -5945,7 +6139,7 @@ mod tests {
         // The store is untouched: it still opens with encryption off.
         {
             let _guard = EncryptionRequiredEnvGuard::set(None, "off");
-            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            let backend = RedbBackend::open(dir_s.clone(), 64)
                 .expect("the refused open must leave the plaintext store serviceable");
             backend.shutdown();
         }
@@ -5971,7 +6165,7 @@ mod tests {
 
         {
             let _guard = EncryptionRequiredEnvGuard::set(Some("sealing-key-material"), "warn");
-            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            let backend = RedbBackend::open(dir_s.clone(), 64)
                 .expect("first open establishes the canary on an empty store");
             backend
                 .register_graph("sealed", "sealed", crate::protocol::GraphType::Global)
@@ -5983,7 +6177,7 @@ mod tests {
         // `off` deliberately: the refusal must not depend on the required-mode posture.
         let result = {
             let _guard = EncryptionRequiredEnvGuard::set(None, "off");
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            RedbBackend::open(dir_s.clone(), 64)
         };
         let message = match result {
             Ok(_) => panic!("an ENCRYPTED store must refuse to open with no key configured"),
@@ -5998,7 +6192,7 @@ mod tests {
         // With the original key it opens again — the refusal changed nothing on disk.
         {
             let _guard = EncryptionRequiredEnvGuard::set(Some("sealing-key-material"), "warn");
-            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            let backend = RedbBackend::open(dir_s.clone(), 64)
                 .expect("the original key must still open the store");
             backend.shutdown();
         }
@@ -6023,7 +6217,7 @@ mod tests {
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
 
-            let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
+            let backend = RedbBackend::open(dir_s.clone(), 64)
                 .unwrap_or_else(|e| panic!("mode {mode:?} must still open without a key: {e}"));
             backend.shutdown();
             let _ = std::fs::remove_dir_all(&dir);
@@ -6061,10 +6255,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
-        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
-                .expect("open redb backend"),
-        );
+        let backend: Arc<dyn crate::server::persistence::PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open redb backend"));
         backend
             .register_graph("__commons__", "__commons__", GraphType::Commons)
             .await
@@ -6154,8 +6346,7 @@ mod tests {
         }
         drop(backend);
 
-        let backend2 = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
-            .expect("reopen redb backend");
+        let backend2 = RedbBackend::open(dir_s.clone(), 64).expect("reopen redb backend");
         let state2 = new_state(Some(dir_s.clone()));
         backend2.load_all(&state2).await.unwrap();
         let core2 = {
@@ -6202,7 +6393,7 @@ mod tests {
         let dir_s = dir.to_string_lossy().to_string();
 
         let backend: Arc<dyn crate::server::persistence::PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 256).expect("open"));
+            Arc::new(RedbBackend::open(dir_s.clone(), 256).expect("open"));
         let state = new_state(Some(dir_s.clone()));
         {
             let mut s = state.write().await;
@@ -6307,7 +6498,7 @@ mod tests {
             "recreated tenant's node n1 must read back as the NEW write {{v:2}}, not stale/empty"
         );
         // `shutdown()` stops each shard's writer THREAD but does not close its
-        // `Database` — the handle lives in the `Shard`, so redb keeps its advisory
+        // `Database` — the handle lives in the `ShardWriter`, so redb keeps its advisory
         // file lock for as long as ANY `Arc<RedbBackend>` survives (see the
         // identical note in `many_recreate_cycles_keep_inmemory_writes_visible`).
         // This test holds THREE: the local `backend`, the clone parked in
@@ -6339,7 +6530,7 @@ mod tests {
         let backend2: Arc<dyn crate::server::persistence::PersistenceBackend> = {
             let mut attempt = 0;
             loop {
-                match RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 256) {
+                match RedbBackend::open(dir_s.clone(), 256) {
                     Ok(backend2) => break Arc::new(backend2),
                     Err(error) if attempt < 100 => {
                         attempt += 1;
@@ -6408,9 +6599,8 @@ mod tests {
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
 
-            let backend: Arc<dyn crate::server::persistence::PersistenceBackend> = Arc::new(
-                RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 256).expect("open"),
-            );
+            let backend: Arc<dyn crate::server::persistence::PersistenceBackend> =
+                Arc::new(RedbBackend::open(dir_s.clone(), 256).expect("open"));
             let state = new_state(Some(dir_s.clone()));
             {
                 let mut s = state.write().await;
@@ -6542,7 +6732,7 @@ mod tests {
         let dir_s = dir.to_string_lossy().to_string();
 
         let backend: Arc<dyn crate::server::persistence::PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 256).expect("open"));
+            Arc::new(RedbBackend::open(dir_s.clone(), 256).expect("open"));
         let state = new_state(Some(dir_s.clone()));
         {
             let mut s = state.write().await;
@@ -6585,7 +6775,7 @@ mod tests {
         // NO checkpoint. Drop the backend (flushes shutdown) and reload redb-only.
         //
         // `shutdown()` stops each shard's writer THREAD but does not close its
-        // `Database` -- the handle lives in the `Shard`, so redb keeps its advisory
+        // `Database` -- the handle lives in the `ShardWriter`, so redb keeps its advisory
         // file lock for as long as ANY `Arc<RedbBackend>` survives. This test holds
         // two: the local `backend` and the clone parked in `state.persistence`.
         // Reopening the same directory in-process while either is alive fails with
@@ -6600,8 +6790,7 @@ mod tests {
         }
         drop(backend);
 
-        let backend2 =
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 256).expect("reopen");
+        let backend2 = RedbBackend::open(dir_s.clone(), 256).expect("reopen");
         let state2 = new_state(Some(dir_s.clone()));
         let loaded = backend2.load_all(&state2).await.unwrap();
         assert!(loaded >= 1, "graphs recovered from redb without checkpoint");
@@ -6618,10 +6807,10 @@ mod tests {
     }
 
     /// CONCEPT:EG-KG.backend.authoritative-dispatch — commit-before-ack: `record_durable` returns ONLY after the
-    /// op is durably committed. Use DurabilityPolicy::Interval so the op is NOT committed
-    /// by an Each-after-batch path; the only way the await completes is the group
-    /// commit firing the waiter. After the await returns, a SEPARATE reopened DB sees
-    /// the row — proving the await observed durable state, not just an enqueue.
+    /// op is durably committed. The ONLY way the await completes is the group commit
+    /// firing the waiter — there is no per-drained-batch commit path left for it to
+    /// settle on incidentally. After the await returns, a SEPARATE reopened store
+    /// sees the row — proving the await observed durable state, not just an enqueue.
     #[tokio::test(flavor = "multi_thread")]
     async fn record_durable_awaits_commit() {
         // Holds the encryption env still for this test's whole body: it opens a
@@ -6632,12 +6821,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eg-redb-durable-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = RedbBackend::open(
-            dir_s.clone(),
-            DurabilityPolicy::Interval(Duration::from_millis(50)),
-            64,
-        )
-        .expect("open");
+        let backend = RedbBackend::open(dir_s.clone(), 64).expect("open");
 
         backend
             .record_durable(
@@ -6673,14 +6857,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eg-redb-coalesce-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = Arc::new(
-            RedbBackend::open(
-                dir_s.clone(),
-                DurabilityPolicy::Interval(Duration::from_millis(20)),
-                256,
-            )
-            .expect("open"),
-        );
+        let backend = Arc::new(RedbBackend::open(dir_s.clone(), 256).expect("open"));
 
         let n = 200usize;
         let mut handles = Vec::new();
@@ -6739,8 +6916,7 @@ mod tests {
         let dir_s = dir.to_string_lossy().to_string();
         // K=3 explicit (cfg(test) defaults to 1; open_with_shards honors the request on
         // a fresh dir). Graph names spread across shards via FNV-1a routing.
-        let backend = RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 64, 3)
-            .expect("open sharded");
+        let backend = RedbBackend::open_with_shards(dir_s.clone(), 64, 3).expect("open sharded");
         assert_eq!(backend.shard_count(), 3, "K=3 honored on a fresh dir");
 
         // Write one node into several graphs (spanning shards) + await each ack.
@@ -6805,14 +6981,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eg-redb-snapconc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = Arc::new(
-            RedbBackend::open(
-                dir_s.clone(),
-                DurabilityPolicy::Interval(Duration::from_millis(20)),
-                256,
-            )
-            .expect("open"),
-        );
+        let backend = Arc::new(RedbBackend::open(dir_s.clone(), 256).expect("open"));
 
         // Seed a committed node the readers will keep seeing.
         let seed = props(serde_json::json!({ "seed": true }));
@@ -6878,7 +7047,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eg-redb-snapack-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("open");
+        let backend = RedbBackend::open(dir_s.clone(), 64).expect("open");
 
         backend
             .record_durable(
@@ -6927,9 +7096,9 @@ mod tests {
     ///     linger folded many writers into one fsync (the profiled win),
     ///   * lingered commits were actually exercised.
     ///
-    /// `DurabilityPolicy::Each` would commit per-drained-batch regardless, so we use
-    /// `Interval` (the live authoritative cadence) where, pre-EG-024, a drained
-    /// channel commits immediately at ~1 op/fsync.
+    /// The live cadence is the only one now (the `Each` per-drained-batch policy is
+    /// deleted), and pre-EG-024 a drained channel committed immediately at ~1
+    /// op/fsync — which is exactly the shape the linger exists to widen.
     ///
     /// GOC-70 (fix/micro-linger-stats-race): on the real 2-vCPU CI runner this test
     /// once failed with `ops == 0` — NOT a "stats read before the writer ran" race
@@ -6988,9 +7157,6 @@ mod tests {
         let backend = Arc::new(
             RedbBackend::open_with_group_commit_config(
                 dir_s.clone(),
-                // Long interval so the ONLY thing that commits a batch is the barrier
-                // path (+ its injected micro-linger control), never the tick.
-                DurabilityPolicy::Interval(Duration::from_millis(500)),
                 // Channel capacity 4096 ⇒ `resolve_flush_threshold` (capacity/2, clamped
                 // 256..16384) resolves to 2048 — comfortably above `n` below (256), so
                 // the writer's early-flush memory bound cannot fire for this batch. This
@@ -7005,6 +7171,10 @@ mod tests {
             )
             .expect("open"),
         );
+        // Declare this after `backend`: if an assertion unwinds while the writer
+        // is held at the injected gate, the guard releases it before the backend's
+        // implicit Drop tries to join that writer.
+        let mut release = ReleaseOnDrop::new(release_tx);
 
         let n = 256usize;
         // GOC-70 rule 3: queue the first command, then wait for the writer's
@@ -7042,8 +7212,8 @@ mod tests {
         for i in 1..n {
             receivers.push(enqueue(i));
         }
-        release_tx
-            .send(())
+        release
+            .release()
             .expect("redb writer must still be held at the linger gate");
         for rx in receivers {
             rx.await
@@ -7096,14 +7266,7 @@ mod tests {
             // Serialized vs the coalesce test so its linger value can't leak into our `open`.
             let _env = LINGER_ENV_LOCK.lock().unwrap();
             std::env::set_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US", "0");
-            let b = Arc::new(
-                RedbBackend::open(
-                    dir_s.clone(),
-                    DurabilityPolicy::Interval(Duration::from_millis(50)),
-                    256,
-                )
-                .expect("open"),
-            );
+            let b = Arc::new(RedbBackend::open(dir_s.clone(), 256).expect("open"));
             std::env::remove_var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US");
             b
         };
@@ -7207,7 +7370,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 256).expect("open"));
+            Arc::new(RedbBackend::open(dir_s.clone(), 256).expect("open"));
         let state = new_state(Some(dir_s.clone()));
 
         let n = 50usize;
@@ -7271,7 +7434,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("open"));
+            Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open"));
         let state = new_state(Some(dir_s.clone()));
 
         // Insert the un-durable node FIRST so it has the lowest NodeIndex (front of
@@ -7333,8 +7496,8 @@ mod tests {
     }
 
     /// CONCEPT:EG-KG.storage.one-fsync-covers-raft — ONE fsync covers a Raft log entry AND its graph mutation.
-    /// Under `DurabilityPolicy::Interval`, the only way an awaited op completes is the
-    /// group commit firing. We launch a `record_durable` (M2 graph mutation) and a
+    /// The only way an awaited op completes is the group commit firing. We launch a
+    /// `record_durable` (M2 graph mutation) and a
     /// `raft_log_append` (Raft log entry) CONCURRENTLY into the same tick window;
     /// both share ONE `Pending` batch → ONE `WriteTransaction` → ONE fsync. We then
     /// prove BOTH landed durably (the graph row AND the log row).
@@ -7349,14 +7512,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eg-redb-1txn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = Arc::new(
-            RedbBackend::open(
-                dir_s.clone(),
-                DurabilityPolicy::Interval(Duration::from_millis(40)),
-                64,
-            )
-            .expect("open"),
-        );
+        let backend = Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open"));
 
         // Fire both into the SAME group-commit window, concurrently. With Interval
         // fsync, neither completes until the group commit fires — so if they both
@@ -7529,7 +7685,7 @@ mod tests {
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("happy");
         let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
+            Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
         let state = new_state(Some(dir.clone()));
         {
             let mut s = state.write().await;
@@ -7591,7 +7747,7 @@ mod tests {
 
         // Reload from redb: every modality is DURABLE (the one WriteTransaction).
         let backend2: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
+            Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
         let state2 = new_state(Some(dir.clone()));
         backend2.load_all(&state2).await.unwrap();
         {
@@ -7651,7 +7807,7 @@ mod tests {
         // whole test.
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("rollback");
-        let inner = Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
+        let inner = Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
         let backend: Arc<dyn PersistenceBackend> = Arc::new(FailingBackend {
             inner: inner.clone(),
         });
@@ -7695,7 +7851,7 @@ mod tests {
         // the last handle is gone and the redb file lock releases before the reopen.
         drop(state);
         let backend2: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
+            Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
         let state2 = new_state(Some(dir.clone()));
         backend2.load_all(&state2).await.unwrap();
         {
@@ -7837,7 +7993,7 @@ mod tests {
             (2_000_000_000i64, vec![20.0]),
         ];
         let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
+            Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
         // The measurement modality of this cross-modal commit is written to the tsdb
         // SeriesStore, so the state MUST carry one (same setup the measurement +
         // reconciliation tests use) — without it the Commit fails writing the tsdb leg.
@@ -7918,17 +8074,25 @@ mod tests {
         // Measurements are durable in the authoritative shard's SERIES tables
         // (same wtx, not series.redb).
         {
-            let series_db = SeriesStore::open(
-                std::path::Path::new(&dir).join(shard_filename(0)).as_path(),
-                crate::store_authority::process_verifier(),
-                crate::store_authority::process_authority().principal(),
-                &crate::store_authority::process_authority().proof(),
+            // graph-0.redb is a GraphShard owner file; reopen it through its
+            // sole owner and read the file-wide SERIES tables from the control
+            // scope. Opening it as a standalone SeriesStore would ask the
+            // storage kernel for a different owner manifest.
+            let shard =
+                Shard::open(std::path::Path::new(&dir).join(shard_filename(0)).as_path()).unwrap();
+            let read = shard.control_read().unwrap();
+            let key = direct_test_series_key("media", "sensor");
+            let meta = eg_tsdb::store::meta_in_rtx(&read, &key)
+                .unwrap()
+                .expect("series durable");
+            assert_eq!(meta.count, 2, "both measurement points durable");
+            let scanned = eg_tsdb::store::range_in_rtx(
+                &read,
+                &key,
+                eg_tsdb::point::Ts::MIN,
+                eg_tsdb::point::Ts::MAX,
             )
             .unwrap();
-            let key = direct_test_series_key("media", "sensor");
-            let meta = series_db.meta(&key).unwrap().expect("series durable");
-            assert_eq!(meta.count, 2, "both measurement points durable");
-            let scanned = series_db.scan_all(&key).unwrap();
             assert_eq!(scanned.len(), 2, "measurement points readable post-reload");
             assert_eq!(scanned[0].values, vec![10.0]);
             assert_eq!(scanned[1].values, vec![20.0]);
@@ -7936,7 +8100,7 @@ mod tests {
 
         // Reload the graph tier: node + vector + blob-ref + CONSTRUCT triple all durable.
         let backend2: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
+            Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
         let state2 = new_state(Some(dir.clone()));
         backend2.load_all(&state2).await.unwrap();
         {
@@ -7967,14 +8131,12 @@ mod tests {
     #[cfg(all(feature = "tsdb", feature = "sparql"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn five_modality_rolls_back_all_on_failure() {
-        use eg_tsdb::store::SeriesStore;
-
         // See `crossmodal_txn_commits_all_modalities_atomically` above: held for the
         // whole test.
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
         let dir = cm_dir("five-rollback");
         let points = vec![(1_000_000_000i64, vec![10.0])];
-        let inner = Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
+        let inner = Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
         let backend: Arc<dyn PersistenceBackend> = Arc::new(FailingBackend {
             inner: inner.clone(),
         });
@@ -8018,16 +8180,12 @@ mod tests {
 
         // And the measurement never landed durably either (the wtx never committed).
         {
-            let series_db = SeriesStore::open(
-                std::path::Path::new(&dir).join(shard_filename(0)).as_path(),
-                crate::store_authority::process_verifier(),
-                crate::store_authority::process_authority().principal(),
-                &crate::store_authority::process_authority().proof(),
-            )
-            .unwrap();
+            let shard =
+                Shard::open(std::path::Path::new(&dir).join(shard_filename(0)).as_path()).unwrap();
+            let read = shard.control_read().unwrap();
             let key = direct_test_series_key("media", "sensor");
             assert!(
-                series_db.meta(&key).unwrap().is_none(),
+                eg_tsdb::store::meta_in_rtx(&read, &key).unwrap().is_none(),
                 "series never landed durably"
             );
         }
@@ -8069,7 +8227,7 @@ mod tests {
         ];
 
         let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
+            Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
         let series_store = Arc::new(
             SeriesStore::open_in_dir(
                 std::path::Path::new(&dir),
@@ -8190,16 +8348,11 @@ mod tests {
         backend.shutdown();
         drop(backend);
         {
-            let series_db = SeriesStore::open(
-                std::path::Path::new(&dir).join(shard_filename(0)).as_path(),
-                crate::store_authority::process_verifier(),
-                crate::store_authority::process_authority().principal(),
-                &crate::store_authority::process_authority().proof(),
-            )
-            .unwrap();
+            let shard =
+                Shard::open(std::path::Path::new(&dir).join(shard_filename(0)).as_path()).unwrap();
+            let read = shard.control_read().unwrap();
             let key = envelope_test_series_key("media", "sensor.ts-unify");
-            let meta = series_db
-                .meta(&key)
+            let meta = eg_tsdb::store::meta_in_rtx(&read, &key)
                 .unwrap()
                 .expect("measurement durable in the authoritative shard");
             assert_eq!(meta.count, 3, "all 3 points durable in the shard");
@@ -8211,7 +8364,7 @@ mod tests {
         drop(state);
 
         let backend2: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
+            Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
         let state2 = new_state(Some(dir.clone()));
         backend2.load_all(&state2).await.unwrap();
         let series_store2 = Arc::new(
@@ -8272,7 +8425,7 @@ mod tests {
         const BUCKET_NS: u64 = 3_600_000_000_000; // 1h — matches DEFAULT_MEASUREMENT_BUCKET_NS.
 
         let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), DurabilityPolicy::Each, 64).unwrap());
+            Arc::new(RedbBackend::open(dir.clone(), 64).unwrap());
         let series_store = Arc::new(
             SeriesStore::open_in_dir(
                 std::path::Path::new(&dir),
@@ -8398,10 +8551,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
-        let backend = Arc::new(
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
-                .expect("open redb backend"),
-        );
+        let backend = Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open redb backend"));
         let state = new_state(Some(dir_s.clone()));
         {
             let mut s = state.write().await;
@@ -8484,10 +8634,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eg-get-ledger-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = Arc::new(
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
-                .expect("open redb backend"),
-        );
+        let backend = Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open redb backend"));
         let state = new_state(Some(dir_s.clone()));
         {
             let mut s = state.write().await;
@@ -8612,10 +8759,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
 
-        let backend = Arc::new(
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64)
-                .expect("open redb backend"),
-        );
+        let backend = Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open redb backend"));
         let state = new_state(Some(dir_s.clone()));
         {
             let mut s = state.write().await;
@@ -8652,6 +8796,46 @@ mod tests {
         assert_eq!(
             anchored, 1,
             "exactly one graph (__commons__) should be freshly anchored"
+        );
+
+        let core = state
+            .read()
+            .await
+            .registry
+            .get("__commons__")
+            .unwrap()
+            .core
+            .clone();
+        let anchored_version =
+            PersistenceBackend::read_mutation_graph_version(backend.as_ref(), "__commons__")
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            anchored_version, 4,
+            "three node writes and one anchor commit"
+        );
+        assert_eq!(
+            core.version(),
+            anchored_version,
+            "anchor publishes the durable OCC fence"
+        );
+        assert_eq!(
+            provenance_anchor::sweep(&state).await,
+            0,
+            "unchanged root is idle"
+        );
+        assert_eq!(
+            core.version(),
+            anchored_version,
+            "idle sweep must not bump RAM"
+        );
+        assert_eq!(
+            PersistenceBackend::read_mutation_graph_version(backend.as_ref(), "__commons__")
+                .await
+                .unwrap(),
+            Some(anchored_version),
+            "idle sweep must not bump authority"
         );
 
         let decode_report = |r: crate::protocol::Response| -> MerkleInclusionReport {
@@ -8757,6 +8941,19 @@ mod tests {
             "the tampered content changed the root, so it anchors again"
         );
 
+        assert_eq!(
+            core.version(),
+            6,
+            "overwrite and second anchor each publish once"
+        );
+        assert_eq!(
+            PersistenceBackend::read_mutation_graph_version(backend.as_ref(), "__commons__")
+                .await
+                .unwrap(),
+            Some(core.version()),
+            "second anchor retains authoritative/serving parity"
+        );
+
         let audit_report: AuditReport = match dispatch_on_heap(&state, req(8, Method::AuditVerify))
             .await
             .result
@@ -8814,8 +9011,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("eg-shard-k1-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
-        let backend = RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 64, 1)
-            .expect("open K=1");
+        let backend = RedbBackend::open_with_shards(dir_s.clone(), 64, 1).expect("open K=1");
         assert_eq!(backend.shard_count(), 1);
         assert!(
             dir.join("graph-0.redb").exists(),
@@ -8833,7 +9029,7 @@ mod tests {
         let auto = {
             let _env = LINGER_ENV_LOCK.lock().unwrap();
             std::env::remove_var("EPISTEMIC_GRAPH_REDB_SHARDS");
-            RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("open auto")
+            RedbBackend::open(dir_s.clone(), 64).expect("open auto")
         };
         assert_eq!(auto.shard_count(), 1, "cfg(test) default K=1");
         assert!(dir.join("graph-0.redb").exists());
@@ -8857,12 +9053,7 @@ mod tests {
         let retired = Database::create(dir.join("graph.redb")).unwrap();
         drop(retired);
 
-        let err = match RedbBackend::open_with_shards(
-            dir.to_string_lossy().to_string(),
-            DurabilityPolicy::Each,
-            64,
-            1,
-        ) {
+        let err = match RedbBackend::open_with_shards(dir.to_string_lossy().to_string(), 64, 1) {
             Ok(backend) => {
                 backend.shutdown();
                 panic!("retired layout must require an offline migration");
@@ -8899,9 +9090,7 @@ mod tests {
         let owner = shard_index(graph, K);
 
         {
-            let backend =
-                RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 256, K)
-                    .expect("open K=4");
+            let backend = RedbBackend::open_with_shards(dir_s.clone(), 256, K).expect("open K=4");
             assert_eq!(backend.shard_count(), K);
             // All K shard files exist (each acquired its exclusive lock at open).
             for i in 0..K {
@@ -8938,9 +9127,7 @@ mod tests {
         // RESTART: reopen the SAME dir (K reconciled from on-disk layout) and read the
         // node straight back from disk — durability across a process restart.
         {
-            let backend =
-                RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 256, K)
-                    .expect("reopen K=4");
+            let backend = RedbBackend::open_with_shards(dir_s.clone(), 256, K).expect("reopen K=4");
             assert_eq!(backend.shard_count(), K, "K reconciled from disk");
             assert!(
                 backend.read_node(graph, "n1").await.unwrap().is_some(),
@@ -8982,10 +9169,7 @@ mod tests {
         let (sa, sb) = (shard_index(&a, K), shard_index(&b, K));
         assert_ne!(sa, sb);
 
-        let backend = Arc::new(
-            RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 256, K)
-                .expect("open"),
-        );
+        let backend = Arc::new(RedbBackend::open_with_shards(dir_s.clone(), 256, K).expect("open"));
         // Fire both concurrently — they target different writer threads / files.
         let ba = backend.clone();
         let bb = backend.clone();
@@ -9047,7 +9231,7 @@ mod tests {
         let backend = {
             let _env = LINGER_ENV_LOCK.lock().unwrap();
             std::env::set_var("EPISTEMIC_GRAPH_REDB_SHARDS", "3");
-            let b = RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 64).expect("open");
+            let b = RedbBackend::open(dir_s.clone(), 64).expect("open");
             std::env::remove_var("EPISTEMIC_GRAPH_REDB_SHARDS");
             b
         };
@@ -9077,12 +9261,7 @@ mod tests {
         // (1) No catalog.redb, no env ⇒ open() attaches NOTHING (default EG-026 routing).
         let plain_dir = root.join("plain");
         std::fs::create_dir_all(&plain_dir).unwrap();
-        let plain = RedbBackend::open(
-            plain_dir.to_string_lossy().to_string(),
-            DurabilityPolicy::Each,
-            64,
-        )
-        .unwrap();
+        let plain = RedbBackend::open(plain_dir.to_string_lossy().to_string(), 64).unwrap();
         assert!(plain.catalog().is_none(), "default open() has no catalog");
         plain.shutdown();
 
@@ -9094,7 +9273,7 @@ mod tests {
             let cat = TenantCatalog::open(&cat_dir_s).expect("seed catalog");
             cat.assign("pinned", 0, None).unwrap();
         }
-        let attached = RedbBackend::open(cat_dir_s.clone(), DurabilityPolicy::Each, 64).unwrap();
+        let attached = RedbBackend::open(cat_dir_s.clone(), 64).unwrap();
         let cat = attached
             .catalog()
             .expect("durable catalog auto-attached at open");
@@ -9138,7 +9317,7 @@ mod tests {
 
         let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
         let backend = Arc::new(
-            RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 256, K)
+            RedbBackend::open_with_shards(dir_s.clone(), 256, K)
                 .expect("open K=4")
                 .with_catalog(catalog.clone()),
         );
@@ -9292,7 +9471,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir_s.clone(), DurabilityPolicy::Each, 256).expect("open"));
+            Arc::new(RedbBackend::open(dir_s.clone(), 256).expect("open"));
         let state = new_state(Some(dir_s.clone()));
 
         let core = seed_authoritative(&backend, &state, 12).await;
@@ -9378,8 +9557,7 @@ mod tests {
             "alpha", "beta", "gamma", "delta", "eps", "zeta", "eta", "theta",
         ];
 
-        let backend = RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 64, K)
-            .expect("open K=4");
+        let backend = RedbBackend::open_with_shards(dir_s.clone(), 64, K).expect("open K=4");
         let state = new_state(Some(dir_s.clone()));
         {
             let mut s = state.write().await;
@@ -9426,8 +9604,7 @@ mod tests {
         }
         drop(backend);
 
-        let backend2 = RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 64, K)
-            .expect("reopen K=4");
+        let backend2 = RedbBackend::open_with_shards(dir_s.clone(), 64, K).expect("reopen K=4");
         let state2 = new_state(Some(dir_s.clone()));
         let loaded = backend2.load_all(&state2).await.unwrap();
         assert!(loaded >= names.len(), "all seeded graphs recovered");
@@ -9468,7 +9645,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
-        let backend = RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 256, K)
+        let backend = RedbBackend::open_with_shards(dir_s.clone(), 256, K)
             .expect("open K=4")
             .with_catalog(catalog.clone());
 
@@ -9535,7 +9712,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
-        let backend = RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 256, K)
+        let backend = RedbBackend::open_with_shards(dir_s.clone(), 256, K)
             .expect("open")
             .with_catalog(catalog.clone());
 
@@ -9639,10 +9816,9 @@ mod tests {
         // it down to raw-seed the WD5-BUG-04 tables — the same "open, register,
         // shutdown, raw-seed" sequence `shard_migrate.rs`'s own coverage test uses.
         {
-            let backend =
-                RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 256, K)
-                    .expect("open")
-                    .with_catalog(catalog.clone());
+            let backend = RedbBackend::open_with_shards(dir_s.clone(), 256, K)
+                .expect("open")
+                .with_catalog(catalog.clone());
             backend
                 .register_graph(g, g, GraphType::Global)
                 .await
@@ -9660,10 +9836,15 @@ mod tests {
         // lifecycle-authority guard (see the two helpers' doc comments).
         seed_valid_resource_reservation(&src_path, g, "r1", "cx054-tenant");
         seed_valid_development_lane_hold(&src_path, g, "h1", "cx054-tenant");
-        seed_raw_two_str_row(&src_path, capacity_lease::CELLS, g, "c1", b"cell");
-        seed_raw_scalar_u64_row(&src_path, WORK_ITEM_COMMAND_SEQUENCE, g, 7);
+        seed_raw_row(&src_path, capacity_lease::CELLS, (g, "c1"), b"cell");
+        seed_raw_row(&src_path, WORK_ITEM_COMMAND_SEQUENCE, g, 7u64);
         #[cfg(feature = "security")]
-        seed_raw_graph_u64_row(&src_path, PROVENANCE_ANCHOR_MEMBERS, g, 1, b"anchor-member");
+        seed_raw_row(
+            &src_path,
+            PROVENANCE_ANCHOR_MEMBERS,
+            (g, 1u64),
+            b"anchor-member",
+        );
 
         // Sanity: every seeded row landed in the source before the reshard.
         assert_eq!(table_row_count(&src_path, RESOURCE_RESERVATIONS), 1);
@@ -9673,7 +9854,7 @@ mod tests {
         #[cfg(feature = "security")]
         assert_eq!(table_row_count(&src_path, PROVENANCE_ANCHOR_MEMBERS), 1);
 
-        let backend = RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 256, K)
+        let backend = RedbBackend::open_with_shards(dir_s.clone(), 256, K)
             .expect("reopen")
             .with_catalog(catalog.clone());
         let report = backend
@@ -9768,7 +9949,7 @@ mod tests {
         let dir_s = dir.to_string_lossy().to_string();
         let catalog = Arc::new(TenantCatalog::open(&dir_s).expect("catalog"));
         let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open_with_shards(dir_s.clone(), DurabilityPolicy::Each, 256, K)
+            RedbBackend::open_with_shards(dir_s.clone(), 256, K)
                 .expect("open")
                 .with_catalog(catalog.clone()),
         );

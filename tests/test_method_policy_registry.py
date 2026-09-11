@@ -104,10 +104,11 @@ def test_generated_ledger_uses_registry_order_and_policy_values() -> None:
 def test_duplicate_domain_declaration_fails_closed() -> None:
     source = load_capability_sources(ROOT)
     duplicate = source.replace(
-        '("ParseFiles", make_policy',
-        '("ParseFile", make_policy',
+        '("ParseFiles", spec(make_policy',
+        '("ParseFile", spec(make_policy',
         1,
     )
+    assert duplicate != source, "the planted duplicate must actually change the source"
 
     with pytest.raises(
         MethodPolicyInventoryError,
@@ -119,8 +120,11 @@ def test_duplicate_domain_declaration_fails_closed() -> None:
 def test_missing_domain_declaration_fails_closed() -> None:
     source = load_capability_sources(ROOT)
     missing = "\n".join(
-        line for line in source.splitlines() if '("ParseFiles", make_policy' not in line
+        line
+        for line in source.splitlines()
+        if '("ParseFiles", spec(make_policy' not in line
     )
+    assert missing != source, "the planted deletion must actually change the source"
 
     with pytest.raises(MethodPolicyInventoryError, match="407 rows instead of 408"):
         parse_method_policy_table(missing)
@@ -129,10 +133,11 @@ def test_missing_domain_declaration_fails_closed() -> None:
 def test_malformed_domain_declaration_fails_closed() -> None:
     source = load_capability_sources(ROOT)
     malformed = source.replace(
-        '("ParseFile", make_policy',
-        '("ParseFile", alternate_policy',
+        '("ParseFile", spec(make_policy',
+        '("ParseFile", spec(alternate_policy',
         1,
     )
+    assert malformed != source, "the planted malformation must actually change the source"
 
     with pytest.raises(
         MethodPolicyInventoryError, match="unparsed ingestion policy row"

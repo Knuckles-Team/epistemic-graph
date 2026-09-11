@@ -514,20 +514,17 @@ fn umap(
         return identity_pad(rows, dims);
     }
     let k = n_neighbors.clamp(2, n - 1);
-    let epochs = epochs.max(50);
+    // Keep the graph construction and SGD layout as separate algorithm phases.
+    let dist = eg_geo::distance_matrix(rows, |a, b| sq_dist(a, b).sqrt());
+    let neighbors = umap_neighbors(&dist, k);
+    let edges = umap_edges(&dist, &neighbors, k);
+    umap_layout(rows, dims, &edges, min_dist, epochs, seed)
+}
 
-    // Pairwise distances + per-point sorted neighbors.
-    let mut dist = vec![vec![0.0f64; n]; n];
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let v = sq_dist(&rows[i], &rows[j]).sqrt();
-            dist[i][j] = v;
-            dist[j][i] = v;
-        }
-    }
-    let neighbors: Vec<Vec<usize>> = (0..n)
+fn umap_neighbors(dist: &[Vec<f64>], k: usize) -> Vec<Vec<usize>> {
+    (0..dist.len())
         .map(|i| {
-            let mut order: Vec<usize> = (0..n).filter(|&j| j != i).collect();
+            let mut order: Vec<usize> = (0..dist.len()).filter(|&j| j != i).collect();
             order.sort_by(|&a, &b| {
                 dist[i][a]
                     .partial_cmp(&dist[i][b])
@@ -537,38 +534,20 @@ fn umap(
             order.truncate(k);
             order
         })
-        .collect();
+        .collect()
+}
+
+fn umap_edges(dist: &[Vec<f64>], neighbors: &[Vec<usize>], k: usize) -> Vec<(usize, usize, f64)> {
     // Fuzzy membership weights (rho + sigma calibration to log2(k)).
+    let n = dist.len();
     let target = (k as f64).log2().max(1.0);
     let mut weight = vec![vec![0.0f64; n]; n];
     for i in 0..n {
-        let rho = dist[i][neighbors[i][0]];
-        // Binary search sigma.
-        let (mut sigma, mut lo, mut hi) = (1.0f64, 0.0f64, f64::INFINITY);
-        for _ in 0..40 {
-            let mut s = 0.0;
-            for &j in &neighbors[i] {
-                s += (-(dist[i][j] - rho).max(0.0) / sigma).exp();
-            }
-            if (s - target).abs() < 1e-4 {
-                break;
-            }
-            if s > target {
-                hi = sigma;
-                sigma = (lo + hi) / 2.0;
-            } else {
-                lo = sigma;
-                sigma = if hi.is_infinite() {
-                    sigma * 2.0
-                } else {
-                    (lo + hi) / 2.0
-                };
-            }
-        }
-        for &j in &neighbors[i] {
-            weight[i][j] = (-(dist[i][j] - rho).max(0.0) / sigma.max(1e-6)).exp();
+        for (j, value) in umap_row_weights(&dist[i], &neighbors[i], target) {
+            weight[i][j] = value;
         }
     }
+
     // Symmetrize by the probabilistic t-conorm: w = a + b − a·b.
     let mut edges: Vec<(usize, usize, f64)> = Vec::new();
     for (i, wrow) in weight.iter().enumerate() {
@@ -581,7 +560,49 @@ fn umap(
             }
         }
     }
+    edges
+}
 
+fn umap_row_weights(distances: &[f64], neighbors: &[usize], target: f64) -> Vec<(usize, f64)> {
+    let rho = distances[neighbors[0]];
+    // Binary search sigma.
+    let (mut sigma, mut lo, mut hi) = (1.0f64, 0.0f64, f64::INFINITY);
+    for _ in 0..40 {
+        let mut s = 0.0;
+        for &j in neighbors {
+            s += (-(distances[j] - rho).max(0.0) / sigma).exp();
+        }
+        if (s - target).abs() < 1e-4 {
+            break;
+        }
+        if s > target {
+            hi = sigma;
+            sigma = (lo + hi) / 2.0;
+        } else {
+            lo = sigma;
+            sigma = if hi.is_infinite() {
+                sigma * 2.0
+            } else {
+                (lo + hi) / 2.0
+            };
+        }
+    }
+    neighbors
+        .iter()
+        .map(|&j| (j, (-(distances[j] - rho).max(0.0) / sigma.max(1e-6)).exp()))
+        .collect()
+}
+
+fn umap_layout(
+    rows: &[Point],
+    dims: usize,
+    edges: &[(usize, usize, f64)],
+    min_dist: f64,
+    epochs: usize,
+    seed: u64,
+) -> Vec<Vec<f64>> {
+    let n = rows.len();
+    let epochs = epochs.max(50);
     // (a, b) curve params fitting the min_dist smoothness (standard UMAP approximation).
     let (a, b) = umap_ab(min_dist);
 
@@ -596,42 +617,53 @@ fn umap(
         .collect();
     recenter(&mut y, dims);
 
-    let n_edges = edges.len().max(1);
     for epoch in 0..epochs {
         let alpha = 1.0 - (epoch as f64 / epochs as f64); // learning-rate decay
-        for &(i, j, w) in &edges {
+        for &(i, j, w) in edges {
             if rng.next_f64() > w {
                 continue; // sample edges proportionally to membership
             }
-            // Attractive gradient (pull i and j together). Precompute the per-dim
-            // deltas, then apply to both rows (avoids a double mutable borrow of `y`).
-            let d2 = sq_dist(&y[i], &y[j]).max(1e-6);
-            let grad_coeff = (-2.0 * a * b * d2.powf(b - 1.0)) / (1.0 + a * d2.powf(b));
-            let deltas: Vec<f64> = (0..dims)
-                .map(|d| clamp((y[i][d] - y[j][d]) * grad_coeff, -4.0, 4.0) * alpha)
-                .collect();
-            for (d, &del) in deltas.iter().enumerate() {
-                y[i][d] += del;
-                y[j][d] -= del;
-            }
-            // A few negative samples (repulsion).
-            for _ in 0..3 {
-                let r = (rng.next_u64() as usize) % n;
-                if r == i {
-                    continue;
-                }
-                let yr = y[r].clone();
-                let d2 = sq_dist(&y[i], &yr).max(1e-6);
-                let grad_coeff = (2.0 * b) / ((0.001 + d2) * (1.0 + a * d2.powf(b)));
-                for (d, &yrd) in yr.iter().enumerate() {
-                    y[i][d] += clamp((y[i][d] - yrd) * grad_coeff, -4.0, 4.0) * alpha;
-                }
-            }
+            umap_edge_step(&mut y, i, j, a, b, alpha, &mut rng);
         }
-        let _ = n_edges;
     }
     recenter(&mut y, dims);
     y
+}
+
+fn umap_edge_step(
+    y: &mut [Vec<f64>],
+    i: usize,
+    j: usize,
+    a: f64,
+    b: f64,
+    alpha: f64,
+    rng: &mut SplitMix64,
+) {
+    // Attractive gradient (pull i and j together). Precompute the per-dim
+    // deltas, then apply to both rows (avoids a double mutable borrow of `y`).
+    let d2 = sq_dist(&y[i], &y[j]).max(1e-6);
+    let grad_coeff = (-2.0 * a * b * d2.powf(b - 1.0)) / (1.0 + a * d2.powf(b));
+    let deltas: Vec<f64> = (0..y[i].len())
+        .map(|d| clamp((y[i][d] - y[j][d]) * grad_coeff, -4.0, 4.0) * alpha)
+        .collect();
+    for (d, &del) in deltas.iter().enumerate() {
+        y[i][d] += del;
+        y[j][d] -= del;
+    }
+
+    // A few negative samples (repulsion).
+    for _ in 0..3 {
+        let r = (rng.next_u64() as usize) % y.len();
+        if r == i {
+            continue;
+        }
+        let yr = y[r].clone();
+        let d2 = sq_dist(&y[i], &yr).max(1e-6);
+        let grad_coeff = (2.0 * b) / ((0.001 + d2) * (1.0 + a * d2.powf(b)));
+        for (d, &yrd) in yr.iter().enumerate() {
+            y[i][d] += clamp((y[i][d] - yrd) * grad_coeff, -4.0, 4.0) * alpha;
+        }
+    }
 }
 
 /// Solve the UMAP smoothness curve `1/(1+a·d^(2b))` fit for a given `min_dist` via a
@@ -980,6 +1012,37 @@ mod tests {
         assert_eq!(out.coords.len(), rows.len());
         let np = neighbor_preservation(&rows, &out.coords, 5);
         assert!(np > 0.6, "UMAP neighbor preservation too low: {np}");
+    }
+
+    #[test]
+    fn umap_deterministic_for_seed() {
+        let rows = three_clusters();
+        let algorithm = Algorithm::Umap {
+            n_neighbors: 8,
+            min_dist: 0.1,
+            epochs: 100,
+            seed: 5,
+        };
+        let a = reduce(&rows, None, algorithm, 2);
+        let b = reduce(&rows, None, algorithm, 2);
+        assert_eq!(a.coords, b.coords);
+    }
+
+    #[test]
+    fn umap_uses_identity_for_too_few_rows() {
+        let rows = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0]];
+        let out = reduce(
+            &rows,
+            None,
+            Algorithm::Umap {
+                n_neighbors: 2,
+                min_dist: 0.1,
+                epochs: 0,
+                seed: 1,
+            },
+            2,
+        );
+        assert_eq!(out.coords, vec![vec![1.0, 2.0], vec![4.0, 5.0]]);
     }
 
     #[test]

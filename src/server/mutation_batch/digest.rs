@@ -8,13 +8,9 @@ use crate::protocol::Method;
 /// It is [`principal_fingerprint`] applied to the engine's own name, so a
 /// readable principal string stays unrepresentable in a batch
 /// (`eg-types`'s `validate_principal` accepts only the opaque-digest form).
-/// Defined here rather than in `crate::store_authority` because that module is
-/// `redb`-gated while this one is not, and RF-RULING-004's application note
-/// makes this principal the batch context principal for EVERY domain --
-/// including the ones a build without `redb` still compiles batches for.
-/// `store_authority::ENGINE_PRINCIPAL` re-exports this one definition.
-pub(crate) const ENGINE_LEDGER_PRINCIPAL: &str =
-    "principal:sha256:41290b0e412ac542f312d4312a7a299e771eec66e3ffbbf7edb6369576875fb2";
+/// The server-side compiler re-exports the server-independent definition so
+/// every batch context uses the same identity in every feature shape.
+pub(crate) use crate::mutation_apply::ENGINE_LEDGER_PRINCIPAL;
 
 /// The verified caller recorded on a compiled batch.
 ///
@@ -63,12 +59,18 @@ pub(crate) fn principal_fingerprint(principal: &str) -> Result<String, String> {
 
 /// Stable lifecycle batch id used both before the first commit and by a retry
 /// reconciling a crash after durability but before registry publication.
-pub(crate) fn lifecycle_batch_id(action: &str, graph: &str, request_id: u64) -> String {
-    use sha2::{Digest, Sha256};
-    let material = format!("{action}\0{graph}\0{request_id}");
-    format!(
-        "lifecycle:{}",
-        hex::encode(Sha256::digest(material.as_bytes()))
+pub(crate) fn lifecycle_batch_id(
+    action: &str,
+    graph: &str,
+    principal: Option<&str>,
+    idempotency_key: &str,
+) -> String {
+    opaque_idempotency_key_for_context(
+        &format!("lifecycle-{action}"),
+        graph,
+        graph,
+        principal,
+        idempotency_key,
     )
 }
 
@@ -89,13 +91,15 @@ pub(crate) fn opaque_request_key(
     format!("{namespace}:{}", hex::encode(digest.finalize()))
 }
 
-pub(crate) fn opaque_request_key_for_context(
+/// Privacy-safe stable identity for a caller operation whose authenticated
+/// idempotency key survives transport retries. Request ids and nonces are
+/// attempt metadata and therefore deliberately excluded.
+pub(crate) fn opaque_idempotency_key_for_context(
     namespace: &str,
     tenant: &str,
     graph: &str,
     principal: Option<&str>,
-    request_id: u64,
-    method: &Method,
+    idempotency_key: &str,
 ) -> String {
     use sha2::{Digest, Sha256};
     let mut digest = Sha256::new();
@@ -104,12 +108,11 @@ pub(crate) fn opaque_request_key_for_context(
         tenant.as_bytes(),
         graph.as_bytes(),
         principal.unwrap_or_default().as_bytes(),
+        idempotency_key.as_bytes(),
     ] {
         digest.update((field.len() as u64).to_be_bytes());
         digest.update(field);
     }
-    digest.update(request_id.to_be_bytes());
-    digest.update(rmp_serde::to_vec_named(method).unwrap_or_default());
     format!("{namespace}:{}", hex::encode(digest.finalize()))
 }
 

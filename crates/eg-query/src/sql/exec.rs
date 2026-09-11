@@ -36,7 +36,7 @@ use super::udfs::{
     sha1_udf, sha256_udf, time_bucket_udf, tsrange_udf, vector_cosine_udf, vector_ip_udf,
     vector_l2_udf,
 };
-use crate::tables::{StoredFunction, TableSchema, TableStore};
+use crate::tables::{PropertyGraphCatalogRecord, StoredFunction, TableSchema, TableStore};
 
 /// One user table's registration plan for `build_ctx` (CONCEPT:EG-KG.query.register-user-tables-alongside):
 /// [`materialize_user_tables`] chooses PER TABLE between the two variants below.
@@ -129,6 +129,7 @@ pub fn exec_sql(
     run(
         view,
         nodes,
+        Vec::new(),
         Vec::new(),
         Vec::new(),
         Vec::new(),
@@ -305,6 +306,7 @@ pub fn exec_sql_typed_cancellable(
         Vec::new(),
         Vec::new(),
         Vec::new(),
+        Vec::new(),
         sql,
         cancel,
     )
@@ -400,6 +402,7 @@ pub fn exec_sql_typed_with_tables_cancellable(
     // an eager pre-materialized batch is required (see that function's own doc).
     let ann_indexes = store.list_ann_indexes()?;
     let user = materialize_user_tables(store, &ann_indexes)?;
+    let property_graphs = store.list_property_graph_records(store.index_scope())?;
     // CONCEPT:EG-KG.query.durable-views: the durable views, registered as read-only named queries so a
     // SELECT that references a view expands its stored SELECT during context build.
     let views = store.list_views()?;
@@ -409,6 +412,7 @@ pub fn exec_sql_typed_with_tables_cancellable(
         user,
         views,
         functions,
+        property_graphs,
         ann_indexes,
         sql,
         cancel,
@@ -429,6 +433,7 @@ pub fn exec_sql_cached(
     run(
         view,
         tables.nodes,
+        Vec::new(),
         Vec::new(),
         Vec::new(),
         Vec::new(),
@@ -698,6 +703,7 @@ impl SqlContextCache {
         let user = materialize_user_tables(store, &ann_indexes)?;
         let views = store.list_views()?;
         let functions = store.list_functions()?;
+        let property_graphs = store.list_property_graph_records(&epoch.tenant)?;
         let built = build_ctx(snap, nodes, user)?;
         register_views(&built.ctx, &views, &functions).await?;
         register_system_catalogs(
@@ -707,6 +713,7 @@ impl SqlContextCache {
             &built.user_relations,
             &views,
             &functions,
+            &property_graphs,
         )
         .await?;
         let built = Arc::new(built);
@@ -1200,8 +1207,8 @@ fn slice_user_table(pushdown: &AnnPushdown, user_tables: &mut [UserTable]) {
 
 /// Shared driver: register the two tables, the scalar/aggregate UDFs, and the
 /// graph table functions, then collect the query.
-// EG-313 adds `ann_indexes` (the 8th arg) beside the existing views/functions catalogs;
-// L36 adds `cancel` (the 9th) so the collect leg is REALLY cancellable, not just
+// Property-graph catalog records sit beside the existing views/functions catalogs;
+// EG-313 adds `ann_indexes`, and L36 adds `cancel`, so the collect leg is REALLY cancellable, not just
 // spillable.
 #[allow(clippy::too_many_arguments)]
 fn run(
@@ -1213,6 +1220,7 @@ fn run(
     user_tables: Vec<UserTable>,
     views: Vec<(String, String)>,
     functions: Vec<StoredFunction>,
+    property_graphs: Vec<PropertyGraphCatalogRecord>,
     ann_indexes: Vec<AnnIndexPlan>,
     sql: &str,
     cancel: &CancellationToken,
@@ -1260,6 +1268,7 @@ fn run(
             &built.user_relations,
             &views,
             &functions,
+            &property_graphs,
         )
         .await?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
@@ -1302,6 +1311,7 @@ pub fn exec_sql_arrow_cancellable(
         Vec::new(),
         Vec::new(),
         Vec::new(),
+        Vec::new(),
         sql,
         cancel,
     )
@@ -1320,6 +1330,7 @@ fn run_arrow(
     user_tables: Vec<UserTable>,
     views: Vec<(String, String)>,
     functions: Vec<StoredFunction>,
+    property_graphs: Vec<PropertyGraphCatalogRecord>,
     ann_indexes: Vec<AnnIndexPlan>,
     sql: &str,
     cancel: &CancellationToken,
@@ -1348,6 +1359,7 @@ fn run_arrow(
             &built.user_relations,
             &views,
             &functions,
+            &property_graphs,
         )
         .await?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
@@ -1398,8 +1410,8 @@ async fn register_views(
 /// Same driver as [`run`] but returns a [`TypedQueryResult`] (column types from
 /// the Arrow schema + JSON cells). Shares the providers/UDFs/runtime verbatim so
 /// the pgwire read path is the SAME engine path as `Method::Sql`.
-// EG-313 adds `ann_indexes` (the 8th arg) beside the existing views/functions catalogs;
-// L36 adds `cancel` (the 9th) — see `run`'s doc.
+// Property-graph catalog records sit beside the existing views/functions catalogs;
+// EG-313 adds `ann_indexes`, and L36 adds `cancel` — see `run`'s doc.
 #[allow(clippy::too_many_arguments)]
 fn run_typed(
     view: &GraphView,
@@ -1410,6 +1422,7 @@ fn run_typed(
     user_tables: Vec<UserTable>,
     views: Vec<(String, String)>,
     functions: Vec<StoredFunction>,
+    property_graphs: Vec<PropertyGraphCatalogRecord>,
     ann_indexes: Vec<AnnIndexPlan>,
     sql: &str,
     cancel: &CancellationToken,
@@ -1443,6 +1456,7 @@ fn run_typed(
             &built.user_relations,
             &views,
             &functions,
+            &property_graphs,
         )
         .await?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;

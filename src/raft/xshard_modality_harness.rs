@@ -281,8 +281,7 @@ async fn scenario_happy() -> Result<bool, String> {
         .map_err(|e| e.to_string())?
         .is_none();
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     run_scenario_cleanup(&dir, remove_scenario_dir).await;
 
     Ok(outcome == TxnOutcome::Committed
@@ -314,8 +313,7 @@ async fn scenario_participant_kill() -> Result<bool, String> {
         .map_err(|e| e.to_string())?
         .is_empty();
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     run_scenario_cleanup(&dir, remove_scenario_dir).await;
 
     // ABORT, no partial commit (neither modality present), clean 2PC state.
@@ -346,10 +344,9 @@ async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
         if staged.a_present || staged.b_present {
             return Err("applied before phase 2 in post-decision setup".into());
         }
-        // KILL the coordinator + node: stop listener, drop groups.
-        multi.stop_listener();
-        multi.close_group(GROUP_A).await?;
-        multi.close_group(GROUP_B).await?;
+        // KILL the coordinator + node: drain listener, connection tasks, groups,
+        // and writers before the restart boundary.
+        multi.shutdown().await;
     }
     backend.shutdown();
     drop(backend);
@@ -367,8 +364,7 @@ async fn scenario_coord_kill_post_decision() -> Result<bool, String> {
             .map_err(|e| e.to_string())?
             .is_none();
 
-    multi2.stop_listener();
-    backend2.shutdown();
+    multi2.shutdown().await;
     run_scenario_cleanup(&dir, remove_scenario_dir).await;
 
     // Single decision = COMMIT: BOTH modalities re-applied, records cleared.
@@ -401,9 +397,7 @@ async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
         if !two_prepares || !no_decision {
             return Err("unexpected 2PC state before the pre-decision crash".into());
         }
-        multi.stop_listener();
-        multi.close_group(GROUP_A).await?;
-        multi.close_group(GROUP_B).await?;
+        multi.shutdown().await;
     }
     backend.shutdown();
     drop(backend);
@@ -416,8 +410,7 @@ async fn scenario_coord_kill_pre_decision() -> Result<bool, String> {
         .map_err(|e| e.to_string())?
         .is_empty();
 
-    multi2.stop_listener();
-    backend2.shutdown();
+    multi2.shutdown().await;
     run_scenario_cleanup(&dir, remove_scenario_dir).await;
 
     // Single decision = ABORT (presumed): NEITHER modality landed, prepares cleared.
@@ -566,8 +559,7 @@ async fn scenario_stale_fenced_participant_rejected() -> Result<bool, String> {
         && modal_after_fresh.a_present
         && modal_after_fresh.b_present;
 
-    multi.stop_listener();
-    backend.shutdown();
+    multi.shutdown().await;
     run_scenario_cleanup(&dir, remove_scenario_dir).await;
 
     Ok(stale_rejected && fresh_accepted)

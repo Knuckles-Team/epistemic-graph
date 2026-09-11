@@ -92,9 +92,9 @@ const SECRET: &str = "advanced-crossmodal-secret";
 /// mutate this process-global never interleave. This still mutates a process-global
 /// (see the module doc on `RedbBackend::open` for why: `ValueCipher::from_env_checked` is the
 /// only key-provisioning seam that exists today -- there is no `RedbBackend::open`
-/// overload or `DurabilityPolicy` variant that accepts key material directly). A
+/// overload that accepts key material directly). A
 /// non-ambient fix would need a new constructor seam, e.g.
-/// `RedbBackend::open_with_cipher(persist_dir, policy, capacity, Option<ValueCipher>)`,
+/// `RedbBackend::open_with_cipher(persist_dir, capacity, Option<ValueCipher>)`,
 /// so a test could pass `ValueCipher::from_key_material(..)` straight in without
 /// touching `std::env` at all; see the CLAUDE.md / program notes for that as a
 /// follow-up rather than a silent scope-creep here.
@@ -1253,7 +1253,6 @@ static ENC_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn encryption_at_rest_wrong_key_fails_eg394() {
     use epistemic_graph::crypto::ENCRYPTION_KEY_ENV;
-    use epistemic_graph::durability::DurabilityPolicy;
     use epistemic_graph::server::persistence::redb_backend::RedbBackend;
     use epistemic_graph::server::persistence::PersistenceBackend;
 
@@ -1265,11 +1264,9 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
     let dir_s = dir.to_string_lossy().to_string();
 
     const SECRET_PROP: &str = "top-secret-serial-42";
-    let policy = || DurabilityPolicy::Interval(std::time::Duration::from_millis(20));
-
     // ── K1: open a keyed backend, commit a cross-modal write (node + edge + embedding). ──
     std::env::set_var(ENCRYPTION_KEY_ENV, "key-one-K1");
-    let backend = RedbBackend::open(dir_s.clone(), policy(), 64).expect("open K1");
+    let backend = RedbBackend::open(dir_s.clone(), 64).expect("open K1");
     let methods = vec![
         Method::AddNode {
             node_id: "robot".into(),
@@ -1323,7 +1320,7 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
     // `JoinHandle` here to await directly), so use the shared bounded retry rather
     // than a flat sleep -- identical rationale to the redb_backend.rs reopen tests.
     let reopened = test_support::reopen_with_bounded_retry(
-        || RedbBackend::open(dir_s.clone(), policy(), 64),
+        || RedbBackend::open(dir_s.clone(), 64),
         "reopen K1",
     )
     .await;
@@ -1366,7 +1363,7 @@ async fn encryption_at_rest_wrong_key_fails_eg394() {
 
     // ── K2 reopen (WRONG key): the canary must reject the open itself. ──
     std::env::set_var(ENCRYPTION_KEY_ENV, "key-two-WRONG");
-    let wrong_key_error = match RedbBackend::open(dir_s.clone(), policy(), 64) {
+    let wrong_key_error = match RedbBackend::open(dir_s.clone(), 64) {
         Ok(backend) => {
             backend.shutdown();
             panic!("reopening with the WRONG key must fail closed at RedbBackend::open")

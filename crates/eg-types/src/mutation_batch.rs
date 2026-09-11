@@ -16,10 +16,56 @@ pub use model::*;
 pub const MUTATION_BATCH_VERSION: u16 = 1;
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::protocol::Method;
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeMap;
+
+    const TEST_ACTOR: &str = "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    /// An operation envelope for a test batch on `identity`.
+    ///
+    /// Built through the one public constructor, so a fixture cannot become a
+    /// second minting path: every field it does not name is this deployment's
+    /// documented constant, exactly as a producer with no verified request
+    /// carrier gets.
+    pub(crate) fn test_envelope(
+        identity: &MutationScopeIdentity,
+        request_id: u64,
+        idempotency_key: &str,
+    ) -> MutationEnvelope {
+        MutationEnvelope::for_scope(
+            CompiledScope {
+                identity,
+                actor: TEST_ACTOR,
+                serving_principal: TEST_ACTOR,
+                request_id,
+                idempotency_key,
+                nonce: crate::contract::Nonce::from_bytes([request_id as u8; 32]),
+                now_ms: 10,
+            },
+            CompiledOperation {
+                method: crate::contract::MethodId::new(BATCH_COMPILED_METHODS).unwrap(),
+                method_schema_id: method_schema_id(
+                    &crate::contract::MethodId::new(BATCH_COMPILED_METHODS).unwrap(),
+                )
+                .unwrap(),
+                method_schema_digest: crate::contract::Digest256::from_bytes([1_u8; 32]),
+                canonical_payload_digest: crate::contract::Digest256::from_bytes([2_u8; 32]),
+            },
+        )
+        .unwrap()
+    }
+
+    /// Grant the reserved-system capability an `Unversioned` batch requires.
+    pub(crate) fn grant_unversioned_capability(batch: &mut MutationBatch) {
+        let MutationEnvelope::Operation(envelope) = &mut batch.envelope else {
+            panic!("a maintenance batch has no caller capability to grant");
+        };
+        envelope
+            .verified_capabilities
+            .insert(MutationCapability::UnversionedSystemMutation);
+    }
 
     fn graph_identity() -> MutationScopeIdentity {
         MutationScopeIdentity::graph(
@@ -30,20 +76,12 @@ mod tests {
     }
 
     fn batch() -> MutationBatch {
-        MutationBatch {
+        let mut batch = MutationBatch {
             schema_version: MUTATION_BATCH_VERSION,
             batch_id: "batch-1".into(),
-            context: MutationRequestContext {
-                request_id: 7,
-                principal: format!("principal:sha256:{}", "a".repeat(64)),
-                purpose: Some("unit-test".into()),
-                policy_fingerprint: None,
-                trace_id: None,
-                verified_capabilities: BTreeSet::new(),
-            },
+            envelope: test_envelope(&graph_identity(), 7, "idem-1"),
             identity: graph_identity(),
             placement_epoch: 3,
-            idempotency_key: "idem-1".into(),
             version_expectation: VersionExpectation::Graph(9),
             fencing_token: Some(4),
             authoritative_state: None,
@@ -57,7 +95,13 @@ mod tests {
             }],
             outbox: Vec::new(),
             created_at_ms: 10,
-        }
+        };
+        // Mint the envelope over the FINAL body, exactly as the compile path
+        // does: `validate` refuses an envelope that covers other bytes.
+        batch
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals");
+        batch
     }
 
     #[test]
@@ -65,6 +109,9 @@ mod tests {
         batch().validate().unwrap();
         let mut invalid = batch();
         invalid.operations[0].ordinal = 1;
+        invalid
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
         assert!(invalid.validate().unwrap_err().contains("not contiguous"));
     }
 
@@ -115,6 +162,9 @@ mod tests {
             source_graph_version: 9,
             target_graph_version: 11,
         });
+        state_backed
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
         assert!(state_backed
             .validate()
             .unwrap_err()
@@ -124,6 +174,9 @@ mod tests {
         state.source_graph_version = u64::MAX;
         state.target_graph_version = u64::MAX;
         state_backed.version_expectation = VersionExpectation::Graph(u64::MAX);
+        state_backed
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
         assert!(state_backed.validate().unwrap_err().contains("overflow"));
     }
 
@@ -136,13 +189,19 @@ mod tests {
             source_graph_version: 9,
             target_graph_version: 10,
         });
+        state_backed
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
         state_backed.validate().unwrap();
         state_backed.authoritative_state.as_mut().unwrap().algorithm =
             "sha256-row-delta-prototype".into();
+        state_backed
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
         assert!(state_backed.validate().is_err());
     }
 
-        /// The scope and the domain are two independent axes: the domain names the
+    /// The scope and the domain are two independent axes: the domain names the
     /// operation family, the scope names the storage authority. A graph scope
     /// must therefore carry the graph-authoritative families -- lifecycle,
     /// control-plane, cross-modal, multi-graph -- because their version IS the
@@ -169,6 +228,9 @@ mod tests {
         ] {
             let mut accepted = batch();
             accepted.operations[0].domain = domain;
+            accepted
+                .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+                .expect("a fixture batch reseals its envelope over its final body");
             assert!(
                 accepted.validate().is_ok(),
                 "graph scope rejected graph-authoritative domain {domain:?}"
@@ -183,6 +245,9 @@ mod tests {
         ] {
             let mut rejected = batch();
             rejected.operations[0].domain = domain;
+            rejected
+                .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+                .expect("a fixture batch reseals its envelope over its final body");
             let error = rejected
                 .validate()
                 .expect_err("graph scope accepted store-authoritative domain {domain:?}");
@@ -193,7 +258,7 @@ mod tests {
         }
     }
 
-/// RF-RULING-007. The blanket refusal of every `Native(SemanticIndex)` batch
+    /// RF-RULING-007. The blanket refusal of every `Native(SemanticIndex)` batch
     /// is DELETED, not relaxed. It was vacuous and load-bearing at once: no
     /// producer ever built a batch on that domain (`canonical.rs` classified
     /// `AddEmbedding` into the graph domains), so it rejected nothing, while
@@ -214,6 +279,9 @@ mod tests {
         .unwrap();
         semantic.version_expectation = VersionExpectation::Native(9);
         semantic.operations[0].domain = DurabilityDomain::SemanticIndex;
+        semantic
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
         semantic.validate().unwrap();
     }
 
@@ -232,6 +300,9 @@ mod tests {
     fn a_semantic_operation_is_refused_outside_a_semantic_scope() {
         let mut graph_scoped = batch();
         graph_scoped.operations[0].domain = DurabilityDomain::SemanticIndex;
+        graph_scoped
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
         assert!(graph_scoped
             .validate()
             .unwrap_err()
@@ -247,6 +318,9 @@ mod tests {
         .unwrap();
         foreign_native.version_expectation = VersionExpectation::Native(9);
         foreign_native.operations[0].domain = DurabilityDomain::SemanticIndex;
+        foreign_native
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
         assert!(foreign_native
             .validate()
             .unwrap_err()
@@ -264,16 +338,16 @@ mod tests {
         )
         .unwrap();
         unversioned.operations[0].domain = DurabilityDomain::ControlPlane;
+        unversioned
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
         unversioned.version_expectation = VersionExpectation::Unversioned;
         assert!(unversioned
             .validate()
             .unwrap_err()
             .contains("verified capability"));
 
-        unversioned
-            .context
-            .verified_capabilities
-            .insert(MutationCapability::UnversionedSystemMutation);
+        grant_unversioned_capability(&mut unversioned);
         unversioned.validate().unwrap();
 
         unversioned.identity = MutationScopeIdentity::native(
@@ -296,6 +370,7 @@ mod tests {
             ordinal: 0,
             identity,
             committed_version,
+            commit_sequence: None,
             intent: MutationOutboxIntent {
                 topic: "engine.projection.rebuild".into(),
                 key: "batch-1".into(),

@@ -61,6 +61,7 @@ use crate::server::access::CarrierAuthority;
 use eg_tsdb::point::Point;
 use eg_tsdb::query::{asof_join_backward, gap_fill_locf, time_bucket, Agg};
 use eg_tsdb::store::{ScopedAppendBatch, SeriesKey, SeriesStore};
+use eg_types::contract::Nonce;
 
 const MAX_POINTS_MSGPACK_BYTES: usize = 32 * 1024 * 1024;
 const MAX_POINTS_MSGPACK_ITEMS: usize = 1_000_000;
@@ -162,6 +163,29 @@ pub(crate) async fn try_handle(
     fencing_token: Option<u64>,
     method: Method,
 ) -> Result<Response, Method> {
+    try_handle_with_nonce(
+        state,
+        req_id,
+        authority,
+        None,
+        graph,
+        placement_epoch,
+        fencing_token,
+        method,
+    )
+    .await
+}
+
+pub(crate) async fn try_handle_with_nonce(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+    graph: &str,
+    placement_epoch: u64,
+    fencing_token: Option<u64>,
+    method: Method,
+) -> Result<Response, Method> {
     let original_method = method.clone();
     match method {
         Method::TsAppend {
@@ -201,6 +225,7 @@ pub(crate) async fn try_handle(
                 crate::server::mutation_batch::CompileBatch {
                     batch_id: &batch_id,
                     request_id: req_id,
+                    attempt_nonce,
                     principal: Some(authority.actor_scope()),
                     tenant: authority.tenant_scope(),
                     graph: &scope,
@@ -641,6 +666,7 @@ mod nested_payload_tests {
             crate::server::mutation_batch::CompileBatch {
                 batch_id: &batch_id,
                 request_id: 1,
+                attempt_nonce: None,
                 principal: Some(alice.actor_scope()),
                 tenant: alice.tenant_scope(),
                 graph: &scope,

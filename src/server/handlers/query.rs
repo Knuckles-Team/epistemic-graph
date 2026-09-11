@@ -36,6 +36,8 @@ use crate::protocol::{Response, ResultPayload};
 use crate::server::access::GraphReadAuthority;
 #[cfg(feature = "result-cache")]
 use eg_core::result_cache::ResultCache;
+#[cfg(feature = "graphql")]
+use eg_graphql::parser::{Field, GqlValue};
 
 #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
 fn raw_result_bytes<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, String> {
@@ -80,6 +82,73 @@ fn graphql_crossmodal_registry() -> &'static eg_graphql::CrossModalTxnRegistry {
     use std::sync::OnceLock;
     static REG: OnceLock<eg_graphql::CrossModalTxnRegistry> = OnceLock::new();
     REG.get_or_init(eg_graphql::CrossModalTxnRegistry::new)
+}
+
+#[cfg(feature = "graphql")]
+fn graphql_field_txn_id(field: &Field) -> Option<String> {
+    field.args.iter().find_map(|(name, value)| {
+        (name == "txnId").then(|| match value {
+            GqlValue::Str(txn_id) => Some(txn_id.clone()),
+            _ => None,
+        })?
+    })
+}
+
+#[cfg(feature = "graphql")]
+fn graphql_query_txn_ids(query: &str) -> Option<(bool, Vec<String>)> {
+    let operation = eg_graphql::parse_operation(query).ok()?;
+    let eg_graphql::Operation::Mutation(mutation) = operation else {
+        return None;
+    };
+    let has_begin = mutation
+        .roots
+        .iter()
+        .any(|field| field.name == "beginTransaction");
+    let ids = mutation
+        .roots
+        .iter()
+        .filter_map(graphql_field_txn_id)
+        .collect();
+    Some((has_begin, ids))
+}
+
+#[cfg(feature = "graphql")]
+fn graphql_result_txn_ids(value: &serde_json::Value) -> Vec<String> {
+    value
+        .get("data")
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flat_map(|fields| fields.values())
+        .filter_map(|field| field.get("txnId"))
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_string)
+        .collect()
+}
+
+#[cfg(feature = "graphql")]
+fn graphql_lifecycle_replay_is_live(
+    owner_scope: &str,
+    query: &str,
+    result: &ResultPayload,
+    registry: &eg_graphql::CrossModalTxnRegistry,
+) -> bool {
+    let Some((has_begin, mut txn_ids)) = graphql_query_txn_ids(query) else {
+        return false;
+    };
+    if has_begin {
+        let ResultPayload::Raw(bytes) = result else {
+            return false;
+        };
+        let value = match rmp_serde::from_slice::<serde_json::Value>(bytes) {
+            Ok(value) => value,
+            Err(_) => return false,
+        };
+        txn_ids.extend(graphql_result_txn_ids(&value));
+    }
+    !txn_ids.is_empty()
+        && txn_ids
+            .iter()
+            .all(|txn_id| registry.contains_handle(owner_scope, txn_id))
 }
 
 #[cfg(all(feature = "query", feature = "tsdb"))]
@@ -528,9 +597,7 @@ async fn handle_sql_with_lease(
 ) -> Result<Response, String> {
     let state = ctx.state;
     let req_id = ctx.req_id;
-    let graph_name = ctx.graph_name;
     let read_authority = ctx.read_authority;
-    let caller = ctx.caller;
     let core = ctx.core;
     let policy_lease = ctx.policy_lease;
     let store = ctx.store;
@@ -555,36 +622,23 @@ async fn handle_sql_with_lease(
         crate::metrics::access_denied();
         return Err("ACCESS_DENIED: current signed tenant authority is required".to_string());
     };
-    let persist_dir = state.read().await.persist_dir.clone();
-    let table_store = crate::server::sql_tables::user_table_store(
-        authority,
-        persist_dir.as_deref().map(std::path::Path::new),
-    )
-    .map_err(|e| format!("SQL error: {e}"))?;
-    let (snap, graph_version) = lease_filtered_snapshot(core, policy_lease, store)?;
-    let node_epoch = graph_version;
-    let context_cache = crate::server::sql_tables::sql_context_cache(
-        authority,
-        persist_dir.as_deref().map(std::path::Path::new),
-    )
-    .map_err(|e| format!("SQL error: {e}"))?;
-    let tenant_scope = authority.tenant_scope().to_string();
-    let graph_name_owned = graph_name.to_string();
-    let caller_owned = caller.to_string();
+    let persist_dir = state.read().await.persist_dir.clone().ok_or_else(|| {
+        "SQL error: tenant SQL catalog requires the configured persistence directory".to_string()
+    })?;
+    let (snap, _graph_version) = lease_filtered_snapshot(core, policy_lease, store)?;
     let cancel = eg_query::CancellationToken::new();
     let _cancel_guard = crate::server::request_cancel::register(req_id, cancel.clone());
     let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
     let cancel_for_task = cancel.clone();
+    let authority = authority.clone();
     let resp = match compute_off_lock(req_id, move || {
-        eg_query::exec_sql_typed_with_tables_cached_cancellable(
+        let authorized = crate::server::sql_catalog_acl::authorized_read_store(
+            &authority,
+            std::path::Path::new(&persist_dir),
+        )?;
+        eg_query::exec_sql_typed_with_tables_cancellable(
             &snap,
-            graph_version,
-            node_epoch,
-            &tenant_scope,
-            &graph_name_owned,
-            &caller_owned,
-            &table_store,
-            &context_cache,
+            authorized.store(),
             &query,
             &cancel_for_task,
         )
@@ -682,9 +736,9 @@ async fn handle_sql(
     //     DataFusion read path, run tables-aware (`exec_sql_typed_with_tables`)
     //     so a `SELECT` sees BOTH the graph AND user tables in one plan.
     //
-    // SQL catalogs are owned by the current verified tenant+principal. Reads
-    // and writes resolve the same owner store; there is no shared catalog or
-    // unsigned lookup path.
+    // Method::Sql shares the tenant catalog used by every SQL wire surface.
+    // Reads execute against a per-request authorized projection; writes use
+    // the raw tenant store only while holding and enforcing source authority.
     let Some(read_authority) = read_authority else {
         crate::metrics::access_denied();
         return Ok(Response::err(
@@ -700,9 +754,16 @@ async fn handle_sql(
         ));
     };
     let persist_dir = state.read().await.persist_dir.clone();
-    let store = match crate::server::sql_tables::user_table_store(
-        authority,
-        persist_dir.as_deref().map(std::path::Path::new),
+    let Some(persist_dir) = persist_dir.as_deref().map(std::path::Path::new) else {
+        return Ok(Response::err(
+            req_id,
+            "SQL error: tenant SQL catalog requires the configured persistence directory"
+                .to_string(),
+        ));
+    };
+    let store = match crate::server::sql_tables::tenant_table_store(
+        authority.tenant_scope(),
+        persist_dir,
     ) {
         Ok(s) => s,
         Err(e) => return Ok(Response::err(req_id, format!("SQL error: {e}"))),
@@ -714,6 +775,8 @@ async fn handle_sql(
                 graph_name,
                 tenant_scope: authority.tenant_scope(),
                 caller: Some(authority.actor_scope()),
+                authority,
+                persist_dir,
             },
             read_authority,
             sql_method,
@@ -726,18 +789,15 @@ async fn handle_sql(
             // Read (or an unparseable statement — exec surfaces the precise
             // parse error). RLS-filter the off-lock snapshot to the caller's
             // visible rows BEFORE execution so a SELECT cannot exfiltrate a
-            // forbidden row. `analysis_snapshot_versioned` (not the bare
-            // `analysis_snapshot`) so the OCC version used to key the served
-            // context cache below is taken ATOMICALLY with the snapshot it
-            // describes — they can never drift apart.
+            // forbidden row. `analysis_snapshot_versioned` keeps the version
+            // observation atomic with the graph snapshot even though changing
+            // SQL grants require a fresh authorized table projection.
             let (snap, graph_version) = {
                 #[cfg(feature = "result-cache")]
                 {
                     // perf/row-visibility-index (B-sweep): this path has no
-                    // whole-RESULT byte cache to probe first (the SQL served
-                    // context/table cache further below is keyed on
-                    // `graph_version`, not on this query's bytes), so EVERY
-                    // read pays for a filtered view — exactly why amortizing
+                    // whole-RESULT byte cache to probe first, so EVERY read
+                    // pays for a filtered view — exactly why amortizing
                     // the per-node RLS decode via `FilteredViewCache` (the
                     // SAME per-(actor,version) cache `Method::CypherQuery`
                     // uses) matters here.
@@ -760,30 +820,7 @@ async fn handle_sql(
                     (snap, version)
                 }
             };
-            // W1.6/P7 site 3: the node epoch gates the SQL-context node-batch sub-cache so a
-            // pure-edge / catalog-only write reuses the O(V) node scan. The dependency clock
-            // folds the coarse floor into it, keeping it sound for bypass writes; without
-            // result-cache, fall back to graph_version (correct, no reuse).
-            #[cfg(feature = "result-cache")]
-            let node_epoch = core.dep_clock().node_epoch();
-            #[cfg(not(feature = "result-cache"))]
-            let node_epoch = graph_version;
-            // CONCEPT:EG-KG.query.served-context-cache — the whole-`SessionContext` cache (UDFs,
-            // durable views, synthesized system catalogs), amortized across every
-            // served SQL read for this owner. One instance PER owner-scoped SQL
-            // catalog (the same registry key `user_table_store` resolves `store`
-            // by), so repeated calls from the SAME tenant+actor actually reuse
-            // it — not just within one request.
-            let context_cache = match crate::server::sql_tables::sql_context_cache(
-                authority,
-                persist_dir.as_deref().map(std::path::Path::new),
-            ) {
-                Ok(c) => c,
-                Err(e) => return Ok(Response::err(req_id, format!("SQL error: {e}"))),
-            };
-            let tenant_scope = authority.tenant_scope().to_string();
-            let graph_name_owned = graph_name.to_string();
-            let caller_owned = caller.to_string();
+            let _graph_version = graph_version;
             // L36 (CONCEPT:EG-KG.query.streaming-spillable-collect) — a REAL, request-scoped
             // `CancellationToken`: registered under THIS request's `req_id` for the
             // duration of the call so an explicit client `Method::CancelRequest` or a
@@ -797,16 +834,16 @@ async fn handle_sql(
             let _cancel_guard = crate::server::request_cancel::register(req_id, cancel.clone());
             let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
             let cancel_for_task = cancel.clone();
+            let authority = authority.clone();
+            let persist_dir = persist_dir.to_path_buf();
             let resp = match compute_off_lock(req_id, move || {
-                eg_query::exec_sql_typed_with_tables_cached_cancellable(
+                let authorized = crate::server::sql_catalog_acl::authorized_read_store(
+                    &authority,
+                    &persist_dir,
+                )?;
+                eg_query::exec_sql_typed_with_tables_cancellable(
                     &snap,
-                    graph_version,
-                    node_epoch,
-                    &tenant_scope,
-                    &graph_name_owned,
-                    &caller_owned,
-                    &store,
-                    &context_cache,
+                    authorized.store(),
                     &query,
                     &cancel_for_task,
                 )
@@ -1877,6 +1914,7 @@ async fn handle_graphql_mutation(
     read_authority: Option<&GraphReadAuthority>,
     core: &Arc<GraphCore>,
     query: String,
+    variables: Option<serde_json::Value>,
 ) -> Result<Response, Method> {
     let carrier = match read_authority.and_then(GraphReadAuthority::carrier) {
         Some(carrier) => carrier,
@@ -1901,7 +1939,16 @@ async fn handle_graphql_mutation(
             handle_graphql_commit_txn(state, req_id, graph_name, core, &txn_id, carrier).await
         }
         eg_graphql::CrossModalRoute::Staging => {
-            handle_graphql_staging_mutation(req_id, read_authority, core, carrier, query).await
+            handle_graphql_staging_mutation(
+                state,
+                req_id,
+                read_authority,
+                core,
+                carrier,
+                query,
+                variables,
+            )
+            .await
         }
         eg_graphql::CrossModalRoute::Invalid(message) => Ok(Response::err(req_id, message)),
         eg_graphql::CrossModalRoute::NotCrossModal => {
@@ -1951,27 +1998,79 @@ async fn handle_graphql_commit_txn(
 /// durable side effect until commit).
 #[cfg(feature = "graphql")]
 async fn handle_graphql_staging_mutation(
+    state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     read_authority: Option<&GraphReadAuthority>,
     core: &Arc<GraphCore>,
     carrier: &crate::server::access::CarrierAuthority,
     query: String,
+    variables: Option<serde_json::Value>,
 ) -> Result<Response, Method> {
+    // The GraphQL registry remains the staging implementation, but every
+    // begin/stage/read/rollback request first enters the existing transaction
+    // lifecycle saga.  Its method body includes variables so a changed signed
+    // request cannot reuse the same stable key for a different operation.
+    let method = Method::GraphQl {
+        query: query.clone(),
+        variables,
+    };
+    let admission = match super::txn::begin_graphql_lifecycle(
+        state,
+        req_id,
+        carrier.agent_id(),
+        carrier,
+        &method,
+    )
+    .await
+    {
+        Ok(admission) => admission,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    let receipt = match admission {
+        super::txn::GraphQlLifecycleAdmission::Replayed(result) => {
+            if !graphql_lifecycle_replay_is_live(
+                carrier.owner_scope(),
+                &query,
+                &result,
+                graphql_crossmodal_registry(),
+            ) {
+                return Ok(Response::err(
+                    req_id,
+                    "GraphQL lifecycle receipt is terminal but volatile staging state is unavailable; refusing to return a stale success",
+                ));
+            }
+            return Ok(Response::ok(req_id, result));
+        }
+        super::txn::GraphQlLifecycleAdmission::Execute(receipt) => receipt,
+    };
     let core_w = read_authority
         .expect("GraphQL mutation authority checked above")
         .project_core(core);
     let owner_scope = carrier.owner_scope().to_string();
     let reg = graphql_crossmodal_registry();
-    let resp = match compute_off_lock(req_id, move || {
+    let value = match compute_off_lock(req_id, move || {
         eg_graphql::execute_crossmodal(&core_w, reg, &owner_scope, &query)
     })
     .await
     {
-        Ok(Ok(value)) => raw_response(req_id, &value),
-        Ok(Err(msg)) => Response::err(req_id, format!("GraphQL cross-modal error: {msg}")),
-        Err(resp) => resp,
+        Ok(Ok(value)) => value,
+        Ok(Err(msg)) => {
+            return Ok(Response::err(
+                req_id,
+                format!("GraphQL cross-modal error: {msg}"),
+            ))
+        }
+        Err(resp) => return Ok(resp),
     };
-    Ok(resp)
+    let result = match ResultPayload::raw(&value) {
+        Ok(result) => result,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    super::txn::fault_after_txn_lifecycle_effect(req_id);
+    match super::txn::finish_graphql_lifecycle(receipt, result) {
+        Ok(result) => Ok(Response::ok(req_id, result)),
+        Err(error) => Ok(Response::err(req_id, error)),
+    }
 }
 
 /// The `CrossModalRoute::NotCrossModal` arm of [`handle_graphql_mutation`]: an
@@ -2015,8 +2114,16 @@ async fn handle_graphql(
     // lands). NOT cached (it is a write) and NOT RLS pre-filtered (writes are
     // graph-ACL-gated in `dispatch_graph_op` — this method classified Write).
     if super::super::access::graphql_is_mutation(&query) {
-        return handle_graphql_mutation(state, req_id, graph_name, read_authority, &core, query)
-            .await;
+        return handle_graphql_mutation(
+            state,
+            req_id,
+            graph_name,
+            read_authority,
+            &core,
+            query,
+            variables,
+        )
+        .await;
     }
     // A `subscription { … }` is a read-only POLL of the current matches (a full
     // push transport is a documented eg-graphql deferral); a `query { … }` is the
@@ -4516,10 +4623,13 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
 /// The verified actor/scope fields for [`exec_sql_write`], bundled so the
 /// function stays under the clippy argument-count ceiling.
 #[cfg(feature = "query")]
+#[derive(Clone, Copy)]
 struct SqlWriteScope<'a> {
     graph_name: &'a str,
     tenant_scope: &'a str,
     caller: Option<&'a str>,
+    authority: &'a crate::server::access::CarrierAuthority,
+    persist_dir: &'a std::path::Path,
 }
 
 /// Execute `Method::Sql`'s `INSERT INTO nodes …` DML — pure extract-method out of
@@ -4635,6 +4745,7 @@ async fn exec_sql_write_insert_select(
     sql_method: Method,
     read_core: Arc<GraphCore>,
     store: &eg_query::TableStore,
+    read_store: &eg_query::TableStore,
     ins: eg_query::InsertSelect,
 ) -> Response {
     let eg_query::InsertSelect {
@@ -4642,7 +4753,7 @@ async fn exec_sql_write_insert_select(
         columns,
         select_sql,
     } = ins;
-    let read_store = store.clone();
+    let read_store = read_store.clone();
     let snap = read_core.analysis_snapshot();
     let expected_columns = columns.len();
     let r = compute_off_lock(req_id, move || {
@@ -4901,13 +5012,35 @@ async fn exec_sql_write(
     store: &eg_query::TableStore,
     kind: eg_query::StatementKind,
 ) -> Response {
-    let SqlWriteScope {
-        graph_name,
-        tenant_scope,
-        caller,
-    } = scope;
     use eg_query::StatementKind as K;
     let read_core = read_authority.project_core(core);
+    let needs_source_read = matches!(
+        &kind,
+        K::InsertSelect(_)
+            | K::InsertNodesSelect(_)
+            | K::UpdateNodesJoin(_)
+            | K::DeleteNodesJoin(_)
+            | K::GraphTableReadRequiresCatalogAdmission(_)
+    );
+    let authorized = if needs_source_read {
+        let authority = scope.authority.clone();
+        let persist_dir = scope.persist_dir.to_path_buf();
+        match compute_off_lock(req_id, move || {
+            crate::server::sql_catalog_acl::authorized_read_store(&authority, &persist_dir)
+        })
+        .await
+        {
+            Ok(Ok(store)) => Some(store),
+            Ok(Err(error)) => return Response::err(req_id, format!("SQL error: {error}")),
+            Err(response) => return response,
+        }
+    } else {
+        None
+    };
+    let read_store = authorized
+        .as_ref()
+        .map(|authorized| authorized.store())
+        .unwrap_or(store);
     match kind {
         K::InsertNodes(ins) => exec_sql_write_insert_nodes(req_id, core, &read_core, ins).await,
         K::UpdateNodes(upd) => {
@@ -4919,11 +5052,7 @@ async fn exec_sql_write(
         K::CreateTable(plan) => {
             exec_sql_write_create_table(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 plan,
@@ -4938,11 +5067,7 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -4954,11 +5079,7 @@ async fn exec_sql_write(
         K::AlterTable(plan) => {
             exec_sql_write_alter_table(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 plan,
@@ -4974,11 +5095,7 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -4989,14 +5106,11 @@ async fn exec_sql_write(
         K::InsertSelect(ins) => {
             exec_sql_write_insert_select(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 read_core.clone(),
                 store,
+                read_store,
                 ins,
             )
             .await
@@ -5010,11 +5124,7 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -5030,11 +5140,7 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -5052,15 +5158,16 @@ async fn exec_sql_write(
         ),
         // CONCEPT:EG-KG.query.insert-into-nodes-select — INSERT INTO nodes … SELECT over the RPC wire (write-ack; no RETURNING).
         K::InsertNodesSelect(ins) => {
-            exec_sql_write_insert_nodes_select(req_id, core, read_core.clone(), store, ins).await
+            exec_sql_write_insert_nodes_select(req_id, core, read_core.clone(), read_store, ins)
+                .await
         }
         // CONCEPT:EG-KG.query.update-delete-from — UPDATE nodes … FROM … over the RPC wire.
         K::UpdateNodesJoin(upd) => {
-            exec_sql_write_update_nodes_join(req_id, core, &read_core, store, upd).await
+            exec_sql_write_update_nodes_join(req_id, core, &read_core, read_store, upd).await
         }
         // CONCEPT:EG-KG.query.update-delete-from — DELETE FROM nodes … USING … over the RPC wire.
         K::DeleteNodesJoin(del) => {
-            exec_sql_write_delete_nodes_join(req_id, core, &read_core, store, del).await
+            exec_sql_write_delete_nodes_join(req_id, core, &read_core, read_store, del).await
         }
         // CONCEPT:EG-KG.query.create-drop-view — CREATE/DROP VIEW over the RPC wire.
         K::CreateView(plan) => {
@@ -5072,11 +5179,7 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -5092,11 +5195,7 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -5116,11 +5215,7 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -5133,11 +5228,7 @@ async fn exec_sql_write(
             txn.push(eg_query::TxnOp::DropExtension { name, if_exists });
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -5154,11 +5245,7 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -5174,11 +5261,7 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -5195,11 +5278,7 @@ async fn exec_sql_write(
             ));
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -5216,11 +5295,7 @@ async fn exec_sql_write(
             ));
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -5238,11 +5313,7 @@ async fn exec_sql_write(
             });
             commit_sql_catalog_txn(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
                 txn,
@@ -5259,16 +5330,14 @@ async fn exec_sql_write(
         // SQL:2023 SQL/PGQ, plus the plain read the caller never routes here.
         graph_kind @ (K::Read
         | K::PropertyGraphDdlRequiresCatalogAdmission(_)
+        | K::PropertyGraphPrivilegeRequiresCatalogAdmission(_)
         | K::GraphTableReadRequiresCatalogAdmission(_)) => {
             exec_sql_property_graph(
                 req_id,
-                SqlWriteScope {
-                    graph_name,
-                    tenant_scope,
-                    caller,
-                },
+                scope,
                 sql_method,
                 store,
+                read_store,
                 &read_core,
                 graph_kind,
             )
@@ -5287,6 +5356,7 @@ async fn exec_sql_property_graph(
     scope: SqlWriteScope<'_>,
     sql_method: Method,
     store: &eg_query::TableStore,
+    read_store: &eg_query::TableStore,
     read_core: &Arc<GraphCore>,
     kind: eg_query::StatementKind,
 ) -> Response {
@@ -5295,11 +5365,56 @@ async fn exec_sql_property_graph(
         K::PropertyGraphDdlRequiresCatalogAdmission(_) => {
             exec_sql_property_graph_ddl(req_id, scope, sql_method, store).await
         }
+        K::PropertyGraphPrivilegeRequiresCatalogAdmission(_) => {
+            exec_sql_property_graph_privilege(req_id, scope, sql_method, store).await
+        }
         K::GraphTableReadRequiresCatalogAdmission(query) => {
-            exec_sql_graph_table_read(req_id, scope.tenant_scope, store, read_core, &query)
+            exec_sql_graph_table_read(req_id, read_store, read_core, &query)
         }
         _ => Response::err(req_id, "SQL error: read routed to write path".to_string()),
     }
+}
+
+/// Bind a property-graph privilege change to the current object identity before
+/// the shared transaction authorizer checks owner/admin authority and commits.
+#[cfg(feature = "query")]
+async fn exec_sql_property_graph_privilege(
+    req_id: u64,
+    scope: SqlWriteScope<'_>,
+    sql_method: Method,
+    store: &eg_query::TableStore,
+) -> Response {
+    let Method::Sql { query, .. } = &sql_method else {
+        return Response::err(
+            req_id,
+            "SQL error: property-graph privilege change needs its SQL text".to_string(),
+        );
+    };
+    let statement = match eg_query::sql::parse_property_graph_privilege(query) {
+        Ok(statement) => statement,
+        Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+    };
+    let record = match store.property_graph(scope.tenant_scope, &statement.name) {
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            return Response::err(
+                req_id,
+                format!(
+                    "SQL error: {}",
+                    crate::server::sql_catalog_acl::ACCESS_DENIED
+                ),
+            )
+        }
+        Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+    };
+    let (op, tag) = eg_query::PropertyGraphTxnOp::from_privilege_statement(
+        statement,
+        scope.tenant_scope,
+        record.object_id,
+    );
+    let mut txn = eg_query::TableTxn::new();
+    txn.push(eg_query::TxnOp::PropertyGraphDdl(op));
+    commit_sql_catalog_txn(req_id, scope, sql_method.clone(), store, txn, tag).await
 }
 
 /// Commit one `CREATE`/`ALTER`/`DROP PROPERTY GRAPH` through the SQL catalog
@@ -5330,28 +5445,18 @@ async fn exec_sql_property_graph_ddl(
 
 /// Execute a SQL/PGQ `GRAPH_TABLE` read.
 ///
-/// This route's SQL catalog is the caller's OWN per-principal file
-/// (`user_table_store`), exactly as it is for `CREATE TABLE`/`CREATE VIEW`
-/// here, so a graph resolved on this route is one the caller already owns
-/// outright; there is no second principal whose grants to consult. (The
-/// tenant-SHARED catalog the pgwire route uses is a different file, and gates
-/// resolution on `Select` over every base relation -- see
-/// `sql_catalog_acl::authorized_graph_table_sql`. The two catalogs are separate
-/// by construction, so a graph created on one route is not visible on the
-/// other.)
-///
-/// Lowering then runs on the SAME relational executor, the SAME catalog handle,
-/// and the SAME row-level-security-projected graph view every other `SELECT` on
-/// this route uses.
+/// The read store is the same per-request authorized projection used for plain
+/// SQL reads. It contains a property-graph definition only when the caller has
+/// graph SELECT and SELECT/RLS access to every pinned base table, so lowering
+/// cannot bypass the tenant catalog's source authorization.
 #[cfg(feature = "query")]
 fn exec_sql_graph_table_read(
     req_id: u64,
-    tenant_scope: &str,
     store: &eg_query::TableStore,
     read_core: &Arc<GraphCore>,
     query: &eg_query::GraphTableQuery,
 ) -> Response {
-    match graph_table_rows(tenant_scope, store, read_core, query) {
+    match graph_table_rows(store, read_core, query) {
         Ok(typed) => match typed.rows.iter().map(raw_result_bytes).collect() {
             Ok(rows) => raw_response(
                 req_id,
@@ -5368,15 +5473,18 @@ fn exec_sql_graph_table_read(
 
 #[cfg(feature = "query")]
 fn graph_table_rows(
-    tenant_scope: &str,
     store: &eg_query::TableStore,
     read_core: &Arc<GraphCore>,
     query: &eg_query::GraphTableQuery,
 ) -> Result<eg_query::TypedQueryResult, String> {
-    // Defence in depth: this file is per-principal, so a record admitted under
-    // another tenant cannot be here -- and if one ever were, it is not readable.
+    // The authorized projection re-admits visible graphs under its own private
+    // index scope. Resolve and lower against that scope rather than the source
+    // tenant name, which intentionally is not copied into the projection.
+    let projection_scope = store.index_scope();
+    // A graph absent from this caller's authorized projection resolves exactly
+    // like a graph that does not exist; the raw tenant catalog is never read.
     let record = store
-        .property_graph(tenant_scope, &query.graph)?
+        .property_graph(projection_scope, &query.graph)?
         .ok_or_else(|| {
             format!(
                 "property graph `{}` does not exist",
@@ -5391,7 +5499,7 @@ fn graph_table_rows(
         store,
         query,
         &record.accepted_definition,
-        tenant_scope,
+        projection_scope,
     )
 }
 
@@ -5434,7 +5542,7 @@ fn sql_write_ack(
 
 /// SQL catalog/table native coordinator. The user-table rows/catalog, terminal
 /// MutationBatch record, SQL-domain OCC/fence, idempotency result and outbox land
-/// in one owner-scoped SQL-catalog transaction. Query text and parameters are represented
+/// in one tenant-scoped SQL-catalog transaction. Query text and parameters are represented
 /// only by a SHA-256 operation digest in durable metadata.
 #[cfg(feature = "query")]
 async fn commit_sql_catalog_txn(
@@ -5449,106 +5557,104 @@ async fn commit_sql_catalog_txn(
         graph_name,
         tenant_scope,
         caller,
+        authority,
+        persist_dir,
     } = scope;
     let tenant_scope = tenant_scope.to_string();
     let graph_name = graph_name.to_string();
     let caller = caller.map(ToOwned::to_owned);
+    let authority = authority.clone();
+    let persist_dir = persist_dir.to_path_buf();
     let store = store.clone();
+    let mut txn = txn;
     let outcome = compute_off_lock(req_id, move || {
-        let batch_id = crate::server::mutation_batch::opaque_request_key(
+        // A signed Method::Sql retry carries a fresh attempt nonce but the
+        // same verified idempotency key. Keep the batch row stable across that
+        // retry so CREATE authorization can find the committed receipt before
+        // deciding whether an existing table is this operation's own replay.
+        let batch_id = crate::server::mutation_batch::opaque_coordinator_key(
             "sql-catalog",
-            &graph_name,
-            req_id,
-            &sql_method,
+            authority.owner_scope(),
+            authority.idempotency_key(),
         );
         let created_at_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_millis() as u64)
             .unwrap_or(0);
-        // Recovery after commit-before-ack rebuilds the exact proposed batch with
-        // the stored OCC observation. `commit_txn_batch` then verifies every
-        // identity byte (including the operation digest) before returning the
-        // result without applying `txn` again.
-        //
-        // The receipt now lives in the mutation kernel's scope-partitioned
-        // ledger, so it is read through the very scope `compile_opaque_method`
-        // below stamps on this batch: native `SqlCatalog`, keyed by
-        // `(tenant, graph)` at `COMPILED_BATCH_INCARNATION`. And the caller is
-        // read back from the outbox row's `actor` header, NOT from
-        // `context.principal`: RF-RULING-006 made the SQL catalog a kernel-owned
-        // owner store, so `context.principal` is now the file's bound serving
-        // principal on every compiled SQL batch and would compare the engine
-        // against the caller. Adopting another caller's OCC observation would
-        // silently plan this statement against a version it never observed, so
-        // that is refused here by name rather than left to surface as an
-        // anonymous `IDEMPOTENCY_CONFLICT` from the kernel's byte comparison.
-        let batch_scope = eg_types::mutation_batch::MutationScopeIdentity::fixed_native(
-            &tenant_scope,
-            eg_types::mutation_batch::DurabilityDomain::SqlCatalog,
-            &graph_name,
-            eg_types::mutation_batch::COMPILED_BATCH_INCARNATION,
-        )?;
-        let expected_version = match store.mutation_batch(&batch_scope, &batch_id)? {
-            Some(record) => {
-                let caller_actor = crate::server::mutation_batch::principal_fingerprint(
-                    caller.as_deref().ok_or_else(|| {
-                        "durable mutation authority requires a verified principal".to_string()
-                    })?,
+        crate::server::sql_catalog_acl::with_source_authority_write(
+            &persist_dir,
+            &authority,
+            |source| {
+                // OCC is observed live for each attempt. The kernel's stable
+                // operation identity deliberately excludes this expectation,
+                // allowing an exact fresh-nonce retry to replay its receipt.
+                let expected_version = store.mutation_version(&tenant_scope, &graph_name)?;
+                let batch = crate::server::mutation_batch::compile_opaque_method(
+                    crate::server::mutation_batch::CompileBatch {
+                        batch_id: &batch_id,
+                        request_id: req_id,
+                        attempt_nonce: authority.attempt_nonce(),
+                        principal: caller.as_deref(),
+                        tenant: &tenant_scope,
+                        graph: &graph_name,
+                        placement_epoch: 0,
+                        idempotency_key: authority.idempotency_key(),
+                        expected_graph_version: Some(expected_version),
+                        fencing_token: None,
+                        created_at_ms,
+                        default_surface: crate::mutation_batch::MutationSurface::Query,
+                        authoritative_state: None,
+                    },
+                    &sql_method,
+                    crate::mutation_batch::MutationSurface::Query,
+                    crate::mutation_batch::DurabilityDomain::SqlCatalog,
+                    "sql_catalog_operation",
                 )?;
-                let recorded_actor = record
-                    .batch
-                    .outbox
-                    .iter()
-                    .find_map(|intent| intent.headers.get("actor"))
-                    .ok_or_else(|| {
-                        "committed SQL MutationBatch carries no actor attribution".to_string()
-                    })?;
-                if recorded_actor != &caller_actor {
-                    return Err(
-                        "IDEMPOTENCY_CONFLICT: SQL batch identity is owned by another actor"
-                            .to_string(),
-                    );
-                }
-                let crate::mutation_batch::VersionExpectation::Native(version) =
-                    record.batch.version_expectation
-                else {
-                    return Err("committed SQL MutationBatch has no native OCC version".to_string());
+                // Ask the same canonical helper used by pgwire whether this is
+                // the already-committed operation before authorizing CREATE.
+                // This keeps replay identity and positive actor ownership in
+                // one implementation rather than re-deriving them here.
+                let committed_replay =
+                    crate::server::wire::committed_sql_replay_receipt(&store, &authority, &batch)?
+                        .is_some();
+                let created_tables = crate::server::wire::authorize_table_txn(
+                    source,
+                    &store,
+                    &mut txn,
+                    committed_replay,
+                )
+                .map_err(|error| error.message)?;
+                let committed = match store.commit_txn_batch(&txn, &batch, created_at_ms) {
+                    Ok(committed) => committed.record,
+                    Err(message) if message.contains("IDEMPOTENCY_CONFLICT") => {
+                        crate::server::wire::committed_sql_replay_receipt(
+                            &store, &authority, &batch,
+                        )?
+                        .ok_or(message)?
+                    }
+                    Err(message) => return Err(message),
                 };
-                version
-            }
-            None => store.mutation_version(&tenant_scope, &graph_name)?,
-        };
-        let batch = crate::server::mutation_batch::compile_opaque_method(
-            crate::server::mutation_batch::CompileBatch {
-                batch_id: &batch_id,
-                request_id: req_id,
-                principal: caller.as_deref(),
-                tenant: &tenant_scope,
-                graph: &graph_name,
-                placement_epoch: 0,
-                idempotency_key: &batch_id,
-                expected_graph_version: Some(expected_version),
-                fencing_token: None,
-                created_at_ms,
-                default_surface: crate::mutation_batch::MutationSurface::Query,
-                authoritative_state: None,
+                let owner_operation_id =
+                    crate::server::sql_catalog_acl::stable_source_operation_id(&batch_id);
+                for schema in &created_tables {
+                    crate::server::sql_catalog_acl::register_owner_after_create_in(
+                        source,
+                        &schema.name,
+                        owner_operation_id,
+                    )
+                    .map_err(|error| format!("SQL_OWNER_REPAIR_PENDING: {error}"))?;
+                }
+                let bytes = committed
+                    .result_msgpack
+                    .as_deref()
+                    .ok_or_else(|| "committed SQL MutationBatch has no result".to_string())?;
+                eg_types::msgpack::decode_bounded::<usize>(
+                    bytes,
+                    eg_types::msgpack::MsgpackLimits::new(64, 1, 1),
+                )
+                .map_err(|_| "committed SQL result is corrupt".to_string())
             },
-            &sql_method,
-            crate::mutation_batch::MutationSurface::Query,
-            crate::mutation_batch::DurabilityDomain::SqlCatalog,
-            "sql_catalog_operation",
-        )?;
-        let committed = store.commit_txn_batch(&txn, &batch, created_at_ms)?;
-        let bytes = committed
-            .record
-            .result_msgpack
-            .as_deref()
-            .ok_or_else(|| "committed SQL MutationBatch has no result".to_string())?;
-        eg_types::msgpack::decode_bounded::<usize>(
-            bytes,
-            eg_types::msgpack::MsgpackLimits::new(64, 1, 1),
         )
-        .map_err(|_| "committed SQL result is corrupt".to_string())
     })
     .await;
     sql_write_ack(req_id, tag, outcome)
@@ -5909,12 +6015,8 @@ pub(crate) mod current_auth_test_support {
     #[cfg(feature = "redb")]
     pub(super) fn open_test_backend(dir: String) -> Arc<dyn PersistenceBackend> {
         Arc::new(
-            crate::server::persistence::redb_backend::RedbBackend::open(
-                dir,
-                crate::durability::DurabilityPolicy::Each,
-                4096,
-            )
-            .expect("open test redb backend"),
+            crate::server::persistence::redb_backend::RedbBackend::open(dir, 4096)
+                .expect("open test redb backend"),
         )
     }
 
@@ -6705,6 +6807,52 @@ mod dispatch_write_tests {
         current_request(SECRET, id, "__commons__", method)
     }
 
+    /// Sign one direct-dispatch request with an explicit stable operation key.
+    /// Tests use this to model the protocol contract: retries mint a fresh
+    /// transport nonce while retaining the caller's idempotency key.
+    fn retry_req(
+        id: u64,
+        agent_id: &str,
+        method: Method,
+        nonce: &str,
+        idempotency_key: &str,
+    ) -> Request {
+        let context = crate::acl::RequestContextClaims {
+            principal: agent_id.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: agent_id.to_string(),
+            roles: vec!["test".to_string()],
+            scopes: vec!["kg:read".to_string(), "kg:write".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+            node: None,
+            priority: None,
+        };
+        let mut request = Request {
+            id,
+            graph: "__commons__".to_string(),
+            auth_token: String::new(),
+            agent_id: Some(agent_id.to_string()),
+            method,
+        };
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("test clock after epoch")
+            .as_secs();
+        request.auth_token = crate::server::auth::compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &crate::server::auth::VerifiedEnvelopeParams {
+                context: &context,
+                timestamp,
+                nonce,
+                idempotency_key,
+            },
+        );
+        request
+    }
+
     fn raw(resp: &Response) -> Vec<u8> {
         match &resp.result {
             Some(ResultPayload::Raw(b)) => b.clone(),
@@ -6905,6 +7053,220 @@ mod dispatch_write_tests {
         // cleanup
         let _ =
             dispatch_on_heap(&state, req(5, sql(format!("DROP TABLE IF EXISTS {table}")))).await;
+    }
+
+    /// Method::Sql `GRAPH_TABLE` must resolve the graph re-admitted into the
+    /// caller's ephemeral ACL projection under that projection's private scope.
+    /// A same-tenant actor with no graph/table grant receives the same absence
+    /// result as an unknown graph and cannot read the owner's row.
+    #[tokio::test]
+    async fn wire_sql_graph_table_uses_authorized_projection_scope() {
+        let guest = "sql-pgq-guest";
+        let state = persisted_state(SECRET, current_isolation_with_agents(&[guest]));
+        let table = format!("eg_pgq_people_{}", std::process::id());
+        let graph = format!("eg_pgq_social_{}", std::process::id());
+        let sql = |query: String| Method::Sql {
+            query,
+            params_msgpack: Vec::new(),
+        };
+
+        for (id, query) in [
+            (
+                1,
+                format!("CREATE TABLE {table} (person_id TEXT PRIMARY KEY, name TEXT)"),
+            ),
+            (
+                2,
+                format!("INSERT INTO {table} (person_id, name) VALUES ('1', 'Alice')"),
+            ),
+            (
+                3,
+                format!(
+                    "CREATE PROPERTY GRAPH {graph} VERTEX TABLES (\
+                     {table} KEY (person_id) LABEL person PROPERTIES (name))"
+                ),
+            ),
+        ] {
+            let response = dispatch_on_heap(&state, req(id, sql(query))).await;
+            assert!(
+                response.error.is_none(),
+                "setup failed: {:?}",
+                response.error
+            );
+        }
+
+        let graph_table = format!(
+            "SELECT * FROM GRAPH_TABLE ({graph} MATCH (p:person) \
+             COLUMNS (p.name AS name))"
+        );
+        let owner = dispatch_on_heap(&state, req(4, sql(graph_table.clone()))).await;
+        assert!(
+            owner.error.is_none(),
+            "owner GRAPH_TABLE failed: {:?}",
+            owner.error
+        );
+        let (columns, rows) = query_result(&owner);
+        assert_eq!(columns, vec!["name"]);
+        assert_eq!(rows, vec![vec![serde_json::json!("Alice")]]);
+
+        let denied = dispatch_on_heap(
+            &state,
+            retry_req(
+                5,
+                guest,
+                sql(graph_table),
+                "direct-sql-graph-read-guest",
+                "direct-sql-graph-read-guest",
+            ),
+        )
+        .await;
+        assert!(
+            denied
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("does not exist")),
+            "ungranted actor must not resolve the property graph: {:?}",
+            denied.error
+        );
+    }
+
+    /// A direct signed CREATE that committed its table before owner
+    /// registration failed must recover through the exact stable operation
+    /// receipt. The retry uses a fresh nonce and the same idempotency key,
+    /// returns the recorded result without executing CREATE twice, and repairs
+    /// ownership before later DDL is admitted.
+    #[tokio::test]
+    async fn wire_sql_create_fresh_nonce_retry_repairs_owner() {
+        let guest = "sql-owner-repair-guest";
+        let state = persisted_state(SECRET, current_isolation_with_agents(&[guest]));
+        let table = format!("eg_direct_owner_repair_{}", std::process::id());
+        let persist_dir = state
+            .read()
+            .await
+            .persist_dir
+            .clone()
+            .expect("persisted state path");
+
+        // Install the same deterministic cross-redb fault used by pgwire's
+        // recovery proof: physical CREATE can commit, while owner registration
+        // fails against the malformed source-authority catalog.
+        let acl = crate::server::sql_tables::tenant_acl_table_store(
+            "tenant-shared",
+            std::path::Path::new(&persist_dir),
+        )
+        .expect("open tenant ACL store");
+        acl.create_table(
+            &eg_query::TableSchema::new(
+                "__eg_sql_owners__",
+                vec![eg_query::Column::new(
+                    "table_name",
+                    eg_query::ColumnType::Text,
+                    false,
+                    true,
+                )],
+            ),
+            false,
+        )
+        .expect("install malformed owner catalog");
+
+        let create = Method::Sql {
+            query: format!("CREATE TABLE {table} (id TEXT PRIMARY KEY)"),
+            params_msgpack: Vec::new(),
+        };
+        let operation_key = format!("direct-sql-owner-repair-{}", std::process::id());
+        let first = dispatch_on_heap(
+            &state,
+            retry_req(
+                50,
+                "unit-test-agent",
+                create.clone(),
+                "direct-sql-create-attempt-1",
+                &operation_key,
+            ),
+        )
+        .await;
+        assert!(
+            first
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains("SQL_OWNER_REPAIR_PENDING")),
+            "owner catalog fault must surface after physical commit: {:?}",
+            first.error
+        );
+        let store = crate::server::sql_tables::tenant_table_store(
+            "tenant-shared",
+            std::path::Path::new(&persist_dir),
+        )
+        .expect("open tenant table store");
+        assert!(
+            store
+                .get_schema(&table)
+                .expect("read physical CREATE")
+                .is_some(),
+            "the SQL table commit precedes owner registration"
+        );
+
+        acl.drop_table("__eg_sql_owners__", false)
+            .expect("remove malformed owner catalog");
+        let retried = dispatch_on_heap(
+            &state,
+            retry_req(
+                51,
+                "unit-test-agent",
+                create,
+                "direct-sql-create-attempt-2",
+                &operation_key,
+            ),
+        )
+        .await;
+        assert!(
+            retried.error.is_none(),
+            "fresh-nonce retry must replay and repair ownership: {:?}",
+            retried.error
+        );
+
+        let owner_alter = dispatch_on_heap(
+            &state,
+            retry_req(
+                52,
+                "unit-test-agent",
+                Method::Sql {
+                    query: format!("ALTER TABLE {table} ADD COLUMN note TEXT"),
+                    params_msgpack: Vec::new(),
+                },
+                "direct-sql-owner-alter",
+                "direct-sql-owner-alter",
+            ),
+        )
+        .await;
+        assert!(
+            owner_alter.error.is_none(),
+            "repaired owner must retain ALTER authority: {:?}",
+            owner_alter.error
+        );
+
+        let guest_alter = dispatch_on_heap(
+            &state,
+            retry_req(
+                53,
+                guest,
+                Method::Sql {
+                    query: format!("ALTER TABLE {table} ADD COLUMN denied TEXT"),
+                    params_msgpack: Vec::new(),
+                },
+                "direct-sql-guest-alter",
+                "direct-sql-guest-alter",
+            ),
+        )
+        .await;
+        assert!(
+            guest_alter
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains(crate::server::sql_catalog_acl::ACCESS_DENIED)),
+            "same-tenant non-owner must remain denied after repair: {:?}",
+            guest_alter.error
+        );
     }
 
     /// `INSERT INTO nodes` over the wire lands in the graph core and a `SELECT` sees it —

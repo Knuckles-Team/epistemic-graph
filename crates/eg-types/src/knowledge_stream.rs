@@ -40,13 +40,13 @@ impl KnowledgeResultFamily {
 
 /// Result encoding requested from the one native pull method.
 ///
-/// `ArrowIpcV1` is the sole engine-native result contract.
+/// `ArrowIpc` is the sole engine-native result contract.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum KnowledgeStreamProjection {
     #[default]
-    ArrowIpcV1,
+    ArrowIpc,
 }
 
 /// Typed query submitted to the shared result adapter.
@@ -156,7 +156,7 @@ pub struct KnowledgeStreamBatch {
     pub family: KnowledgeResultFamily,
     pub projection: KnowledgeStreamProjection,
     pub cursor: KnowledgeStreamCursor,
-    /// Arrow IPC stream bytes for `ArrowIpcV1`.
+    /// Arrow IPC stream bytes for `ArrowIpc`.
     #[serde(with = "serde_bytes")]
     pub payload: Vec<u8>,
 }
@@ -211,7 +211,7 @@ mod tests {
                 query,
                 batch_size: 32,
                 cursor: None,
-                projection: KnowledgeStreamProjection::ArrowIpcV1,
+                projection: KnowledgeStreamProjection::ArrowIpc,
             };
             let encoded = rmp_serde::to_vec_named(&request).unwrap();
             let decoded: KnowledgeStreamRequest = rmp_serde::from_slice(&encoded).unwrap();
@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn native_projection_is_arrow_ipc() {
-        let projection = KnowledgeStreamProjection::ArrowIpcV1;
+        let projection = KnowledgeStreamProjection::ArrowIpc;
         let encoded = rmp_serde::to_vec_named(&projection).unwrap();
         let decoded: KnowledgeStreamProjection = rmp_serde::from_slice(&encoded).unwrap();
         assert_eq!(decoded, projection);

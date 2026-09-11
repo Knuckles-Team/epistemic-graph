@@ -258,7 +258,7 @@ impl StatechartDef {
         let mut hasher = Sha256::new();
         hasher.update(b"eg-statechart.def_id.v1\0");
         let bytes = serde_json::to_vec(self).unwrap_or_default();
-        hasher.update(&bytes);
+        hasher.update(bytes);
         format!("eg:statechart:{}", hex::encode(&hasher.finalize()[..16]))
     }
 }

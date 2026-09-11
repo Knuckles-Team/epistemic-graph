@@ -633,6 +633,110 @@ fn kernel_fn(kernel: &str, gamma: f64, a: &[f64], b: &[f64]) -> f64 {
     }
 }
 
+struct SvrProblem<'a> {
+    kernel: &'a [Vec<f64>],
+    targets: &'a [f64],
+    c: f64,
+    epsilon: f64,
+}
+
+fn training_prediction(beta: &[f64], bias: f64, i: usize, kernel: &[Vec<f64>]) -> f64 {
+    let mut s = bias;
+    for j in 0..beta.len() {
+        if beta[j] != 0.0 {
+            s += beta[j] * kernel[j][i];
+        }
+    }
+    s
+}
+
+fn update_svr_pair(
+    beta: &mut [f64],
+    bias: f64,
+    problem: &SvrProblem<'_>,
+    i: usize,
+    j: usize,
+) -> f64 {
+    let ei = training_prediction(beta, bias, i, problem.kernel) - problem.targets[i];
+    let ej = training_prediction(beta, bias, j, problem.kernel) - problem.targets[j];
+    let gi = ei + problem.epsilon * beta[i].signum().clamp(-1.0, 1.0);
+    let gj = ej + problem.epsilon * beta[j].signum().clamp(-1.0, 1.0);
+    let eta = problem.kernel[i][i] + problem.kernel[j][j] - 2.0 * problem.kernel[i][j];
+    if eta <= 1e-12 {
+        return 0.0;
+    }
+    let delta = (gj - gi) / eta;
+    let bi_old = beta[i];
+    let total = bi_old + beta[j];
+    let mut bi = (bi_old + delta).clamp(-problem.c, problem.c);
+    let mut bj = total - bi;
+    if bj > problem.c {
+        bj = problem.c;
+        bi = total - bj;
+    } else if bj < -problem.c {
+        bj = -problem.c;
+        bi = total - bj;
+    }
+    let change = (bi - bi_old).abs();
+    if change > 1e-12 {
+        beta[i] = bi;
+        beta[j] = bj;
+    } else {
+        return 0.0;
+    }
+    change
+}
+
+fn update_svr_bias(beta: &[f64], problem: &SvrProblem<'_>) -> Option<f64> {
+    let (mut bsum, mut cnt) = (0.0, 0);
+    for i in 0..beta.len() {
+        if beta[i].abs() > 1e-8 && beta[i].abs() < problem.c - 1e-8 {
+            let pred_no_bias = training_prediction(beta, 0.0, i, problem.kernel);
+            let target = problem.targets[i] - problem.epsilon * beta[i].signum();
+            bsum += target - pred_no_bias;
+            cnt += 1;
+        }
+    }
+    (cnt > 0).then(|| bsum / cnt as f64)
+}
+
+fn svr_iteration(
+    beta: &mut [f64],
+    bias: &mut f64,
+    problem: &SvrProblem<'_>,
+    rng: &mut ChaCha8Rng,
+) -> f64 {
+    let (n, mut max_viol) = (beta.len(), 0.0_f64);
+    for i in 0..n {
+        let mut j = (rng.gen::<u64>() as usize) % n;
+        if j == i {
+            j = (j + 1) % n;
+        }
+        max_viol = max_viol.max(update_svr_pair(beta, *bias, problem, i, j));
+    }
+    if let Some(new_bias) = update_svr_bias(beta, problem) {
+        *bias = new_bias;
+    }
+    max_viol
+}
+
+fn train_svr(
+    problem: &SvrProblem<'_>,
+    max_iter: usize,
+    tol: f64,
+    random_state: Option<u64>,
+) -> (Vec<f64>, f64) {
+    let (mut beta, mut bias) = (vec![0.0; problem.targets.len()], 0.0);
+    let mut rng = ChaCha8Rng::seed_from_u64(random_state.unwrap_or(0).wrapping_add(7));
+    for _ in 0..max_iter {
+        let max_viol = svr_iteration(&mut beta, &mut bias, problem, &mut rng);
+        if max_viol < tol {
+            break;
+        }
+    }
+    (beta, bias)
+}
+
 /// epsilon-SVR trained with a simplified SMO over the (alpha - alpha*) variables.
 /// Converges to a KKT-satisfying solution; close to libsvm/sklearn but not
 /// guaranteed bit-identical (documented as approximate-parity).
@@ -668,82 +772,13 @@ fn fit_svr(x: &[Vec<f64>], y: &[f64], params: &EstimatorParams) -> FittedModel {
         }
     }
 
-    // beta_i = alpha_i - alpha_i*, constrained to [-C, C], sum(beta)=0.
-    let mut beta = vec![0.0; n];
-    let mut bias = 0.0;
-
-    // Prediction f(x_i) = sum_j beta_j K(i,j) + bias.
-    let f = |beta: &[f64], bias: f64, i: usize, k: &[Vec<f64>]| -> f64 {
-        let mut s = bias;
-        for j in 0..n {
-            if beta[j] != 0.0 {
-                s += beta[j] * k[j][i];
-            }
-        }
-        s
+    let problem = SvrProblem {
+        kernel: &k,
+        targets: y,
+        c,
+        epsilon,
     };
-
-    let mut rng = ChaCha8Rng::seed_from_u64(params.random_state.unwrap_or(0).wrapping_add(7));
-    for _ in 0..max_iter {
-        let mut max_viol = 0.0_f64;
-        for i in 0..n {
-            // Pick a random partner j != i.
-            let mut j = (rng.gen::<u64>() as usize) % n;
-            if j == i {
-                j = (j + 1) % n;
-            }
-            // Gradients of the epsilon-insensitive objective w.r.t beta on the
-            // constraint beta_i + beta_j = const.
-            let ei = f(&beta, bias, i, &k) - y[i];
-            let ej = f(&beta, bias, j, &k) - y[j];
-            // Subgradient including epsilon tube (push toward reducing |e|-eps).
-            let gi = ei + epsilon * beta[i].signum().clamp(-1.0, 1.0);
-            let gj = ej + epsilon * beta[j].signum().clamp(-1.0, 1.0);
-            let eta = k[i][i] + k[j][j] - 2.0 * k[i][j];
-            if eta <= 1e-12 {
-                continue;
-            }
-            let delta = (gj - gi) / eta;
-            let bi_old = beta[i];
-            let bj_old = beta[j];
-            // Move along beta_i += delta, beta_j -= delta (keeps sum constant),
-            // then clip to box [-C, C] and re-impose sum preservation.
-            let mut bi = (bi_old + delta).clamp(-c, c);
-            let total = bi_old + bj_old;
-            let mut bj = total - bi;
-            if bj > c {
-                bj = c;
-                bi = total - bj;
-            } else if bj < -c {
-                bj = -c;
-                bi = total - bj;
-            }
-            let change = (bi - bi_old).abs();
-            if change > 1e-12 {
-                beta[i] = bi;
-                beta[j] = bj;
-                max_viol = max_viol.max(change);
-            }
-        }
-
-        // Update bias from average residual over free support vectors.
-        let mut bsum = 0.0;
-        let mut cnt = 0;
-        for i in 0..n {
-            if beta[i].abs() > 1e-8 && beta[i].abs() < c - 1e-8 {
-                let pred_no_bias = f(&beta, 0.0, i, &k);
-                let target = y[i] - epsilon * beta[i].signum();
-                bsum += target - pred_no_bias;
-                cnt += 1;
-            }
-        }
-        if cnt > 0 {
-            bias = bsum / cnt as f64;
-        }
-        if max_viol < tol {
-            break;
-        }
-    }
+    let (beta, bias) = train_svr(&problem, max_iter, tol, params.random_state);
 
     // Keep only support vectors.
     let mut svs = Vec::new();
@@ -908,5 +943,24 @@ mod tests {
             "svr rmse {}",
             rmse(&predict(&m, &x), &y)
         );
+    }
+
+    #[test]
+    fn svr_seed_repeats_predictions() {
+        let x: Vec<Vec<f64>> = (0..12).map(|i| vec![i as f64 * 0.2]).collect();
+        let y: Vec<f64> = x.iter().map(|r| (r[0] * 0.7).sin()).collect();
+        let params = EstimatorParams {
+            c: Some(2.0),
+            epsilon: Some(0.05),
+            gamma: Some(0.7),
+            kernel: Some("rbf".into()),
+            max_iter: Some(100),
+            random_state: Some(17),
+            ..Default::default()
+        };
+
+        let first = fit_estimator("svr", &x, &y, &params).unwrap();
+        let second = fit_estimator("svr", &x, &y, &params).unwrap();
+        assert_eq!(predict(&first, &x), predict(&second, &x));
     }
 }

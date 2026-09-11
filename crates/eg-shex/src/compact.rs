@@ -35,11 +35,12 @@
 //! — and any other construct outside the grammar above — is a parse `Err`, never a
 //! silently wrong shape (mirrors `crate::schema::Schema::from_shexj`'s own contract).
 
-use std::collections::HashMap;
-
 use crate::schema::{
     NodeConstraint, NodeKind, Schema, Shape, ShapeExpr, TripleExpr, ValueSetValue,
 };
+
+mod lexer;
+use lexer::{lex, StrSuffix, Tok};
 
 /// Parse a ShExC (compact syntax) document into a [`Schema`] (CONCEPT:EG-KG.compute.concept-2).
 pub fn parse(text: &str) -> Result<Schema, String> {
@@ -51,344 +52,94 @@ pub fn parse(text: &str) -> Result<Schema, String> {
     p.parse_schema()
 }
 
-// ── Lexer ─────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq)]
-enum Tok {
-    /// A fully-resolved absolute IRI (from `<iri>`, prefix-expansion, or `a`).
-    Iri(String),
-    /// A bare word with no `:` — a keyword candidate (`CLOSED`, `AND`, `IRI`, …).
-    Word(String),
-    Str(String, StrSuffix),
-    /// A bare numeric literal's lexical form (facet arguments).
-    Num(String),
-    /// `{m,n}` / `{m,}` / `{m}` — lexed as one token because a bare `{` alone
-    /// starts a shape definition (disambiguated by "digit right after `{`").
-    RepeatRange(u64, Option<u64>),
-    Punct(char),
+fn parse_node_constraint_atom(parser: &mut Parser<'_>) -> Result<NodeConstraint, String> {
+    let mut nc = NodeConstraint::default();
+    match parser.peek().clone() {
+        Tok::Word(w) if w == "IRI" => {
+            parser.bump();
+            nc.node_kind = Some(NodeKind::Iri);
+        }
+        Tok::Word(w) if w == "BNODE" => {
+            parser.bump();
+            nc.node_kind = Some(NodeKind::BNode);
+        }
+        Tok::Word(w) if w == "LITERAL" => {
+            parser.bump();
+            nc.node_kind = Some(NodeKind::Literal);
+        }
+        Tok::Word(w) if w == "NONLITERAL" => {
+            parser.bump();
+            nc.node_kind = Some(NodeKind::NonLiteral);
+        }
+        Tok::Iri(iri) => {
+            parser.bump();
+            nc.datatype = Some(iri);
+        }
+        Tok::Punct('[') => {
+            nc.values = Some(parser.parse_value_set()?);
+        }
+        other => {
+            return Err(format!(
+                "ShExC: expected a node constraint (IRI/BNODE/LITERAL/NONLITERAL/datatype/value set), found {other:?}"
+            ))
+        }
+    }
+    Ok(nc)
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum StrSuffix {
-    None,
-    Datatype(String),
-    Lang(String),
+fn parse_node_constraint_facets(
+    parser: &mut Parser<'_>,
+    nc: &mut NodeConstraint,
+) -> Result<(), String> {
+    while parse_node_constraint_facet(parser, nc)? {}
+    Ok(())
 }
 
-fn lex(text: &str) -> Result<Vec<Tok>, String> {
-    let chars: Vec<char> = text.chars().collect();
-    let mut i = 0usize;
-    let mut prefixes: HashMap<String, String> = HashMap::new();
-    let mut base: Option<String> = None;
-    let mut out = Vec::new();
-
-    while i < chars.len() {
-        let c = chars[i];
-        if c.is_whitespace() {
-            i += 1;
-            continue;
-        }
-        if c == '#' {
-            while i < chars.len() && chars[i] != '\n' {
-                i += 1;
-            }
-            continue;
-        }
-        if c == '%' {
-            return Err("ShExC: semantic actions (%...%) are not supported".to_string());
-        }
-        if c == '<' {
-            let (iri, next) = read_iriref(&chars, i)?;
-            i = next;
-            out.push(Tok::Iri(resolve_base(&iri, base.as_deref())));
-            continue;
-        }
-        if c == '"' || c == '\'' {
-            let (s, next) = read_string(&chars, i, c)?;
-            i = next;
-            let (suffix, next2) = read_str_suffix(&chars, i, &prefixes)?;
-            i = next2;
-            out.push(Tok::Str(s, suffix));
-            continue;
-        }
-        if c == '{' {
-            if let Some((min, max, next)) = try_read_repeat_range(&chars, i) {
-                out.push(Tok::RepeatRange(min, max));
-                i = next;
-                continue;
-            }
-            out.push(Tok::Punct('{'));
-            i += 1;
-            continue;
-        }
-        if "}()[]|;,.?*+^$~=".contains(c) {
-            out.push(Tok::Punct(c));
-            i += 1;
-            continue;
-        }
-        if c == '@' {
-            out.push(Tok::Punct('@'));
-            i += 1;
-            continue;
-        }
-        if c.is_ascii_digit() || ((c == '-' || c == '+') && peek_digit(&chars, i + 1)) {
-            let (num, next) = read_number(&chars, i);
-            i = next;
-            out.push(Tok::Num(num));
-            continue;
-        }
-        if is_pn_char_start(c) {
-            let (word, next) = read_pn(&chars, i);
-            i = next;
-            if let Some(local) = word.strip_prefix(':') {
-                // A prefixed name with the DEFAULT (empty) prefix.
-                let ns = prefixes.get("").cloned().unwrap_or_default();
-                out.push(Tok::Iri(format!("{ns}{local}")));
-                continue;
-            }
-            if let Some((pfx, local)) = word.split_once(':') {
-                let ns = prefixes.get(pfx).ok_or_else(|| {
-                    format!("ShExC: undeclared prefix `{pfx}:` (missing a PREFIX directive)")
-                })?;
-                out.push(Tok::Iri(format!("{ns}{local}")));
-                continue;
-            }
-            match word.as_str() {
-                "PREFIX" => {
-                    let (pfx, next) = read_pname_ns(&chars, next_non_ws(&chars, i))?;
-                    let (iri, next2) = expect_iriref(&chars, next_non_ws(&chars, next))?;
-                    prefixes.insert(pfx, resolve_base(&iri, base.as_deref()));
-                    i = next2;
-                }
-                "BASE" => {
-                    let (iri, next2) = expect_iriref(&chars, next_non_ws(&chars, i))?;
-                    base = Some(resolve_base(&iri, base.as_deref()));
-                    i = next2;
-                }
-                _ => out.push(Tok::Word(word)),
-            }
-            continue;
-        }
-        return Err(format!("ShExC: unexpected character `{c}` at offset {i}"));
-    }
-    out.push(Tok::Punct('\0')); // EOF sentinel
-    Ok(out)
-}
-
-fn next_non_ws(chars: &[char], mut i: usize) -> usize {
-    while i < chars.len() && chars[i].is_whitespace() {
-        i += 1;
-    }
-    i
-}
-
-fn peek_digit(chars: &[char], i: usize) -> bool {
-    chars.get(i).is_some_and(|c| c.is_ascii_digit())
-}
-
-fn resolve_base(iri: &str, base: Option<&str>) -> String {
-    if iri.contains("://") || iri.starts_with("urn:") || base.is_none() || iri.is_empty() {
-        return iri.to_string();
-    }
-    format!("{}{iri}", base.unwrap_or_default())
-}
-
-fn read_iriref(chars: &[char], start: usize) -> Result<(String, usize), String> {
-    debug_assert_eq!(chars[start], '<');
-    let mut i = start + 1;
-    let mut s = String::new();
-    while i < chars.len() {
-        match chars[i] {
-            '>' => return Ok((s, i + 1)),
-            '\\' if i + 1 < chars.len() => {
-                s.push(chars[i + 1]);
-                i += 2;
-            }
-            c => {
-                s.push(c);
-                i += 1;
-            }
-        }
-    }
-    Err("ShExC: unterminated IRIREF (missing `>`)".to_string())
-}
-
-fn expect_iriref(chars: &[char], i: usize) -> Result<(String, usize), String> {
-    if chars.get(i) != Some(&'<') {
-        return Err("ShExC: expected an IRIREF (`<...>`)".to_string());
-    }
-    read_iriref(chars, i)
-}
-
-/// A `PNAME_NS` for a `PREFIX` directive: `word:` (the prefix name, possibly empty).
-fn read_pname_ns(chars: &[char], start: usize) -> Result<(String, usize), String> {
-    let mut i = start;
-    let mut s = String::new();
-    while i < chars.len() && chars[i] != ':' && !chars[i].is_whitespace() {
-        s.push(chars[i]);
-        i += 1;
-    }
-    if chars.get(i) != Some(&':') {
-        return Err("ShExC: expected `prefix:` in a PREFIX directive".to_string());
-    }
-    Ok((s, i + 1))
-}
-
-fn read_string(chars: &[char], start: usize, quote: char) -> Result<(String, usize), String> {
-    let triple = chars.get(start + 1) == Some(&quote) && chars.get(start + 2) == Some(&quote);
-    let mut i = start + if triple { 3 } else { 1 };
-    let mut s = String::new();
-    loop {
-        if i >= chars.len() {
-            return Err("ShExC: unterminated string literal".to_string());
-        }
-        if chars[i] == '\\' && i + 1 < chars.len() {
-            s.push(match chars[i + 1] {
-                'n' => '\n',
-                't' => '\t',
-                'r' => '\r',
-                other => other,
-            });
-            i += 2;
-            continue;
-        }
-        if chars[i] == quote {
-            if !triple {
-                return Ok((s, i + 1));
-            }
-            if chars.get(i + 1) == Some(&quote) && chars.get(i + 2) == Some(&quote) {
-                return Ok((s, i + 3));
-            }
-        }
-        s.push(chars[i]);
-        i += 1;
-    }
-}
-
-fn read_str_suffix(
-    chars: &[char],
-    i: usize,
-    prefixes: &HashMap<String, String>,
-) -> Result<(StrSuffix, usize), String> {
-    if chars.get(i) == Some(&'^') && chars.get(i + 1) == Some(&'^') {
-        let mut j = i + 2;
-        if chars.get(j) == Some(&'<') {
-            let (iri, next) = read_iriref(chars, j)?;
-            return Ok((StrSuffix::Datatype(iri), next));
-        }
-        let (word, next) = read_pn(chars, j);
-        j = next;
-        let (pfx, local) = word.split_once(':').ok_or_else(|| {
-            "ShExC: expected a datatype IRI or prefixed name after `^^`".to_string()
-        })?;
-        let ns = prefixes
-            .get(pfx)
-            .ok_or_else(|| format!("ShExC: undeclared prefix `{pfx}:` in a datatype"))?;
-        return Ok((StrSuffix::Datatype(format!("{ns}{local}")), j));
-    }
-    if chars.get(i) == Some(&'@') {
-        let mut j = i + 1;
-        let mut tag = String::new();
-        while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '-') {
-            tag.push(chars[j]);
-            j += 1;
-        }
-        if !tag.is_empty() {
-            return Ok((StrSuffix::Lang(tag), j));
-        }
-    }
-    Ok((StrSuffix::None, i))
-}
-
-fn read_number(chars: &[char], start: usize) -> (String, usize) {
-    let mut i = start;
-    let mut s = String::new();
-    if chars[i] == '-' || chars[i] == '+' {
-        s.push(chars[i]);
-        i += 1;
-    }
-    while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
-        s.push(chars[i]);
-        i += 1;
-    }
-    if i < chars.len() && (chars[i] == 'e' || chars[i] == 'E') {
-        let mut j = i + 1;
-        let mut exp = String::from(chars[i]);
-        if j < chars.len() && (chars[j] == '+' || chars[j] == '-') {
-            exp.push(chars[j]);
-            j += 1;
-        }
-        if peek_digit(chars, j) {
-            while j < chars.len() && chars[j].is_ascii_digit() {
-                exp.push(chars[j]);
-                j += 1;
-            }
-            s.push_str(&exp);
-            i = j;
-        }
-    }
-    (s, i)
-}
-
-fn is_pn_char_start(c: char) -> bool {
-    c.is_alphabetic() || c == '_' || c == ':'
-}
-
-fn is_pn_char(c: char) -> bool {
-    c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | ':')
-}
-
-/// A bare word or `prefix:local` / `prefix:` / `:local` token (a keyword, a
-/// directive name, or a prefixed name — disambiguated by the caller).
-fn read_pn(chars: &[char], start: usize) -> (String, usize) {
-    let mut i = start;
-    let mut s = String::new();
-    while i < chars.len() && is_pn_char(chars[i]) {
-        s.push(chars[i]);
-        i += 1;
-    }
-    // A trailing `.` is very likely end-of-statement punctuation, not part of a
-    // local name (ShExC local names don't typically end in `.`); back off ONE
-    // trailing `.` so `ex:Foo .` and `ex:Foo.` (no space) both lex sanely.
-    if s.ends_with('.') && !s.ends_with("..") {
-        s.pop();
-        i -= 1;
-    }
-    (s, i)
-}
-
-/// `{` immediately followed (no whitespace) by a digit or `,` is a repeat-range
-/// cardinality, not a shape-definition's opening brace.
-fn try_read_repeat_range(chars: &[char], start: usize) -> Option<(u64, Option<u64>, usize)> {
-    let mut i = start + 1;
-    if !chars.get(i).is_some_and(|c| c.is_ascii_digit()) {
-        return None;
-    }
-    let mut min_s = String::new();
-    while chars.get(i).is_some_and(|c| c.is_ascii_digit()) {
-        min_s.push(chars[i]);
-        i += 1;
-    }
-    let min: u64 = min_s.parse().ok()?;
-    let max = if chars.get(i) == Some(&',') {
-        i += 1;
-        let mut max_s = String::new();
-        while chars.get(i).is_some_and(|c| c.is_ascii_digit()) {
-            max_s.push(chars[i]);
-            i += 1;
-        }
-        if max_s.is_empty() {
-            None
-        } else {
-            Some(max_s.parse().ok()?)
-        }
-    } else {
-        Some(min)
+fn parse_node_constraint_facet(
+    parser: &mut Parser<'_>,
+    nc: &mut NodeConstraint,
+) -> Result<bool, String> {
+    let Tok::Word(word) = parser.peek().clone() else {
+        return Ok(false);
     };
-    if chars.get(i) != Some(&'}') {
-        return None;
+    match word.as_str() {
+        "LENGTH" => {
+            parser.bump();
+            nc.string_facets.length = Some(parser.parse_facet_uint()?);
+        }
+        "MINLENGTH" => {
+            parser.bump();
+            nc.string_facets.minlength = Some(parser.parse_facet_uint()?);
+        }
+        "MAXLENGTH" => {
+            parser.bump();
+            nc.string_facets.maxlength = Some(parser.parse_facet_uint()?);
+        }
+        "PATTERN" => {
+            parser.bump();
+            let (pattern, flags) = parser.parse_pattern()?;
+            nc.string_facets.pattern = Some(pattern);
+            nc.string_facets.flags = flags;
+        }
+        "MININCLUSIVE" => {
+            parser.bump();
+            nc.numeric_facets.mininclusive = Some(parser.parse_facet_num()?);
+        }
+        "MAXINCLUSIVE" => {
+            parser.bump();
+            nc.numeric_facets.maxinclusive = Some(parser.parse_facet_num()?);
+        }
+        "MINEXCLUSIVE" => {
+            parser.bump();
+            nc.numeric_facets.minexclusive = Some(parser.parse_facet_num()?);
+        }
+        "MAXEXCLUSIVE" => {
+            parser.bump();
+            nc.numeric_facets.maxexclusive = Some(parser.parse_facet_num()?);
+        }
+        _ => return Ok(false),
     }
-    Some((min, max, i + 1))
+    Ok(true)
 }
 
 // ── Parser ────────────────────────────────────────────────────────────────
@@ -604,76 +355,8 @@ impl<'a> Parser<'a> {
     // ── Node constraints ──────────────────────────────────────────────────
 
     fn parse_node_constraint(&mut self) -> Result<NodeConstraint, String> {
-        let mut nc = NodeConstraint::default();
-        match self.peek().clone() {
-            Tok::Word(w) if w == "IRI" => {
-                self.bump();
-                nc.node_kind = Some(NodeKind::Iri);
-            }
-            Tok::Word(w) if w == "BNODE" => {
-                self.bump();
-                nc.node_kind = Some(NodeKind::BNode);
-            }
-            Tok::Word(w) if w == "LITERAL" => {
-                self.bump();
-                nc.node_kind = Some(NodeKind::Literal);
-            }
-            Tok::Word(w) if w == "NONLITERAL" => {
-                self.bump();
-                nc.node_kind = Some(NodeKind::NonLiteral);
-            }
-            Tok::Iri(iri) => {
-                self.bump();
-                nc.datatype = Some(iri);
-            }
-            Tok::Punct('[') => {
-                nc.values = Some(self.parse_value_set()?);
-            }
-            other => {
-                return Err(format!(
-                    "ShExC: expected a node constraint (IRI/BNODE/LITERAL/NONLITERAL/datatype/value set), found {other:?}"
-                ))
-            }
-        }
-        loop {
-            match self.peek().clone() {
-                Tok::Word(w) if w == "LENGTH" => {
-                    self.bump();
-                    nc.string_facets.length = Some(self.parse_facet_uint()?);
-                }
-                Tok::Word(w) if w == "MINLENGTH" => {
-                    self.bump();
-                    nc.string_facets.minlength = Some(self.parse_facet_uint()?);
-                }
-                Tok::Word(w) if w == "MAXLENGTH" => {
-                    self.bump();
-                    nc.string_facets.maxlength = Some(self.parse_facet_uint()?);
-                }
-                Tok::Word(w) if w == "PATTERN" => {
-                    self.bump();
-                    let (pat, flags) = self.parse_pattern()?;
-                    nc.string_facets.pattern = Some(pat);
-                    nc.string_facets.flags = flags;
-                }
-                Tok::Word(w) if w == "MININCLUSIVE" => {
-                    self.bump();
-                    nc.numeric_facets.mininclusive = Some(self.parse_facet_num()?);
-                }
-                Tok::Word(w) if w == "MAXINCLUSIVE" => {
-                    self.bump();
-                    nc.numeric_facets.maxinclusive = Some(self.parse_facet_num()?);
-                }
-                Tok::Word(w) if w == "MINEXCLUSIVE" => {
-                    self.bump();
-                    nc.numeric_facets.minexclusive = Some(self.parse_facet_num()?);
-                }
-                Tok::Word(w) if w == "MAXEXCLUSIVE" => {
-                    self.bump();
-                    nc.numeric_facets.maxexclusive = Some(self.parse_facet_num()?);
-                }
-                _ => break,
-            }
-        }
+        let mut nc = parse_node_constraint_atom(self)?;
+        parse_node_constraint_facets(self, &mut nc)?;
         Ok(nc)
     }
 

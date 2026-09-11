@@ -284,6 +284,36 @@ async def send_update_capacity_cell(
     return OpaqueResult("UpdateCapacityCell", payload)
 
 
+class KgDelegateRequest(BaseModel):
+    """Request body for KgDelegate - contract/schemas/method.request.json#/methods/KgDelegate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_kg_delegate(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """KgDelegate - work:delegate, GraphRedb, replay OperationIdentity.
+
+    Result: opaque (Undeclared) - the contract declares no result schema.
+    Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
+    """
+    KgDelegateRequest.model_validate(params or {})
+    payload = await client._send(
+        "KgDelegate",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("KgDelegate", payload)
+
+
 class SubmitWorkItemRequest(BaseModel):
     """Request body for SubmitWorkItem - contract/schemas/method.request.json#/methods/SubmitWorkItem."""
 
@@ -451,6 +481,7 @@ class CommitWorkItemResultRequest(BaseModel):
     lease_epoch: int
     now_ms: int
     outcome: str
+    outcome_extension: Any | None = None
     result_ref: Any | None = None
     retryable: bool | None = None
     tenant: str

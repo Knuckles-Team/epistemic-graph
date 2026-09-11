@@ -5,7 +5,7 @@ use eg_modality::{
     NativeIndexKey, NativePredicate, OpaqueRef, Provenance, RowSetShape, StagedWrite,
 };
 
-use crate::document::{DocumentData, LayoutBlock, LexicalPosting, Page, Span};
+use crate::document::{DocumentData, LayoutBlock, LexicalPosting, Page, Span, Table};
 
 const MAX_PAGES: usize = 4_096;
 const MAX_BLOCKS: usize = 250_000;
@@ -41,6 +41,165 @@ fn element_count(document: &DocumentData) -> u64 {
 /// Secondary-index flag for `modality_contract_runtime_hooks!`.
 fn has_secondary_index(document: &DocumentData) -> bool {
     !document.lexical_postings.is_empty()
+}
+
+fn count_structured_items(document: &DocumentData) -> Option<usize> {
+    let mut count = 0usize;
+    for page in &document.pages {
+        for block in &page.blocks {
+            count = count.checked_add(block.spans.len())?;
+            count = count.checked_add(block.table.as_ref().map_or(0, |table| table.cells.len()))?;
+        }
+    }
+    Some(count)
+}
+
+fn validate_document_shape(document: &DocumentData) -> bool {
+    let block_count = document
+        .pages
+        .iter()
+        .try_fold(0usize, |count, page| count.checked_add(page.blocks.len()));
+    let structured_items = count_structured_items(document);
+    eg_modality::content_address(&document.blob_ref)
+        && !document.pages.is_empty()
+        && document.pages.len() <= MAX_PAGES
+        && block_count.is_some_and(|count| count <= MAX_BLOCKS)
+        && structured_items.is_some_and(|count| count <= MAX_STRUCTURED_ITEMS)
+        && document.annotations.len() <= MAX_STRUCTURED_ITEMS
+        && document.chunks.len() <= MAX_STRUCTURED_ITEMS
+        && document.lexical_postings.len() <= MAX_STRUCTURED_ITEMS
+        && document.language.as_deref().is_none_or(safe_language)
+        && document.version.as_deref().is_none_or(opaque)
+}
+
+fn validate_pages(
+    document: &DocumentData,
+    page_numbers: &mut std::collections::BTreeSet<u32>,
+) -> bool {
+    for page in &document.pages {
+        if page.number == 0
+            || !page_numbers.insert(page.number)
+            || !page.blocks.iter().all(validate_block)
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn validate_block(block: &LayoutBlock) -> bool {
+    (block.kind == crate::BlockKind::Table) == block.table.is_some()
+        && validate_spans(&block.spans)
+        && block.table.as_ref().is_none_or(validate_table)
+}
+
+fn validate_spans(spans: &[Span]) -> bool {
+    spans
+        .iter()
+        .all(|span| span.end > span.start && span.label.as_deref().is_none_or(opaque))
+        && spans.windows(2).all(|pair| pair[0].end <= pair[1].start)
+}
+
+fn validate_table(table: &Table) -> bool {
+    table.rows > 0
+        && table.cols > 0
+        && table
+            .rows
+            .checked_mul(table.cols)
+            .is_some_and(|slots| slots <= MAX_STRUCTURED_ITEMS && table.cells.len() <= slots)
+        && table
+            .cells
+            .iter()
+            .all(|cell| cell.row < table.rows && cell.col < table.cols)
+        && table
+            .cells
+            .iter()
+            .map(|cell| (cell.row, cell.col))
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            == table.cells.len()
+}
+
+fn validate_annotations(
+    document: &DocumentData,
+    page_numbers: &std::collections::BTreeSet<u32>,
+) -> bool {
+    for annotation in &document.annotations {
+        if !opaque(&annotation.label)
+            || !match (annotation.page, annotation.span) {
+                (None, None) => true,
+                (Some(page), Some((start, end))) => end > start && page_numbers.contains(&page),
+                _ => false,
+            }
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn validate_chunks(
+    document: &DocumentData,
+    page_numbers: &std::collections::BTreeSet<u32>,
+) -> bool {
+    for chunk in &document.chunks {
+        if !opaque(&chunk.chunk_id)
+            || !opaque(&chunk.document_id)
+            || chunk.derived_from.len() > MAX_STRUCTURED_ITEMS
+            || chunk.page.is_some_and(|page| !page_numbers.contains(&page))
+            || chunk.span.1 <= chunk.span.0
+            || !chunk.derived_from.iter().all(|parent| opaque(parent))
+            || chunk
+                .derived_from
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                != chunk.derived_from.len()
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn validate_lexical_postings(
+    document: &DocumentData,
+    postings: &mut std::collections::BTreeSet<(String, u32, u32, usize, usize)>,
+) -> bool {
+    !document.lexical_postings.is_empty()
+        && document
+            .lexical_postings
+            .iter()
+            .all(|posting| validate_posting(document, posting, postings))
+}
+
+fn validate_posting(
+    document: &DocumentData,
+    posting: &LexicalPosting,
+    postings: &mut std::collections::BTreeSet<(String, u32, u32, usize, usize)>,
+) -> bool {
+    OpaqueRef::new(posting.token_ref.clone())
+        .is_ok_and(|reference| reference.namespace() == "lexeme")
+        && posting.page > 0
+        && document
+            .pages
+            .iter()
+            .find(|page| page.number == posting.page)
+            .and_then(|page| page.blocks.get(posting.block as usize))
+            .is_some_and(|block| {
+                block
+                    .spans
+                    .iter()
+                    .any(|span| span.start <= posting.start && posting.end <= span.end)
+            })
+        && posting.end > posting.start
+        && postings.insert((
+            posting.token_ref.clone(),
+            posting.page,
+            posting.block,
+            posting.start,
+            posting.end,
+        ))
 }
 
 impl ModalityContract for DocumentData {
@@ -99,107 +258,11 @@ impl GovernedModality for DocumentData {
     fn validate_governed_payload(&self) -> bool {
         let mut page_numbers = std::collections::BTreeSet::new();
         let mut postings = std::collections::BTreeSet::new();
-        let block_count = self
-            .pages
-            .iter()
-            .try_fold(0usize, |count, page| count.checked_add(page.blocks.len()));
-        let structured_items = self.pages.iter().try_fold(0usize, |count, page| {
-            page.blocks.iter().try_fold(count, |count, block| {
-                let count = count.checked_add(block.spans.len())?;
-                count.checked_add(block.table.as_ref().map_or(0, |table| table.cells.len()))
-            })
-        });
-        eg_modality::content_address(&self.blob_ref)
-            && !self.pages.is_empty()
-            && self.pages.len() <= MAX_PAGES
-            && block_count.is_some_and(|count| count <= MAX_BLOCKS)
-            && structured_items.is_some_and(|count| count <= MAX_STRUCTURED_ITEMS)
-            && self.annotations.len() <= MAX_STRUCTURED_ITEMS
-            && self.chunks.len() <= MAX_STRUCTURED_ITEMS
-            && self.lexical_postings.len() <= MAX_STRUCTURED_ITEMS
-            && self.language.as_deref().is_none_or(safe_language)
-            && self.version.as_deref().is_none_or(opaque)
-            && self.pages.iter().all(|page| {
-                page.number > 0
-                    && page_numbers.insert(page.number)
-                    && page.blocks.iter().all(|block| {
-                        (block.kind == crate::BlockKind::Table) == block.table.is_some()
-                            && block.spans.iter().all(|span| {
-                                span.end > span.start && span.label.as_deref().is_none_or(opaque)
-                            })
-                            && block
-                                .spans
-                                .windows(2)
-                                .all(|pair| pair[0].end <= pair[1].start)
-                            && block.table.as_ref().is_none_or(|table| {
-                                table.rows > 0
-                                    && table.cols > 0
-                                    && table.rows.checked_mul(table.cols).is_some_and(|slots| {
-                                        slots <= MAX_STRUCTURED_ITEMS && table.cells.len() <= slots
-                                    })
-                                    && table
-                                        .cells
-                                        .iter()
-                                        .all(|cell| cell.row < table.rows && cell.col < table.cols)
-                                    && table
-                                        .cells
-                                        .iter()
-                                        .map(|cell| (cell.row, cell.col))
-                                        .collect::<std::collections::BTreeSet<_>>()
-                                        .len()
-                                        == table.cells.len()
-                            })
-                    })
-            })
-            && self.annotations.iter().all(|annotation| {
-                opaque(&annotation.label)
-                    && match (annotation.page, annotation.span) {
-                        (None, None) => true,
-                        (Some(page), Some((start, end))) => {
-                            end > start && page_numbers.contains(&page)
-                        }
-                        _ => false,
-                    }
-            })
-            && self.chunks.iter().all(|chunk| {
-                opaque(&chunk.chunk_id)
-                    && opaque(&chunk.document_id)
-                    && chunk.derived_from.len() <= MAX_STRUCTURED_ITEMS
-                    && chunk.page.is_none_or(|page| page_numbers.contains(&page))
-                    && chunk.span.1 > chunk.span.0
-                    && chunk.derived_from.iter().all(|parent| opaque(parent))
-                    && chunk
-                        .derived_from
-                        .iter()
-                        .collect::<std::collections::BTreeSet<_>>()
-                        .len()
-                        == chunk.derived_from.len()
-            })
-            && !self.lexical_postings.is_empty()
-            && self.lexical_postings.iter().all(|posting| {
-                OpaqueRef::new(posting.token_ref.clone())
-                    .is_ok_and(|reference| reference.namespace() == "lexeme")
-                    && posting.page > 0
-                    && self
-                        .pages
-                        .iter()
-                        .find(|page| page.number == posting.page)
-                        .and_then(|page| page.blocks.get(posting.block as usize))
-                        .is_some_and(|block| {
-                            block
-                                .spans
-                                .iter()
-                                .any(|span| span.start <= posting.start && posting.end <= span.end)
-                        })
-                    && posting.end > posting.start
-                    && postings.insert((
-                        posting.token_ref.clone(),
-                        posting.page,
-                        posting.block,
-                        posting.start,
-                        posting.end,
-                    ))
-            })
+        validate_document_shape(self)
+            && validate_pages(self, &mut page_numbers)
+            && validate_annotations(self, &page_numbers)
+            && validate_chunks(self, &page_numbers)
+            && validate_lexical_postings(self, &mut postings)
     }
 
     fn native_index_keys(&self) -> Vec<NativeIndexKey> {

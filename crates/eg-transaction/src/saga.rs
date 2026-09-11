@@ -3,17 +3,16 @@
 use crate::admitted::AdmittedMutation;
 use crate::commit::{begin, commit, finish, write_class};
 use crate::ledger::{
-    idempotency_batch_id, persist_idempotency, persist_private, persist_record,
-    read_private_in_write, read_record_in_write, remove_private, source_version,
-    verify_replay_identity,
+    persist_private, persist_record, read_private_in_write, read_record_in_write, remove_private,
+    source_version,
 };
+use crate::replay::{record_operation_in, resolve_replay_in, ReplayResolution};
 use crate::{Begin, SagaBegin};
 use eg_storage::{
-    ledger_scope_key, MutationClass, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain,
+    ledger_scope_key, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain, RecordedOperation,
 };
-use eg_types::{
-    CommittedVersion, MutationBatch, MutationBatchRecord, MutationBatchStatus,
-};
+use eg_types::mutation_batch::MutationEnvelope;
+use eg_types::{CommittedVersion, MutationBatch, MutationBatchRecord, MutationBatchStatus};
 
 pub(crate) fn prepare_saga<D: OwnerDomain>(
     authority: &MutationOwnerAuthority,
@@ -34,14 +33,27 @@ pub(crate) fn prepare_saga_with_private_payload<D: OwnerDomain>(
     batch.validate_write_budget()?;
     let write = AdmittedMutation::open(authority, owner)?;
     write.verify_scope(&batch.identity)?;
-    if let Some(existing_id) = idempotency_batch_id(&write, batch)? {
+    if let Some(existing_id) = recorded_saga_batch_id(&write, batch)? {
         let result = resume_existing_saga(&write, batch, private_payload, &existing_id)?;
-        write.abort()?;
+        match &result {
+            SagaBegin::Committed(_) => match begin(&write, batch)? {
+                Begin::Replay(_) => commit(write, batch)?,
+                Begin::Apply { .. } => {
+                    return Err(
+                        "committed saga replay became a fresh admission unexpectedly".to_string(),
+                    )
+                }
+            },
+            SagaBegin::Resume(_) => write.abort()?,
+            SagaBegin::Execute => {
+                return Err("prepared saga unexpectedly returned Execute".to_string())
+            }
+        }
         return Ok(result);
     }
-    match begin(&write, batch, MutationClass::Operation)? {
+    match begin(&write, batch)? {
         Begin::Replay(record) => {
-            write.abort()?;
+            commit(write, batch)?;
             return Ok(SagaBegin::Committed(*record));
         }
         Begin::Apply { .. } => {}
@@ -49,6 +61,38 @@ pub(crate) fn prepare_saga_with_private_payload<D: OwnerDomain>(
     persist_prepared_saga(&write, batch, prepared_at_ms, private_payload)?;
     write.commit()?;
     Ok(SagaBegin::Execute)
+}
+
+/// The batch id this saga's own operation identity already recorded, if any.
+///
+/// A saga claims its idempotency key at PREPARE, not at commit, so a resume
+/// reaches this before `begin` -- with a fresh attempt nonce over the identical
+/// stable operation identity, which is exactly the `ReplayedResult` case. A
+/// genuinely different operation reusing the key conflicts here by name rather
+/// than through a whole-batch byte comparison that a legitimate retry could
+/// never satisfy.
+fn recorded_saga_batch_id<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    batch: &MutationBatch,
+) -> Result<Option<String>, String> {
+    let MutationEnvelope::Operation(envelope) = &batch.envelope else {
+        return Err("a saga is a caller operation and cannot be a maintenance write".to_string());
+    };
+    let operation = envelope.operation_identity()?;
+    let nonce = envelope.nonce_replay_key()?;
+    match resolve_replay_in(write, &operation, &nonce)? {
+        ReplayResolution::Fresh => Ok(None),
+        ReplayResolution::ReplayedResult(recorded) => Ok(recorded.batch_id().map(str::to_string)),
+        ReplayResolution::NonceRejected { idempotency_key } => Err(format!(
+            "REPLAY_NONCE_CONSUMED: this saga attempt nonce was already consumed by idempotency \
+             key '{idempotency_key}'"
+        )),
+        ReplayResolution::Conflict { recorded, proposed } => Err(format!(
+            "IDEMPOTENCY_CONFLICT: saga key '{}' was already used by a different operation \
+             (recorded {recorded}, proposed {proposed})",
+            operation.idempotency_key.as_str()
+        )),
+    }
 }
 
 fn resume_existing_saga<D: OwnerDomain>(
@@ -62,7 +106,6 @@ fn resume_existing_saga<D: OwnerDomain>(
             "CORRUPT_MUTATION_LEDGER: saga idempotency key points to missing batch '{existing_id}'"
         )
     })?;
-    verify_replay_identity(batch, &record.batch)?;
     ensure_private_payload(write, private_payload, &record)?;
     match record.status {
         MutationBatchStatus::Prepared => Ok(SagaBegin::Resume(record)),
@@ -105,12 +148,33 @@ fn persist_prepared_saga<D: OwnerDomain>(
         committed_at_ms: prepared_at_ms,
     };
     persist_record(write, &record)?;
-    persist_idempotency(write, batch)?;
+    claim_saga_key(write, batch)?;
     write_class(write, batch)?;
     if let Some(payload) = private_payload {
         persist_private(write, &record, payload)?;
     }
     Ok(())
+}
+
+/// Claim the saga's idempotency key -- and consume its attempt nonce -- in the
+/// same transaction that persists the `Prepared` receipt.
+///
+/// The commit that follows re-records the SAME `(operation, batch)` pair, which
+/// `record_operation_in` treats as a no-op rather than a second claim, so the
+/// prepared and committed halves of one saga never race each other for the key.
+fn claim_saga_key<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    batch: &MutationBatch,
+) -> Result<(), String> {
+    let MutationEnvelope::Operation(envelope) = &batch.envelope else {
+        return Err("a saga is a caller operation and cannot be a maintenance write".to_string());
+    };
+    record_operation_in(
+        write,
+        &envelope.operation_identity()?,
+        &envelope.nonce_replay_key()?,
+        RecordedOperation::Batch(batch.batch_id.clone()),
+    )
 }
 
 pub(crate) fn commit_saga<D: OwnerDomain>(
@@ -125,7 +189,6 @@ pub(crate) fn commit_saga<D: OwnerDomain>(
     write.verify_scope(&batch.identity)?;
     let record = read_record_in_write(&write, &batch.identity, &batch.batch_id)?
         .ok_or_else(|| format!("mutation saga '{}' was not prepared", batch.batch_id))?;
-    verify_replay_identity(batch, &record.batch)?;
     if record.status == MutationBatchStatus::Committed {
         // Documented exception to "every owner write is an admitted mutation":
         // the saga already committed, and this commit only drops the sealed

@@ -179,8 +179,11 @@ impl ReplayLedger for RedbReplayLedger {
 }
 
 #[cfg(all(feature = "security", not(test)))]
-pub(crate) fn durable_replay_ledger(state_dir: Option<&str>) -> Result<&'static RedbReplayLedger, String> {
-    static LEDGER: std::sync::OnceLock<Result<RedbReplayLedger, String>> = std::sync::OnceLock::new();
+pub(crate) fn durable_replay_ledger(
+    state_dir: Option<&str>,
+) -> Result<&'static RedbReplayLedger, String> {
+    static LEDGER: std::sync::OnceLock<Result<RedbReplayLedger, String>> =
+        std::sync::OnceLock::new();
     match LEDGER.get_or_init(|| {
         let dir = std::env::var("EPISTEMIC_GRAPH_SECURITY_STATE_DIR")
             .ok()
@@ -198,12 +201,16 @@ pub(crate) fn durable_replay_ledger(state_dir: Option<&str>) -> Result<&'static 
 }
 
 #[cfg(all(not(feature = "security"), not(test)))]
-pub(crate) fn durable_replay_ledger(_state_dir: Option<&str>) -> Result<&'static dyn ReplayLedger, String> {
+pub(crate) fn durable_replay_ledger(
+    _state_dir: Option<&str>,
+) -> Result<&'static dyn ReplayLedger, String> {
     Err("secure request context requires the security feature".to_string())
 }
 
 #[cfg(test)]
-pub(crate) fn durable_replay_ledger(_state_dir: Option<&str>) -> Result<&'static dyn ReplayLedger, String> {
+pub(crate) fn durable_replay_ledger(
+    _state_dir: Option<&str>,
+) -> Result<&'static dyn ReplayLedger, String> {
     static LEDGER: std::sync::OnceLock<ReplayCache> = std::sync::OnceLock::new();
     Ok(LEDGER.get_or_init(|| ReplayCache {
         seen: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -323,7 +330,10 @@ mod durable_tests {
                 .filter_map(|handle| handle.join().unwrap().then_some(()))
                 .count()
         });
-        assert_eq!(accepted, 1, "a replayed nonce must be accepted exactly once");
+        assert_eq!(
+            accepted, 1,
+            "a replayed nonce must be accepted exactly once"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

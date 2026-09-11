@@ -184,6 +184,7 @@
 | `ReconcileCapacity` | false | None | `capacity:read` | true | false | false | Snapshot | bounded native cells/leases reconciliation page |
 | `CapacityStatus` | false | None | `capacity:read` | true | false | false | Snapshot | exact tenant-scoped native capacity status |
 | `UpdateCapacityCell` | true | GraphRedb | `capacity:admin` | true | true | false | Atomic | controller epoch CAS for resource dimension/capacity policy |
+| `KgDelegate` | true | GraphRedb | `work:delegate` | true | true | false | Atomic | authenticated Agent Library pinned delegation lowered to native WorkItem admission |
 | `SubmitWorkItem` | true | GraphRedb | `work:submit` | true | true | false | Atomic | native tenant-scoped WorkItem command-log admission and outbox commit |
 | `SubmitWorkItems` | true | GraphRedb | `work:submit` | true | true | false | Atomic | bounded all-or-nothing WorkItem admission batch |
 | `MintWorkItemClaimCapability` | true | GraphRedb | `work:claim-capability` | true | false | false | Atomic | opaque native capability is retained in a private ledger and never projected |
@@ -378,6 +379,7 @@
 | `ApplyLedger` | true | GraphRedb | `ledger:write` | false | true | true | Atomic | state-backed MutationBatch |
 | `Backup` | false | None | `admin:backup` | true | false | false | Snapshot | reads a consistent snapshot out to a bundle; does not mutate the live graph |
 | `Restore` | true | ControlRedb | `admin:backup` | true | false | false | Saga | prepared/committed admin MutationBatch saga |
+| `AgentLibrary` | ~true | ControlRedb | `agent:library-write` | true | false | false | Atomic | runtime-conditional: Current/History/Status are authenticated tenant-bound read snapshots; Publish/Retire atomically commit native revisions, action provenance, replay receipts, and outbox through ControlRedb |
 | `TsAppend` | true | SeriesRedb | `timeseries:write` | false | false | false | Atomic | graph ACL + placement policy precede the tenant/graph/series-scoped series.redb write |
 | `TsRange` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
 | `TsAsofJoin` | false | None | `timeseries:read` | true | false | false | Snapshot |  |

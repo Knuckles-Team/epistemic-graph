@@ -66,7 +66,14 @@ ROUTE_OWNERS = {
     "dispatch_identity_and_access_methods": "src/server/dispatch/router/identity_access.rs",
     "route_change_envelope_ops": "src/server/dispatch/change_envelope.rs",
     "route_graph_op_method": "src/server/dispatch/graph_pipeline.rs",
-    "dispatch_op_workitem_mutation":
+    # `dispatch_op_workitem_mutation` was split in two during the decomposition
+    # and this map was never updated, so the gate asserted ownership of a
+    # function that exists in neither this tree nor EG main b2ac7b93 -- it had
+    # been failing on both. Assert the two real successors instead of dropping
+    # the check.
+    "dispatch_op_workitem_claim_capability":
+        "src/server/dispatch/graph_pipeline/work_governance.rs",
+    "dispatch_op_workitem_submission_or_resources":
         "src/server/dispatch/graph_pipeline/work_governance.rs",
 }
 
@@ -74,7 +81,14 @@ LEGACY_COALESCER_METHODS = (
     "AddNode", "RemoveNode", "AddEdge", "RemoveEdge", "CompareAndSetNodeFields",
 )
 
-CFG_FINGERPRINT = "e695ad193041657d1d8f497cf501f8daa04b08a4b27baaf1944f5a7284e37c52"
+# The previous value (e695ad19...) matched NEITHER this tree NOR EG main
+# b2ac7b93 (72 predicates, 5264dc68...), so this fingerprint was already stale
+# before the RF-020 work and the gate was failing on both. Re-stamped against
+# the reviewed candidate: 74 predicates. Two are added relative to main and none
+# removed --
+#   any(feature = "amqp-wire", "mqtt-wire", "stomp-wire", "mssql-wire", "redis-wire")
+#   any(feature = "federation-search", feature = "nl-query")
+CFG_FINGERPRINT = "7bb6473c7d61790869f2e44747e1f7cf5eadd05d2faf7fc7d5c5d451769fa62b"
 
 
 def require(condition: bool, message: str) -> None:
@@ -101,7 +115,22 @@ def function_names(source: str) -> list[str]:
 def check_inventory(parts: dict[str, str]) -> None:
     joined = "\n".join(parts.values())
     names = function_names(joined)
-    require(len(names) == 324, "named-function inventory changed")
+    # 324 -> 331. Seven functions were added to the dispatch compiler family and
+    # none were removed (verified by diffing the name inventory against EG main
+    # b2ac7b93, not by trusting the count):
+    #   dispatch_agent_library_methods          -- RF-020 Agent Library routing
+    #   is_replicated_apply                     -- raft apply classification
+    #   propose_native_mutation (two cfg arms)  -- native mutation proposal
+    #   replicated_placement_authority          -- replicated placement/fencing
+    #   submit_consensus_job_publication_commit    -- analytics-job publication
+    #   submit_consensus_job_publication_response  -- analytics-job publication
+    # 331 -> 330. One function was REMOVED by the dupehound consolidation:
+    #   submit_context_matches_authority -- its four-field tenant/agent/audience/
+    #   policy_version comparison was the same one `kg-delegate` ran, so both
+    #   boundaries now call the single `handlers::delegation::
+    #   context_matches_verified_authority`. The CHECK is preserved (see
+    #   `validate_submit_context`); only the duplicate definition is gone.
+    require(len(names) == 330, "named-function inventory changed")
     require(len(re.findall(r"#\[(?:tokio::)?test", joined)) == 48, "test inventory changed")
     require(
         len(re.findall(r"\bassert(?:_eq|_ne)?!", joined)) == 135,
@@ -129,10 +158,14 @@ def check_cfg_contract(parts: dict[str, str]) -> None:
 
 def check_routing_and_coalescing(parts: dict[str, str]) -> None:
     graph = parts["src/server/dispatch/graph_pipeline.rs"]
+    # `handlers::tts::try_handle(` was dropped: `src/server/handlers/tts.rs` was
+    # DELETED in 7469acff and the TTS surface moved to the modality handler, so
+    # this marker had named a symbol present in neither this tree nor EG main
+    # b2ac7b93 -- the gate was crashing with `ValueError: substring not found`
+    # rather than checking an order. The gateway stage now ends at `finance`.
     gateway_order = (
         "handlers::graph_ops::try_handle_gateway(",
         "handlers::finance::try_handle(",
-        "handlers::tts::try_handle(",
     )
     graph_order = (
         "handlers::datascience::try_handle(",

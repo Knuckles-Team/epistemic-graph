@@ -27,6 +27,7 @@ from typing import Any, NoReturn
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import dupehound_ledger  # noqa: E402
 import scanner_contract  # noqa: E402
 
 EXPECTED_JSON_SCHEMA_VERSION = 1
@@ -411,11 +412,50 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, UnicodeError) as exc:
         fail(f"could not execute dupehound: {exc}")
     findings = _validated_findings(result)
-    if not findings:
-        print("dupehound gate: OK: no changed function reimplementation")
+    # A small number of pairs are structurally identical and semantically
+    # unrelated -- `matches!` over different literal sets, over different
+    # argument types. Those are recorded in the reviewed register with a reason
+    # and a pinned digest of BOTH functions (see `dupehound_ledger`). This is not
+    # a baseline: it is hand-written, it never updates itself, and it ROTS -- if
+    # either function changes, or an entry matches nothing, the gate fails.
+    try:
+        register = dupehound_ledger.load_register()
+    except dupehound_ledger.LedgerError as error:
+        fail(f"reviewed-distinct register is invalid: {error}")
+    unregistered, changed, notes, unused = dupehound_ledger.partition(
+        findings, register
+    )
+    for note in notes:
+        if note.startswith("resolved: "):
+            print(f"dupehound gate: {note}")
+    if unused:
+        print(
+            f"dupehound gate: FAIL: {len(unused)} reviewed-distinct entr(ies) no longer"
+            " describe the code they were reviewed against"
+        )
+        for note in notes:
+            if not note.startswith("resolved: "):
+                print(f"  {note}")
+        return 1
+    if changed:
+        print(
+            f"dupehound gate: FAIL: {len(changed)} reviewed-distinct pair(s) changed"
+            " since review -- the recorded reason no longer describes the code"
+        )
+        for note in notes:
+            print(f"  {note}")
+        return 1
+    if not unregistered:
+        if register:
+            print(
+                f"dupehound gate: OK: no changed function reimplementation"
+                f" ({len(register)} reviewed-distinct pair(s) still hold)"
+            )
+        else:
+            print("dupehound gate: OK: no changed function reimplementation")
         return 0
-    print(f"dupehound gate: FAIL: {len(findings)} structural clone(s)")
-    for finding in findings:
+    print(f"dupehound gate: FAIL: {len(unregistered)} structural clone(s)")
+    for finding in unregistered:
         print(
             f"  {finding['file']}:{finding['line']} {finding['name']} "
             f"reimplements {finding['original_file']}:{finding['original_line']} "

@@ -244,6 +244,33 @@ fn eg104_range_overlaps() {
 }
 
 #[test]
+fn eg104_range_literals_require_position_specific_delimiters() {
+    for literal in ["]1,5]", "[1,5[", ")1,5)", "(1,5("] {
+        assert_eq!(
+            one(&format!("SELECT range_contains('{literal}', 3) AS x")),
+            json!(null),
+            "invalid range literal must yield NULL: {literal}"
+        );
+        assert_eq!(
+            one(&format!(
+                "SELECT range_overlaps('{literal}', int4range(2,4)) AS x"
+            )),
+            json!(null),
+            "invalid range literal must yield NULL: {literal}"
+        );
+    }
+
+    assert_eq!(
+        one("SELECT range_contains('[1,5)', 3) AS x"),
+        json!(true)
+    );
+    assert_eq!(
+        one("SELECT range_overlaps('[1,5)', int4range(4,9)) AS x"),
+        json!(true)
+    );
+}
+
+#[test]
 fn eg104_range_contains_and_contained_by() {
     // @> : [1,10) covers [3,5).  <@ : [3,5) covered by [1,10).
     assert_eq!(

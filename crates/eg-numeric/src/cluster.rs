@@ -102,6 +102,94 @@ fn kmeans_plus_plus(data: ArrayView2<f64>, k: usize, gen: &mut Generator) -> Arr
     centroids
 }
 
+/// Assign every row to its nearest centroid, preserving input order and the
+/// lowest-index tie break in [`nearest`].
+fn assign_labels(data: ArrayView2<f64>, centroids: &Array2<f64>, labels: &mut [usize]) -> bool {
+    let mut changed = false;
+    for (index, label) in labels.iter_mut().enumerate() {
+        let (cluster, _) = nearest(data.row(index).as_slice().unwrap(), centroids);
+        if *label != cluster {
+            *label = cluster;
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Accumulate centroid numerators in the same row and column order as the
+/// original Lloyd update.
+fn centroid_totals(
+    data: ArrayView2<f64>,
+    labels: &[usize],
+    k: usize,
+    dimensions: usize,
+) -> (Array2<f64>, Vec<usize>) {
+    let mut sums = Array2::<f64>::zeros((k, dimensions));
+    let mut counts = vec![0usize; k];
+    for (index, &cluster) in labels.iter().enumerate() {
+        counts[cluster] += 1;
+        let mut row = sums.row_mut(cluster);
+        row += &data.row(index);
+    }
+    (sums, counts)
+}
+
+fn farthest_point(data: ArrayView2<f64>, centroids: &Array2<f64>) -> usize {
+    let mut worst = 0usize;
+    let mut worst_distance = f64::NEG_INFINITY;
+    for index in 0..data.nrows() {
+        let (_, distance) = nearest(data.row(index).as_slice().unwrap(), centroids);
+        if distance > worst_distance {
+            worst_distance = distance;
+            worst = index;
+        }
+    }
+    worst
+}
+
+/// Apply centroid means and the existing farthest-point empty-cluster repair
+/// in ascending cluster order.
+fn update_centroids(
+    data: ArrayView2<f64>,
+    centroids: &mut Array2<f64>,
+    sums: &Array2<f64>,
+    counts: &[usize],
+) -> bool {
+    let mut repaired_empty = false;
+    for cluster in 0..centroids.nrows() {
+        if counts[cluster] > 0 {
+            let inverse = 1.0 / counts[cluster] as f64;
+            for dimension in 0..centroids.ncols() {
+                centroids[[cluster, dimension]] = sums[[cluster, dimension]] * inverse;
+            }
+        } else {
+            let worst = farthest_point(data, centroids);
+            centroids.row_mut(cluster).assign(&data.row(worst));
+            repaired_empty = true;
+        }
+    }
+    repaired_empty
+}
+
+fn lloyd_step(data: ArrayView2<f64>, centroids: &mut Array2<f64>, labels: &mut [usize]) -> bool {
+    let labels_changed = assign_labels(data, centroids, labels);
+    let (sums, counts) = centroid_totals(data, labels, centroids.nrows(), centroids.ncols());
+    let repaired_empty = update_centroids(data, centroids, &sums, &counts);
+    labels_changed || repaired_empty
+}
+
+fn settled_inertia(data: ArrayView2<f64>, labels: &[usize], centroids: &Array2<f64>) -> f64 {
+    (0..data.nrows())
+        .map(|index| {
+            let cluster = labels[index];
+            sq_dist(
+                data.row(index).as_slice().unwrap(),
+                centroids.row(cluster).as_slice().unwrap(),
+            )
+        })
+        .sum()
+}
+
 /// Fit **k-means** on the `n×d` matrix `data` (rows = observations), returning a hard
 /// cluster label per row (CONCEPT:EG-KG.query.kmeans-clustering-half-one). Lloyd's algorithm with k-means++ seeding; the
 /// RNG is seeded from `seed` so the fit is reproducible. `k` is clamped to `n` (can't have
@@ -127,60 +215,13 @@ pub fn kmeans(data: ArrayView2<f64>, k: usize, max_iter: usize, seed: u64) -> Re
 
     for it in 0..max_iter {
         n_iter = it + 1;
-        // ── assignment step ──
-        let mut changed = false;
-        for (i, label) in labels.iter_mut().enumerate() {
-            let (c, _) = nearest(data.row(i).as_slice().unwrap(), &centroids);
-            if *label != c {
-                *label = c;
-                changed = true;
-            }
-        }
-        // ── update step ── recompute each centroid as its members' mean.
-        let mut sums = Array2::<f64>::zeros((k, d));
-        let mut counts = vec![0usize; k];
-        for (i, &c) in labels.iter().enumerate() {
-            counts[c] += 1;
-            let mut row = sums.row_mut(c);
-            row += &data.row(i);
-        }
-        for c in 0..k {
-            if counts[c] > 0 {
-                let inv = 1.0 / counts[c] as f64;
-                for j in 0..d {
-                    centroids[[c, j]] = sums[[c, j]] * inv;
-                }
-            } else {
-                // Empty cluster: re-seed to the point currently farthest from its centroid
-                // (the classic Lloyd empty-cluster repair), keeping exactly k clusters.
-                let mut worst = 0usize;
-                let mut worst_d = f64::NEG_INFINITY;
-                for i in 0..n {
-                    let (_, dd) = nearest(data.row(i).as_slice().unwrap(), &centroids);
-                    if dd > worst_d {
-                        worst_d = dd;
-                        worst = i;
-                    }
-                }
-                centroids.row_mut(c).assign(&data.row(worst));
-                changed = true;
-            }
-        }
-        if !changed {
+        if !lloyd_step(data, &mut centroids, &mut labels) {
             break;
         }
     }
 
     // Final inertia (within-cluster sum of squared distances) over the settled labels.
-    let inertia: f64 = (0..n)
-        .map(|i| {
-            let c = labels[i];
-            sq_dist(
-                data.row(i).as_slice().unwrap(),
-                centroids.row(c).as_slice().unwrap(),
-            )
-        })
-        .sum();
+    let inertia = settled_inertia(data, &labels, &centroids);
 
     Ok(KMeansResult {
         labels,
@@ -235,6 +276,16 @@ mod tests {
         let b = kmeans(data.view(), 2, 100, 123).unwrap();
         assert_eq!(a.labels, b.labels);
         assert_eq!(a.centroids, b.centroids);
+    }
+
+    #[test]
+    fn fixed_single_cluster_numeric_oracle() {
+        let data = array![[3.0, 4.0], [-1.0, 2.0], [5.0, -6.0], [1.0, 0.0]];
+        let result = kmeans(data.view(), 1, 100, 987_654_321).unwrap();
+        assert_eq!(result.labels, vec![0, 0, 0, 0]);
+        assert_eq!(result.centroids, array![[2.0, 0.0]]);
+        assert_eq!(result.inertia, 76.0);
+        assert_eq!(result.n_iter, 2);
     }
 
     #[test]

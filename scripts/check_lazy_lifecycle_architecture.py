@@ -37,8 +37,27 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(f"lazy lifecycle architecture gate failed: {message}")
 
 
-def main() -> None:
-    registry = read("crates/eg-core/src/registry.rs")
+def require_registry_source_version_fence(registry: str) -> None:
+    """Require the registry's source-version drift check."""
+
+    if "snapshot_changed(" in registry:
+        require(
+            "snapshot_changed(manifest_ref, &page)" in registry,
+            "lazy page application no longer calls the source-version fence",
+        )
+        require(
+            "prior != page.source_snapshot_version" in registry,
+            "snapshot_changed lost its source-version drift body",
+        )
+    else:
+        require(
+            "prior_snapshot != page.source_snapshot_version" in registry,
+            "paged source-version drift is not fenced",
+        )
+
+
+def require_registry_contract(registry: str) -> None:
+    """Require the generation and partial-materialization registry fences."""
     for token in (
         "incarnation_id",
         "LazyOpenTicket",
@@ -55,10 +74,12 @@ def main() -> None:
         "record.cancellation.store(true" in registry,
         "delete does not cancel in-flight incarnation work",
     )
-    require(
-        "prior_snapshot != page.source_snapshot_version" in registry,
-        "paged source-version drift is not fenced",
-    )
+    require_registry_source_version_fence(registry)
+
+
+def main() -> None:
+    registry = read("crates/eg-core/src/registry.rs")
+    require_registry_contract(registry)
 
     lifecycle = read("src/server/persistence/cold_offload.rs")
     for token in (

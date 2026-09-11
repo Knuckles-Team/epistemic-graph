@@ -4,11 +4,40 @@ use super::lex::{parse_name, Cursor};
 use crate::tables::property_graph::{
     AlterElementAction, AlterPropertyGraphAction, DropBehavior, EdgeEndpoint, EdgeTableDefinition,
     ElementKeyResolution, ElementKind, EndpointResolution, GraphOwner, LabelDefinition,
-    PropertyDefinition, PropertyGraphDefinition, PropertyGraphStatement, PropertySet,
-    SqlIdentifier, VertexTableDefinition, MAX_PROPERTY_GRAPH_ELEMENTS,
-    MAX_PROPERTY_GRAPH_KEY_COLUMNS, MAX_PROPERTY_GRAPH_LABELS_PER_ELEMENT,
-    MAX_PROPERTY_GRAPH_PROPERTIES_PER_LABEL,
+    PropertyDefinition, PropertyGraphDefinition, PropertyGraphPrivilegeOperation,
+    PropertyGraphPrivilegeStatement, PropertyGraphStatement, PropertySet, SqlIdentifier,
+    VertexTableDefinition, MAX_PROPERTY_GRAPH_ELEMENTS, MAX_PROPERTY_GRAPH_KEY_COLUMNS,
+    MAX_PROPERTY_GRAPH_LABELS_PER_ELEMENT, MAX_PROPERTY_GRAPH_PROPERTIES_PER_LABEL,
 };
+
+pub fn parse_property_graph_privilege(
+    sql: &str,
+) -> Result<PropertyGraphPrivilegeStatement, String> {
+    let mut parser = Cursor::new(sql)?;
+    let operation = if parser.keyword("GRANT") {
+        PropertyGraphPrivilegeOperation::Grant
+    } else if parser.keyword("REVOKE") {
+        PropertyGraphPrivilegeOperation::Revoke
+    } else {
+        return Err("expected GRANT or REVOKE SELECT ON PROPERTY GRAPH".into());
+    };
+    parser.expect_keyword("SELECT")?;
+    parser.expect_keyword("ON")?;
+    parser.expect_keyword("PROPERTY")?;
+    parser.expect_keyword("GRAPH")?;
+    let name = parse_name(&mut parser)?;
+    parser.expect_keyword(match operation {
+        PropertyGraphPrivilegeOperation::Grant => "TO",
+        PropertyGraphPrivilegeOperation::Revoke => "FROM",
+    })?;
+    let principal = parser.principal_identity()?;
+    parser.finish()?;
+    Ok(PropertyGraphPrivilegeStatement {
+        operation,
+        name,
+        principal,
+    })
+}
 
 pub fn parse_property_graph_ddl(
     sql: &str,

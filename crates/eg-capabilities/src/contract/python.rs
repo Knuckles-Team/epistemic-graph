@@ -286,8 +286,7 @@ fn domain_module(
     out
 }
 
-fn runtime_module() -> String {
-    let mut out = String::from(HEADER);
+fn push_runtime_declarations_and_violation(out: &mut String) {
     out.push_str("\"\"\"Shared runtime for the generated engine-contract client.\n\n");
     out.push_str("OpaqueResult is what a method whose result the contract does NOT declare\n");
     out.push_str("returns: the raw decoded payload paired with the method id that produced it,\n");
@@ -322,6 +321,9 @@ fn runtime_module() -> String {
     );
     out.push_str("        f\"{type(payload).__name__}\"\n");
     out.push_str("    )\n\n\n");
+}
+
+fn push_runtime_result_checkers(out: &mut String) {
     out.push_str("def expect_bool(method: str, payload: Any) -> bool:\n");
     out.push_str("    if not isinstance(payload, bool):\n");
     out.push_str("        raise _violation(method, \"Bool\", payload)\n    return payload\n\n\n");
@@ -351,6 +353,9 @@ fn runtime_module() -> String {
     out.push_str("    return _rows(method, \"NodeList\", payload, 2)\n\n\n");
     out.push_str("def expect_edgelist(method: str, payload: Any) -> list[Any]:\n");
     out.push_str("    return _rows(method, \"EdgeList\", payload, 3)\n\n\n");
+}
+
+fn push_runtime_send_by_id(out: &mut String) {
     out.push_str("async def send_by_id(\n");
     out.push_str("    client: Any,\n    method: str,\n");
     out.push_str("    params: dict[str, Any] | None = None,\n");
@@ -368,6 +373,13 @@ fn runtime_module() -> String {
     out.push_str("        raise ValueError(f\"{method} is not an engine-contract method\")\n");
     out.push_str("    return await client._send(\n");
     out.push_str("        method,\n        params,\n        graph,\n        idempotency_key=idempotency_key,\n    )\n");
+}
+
+fn runtime_module() -> String {
+    let mut out = String::from(HEADER);
+    push_runtime_declarations_and_violation(&mut out);
+    push_runtime_result_checkers(&mut out);
+    push_runtime_send_by_id(&mut out);
     out
 }
 

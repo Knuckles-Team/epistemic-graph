@@ -6,6 +6,7 @@ use crate::physical::manifest::OwnerManifest;
 use crate::tables::{OWNER_MANIFEST, SCOPE_BINDINGS, STORE_ROOT};
 use redb::{ReadableTable, WriteTransaction};
 use std::ops::Bound;
+use std::path::Path;
 
 pub(crate) fn rewrite_store_authority(
     wtx: &WriteTransaction,
@@ -120,4 +121,62 @@ fn rebind_serving_scopes(wtx: &WriteTransaction, adopted: &StoreIncarnation) -> 
         after = Some(key);
     }
     Ok(())
+}
+
+/// Rebind a store that has been COPIED to a new path so it can be opened there.
+///
+/// A store's physical root is derived from its canonical path
+/// (`StoreIncarnation::derive`), and the derived value is compared against the
+/// one persisted inside the file on every open. That binding is deliberate: it
+/// is what stops a byte copy of a store from being served as if it were the
+/// original. The consequence is that a copy is UNOPENABLE at its new path until
+/// its root is rewritten — which is not a limitation to work around but the
+/// invariant working.
+///
+/// So a caller that legitimately made a copy has to say so, and this is how it
+/// says it. Deliberately narrow and deliberately loud:
+///
+/// * it refuses unless the file currently carries the root of `copied_from`, so
+///   it cannot be pointed at a store that is not the copy the caller believes;
+/// * it rewrites the root to the one derived from the file's OWN path, so the
+///   result is exactly what a natively-created store there would carry, never a
+///   caller-supplied value;
+/// * it rebinds the serving scopes in the same transaction, so no window exists
+///   in which the root and the scopes disagree.
+///
+/// It is NOT a way to adopt an untrusted image — that is
+/// [`crate::adopt_staged_mutation_store`], which additionally validates the
+/// image against recorded evidence. Use this only for a copy this process just
+/// made from a store it already trusted.
+pub fn rebind_copied_store(path: &Path, copied_from: &Path) -> Result<(), String> {
+    let (copied_from_root, _) = StoreIncarnation::derive(copied_from)?;
+    let (adopted, _) = StoreIncarnation::derive(path)?;
+    if adopted == copied_from_root {
+        // Same canonical path: there is nothing to rebind, and silently
+        // succeeding would hide a caller that copied a file onto itself.
+        return Err(
+            "rebind_copied_store was given one path twice: a copy at the same canonical path \
+             is not a copy"
+                .to_string(),
+        );
+    }
+    let database = redb::Database::open(path).map_err(|error| error.to_string())?;
+    let mut wtx = database.begin_write().map_err(|error| error.to_string())?;
+    wtx.set_durability(redb::Durability::Immediate)
+        .map_err(|error| error.to_string())?;
+    {
+        let root = wtx
+            .open_table(STORE_ROOT)
+            .map_err(|error| error.to_string())?;
+        if require_persisted_root(&root)? != copied_from_root {
+            return Err(
+                "rebind_copied_store target does not carry the root of the store it was \
+                 copied from"
+                    .to_string(),
+            );
+        }
+    }
+    write_adopted_root(&wtx, &adopted)?;
+    rebind_serving_scopes(&wtx, &adopted)?;
+    wtx.commit().map_err(|error| error.to_string())
 }

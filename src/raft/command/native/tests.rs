@@ -124,6 +124,7 @@ fn work_item_mutations() -> Vec<Method> {
             idempotency_key: "result-idempotency".to_string(),
             outcome: "succeeded".to_string(),
             result_ref: Some("result-ref".to_string()),
+            outcome_extension: None,
             error_ref: None,
             retryable: false,
             now_ms: 30,
@@ -280,7 +281,9 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
         .iter()
         .copied()
         .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 100);
+    // `NodeInfoUpsert` moved behind the sealed native command envelope in
+    // 7469acff; it is intentionally absent from the public method catalog.
+    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 99);
     assert_eq!(unique.len(), NATIVE_CONSENSUS_METHODS.len());
     assert!(unique.iter().all(|name| !name.is_empty()));
 
@@ -548,11 +551,11 @@ fn representative_command_msgpack_shape_is_byte_stable() {
     );
 }
 
-#[test]
-fn native_payload_bound_fits_the_outer_raft_payload() {
-    assert!(
-        super::sealed::MAX_REPLICATED_COMMAND_PAYLOAD_BYTES
-            + super::sealed::MAX_SEALED_NATIVE_COMMAND_OVERHEAD_BYTES
-            < crate::raft::network::MAX_RAFT_PAYLOAD_BYTES
-    );
-}
+/// The three bounds are compile-time constants, so this is checked at compile
+/// time rather than at test time: a build that violates it does not link, and
+/// there is no run in which the assertion could be skipped.
+const _: () = assert!(
+    super::sealed::MAX_REPLICATED_COMMAND_PAYLOAD_BYTES
+        + super::sealed::MAX_SEALED_NATIVE_COMMAND_OVERHEAD_BYTES
+        < crate::raft::network::MAX_RAFT_PAYLOAD_BYTES
+);

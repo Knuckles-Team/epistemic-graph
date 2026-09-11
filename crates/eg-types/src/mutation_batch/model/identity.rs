@@ -429,7 +429,10 @@ mod tests {
             "/mnt/data",
             "file://tenant",
         ] {
-            assert!(ScopeTenantId::new(value).is_err(), "accepted tenant {value:?}");
+            assert!(
+                ScopeTenantId::new(value).is_err(),
+                "accepted tenant {value:?}"
+            );
             assert!(LogicalName::new(value).is_err(), "accepted graph {value:?}");
         }
         // The policy must not over-reach into ordinary identities.
@@ -498,5 +501,104 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("cannot own a native scope"));
+    }
+
+    #[test]
+    fn logical_and_physical_graph_keys_keep_authority_contracts_distinct() {
+        let logical =
+            MutationScopeIdentity::fixed_graph("tenant-a", "tenant:scope", "incarnation-1")
+                .unwrap();
+        let malformed =
+            MutationScopeIdentity::fixed_graph("tenant-a", "tenant~3ascope", "incarnation-1")
+                .unwrap();
+        let physical =
+            MutationScopeIdentity::fixed_graph("__shard__", "tenant~3ascope", "incarnation-1")
+                .unwrap();
+        let hash_key = format!("~h{}", "a".repeat(64));
+        let hashed_physical =
+            MutationScopeIdentity::fixed_graph("__shard__", &hash_key, "incarnation-1").unwrap();
+        let slash_hash_key = format!("~2fh{}", "a".repeat(64));
+        let escaped_hash_physical =
+            MutationScopeIdentity::fixed_graph("__shard__", &slash_hash_key, "incarnation-1")
+                .unwrap();
+
+        let logical_scope = crate::mutation_batch::authority_scope_for(&logical).unwrap();
+        assert!(
+            crate::mutation_batch::authority_scope_for(&malformed).is_err(),
+            "caller authority must reject an unsanitized physical spelling"
+        );
+        assert!(
+            super::super::envelope::authority_scope_for_physical_graph(&malformed).is_err(),
+            "physical conversion must remain reserved to the shard tenant"
+        );
+        let physical_scope =
+            super::super::envelope::authority_scope_for_physical_graph(&physical).unwrap();
+        let hashed_scope =
+            super::super::envelope::authority_scope_for_physical_graph(&hashed_physical).unwrap();
+        let escaped_hash_scope =
+            super::super::envelope::authority_scope_for_physical_graph(&escaped_hash_physical)
+                .unwrap();
+        let external_alias_scope = crate::authority::AuthorityScope {
+            kind: crate::contract::ScopeKind::new("graph").unwrap(),
+            scope_id: crate::contract::ResourceId::new("tenant/3ascope").unwrap(),
+            tenant: Some(crate::contract::TenantId::new("tenant-a").unwrap()),
+            parent_scope_ids: crate::contract::BoundedVec::new(vec![
+                crate::contract::ResourceId::new("tenant-a").unwrap(),
+            ])
+            .unwrap(),
+            graph_incarnation: None,
+        };
+        let replay_digest = |scope: crate::authority::AuthorityScope, tenant: &str| {
+            crate::authority::OperationReplayIdentity {
+                schema_version: crate::contract::ResourceId::new("operation-replay-identity.v1")
+                    .unwrap(),
+                protocol_id: crate::contract::ProtocolId::new(
+                    crate::authority::AUTHORITY_PROTOCOL_V1,
+                )
+                .unwrap(),
+                catalog_digest: crate::contract::Digest256::from_bytes([0; 32]),
+                tenant: crate::contract::TenantId::new(tenant).unwrap(),
+                actor: crate::contract::ActorId::new("actor-a").unwrap(),
+                audience: crate::contract::AudienceId::new("eg").unwrap(),
+                purpose_resource: Some(scope.scope_id.clone()),
+                authority_scope: scope,
+                operation: crate::contract::Operation::new("mutation").unwrap(),
+                purpose_kind: crate::contract::PurposeKind::new("graph_write").unwrap(),
+                method: crate::contract::MethodId::new("mutation.apply").unwrap(),
+                method_schema_id: crate::contract::SchemaId::new("mutation-envelope.v1").unwrap(),
+                method_schema_digest: crate::contract::Digest256::from_bytes([1; 32]),
+                canonical_payload_digest: crate::contract::Digest256::from_bytes([2; 32]),
+                policy_revision: crate::contract::PolicyRevision::new("policy:1").unwrap(),
+                policy_epoch: 0,
+                policy_digest: crate::contract::Digest256::from_bytes([3; 32]),
+                idempotency_key: crate::contract::IdempotencyKey::new("idem:stable").unwrap(),
+            }
+            .digest()
+            .unwrap()
+        };
+
+        assert_eq!(logical_scope.scope_id.as_str(), "tenant:scope");
+        assert!(physical_scope.scope_id.as_str().starts_with("physical:"));
+        assert_ne!(physical_scope, logical_scope);
+        assert_ne!(physical_scope, external_alias_scope);
+        assert_ne!(
+            physical_scope.tenant,
+            Some(crate::contract::TenantId::new("tenant-a").unwrap())
+        );
+        assert_ne!(hashed_scope, escaped_hash_scope);
+        assert_ne!(hashed_scope.scope_id, escaped_hash_scope.scope_id);
+        assert_ne!(
+            physical_scope.digest().unwrap(),
+            logical_scope.digest().unwrap()
+        );
+        assert_ne!(
+            replay_digest(physical_scope.clone(), "__shard__"),
+            replay_digest(external_alias_scope, "tenant-a")
+        );
+        assert_ne!(
+            replay_digest(hashed_scope, "__shard__"),
+            replay_digest(escaped_hash_scope, "__shard__")
+        );
+        assert_ne!(physical.identity_digest(), logical.identity_digest());
     }
 }

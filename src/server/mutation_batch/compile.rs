@@ -7,15 +7,16 @@ use sha2::{Digest, Sha256};
 
 use crate::graph::GraphCore;
 use crate::mutation_batch::{
-    IncarnationId, LogicalName, MutationBatch, DurabilityDomain, MutationOperation,
-    MutationOutboxIntent, MutationRequestContext, MutationScopeIdentity, MutationStateDescriptor,
-    MutationSurface, ScopeTenantId, VersionExpectation, MUTATION_BATCH_VERSION,
+    DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationOperation,
+    MutationOutboxIntent, MutationScopeIdentity, MutationStateDescriptor, MutationSurface,
+    ScopeTenantId, VersionExpectation, MUTATION_BATCH_VERSION,
 };
 use crate::protocol::Method;
 use crate::server::persistence::PersistenceBackend;
 
 use super::canonical::{domain_for, lower_canonical_operation, surface_for};
 use super::digest::{principal_fingerprint, ENGINE_LEDGER_PRINCIPAL};
+use super::terminal_outcome::lower_terminal_outcome_extensions;
 
 /// Resolve the current graph version without treating RAM as a substitute for a
 /// missing durable authority. Version zero is the sole implicit bootstrap state;
@@ -42,9 +43,10 @@ pub(crate) async fn authoritative_graph_version(
 ///
 /// # The one principal rule every batch this module compiles obeys
 ///
-/// `MutationRequestContext::principal` is **the principal the committing ledger
-/// requires**, and the verified caller ALWAYS travels separately, as the
-/// `actor` header of the batch's outbox row. There is no field whose meaning
+/// `MutationEnvelope`'s serving principal is **the principal the committing
+/// ledger requires**, and the verified caller ALWAYS travels separately, as the
+/// `actor` header of the batch's outbox row AND as the envelope's own
+/// `authority.actor`, which is inside the stable replay identity. There is no field whose meaning
 /// changes with the batch: [`CompileBatch::principal`] is always the verified
 /// caller, the outbox `actor` header is always its fingerprint, and
 /// `context.principal` is always the committing ledger's own requirement.
@@ -56,7 +58,7 @@ pub(crate) async fn authoritative_graph_version(
 ///   — KV, blob, time-series, analytics-job, semantic-index) commits into a
 ///   kernel-owned owner store. One physical file serves ONE bound scope under
 ///   ONE principal, and `eg_transaction::AdmittedMutation::owner_rows` refuses
-///   any batch naming another (`owner.principal() != batch.context.principal`).
+///   any batch naming another (`owner.principal() != batch.serving_principal()`).
 ///   That principal is this engine's bound serving principal,
 ///   `store_authority::ENGINE_PRINCIPAL` — the only principal
 ///   `EngineScopeAuthority` mints a grant for. Stamping the caller's fingerprint
@@ -66,7 +68,9 @@ pub(crate) async fn authoritative_graph_version(
 ///   coordinator, neither of which is an owner store; both key replay ownership
 ///   on the caller, so the caller's fingerprint IS what those ledgers require
 ///   (`handlers/txn.rs`, `handlers/admin.rs`, `wire/mod.rs`, `raft/store.rs`,
-///   `dispatch/graph_pipeline.rs` all compare it).
+///   `dispatch/graph_pipeline.rs` all compare it -- through the ONE checked
+///   accessor `MutationBatchRecord::committing_actor`, never a private
+///   re-derivation).
 ///
 /// This is the same rule C1 applied inside `eg-statechart` and `eg-jobs`: the
 /// ledger principal is the serving principal, and per-instance attribution moves
@@ -75,9 +79,24 @@ pub(crate) async fn authoritative_graph_version(
 pub(crate) struct CompileBatch<'a> {
     pub batch_id: &'a str,
     pub request_id: u64,
+    /// The VERIFIED transport nonce when this request carried one, `None` when
+    /// the attempt nonce is server-minted.
+    ///
+    /// `NonceReplayKey` is the ATTEMPT identity: the same nonce is rejected, a
+    /// fresh nonce over the same stable operation replays. A caller may not
+    /// choose it -- a caller-pinned value would let a caller make its own retry
+    /// undeliverable, and the caller's stable retry identity is
+    /// `idempotency_key`, which it does supply. The one nonce that travels from
+    /// outside is the request envelope's, which the request boundary has already
+    /// verified under the MAC; carrying it here is what lets the kernel's
+    /// `mutation_replay_nonces` rows be the SINGLE anti-replay authority for a
+    /// mutation, instead of the per-node `RedbReplayLedger` deciding the same
+    /// question a second time.
+    pub attempt_nonce: Option<eg_types::contract::Nonce>,
     /// The verified caller. Never written to a durable row raw: it is
-    /// fingerprinted into the outbox `actor` header, and — for the ledgers that
-    /// require it — into `context.principal`. See the type's own docs.
+    /// fingerprinted into the outbox `actor` header and into the envelope's
+    /// `authority.actor`, which is what the stable replay identity compares.
+    /// See the type's own docs.
     pub principal: Option<&'a str>,
     pub tenant: &'a str,
     pub graph: &'a str,
@@ -96,6 +115,7 @@ pub(crate) fn compile_methods(
     ctx: CompileBatch<'_>,
     methods: Vec<Method>,
 ) -> Result<MutationBatch, String> {
+    let (methods, terminal_outbox) = lower_terminal_outcome_extensions(ctx.batch_id, methods)?;
     #[cfg(feature = "epistemic-tms")]
     let reasoning_events = eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods);
     let state_backed = ctx.authoritative_state.is_some();
@@ -119,14 +139,17 @@ pub(crate) fn compile_methods(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let graph_scope = derive_compiled_methods_scope(&operations)?;
-    let batch = finish_batch(ctx, operations, graph_scope)?;
-    #[cfg(feature = "epistemic-tms")]
-    let batch = {
-        let mut batch = batch;
-        install_reasoning_wakeup(&mut batch, reasoning_events)?;
-        batch
-    };
-    Ok(batch)
+    finish_batch(
+        ctx,
+        operations,
+        graph_scope,
+        CompiledOutbox {
+            extra: terminal_outbox,
+            semantic_source_dirty_input: None,
+            #[cfg(feature = "epistemic-tms")]
+            reasoning_events,
+        },
+    )
 }
 
 /// The scope every batch [`compile_methods`] builds commits under, derived from
@@ -179,14 +202,14 @@ pub(crate) fn compile_opaque_method(
     event_type: &str,
 ) -> Result<MutationBatch, String> {
     let encoded = rmp_serde::to_vec_named(method).map_err(|e| e.to_string())?;
-    use sha2::{Digest, Sha256};
+    let input_digest: [u8; 32] = Sha256::digest(&encoded).into();
     let operation = MutationOperation {
         ordinal: 0,
         surface,
         domain,
         method: Method::ApplyMutation {
             event_type: event_type.to_string(),
-            query: format!("sha256:{}", hex::encode(Sha256::digest(encoded))),
+            query: format!("sha256:{}", hex::encode(input_digest)),
         },
     };
     // Unlike `compile_methods`, this compiler's callers span both the
@@ -198,17 +221,19 @@ pub(crate) fn compile_opaque_method(
     // "either" domain (lifecycle/control-plane/cross-modal/multi-graph) belongs
     // in the graph scope, since that is the route these callers commit through.
     let graph_scope = !domain.requires_native_scope();
-    let batch = finish_batch(ctx, vec![operation], graph_scope)?;
-    #[cfg(feature = "epistemic-tms")]
-    let batch = {
-        let mut batch = batch;
-        install_reasoning_wakeup(
-            &mut batch,
-            vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
-        )?;
-        batch
-    };
-    Ok(batch)
+    finish_batch(
+        ctx,
+        vec![operation],
+        graph_scope,
+        CompiledOutbox {
+            extra: Vec::new(),
+            semantic_source_dirty_input: (domain == DurabilityDomain::SqlCatalog).then_some(
+                eg_types::semantic_index::SemanticDigest::from_bytes(input_digest),
+            ),
+            #[cfg(feature = "epistemic-tms")]
+            reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
+        },
+    )
 }
 
 /// Compile a coordinator operation already represented by a SHA-256 digest.  This
@@ -239,17 +264,17 @@ pub(crate) fn compile_opaque_digest(
     // Same reasoning as `compile_opaque_method`: the caller-supplied `domain`
     // decides whether this reaches the graph kernel or a native store.
     let graph_scope = !domain.requires_native_scope();
-    let batch = finish_batch(ctx, vec![operation], graph_scope)?;
-    #[cfg(feature = "epistemic-tms")]
-    let batch = {
-        let mut batch = batch;
-        install_reasoning_wakeup(
-            &mut batch,
-            vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
-        )?;
-        batch
-    };
-    Ok(batch)
+    finish_batch(
+        ctx,
+        vec![operation],
+        graph_scope,
+        CompiledOutbox {
+            extra: Vec::new(),
+            semantic_source_dirty_input: None,
+            #[cfg(feature = "epistemic-tms")]
+            reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
+        },
+    )
 }
 
 /// Compile a cross-modal coordinator record. A digest-only operation/manifest binds
@@ -279,12 +304,7 @@ pub(crate) fn compile_crossmodal(
     // CrossModal` and its record is committed via `PersistenceBackend::
     // commit_mutation_batch_crossmodal`, which routes to the same
     // graph-routed `commit_mutation_batch_inner` kernel as `compile_methods`.
-    let mut batch = finish_batch(ctx, vec![operation], true)?;
-    #[cfg(feature = "epistemic-tms")]
-    install_reasoning_wakeup(
-        &mut batch,
-        vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
-    )?;
+    let batch_id = ctx.batch_id.to_string();
     let manifest = serde_json::json!({
         "schema": "epistemic.crossmodal.manifest.v1",
         "payload_sha256": digest,
@@ -293,39 +313,46 @@ pub(crate) fn compile_crossmodal(
         "blob_refs": blob_ref_count,
         "measurements": measurement_count,
     });
-    batch.outbox.push(MutationOutboxIntent {
-        topic: "engine.crossmodal.committed".to_string(),
-        key: batch.batch_id.clone(),
-        payload: rmp_serde::to_vec_named(&manifest).map_err(|e| e.to_string())?,
-        headers: BTreeMap::new(),
-    });
-    batch.validate()?;
-    Ok(batch)
+    // The manifest intent is an INPUT, not something pushed onto the finished
+    // batch: the envelope's canonical payload digest covers the outbox, so an
+    // intent appended after the mint would leave the envelope under-covering its
+    // own body -- which `MutationBatch::validate` now refuses.
+    finish_batch(
+        ctx,
+        vec![operation],
+        true,
+        CompiledOutbox {
+            extra: vec![MutationOutboxIntent {
+                topic: "engine.crossmodal.committed".to_string(),
+                key: batch_id,
+                payload: rmp_serde::to_vec_named(&manifest).map_err(|e| e.to_string())?,
+                headers: BTreeMap::new(),
+            }],
+            semantic_source_dirty_input: None,
+            #[cfg(feature = "epistemic-tms")]
+            reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
+        },
+    )
 }
 
+/// The projection wake-up payload for one batch's operations.
+///
+/// It replaces `install_reasoning_wakeup`, which rewrote the finished batch's
+/// outbox payload in place. That is now unreachable by construction: the
+/// envelope's canonical payload digest covers the outbox, so the payload has to
+/// be final before the envelope is minted, and this computes it there.
 #[cfg(feature = "epistemic-tms")]
-fn install_reasoning_wakeup(
-    batch: &mut MutationBatch,
+fn reasoning_wakeup_payload(
+    operations: &[MutationOperation],
     events: Vec<eg_epistemic::IncrementalReasoningEvent>,
-) -> Result<(), String> {
-    use sha2::{Digest, Sha256};
-
-    let operations =
-        rmp_serde::to_vec_named(&batch.operations).map_err(|error| error.to_string())?;
+) -> Result<Vec<u8>, String> {
+    let encoded = rmp_serde::to_vec_named(operations).map_err(|error| error.to_string())?;
     let wakeup = eg_epistemic::ReasoningProjectionWakeup::new(
-        batch.operations.len(),
-        hex::encode(Sha256::digest(operations)),
+        operations.len(),
+        hex::encode(Sha256::digest(encoded)),
         events,
     )?;
-    let payload = rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())?;
-    let intent = batch
-        .outbox
-        .iter_mut()
-        .find(|intent| intent.topic == "engine.projection.rebuild")
-        .ok_or_else(|| "MutationBatch has no reasoning projection wake-up".to_string())?;
-    intent.payload = payload;
-    batch.validate()?;
-    Ok(())
+    rmp_serde::to_vec_named(&wakeup).map_err(|error| error.to_string())
 }
 
 /// Fixed lifecycle-generation placeholder for every `MutationScopeIdentity` this
@@ -357,10 +384,31 @@ pub(crate) use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
 /// see `validate_version_expectation`), so every caller of this module must supply
 /// its actual observed version through `CompileBatch::expected_graph_version`
 /// rather than `None`; `finish_batch` fails closed instead of inventing one.
+/// Everything a compiled batch's outbox carries beyond its projection wake-up.
+///
+/// It is an INPUT to [`finish_batch`], not something a caller appends
+/// afterwards. The envelope's canonical payload digest covers the outbox, and
+/// `MutationBatch::validate` re-checks that it covers THIS batch, so an intent
+/// pushed after the mint is refused at admission. Passing the intents in is the
+/// construction that makes that unreachable.
+#[derive(Default)]
+pub(crate) struct CompiledOutbox {
+    /// Intents appended after the projection wake-up, in order.
+    pub extra: Vec<MutationOutboxIntent>,
+    /// Stable SQL operation input used to build a typed source-dirty intent
+    /// after [`finish_batch`] has constructed the canonical native identity.
+    pub semantic_source_dirty_input: Option<eg_types::semantic_index::SemanticDigest>,
+    /// The reasoning wake-up events the projection intent's payload encodes.
+    /// Empty means the plain digest-only summary.
+    #[cfg(feature = "epistemic-tms")]
+    pub reasoning_events: Vec<eg_epistemic::IncrementalReasoningEvent>,
+}
+
 fn finish_batch(
     ctx: CompileBatch<'_>,
     operations: Vec<MutationOperation>,
     graph_scope: bool,
+    outbox_plan: CompiledOutbox,
 ) -> Result<MutationBatch, String> {
     #[cfg(feature = "raft")]
     let (placement_epoch, fencing_token) =
@@ -389,14 +437,25 @@ fn finish_batch(
     let summary = crate::redb_store::projection_payload_for_operations(&operations)?;
     #[cfg(not(feature = "redb"))]
     let summary = projection_wakeup_payload_without_redb(&operations)?;
+    // The typed wake-up is computed HERE, before the envelope is minted, rather
+    // than installed over the finished batch afterwards: the envelope's
+    // canonical payload digest covers the outbox, so a payload rewritten after
+    // the mint would leave the envelope covering bytes the batch no longer has.
+    #[cfg(feature = "epistemic-tms")]
+    let summary = if outbox_plan.reasoning_events.is_empty() {
+        summary
+    } else {
+        reasoning_wakeup_payload(&operations, outbox_plan.reasoning_events)?
+    };
     let mut scope_digest = Sha256::new();
     scope_digest.update(ctx.tenant.as_bytes());
     scope_digest.update([0]);
     scope_digest.update(ctx.graph.as_bytes());
     let scope_digest = hex::encode(scope_digest.finalize());
-    let actor = principal_fingerprint(ctx.principal.ok_or_else(|| {
-        "durable mutation authority requires a verified principal".to_string()
-    })?)?;
+    let actor =
+        principal_fingerprint(ctx.principal.ok_or_else(|| {
+            "durable mutation authority requires a verified principal".to_string()
+        })?)?;
     // One rule, no per-domain arm: the batch context principal is the serving
     // principal every kernel-owned store in this process is bound under, and
     // the verified caller is the outbox `actor` header.
@@ -444,29 +503,18 @@ fn finish_batch(
             VersionExpectation::Native(expected_version),
         )
     };
-    let batch = MutationBatch {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: ctx.batch_id.to_string(),
-        context: MutationRequestContext {
-            request_id: ctx.request_id,
-            principal,
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // No batch built by this module ever needs `Unversioned`
-            // (see `expected_version` above), so no code path here needs
-            // `MutationCapability::UnversionedSystemMutation` or any other
-            // verified capability -- empty is correct, not a placeholder.
-            verified_capabilities: Default::default(),
-        },
-        identity,
-        placement_epoch,
-        idempotency_key: ctx.idempotency_key.to_string(),
-        version_expectation,
-        fencing_token,
-        authoritative_state: ctx.authoritative_state,
-        operations,
-        outbox: vec![MutationOutboxIntent {
+    let terminal_outcome = outbox_plan
+        .extra
+        .iter()
+        .any(|intent| intent.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC);
+    let mut outbox = if terminal_outcome {
+        // A terminal receipt's conditional RunEvent is the batch's one outbox
+        // currency. The generic projection wake-up would publish a second row
+        // for the same WorkItem transition and would survive no-op/fenced
+        // results unless the native terminal result filtered it too.
+        outbox_plan.extra
+    } else {
+        let projection = MutationOutboxIntent {
             topic: "engine.projection.rebuild".to_string(),
             key: ctx.batch_id.to_string(),
             payload: summary,
@@ -476,14 +524,186 @@ fn finish_batch(
             // `context.principal` must be the store's serving principal — loses
             // none, and a graph batch gains no second, divergent copy.
             headers: BTreeMap::from([
-                ("scope_sha256".to_string(), scope_digest),
-                ("actor".to_string(), actor),
+                ("scope_sha256".to_string(), scope_digest.clone()),
+                ("actor".to_string(), actor.clone()),
             ]),
-        }],
+        };
+        let mut outbox = vec![projection];
+        outbox.extend(outbox_plan.extra);
+        outbox
+    };
+    if terminal_outcome {
+        for intent in &mut outbox {
+            if intent.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC {
+                // The conditional terminal event replaces the generic
+                // projection row, so carry the same universal attribution and
+                // scope binding on the sole row that remains.
+                intent
+                    .headers
+                    .insert("scope_sha256".to_string(), scope_digest.clone());
+                intent.headers.insert("actor".to_string(), actor.clone());
+            }
+        }
+    }
+    if let Some(input_digest) = outbox_plan.semantic_source_dirty_input {
+        let source_scope_digest = eg_types::semantic_index::SemanticDigest::from_bytes(
+            *identity.binding_digest().as_bytes(),
+        );
+        let intent = eg_types::semantic_index::SemanticSourceDirtyIntent::new(
+            source_scope_digest,
+            input_digest,
+        );
+        outbox.push(MutationOutboxIntent {
+            topic: eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC.to_string(),
+            key: ctx.batch_id.to_string(),
+            payload: intent.to_canonical_cbor().map_err(|error| {
+                format!("semantic source-dirty intent encoding rejected: {error:?}")
+            })?,
+            headers: BTreeMap::new(),
+        });
+    }
+    let envelope = compiled_envelope(&ctx, &identity, &actor, &principal, &operations, &outbox)?;
+    let batch = MutationBatch {
+        schema_version: MUTATION_BATCH_VERSION,
+        batch_id: ctx.batch_id.to_string(),
+        envelope,
+        identity,
+        placement_epoch,
+        version_expectation,
+        fencing_token,
+        authoritative_state: ctx.authoritative_state,
+        operations,
+        outbox,
         created_at_ms: ctx.created_at_ms,
     };
     batch.validate()?;
     Ok(batch)
+}
+
+/// Mint the admission envelope for one compiled batch.
+///
+/// This is where the four minting rules become code, once, for every entrypoint
+/// this module serves:
+///
+/// * the ATTEMPT nonce is the verified transport nonce when the request carried
+///   one and is server-minted otherwise -- never caller-chosen;
+/// * the CANONICAL PAYLOAD digest covers the operation content and structurally
+///   excludes the OCC expectation, the route and the clock, which is what makes
+///   a legitimate retry a replay instead of an `IDEMPOTENCY_CONFLICT`;
+/// * the METHOD identity comes from the contract catalog `gen_contract` compiles
+///   in, so it cannot be a file read at admission time;
+/// * the POLICY epoch is the deployment constant `POLICY_EPOCH`, and the policy
+///   digest is computed from the method's own declared policy, so "the policy
+///   changed" is a real conflict rather than a nominal one.
+fn compiled_envelope(
+    ctx: &CompileBatch<'_>,
+    identity: &MutationScopeIdentity,
+    actor: &str,
+    serving_principal: &str,
+    operations: &[MutationOperation],
+    outbox: &[MutationOutboxIntent],
+) -> Result<eg_types::mutation_batch::MutationEnvelope, String> {
+    let content = eg_types::mutation_batch::BatchContent {
+        operations,
+        outbox,
+        authoritative_state: ctx.authoritative_state.as_ref(),
+    };
+    let method =
+        eg_types::mutation_batch::batch_method_id(operations, ctx.authoritative_state.is_some())?;
+    let operation = eg_types::mutation_batch::CompiledOperation::for_content(
+        identity,
+        content,
+        method_schema_digest(&method)?,
+    )?;
+    let mut parts = eg_types::mutation_batch::CompiledEnvelope::new(
+        eg_types::mutation_batch::CompiledScope {
+            identity,
+            actor,
+            serving_principal,
+            request_id: ctx.request_id,
+            idempotency_key: ctx.idempotency_key,
+            nonce: ctx
+                .attempt_nonce
+                .unwrap_or_else(eg_types::contract::Nonce::minted),
+            now_ms: ctx.created_at_ms,
+        },
+        operation,
+    )?;
+    parts.catalog_digest = contract_catalog_digest()?;
+    parts.policy_digest = effective_policy_digest(&method, operations)?;
+    eg_types::mutation_batch::MutationEnvelope::for_compiled_batch(parts)
+}
+
+/// The request-schema digest one method's identity binds.
+///
+/// A method the contract declares gets its generated row's digest. A reserved
+/// batch id -- the shape of a multi-operation or state-backed batch -- has no
+/// wire method and therefore no request schema, so its digest frames the
+/// reserved id itself rather than pretending a schema exists. The `SchemaId`
+/// itself is derived by the one documented rule in
+/// `eg_types::mutation_batch::method_schema_id`, which the generated table also
+/// follows, so the two cannot disagree.
+fn method_schema_digest(
+    method: &eg_types::contract::MethodId,
+) -> Result<eg_types::contract::Digest256, String> {
+    match eg_capabilities::method_schema(method.as_str()) {
+        Some((_, digest)) => Ok(eg_types::contract::Digest256::from_bytes(digest)),
+        None => eg_types::mutation_batch::reserved_method_schema_digest(method),
+    }
+}
+
+/// The contract catalog digest every identity minted by this engine binds.
+fn contract_catalog_digest() -> Result<eg_types::contract::Digest256, String> {
+    eg_types::contract::Digest256::parse(eg_capabilities::CONTRACT_CATALOG_DIGEST)
+        .map_err(|_| "the compiled-in contract catalog digest is not a sha256 value".to_string())
+}
+
+/// The digest of the policy this batch was admitted under.
+///
+/// Computed from data that already exists -- the configured policy revision and
+/// the method policies `eg-capabilities` declares for the batch's own operations
+/// -- so a policy change moves the identity and conflicts a reused idempotency
+/// key, which is what RF-RULING-004 means by "a changed policy conflicts".
+pub(crate) fn effective_policy_digest(
+    method: &eg_types::contract::MethodId,
+    operations: &[MutationOperation],
+) -> Result<eg_types::contract::Digest256, String> {
+    let mut folded = eg_types::contract::Digest256::framed(
+        b"eg/effective-policy-methods/v1",
+        &[method.as_str().as_bytes()],
+    )?;
+    for operation in operations {
+        let policy = eg_capabilities::policy(&operation.method);
+        folded = eg_types::contract::Digest256::framed(
+            b"eg/effective-policy-method/v1",
+            &[
+                folded.as_bytes(),
+                policy.authz_action.as_bytes(),
+                &[u8::from(policy.mutates), u8::from(policy.is_durable())],
+            ],
+        )?;
+    }
+    eg_types::contract::Digest256::framed(
+        b"eg/effective-policy/v1",
+        &[
+            policy_revision().as_bytes(),
+            folded.as_bytes(),
+            &eg_types::mutation_batch::POLICY_EPOCH.to_be_bytes(),
+        ],
+    )
+}
+
+/// The deployment's configured policy revision, or the documented constant a
+/// deployment that configured none carries.
+///
+/// It is inside the replay identity, so a deployment that later configures a
+/// real revision correctly conflicts a key minted under the unset one rather
+/// than silently replaying an operation decided under a different policy.
+fn policy_revision() -> String {
+    std::env::var("EPISTEMIC_GRAPH_POLICY_VERSION")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| eg_types::mutation_batch::UNSET_POLICY_REVISION.to_string())
 }
 
 /// Refuse the two reserved shard identifiers to a request-boundary caller.
@@ -577,4 +797,66 @@ fn opaque_state_operation(method: &Method) -> Result<Method, String> {
         event_type: "authoritative_state_operation".to_string(),
         query: format!("sha256:{}", hex::encode(Sha256::digest(encoded))),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_run_event_replaces_generic_projection_intent() {
+        let operation = MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Transaction,
+            domain: DurabilityDomain::ControlPlane,
+            method: Method::RemoveNode {
+                node_id: "work:terminal".into(),
+            },
+        };
+        let terminal_event = MutationOutboxIntent {
+            topic: eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC.into(),
+            key: "terminal-batch".into(),
+            payload: vec![1],
+            headers: BTreeMap::new(),
+        };
+        let batch = finish_batch(
+            CompileBatch {
+                batch_id: "terminal-batch",
+                request_id: 1,
+                attempt_nonce: None,
+                principal: Some("agent:terminal-test"),
+                tenant: "tenant-a",
+                graph: "graph-a",
+                placement_epoch: 0,
+                idempotency_key: "terminal-idempotency",
+                expected_graph_version: Some(0),
+                fencing_token: None,
+                created_at_ms: 1,
+                default_surface: MutationSurface::Transaction,
+                authoritative_state: None,
+            },
+            vec![operation],
+            true,
+            CompiledOutbox {
+                extra: vec![terminal_event],
+                semantic_source_dirty_input: None,
+                #[cfg(feature = "epistemic-tms")]
+                reasoning_events: Vec::new(),
+            },
+        )
+        .expect("terminal outbox should produce a valid batch");
+
+        assert_eq!(batch.outbox.len(), 1);
+        assert_eq!(
+            batch.outbox[0].topic,
+            eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC
+        );
+        let expected_actor = principal_fingerprint("agent:terminal-test").unwrap();
+        assert_eq!(batch.outbox[0].headers.get("actor"), Some(&expected_actor));
+        let expected_scope = hex::encode(Sha256::digest(b"tenant-a\0graph-a"));
+        assert_eq!(
+            batch.outbox[0].headers.get("scope_sha256"),
+            Some(&expected_scope)
+        );
+    }
 }

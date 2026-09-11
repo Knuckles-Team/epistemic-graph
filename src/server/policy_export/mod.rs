@@ -493,71 +493,19 @@ fn is_admin_claims(
 #[cfg(feature = "oidc")]
 mod http {
     use super::{generate_bundle, is_admin_claims, BundleCaller, GenerateBundleInput, MarkingDef};
+    use crate::server::http1::{self, RequestLimits};
     use std::collections::BTreeMap;
     use std::sync::Arc;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncWriteExt;
     use tokio::net::{TcpListener, TcpStream};
 
-    const MAX_HEADER_BYTES: usize = 64 * 1024;
     const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
-    struct ParsedRequest {
-        method: String,
-        path: String,
-        query: String,
-        headers: BTreeMap<String, String>,
-    }
-
-    /// Minimal GET-only HTTP/1.1 request-line + header reader. No body is
-    /// read (or expected) — `/policy/export` is a pure read. Query-string
-    /// values are split on `&`/`=` WITHOUT percent-decoding: acceptable for
-    /// this admin-only, JWT-gated surface where every legal value (a tenant
-    /// id, a graph name, a marking name) is already restricted to the opaque
-    /// identifier charset [`super::generate_bundle`] validates; a caller
-    /// needing a value outside that charset is rejected by this current surface.
-    async fn read_request(stream: &mut TcpStream) -> Option<ParsedRequest> {
-        let mut buf = Vec::new();
-        let mut tmp = [0u8; 4096];
-        let header_end = loop {
-            if let Some(pos) = buf.windows(4).position(|window| window == b"\r\n\r\n") {
-                break pos;
-            }
-            let n = stream.read(&mut tmp).await.ok()?;
-            if n == 0 {
-                return None;
-            }
-            buf.extend_from_slice(&tmp[..n]);
-            if buf.len() > MAX_HEADER_BYTES {
-                return None;
-            }
-        };
-        let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
-        let mut lines = head.split("\r\n");
-        let request_line = lines.next()?;
-        let mut parts = request_line.split_whitespace();
-        let method = parts.next()?.to_string();
-        let target = parts.next()?.to_string();
-        let version = parts.next()?;
-        if !version.starts_with("HTTP/1.") {
-            return None;
-        }
-        let (path, query) = target
-            .split_once('?')
-            .map(|(p, q)| (p.to_string(), q.to_string()))
-            .unwrap_or((target, String::new()));
-        let mut headers = BTreeMap::new();
-        for line in lines {
-            if let Some((k, v)) = line.split_once(':') {
-                headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
-            }
-        }
-        Some(ParsedRequest {
-            method,
-            path,
-            query,
-            headers,
-        })
-    }
+    /// The `/policy/export` framing bounds: a pure admin read, never a body.
+    const HTTP_LIMITS: RequestLimits = RequestLimits {
+        max_head_bytes: 64 * 1024,
+        max_body_bytes: 0,
+    };
 
     fn query_params(query: &str) -> BTreeMap<String, Vec<String>> {
         let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -581,10 +529,13 @@ mod http {
         stream: &mut TcpStream,
         validator: Option<Arc<crate::server::oidc::JwtValidator>>,
     ) {
-        let Ok(Some(req)) = tokio::time::timeout(READ_TIMEOUT, read_request(stream)).await else {
+        let Ok(Some(req)) =
+            tokio::time::timeout(READ_TIMEOUT, http1::read_request(stream, HTTP_LIMITS)).await
+        else {
             return;
         };
-        if req.method != "GET" || req.path != "/policy/export" {
+        let (path, query) = req.path_and_query();
+        if req.method != "GET" || path != "/policy/export" {
             write_response(stream, 404, "Not Found", "{\"error\":\"not found\"}").await;
             return;
         }
@@ -599,9 +550,8 @@ mod http {
             return;
         };
         let token = req
-            .headers
-            .get("authorization")
-            .and_then(|h| h.strip_prefix("Bearer "))
+            .header("authorization")
+            .strip_prefix("Bearer ")
             .map(str::trim)
             .filter(|t| !t.is_empty());
         let Some(token) = token else {
@@ -635,7 +585,7 @@ mod http {
             return;
         }
 
-        let params = query_params(&req.query);
+        let params = query_params(query);
         let tenant = params
             .get("tenant")
             .and_then(|v| v.first())

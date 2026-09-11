@@ -7,9 +7,9 @@ use super::{
     SemanticActivePointer, SemanticAnnIndexManifest, SemanticAuthorizationReceipt, SemanticBinding,
     SemanticBindingStateTransition, SemanticDeadLetter, SemanticGenerationCheckpoint,
     SemanticGraphProjectionManifest, SemanticIndexError, SemanticIndexManifest,
-    SemanticIndexMutation, SemanticLexicalIndexManifest, SemanticLineage, SemanticSourceProgress,
-    SemanticSqlSourceManifest, SemanticStageIntent, SemanticStageTransition, SemanticTombstone,
-    SemanticVector,
+    SemanticIndexMutation, SemanticLexicalIndexManifest, SemanticLineage,
+    SemanticSourceDirtyIntent, SemanticSourceProgress, SemanticSqlSourceManifest,
+    SemanticStageIntent, SemanticStageTransition, SemanticTombstone, SemanticVector,
 };
 
 pub const SEMANTIC_CANONICAL_RECORD_MAX_BYTES: usize = 256 * 1024;
@@ -19,6 +19,8 @@ pub const SEMANTIC_GENERATION_CHECKPOINT_SCHEMA: &str = "semantic-generation-che
 pub const SEMANTIC_BINDING_STATE_TRANSITION_SCHEMA: &str = "semantic-binding-state-transition/v1";
 pub const SEMANTIC_INDEX_MUTATION_SCHEMA: &str = "semantic-index-mutation/v1";
 pub const SEMANTIC_ACTIVE_POINTER_SCHEMA: &str = "semantic-active-pointer/v1";
+pub const SEMANTIC_SOURCE_DIRTY_INTENT_SCHEMA: &str = "semantic-source-dirty-intent/v1";
+pub const SEMANTIC_SOURCE_DIRTY_TOPIC: &str = "semantic.index.source_dirty/v1";
 pub const SEMANTIC_SOURCE_PROGRESS_SCHEMA: &str = "semantic-source-progress/v1";
 pub const SEMANTIC_LEXICAL_INDEX_MANIFEST_SCHEMA: &str = "semantic-lexical-index-manifest/v1";
 pub const SEMANTIC_ANN_INDEX_MANIFEST_SCHEMA: &str = "semantic-ann-index-manifest/v1";
@@ -350,6 +352,11 @@ impl_canonical_codec!(
     SemanticStageIntent,
     SEMANTIC_STAGE_INTENT_SCHEMA,
     |value: &SemanticStageIntent| value.validate()
+);
+impl_canonical_codec!(
+    SemanticSourceDirtyIntent,
+    SEMANTIC_SOURCE_DIRTY_INTENT_SCHEMA,
+    |value: &SemanticSourceDirtyIntent| value.validate()
 );
 impl_canonical_codec!(
     SemanticStageTransition,

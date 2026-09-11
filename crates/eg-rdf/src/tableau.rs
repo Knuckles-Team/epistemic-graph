@@ -59,7 +59,7 @@ use std::rc::Rc;
 
 use oxrdf::{Term, Triple};
 
-use crate::owl::{iri, parse_rdf_list, term_key, TripleIndex};
+use crate::owl::{iri, parse_rdf_list, parse_rdf_list_mapped, term_key, TripleIndex};
 
 // ── OWL / RDF(S) vocabulary IRIs used by the DL parser ───────────────────────
 
@@ -552,11 +552,7 @@ fn parse_dl(idx: &TripleIndex, id: &str) -> Option<Dl> {
 }
 
 fn parse_list_concepts(idx: &TripleIndex, head: &Term) -> Option<Vec<Dl>> {
-    let mut out = Vec::new();
-    for item in parse_rdf_list(idx, head) {
-        out.push(parse_dl(idx, &term_key(&item))?);
-    }
-    (!out.is_empty()).then_some(out)
+    parse_rdf_list_mapped(idx, head, |i, key| parse_dl(i, key).map(|d| vec![d]))
 }
 
 fn literal_usize(t: &Term) -> Option<usize> {

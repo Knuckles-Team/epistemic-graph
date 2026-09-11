@@ -151,6 +151,20 @@ pub(crate) fn infer_nodes(view: &GraphView) -> Result<(SchemaRef, RecordBatch), 
     Ok((schema, batch))
 }
 
+/// Build one inferred property column. Looking the property up on every decoded node is
+/// the same for each inferred kind; only how the JSON value is appended differs.
+fn build_property_column<B: arrow::array::builder::ArrayBuilder>(
+    decoded: &[DecodedNode],
+    name: &str,
+    mut values: B,
+    mut append: impl FnMut(&mut B, Option<&Value>),
+) -> ArrayRef {
+    for n in decoded {
+        append(&mut values, n.obj.as_ref().and_then(|o| o.get(name)));
+    }
+    arrow::array::builder::ArrayBuilder::finish(&mut values)
+}
+
 /// Materialize one RecordBatch column-by-column following `inferred`.
 fn build_batch(
     schema: &SchemaRef,
@@ -176,57 +190,29 @@ fn build_batch(
         }
         let col: ArrayRef = match kind {
             Inferred::Bool => {
-                let mut b = BooleanBuilder::new();
-                for n in decoded {
-                    match n.obj.as_ref().and_then(|o| o.get(name)) {
-                        Some(Value::Bool(x)) => b.append_value(*x),
-                        _ => b.append_null(),
-                    }
-                }
-                Arc::new(b.finish())
+                build_property_column(decoded, name, BooleanBuilder::new(), |b, v| {
+                    b.append_option(match v {
+                        Some(Value::Bool(x)) => Some(*x),
+                        _ => None,
+                    })
+                })
             }
-            Inferred::Int => {
-                let mut b = Int64Builder::new();
-                for n in decoded {
-                    match n
-                        .obj
-                        .as_ref()
-                        .and_then(|o| o.get(name))
-                        .and_then(Value::as_i64)
-                    {
-                        Some(x) => b.append_value(x),
-                        None => b.append_null(),
-                    }
-                }
-                Arc::new(b.finish())
-            }
+            Inferred::Int => build_property_column(decoded, name, Int64Builder::new(), |b, v| {
+                b.append_option(v.and_then(Value::as_i64))
+            }),
             Inferred::Float => {
-                let mut b = Float64Builder::new();
-                for n in decoded {
-                    match n
-                        .obj
-                        .as_ref()
-                        .and_then(|o| o.get(name))
-                        .and_then(Value::as_f64)
-                    {
-                        Some(x) => b.append_value(x),
-                        None => b.append_null(),
-                    }
-                }
-                Arc::new(b.finish())
+                build_property_column(decoded, name, Float64Builder::new(), |b, v| {
+                    b.append_option(v.and_then(Value::as_f64))
+                })
             }
             // Str / Null columns: JSON-stringify non-string scalars, pass strings
             // through, null for missing/json-null.
             Inferred::Str | Inferred::Null => {
-                let mut b = StringBuilder::new();
-                for n in decoded {
-                    match n.obj.as_ref().and_then(|o| o.get(name)) {
-                        None | Some(Value::Null) => b.append_null(),
-                        Some(Value::String(s)) => b.append_value(s),
-                        Some(other) => b.append_value(other.to_string()),
-                    }
-                }
-                Arc::new(b.finish())
+                build_property_column(decoded, name, StringBuilder::new(), |b, v| match v {
+                    None | Some(Value::Null) => b.append_null(),
+                    Some(Value::String(s)) => b.append_value(s),
+                    Some(other) => b.append_value(other.to_string()),
+                })
             }
         };
         columns.push(col);

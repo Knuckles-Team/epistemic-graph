@@ -177,6 +177,61 @@ impl SchemaMigrationOperation {
         }
     }
 
+    /// Apply this operation to the projected schema. The schema owns each column
+    /// mutation and its error; the migration owns only the ordering.
+    fn apply_to(&self, projected: &mut TableSchema) -> Result<(), String> {
+        match self {
+            Self::AddColumn { column } => projected.add_column(column),
+            Self::DropColumn { column } => projected.drop_column(column),
+            Self::RenameColumn { from, to } => projected.rename_column(from, to),
+            Self::AlterColumnType {
+                column, new_type, ..
+            } => projected.set_column_type(column, *new_type),
+            Self::AddConstraint { constraint } => {
+                projected.push_constraint(constraint.clone());
+                force_primary_key_not_null(projected);
+                Ok(())
+            }
+            Self::DropConstraint { constraint } => {
+                if remove_constraint_like_store(projected, constraint) {
+                    return Ok(());
+                }
+                Err(format!(
+                    "constraint `{constraint}` does not exist on table `{}`",
+                    projected.name
+                ))
+            }
+        }
+    }
+
+    /// Apply this operation to the shadow schema [`SchemaMigration::validate_type_policies`]
+    /// carries to track column TYPES across steps. Deliberately lenient — an operation
+    /// naming a column that is not there is skipped here, because
+    /// [`SchemaMigration::projected_schema`] is the authority that rejects it.
+    fn track_shape(&self, shape: &mut TableSchema) {
+        match self {
+            Self::AddColumn { column } => shape.columns_mut().push(column.clone()),
+            Self::DropColumn { column } => {
+                if let Some(index) = shape.column_index(column) {
+                    shape.columns_mut().remove(index);
+                }
+            }
+            Self::RenameColumn { from, to } => {
+                if let Some(index) = shape.column_index(from) {
+                    shape.columns_mut()[index].name = to.clone();
+                }
+            }
+            Self::AlterColumnType {
+                column, new_type, ..
+            } => {
+                if let Some(index) = shape.column_index(column) {
+                    shape.columns_mut()[index].ty = *new_type;
+                }
+            }
+            Self::AddConstraint { .. } | Self::DropConstraint { .. } => {}
+        }
+    }
+
     fn is_destructive(&self) -> bool {
         matches!(self, Self::DropColumn { .. } | Self::DropConstraint { .. })
     }
@@ -334,64 +389,7 @@ impl SchemaMigration {
         }
         let mut projected = current_schema.clone();
         for operation in &self.operations {
-            match operation {
-                SchemaMigrationOperation::AddColumn { column } => {
-                    if projected.column(&column.name).is_some() {
-                        return Err(format!(
-                            "column `{}` already exists in table `{}`",
-                            column.name, self.table
-                        ));
-                    }
-                    projected.columns_mut().push(column.clone());
-                    if column.primary_key {
-                        projected.columns_mut().last_mut().unwrap().nullable = false;
-                    }
-                }
-                SchemaMigrationOperation::DropColumn { column } => {
-                    let index = projected.column_index(column).ok_or_else(|| {
-                        format!("column `{column}` does not exist in table `{}`", self.table)
-                    })?;
-                    if projected.columns().len() == 1 {
-                        return Err(format!(
-                            "cannot drop the only column `{column}` of table `{}`",
-                            self.table
-                        ));
-                    }
-                    projected.columns_mut().remove(index);
-                }
-                SchemaMigrationOperation::RenameColumn { from, to } => {
-                    if from != to && projected.column(to).is_some() {
-                        return Err(format!(
-                            "column `{to}` already exists in table `{}`",
-                            self.table
-                        ));
-                    }
-                    let index = projected.column_index(from).ok_or_else(|| {
-                        format!("column `{from}` does not exist in table `{}`", self.table)
-                    })?;
-                    projected.columns_mut()[index].name = to.clone();
-                }
-                SchemaMigrationOperation::AlterColumnType {
-                    column, new_type, ..
-                } => {
-                    let index = projected.column_index(column).ok_or_else(|| {
-                        format!("column `{column}` does not exist in table `{}`", self.table)
-                    })?;
-                    projected.columns_mut()[index].ty = *new_type;
-                }
-                SchemaMigrationOperation::AddConstraint { constraint } => {
-                    projected.push_constraint(constraint.clone());
-                    force_primary_key_not_null(&mut projected);
-                }
-                SchemaMigrationOperation::DropConstraint { constraint } => {
-                    if !remove_constraint_like_store(&mut projected, constraint) {
-                        return Err(format!(
-                            "constraint `{constraint}` does not exist on table `{}`",
-                            self.table
-                        ));
-                    }
-                }
-            }
+            operation.apply_to(&mut projected)?;
             projected.validate()?;
         }
         Ok(projected)
@@ -426,55 +424,63 @@ impl SchemaMigration {
     pub fn validate_type_policies(&self, current_schema: &TableSchema) -> Result<(), String> {
         let mut shape = current_schema.clone();
         for operation in &self.operations {
-            match operation {
-                SchemaMigrationOperation::AddColumn { column } => {
-                    shape.columns_mut().push(column.clone());
-                }
-                SchemaMigrationOperation::DropColumn { column } => {
-                    if let Some(index) = shape.column_index(column) {
-                        shape.columns_mut().remove(index);
-                    }
-                }
-                SchemaMigrationOperation::RenameColumn { from, to } => {
-                    if let Some(index) = shape.column_index(from) {
-                        shape.columns_mut()[index].name = to.clone();
-                    }
-                }
-                SchemaMigrationOperation::AlterColumnType {
-                    column,
-                    new_type,
-                    lossy,
-                } => {
-                    let old_type = shape
-                        .column(column)
-                        .ok_or_else(|| format!("column `{column}` does not exist"))?
-                        .ty;
-                    let inferred_loss = conversion_may_be_lossy(old_type, *new_type);
-                    if inferred_loss && !lossy {
-                        return Err(format!(
-                            "ALTER COLUMN `{column}` conversion from {:?} to {:?} must be marked lossy",
-                            old_type, new_type
-                        ));
-                    }
-                    if inferred_loss && !self.policy.allow_lossy_coercion {
-                        return Err(format!(
-                            "ALTER COLUMN `{column}` conversion from {:?} to {:?} requires allow_lossy_coercion=true",
-                            old_type, new_type
-                        ));
-                    }
-                    let index = shape
-                        .column_index(column)
-                        .ok_or_else(|| format!("column `{column}` does not exist"))?;
-                    shape.columns_mut()[index].ty = *new_type;
-                }
-                SchemaMigrationOperation::AddConstraint { .. }
-                | SchemaMigrationOperation::DropConstraint { .. } => {}
+            if let SchemaMigrationOperation::AlterColumnType {
+                column,
+                new_type,
+                lossy,
+            } = operation
+            {
+                self.check_conversion(&shape, column, *new_type, *lossy)?;
             }
+            operation.track_shape(&mut shape);
+        }
+        Ok(())
+    }
+
+    /// Whether one ALTER COLUMN conversion is permitted: a narrowing conversion must be
+    /// declared lossy AND allowed by the migration policy.
+    fn check_conversion(
+        &self,
+        shape: &TableSchema,
+        column: &str,
+        new_type: ColumnType,
+        lossy: bool,
+    ) -> Result<(), String> {
+        let old_type = shape
+            .column(column)
+            .ok_or_else(|| format!("column `{column}` does not exist"))?
+            .ty;
+        if !conversion_may_be_lossy(old_type, new_type) {
+            return Ok(());
+        }
+        if !lossy {
+            return Err(format!(
+                "ALTER COLUMN `{column}` conversion from {:?} to {:?} must be marked lossy",
+                old_type, new_type
+            ));
+        }
+        if !self.policy.allow_lossy_coercion {
+            return Err(format!(
+                "ALTER COLUMN `{column}` conversion from {:?} to {:?} requires allow_lossy_coercion=true",
+                old_type, new_type
+            ));
         }
         Ok(())
     }
 
     fn validate_identity(&self, sealed: bool) -> Result<(), String> {
+        self.validate_header()?;
+        self.validate_version_advance()?;
+        self.validate_policy()?;
+        self.validate_operation_policy()?;
+        if sealed {
+            self.validate_seal()?;
+        }
+        Ok(())
+    }
+
+    /// Format version, the three identifying texts, and the CAS precondition digest.
+    fn validate_header(&self) -> Result<(), String> {
         if self.format_version != SCHEMA_MIGRATION_FORMAT_VERSION {
             return Err(format!(
                 "unsupported schema migration format version {}",
@@ -488,14 +494,12 @@ impl SchemaMigration {
         ] {
             validate_text(kind, value)?;
         }
-        if self.expected_schema_digest.len() != 64
-            || !self
-                .expected_schema_digest
-                .bytes()
-                .all(|c| c.is_ascii_hexdigit())
-        {
-            return Err("schema migration expected digest is not a SHA-256 hex value".to_string());
-        }
+        validate_digest("expected digest", &self.expected_schema_digest)
+    }
+
+    /// A migration advances the schema version by exactly one and carries a bounded,
+    /// non-empty operation list.
+    fn validate_version_advance(&self) -> Result<(), String> {
         let expected_target = self
             .expected_schema_version
             .checked_add(1)
@@ -512,15 +516,26 @@ impl SchemaMigration {
         if self.operations.len() > MAX_SCHEMA_MIGRATION_OPERATIONS {
             return Err("schema migration operation bound exceeded".to_string());
         }
+        Ok(())
+    }
+
+    /// The RLS binding digest is present exactly when revalidation is required.
+    fn validate_policy(&self) -> Result<(), String> {
         if self.policy.require_rls_revalidation {
             let digest = self.policy.rls_binding_digest.as_deref().ok_or_else(|| {
                 "schema migration requires RLS revalidation but carries no binding digest"
                     .to_string()
             })?;
-            validate_digest("RLS binding", digest)?;
-        } else if self.policy.rls_binding_digest.is_some() {
+            return validate_digest("RLS binding", digest);
+        }
+        if self.policy.rls_binding_digest.is_some() {
             return Err("an RLS binding digest requires require_rls_revalidation=true".to_string());
         }
+        Ok(())
+    }
+
+    /// Every operation is well-formed and permitted by this migration's policy.
+    fn validate_operation_policy(&self) -> Result<(), String> {
         for operation in &self.operations {
             validate_operation(operation)?;
             if operation.is_destructive() && !self.policy.allow_destructive {
@@ -536,27 +551,30 @@ impl SchemaMigration {
                 );
             }
         }
-        if sealed {
-            validate_digest("target schema", &self.target_schema_digest)?;
-            validate_digest("migration checksum", &self.checksum)?;
-            if !self.rollback.forward_only {
-                return Err("schema migration rollback metadata must be forward-only".to_string());
-            }
-            if self.rollback.prior_schema_version != self.expected_schema_version
-                || self.rollback.prior_schema_digest != self.expected_schema_digest
-            {
-                return Err(
-                    "schema migration rollback metadata does not match its CAS precondition"
-                        .to_string(),
-                );
-            }
-            validate_text("rollback reason", &self.rollback.reason)?;
-            if let Some(checkpoint) = &self.rollback.restore_checkpoint {
-                validate_text("restore checkpoint", checkpoint)?;
-            }
-            self.verify_checksum()?;
-        }
         Ok(())
+    }
+
+    /// The invariants that only hold once a draft is sealed: the derived digests, the
+    /// forward-only rollback record, and the checksum.
+    fn validate_seal(&self) -> Result<(), String> {
+        validate_digest("target schema", &self.target_schema_digest)?;
+        validate_digest("migration checksum", &self.checksum)?;
+        if !self.rollback.forward_only {
+            return Err("schema migration rollback metadata must be forward-only".to_string());
+        }
+        if self.rollback.prior_schema_version != self.expected_schema_version
+            || self.rollback.prior_schema_digest != self.expected_schema_digest
+        {
+            return Err(
+                "schema migration rollback metadata does not match its CAS precondition"
+                    .to_string(),
+            );
+        }
+        validate_text("rollback reason", &self.rollback.reason)?;
+        if let Some(checkpoint) = &self.rollback.restore_checkpoint {
+            validate_text("restore checkpoint", checkpoint)?;
+        }
+        self.verify_checksum()
     }
 
     fn compute_checksum(&self) -> Result<String, String> {

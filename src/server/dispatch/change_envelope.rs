@@ -1,5 +1,7 @@
 use super::consensus::authoritative_now_ms;
-use super::graph_pipeline::{dispatch_graph_op, GraphOpRouting};
+#[cfg(feature = "redb")]
+use super::graph_pipeline::dispatch_graph_op;
+use super::graph_pipeline::GraphOpRouting;
 use super::*;
 
 /// Batch envelope coordinator (CONCEPT:EG-KG.ingest.batched-change-envelopes). Validates
@@ -103,7 +105,6 @@ fn change_envelope_batch_authority_error(
     let claims = verified_context.claims();
     let principal = verified_context.principal_persistence_id();
     for envelope in envelopes {
-        let ctx = &envelope.mutation.context;
         // `ApplyChangeEnvelopes` groups and routes every envelope by graph name
         // (`group_change_envelopes_by_graph` below, then `dispatch_graph_op`), so
         // a native (non-graph) mutation scope — which reports no graph name at
@@ -111,9 +112,18 @@ fn change_envelope_batch_authority_error(
         // silently dropped or grouped under a sentinel.
         if envelope.mutation.identity.scope().graph_name().is_none()
             || envelope.mutation.identity.tenant().as_str() != claims.tenant
-            || ctx.request_id != req_id
-            || ctx.principal != principal
-            || ctx.policy_fingerprint.as_deref() != Some(claims.policy_version.as_str())
+            || eg_types::mutation_batch::batch_request_number(&envelope.mutation)
+                != Some(req_id)
+            // The CALLER is the outbox `actor` header, never the batch's serving
+            // principal: RF-RULING-004's application note makes the latter this
+            // engine's own on every domain, so comparing it would compare the
+            // engine against itself and pass for any caller. The policy
+            // comparison is gone with `policy_fingerprint`, an always-`None`
+            // `Option<String>` that could only ever have refused every
+            // caller-supplied envelope; the real policy revision is inside the
+            // stable replay identity, where a change conflicts.
+            || crate::server::mutation_batch::batch_actor(&envelope.mutation)
+                != Some(principal.as_str())
         {
             return Some(Response::err(
                 req_id,
@@ -255,7 +265,14 @@ pub(super) async fn multi_graph_batch_update(
     let clustered = timed_read(state).await.multi_raft.is_some();
     #[cfg(not(feature = "raft"))]
     let clustered = false;
-    let saga = match begin_multi_graph_saga(redb, req_id, caller, batches_msgpack, clustered) {
+    let saga = match begin_multi_graph_saga(
+        redb,
+        req_id,
+        caller,
+        verified_context.attempt_nonce(),
+        batches_msgpack,
+        clustered,
+    ) {
         Ok(saga) => saga,
         Err(response) => return response,
     };
@@ -277,6 +294,7 @@ fn begin_multi_graph_saga(
     redb: &crate::server::persistence::redb_backend::RedbBackend,
     req_id: u64,
     caller: Option<&str>,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
     batches_msgpack: &[u8],
     clustered: bool,
 ) -> Result<Option<handlers::admin::AdminSaga>, Response> {
@@ -286,12 +304,13 @@ fn begin_multi_graph_saga(
     let method = Method::MultiGraphBatchUpdate {
         batches_msgpack: batches_msgpack.to_vec(),
     };
-    let saga = match handlers::admin::begin_admin_saga(
+    let saga = match handlers::admin::begin_admin_saga_with_nonce(
         redb,
         req_id,
         caller,
         &method,
         crate::mutation_batch::DurabilityDomain::MultiGraph,
+        attempt_nonce,
     ) {
         Ok(saga) => saga,
         Err(error) => return Err(Response::err(req_id, error)),
@@ -572,11 +591,25 @@ async fn try_replicate_change_envelope(
         routed_raft,
     } = ctx;
     let routed = routed_raft?;
+    let attempt_nonce = envelope
+        .mutation
+        .envelope
+        .operation()
+        .and_then(|operation| operation.nonce_replay_key().ok())
+        .map(|key| key.nonce);
     let mutation = match crate::raft::RaftMutationContext::from_verified_request(
         envelope.mutation.batch_id.clone(),
-        envelope.mutation.context.request_id,
+        // The dispatch request number the batch was compiled for, read back
+        // through the one encoder rather than from a second field.
+        eg_types::mutation_batch::batch_request_number(&envelope.mutation).unwrap_or(req_id),
+        attempt_nonce,
         tenant_scope,
-        envelope.mutation.context.principal.clone(),
+        // The CALLER, which under RF-RULING-004's application note is the outbox
+        // `actor` header -- never the serving principal, which is this engine's
+        // own and would compare equal for every caller.
+        crate::server::mutation_batch::batch_actor(&envelope.mutation)
+            .unwrap_or_default()
+            .to_string(),
         false,
         envelope.mutation.placement_epoch,
         envelope.mutation.fencing_token,
@@ -724,9 +757,11 @@ pub(super) async fn route_change_envelope_ops(
     ctx: GraphOpRouting<'_>,
     method: Method,
 ) -> Result<Response, Method> {
+    #[cfg(feature = "raft")]
     let state = ctx.state;
     let req_id = ctx.req_id;
     let graph_name = ctx.graph_name;
+    #[cfg(feature = "raft")]
     let tenant_scope = ctx.tenant_scope;
     let core = ctx.core;
     let persistence = ctx.persistence;
@@ -843,8 +878,6 @@ pub(super) async fn route_change_envelope_ops(
         // returned in group order under `{"results": [...]}`.
         Method::ApplyChangeEnvelopes { envelopes } => {
             return Ok(async {
-    let req_id = req_id;
-    let graph_name = graph_name;
     let core = core.clone();
     let persistence = persistence.clone();
     #[cfg(feature = "raft")]
@@ -903,8 +936,6 @@ pub(super) async fn route_change_envelope_ops(
             tenant,
         } => {
             return Ok(async {
-                let req_id = req_id;
-                let graph_name = graph_name;
                 let persistence = persistence.clone();
                 {
                     let Some(backend) = persistence.as_ref() else {
@@ -947,8 +978,6 @@ pub(super) async fn route_change_envelope_ops(
         }
         Method::GetContentVersion { object_id, tenant } => {
             return Ok(async {
-                let req_id = req_id;
-                let graph_name = graph_name;
                 let persistence = persistence.clone();
                 {
                     let Some(backend) = persistence.as_ref() else {
@@ -974,8 +1003,6 @@ pub(super) async fn route_change_envelope_ops(
             tenant,
         } => {
             return Ok(async {
-                let req_id = req_id;
-                let graph_name = graph_name;
                 let persistence = persistence.clone();
                 {
                     let Some(backend) = persistence.as_ref() else {

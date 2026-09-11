@@ -21,7 +21,6 @@ pub(super) async fn dispatch_service_control_methods(
 
         Method::Health => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 {
                     let (

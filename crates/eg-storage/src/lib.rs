@@ -33,21 +33,27 @@ pub use owner::blob_shared::{
     BlobSharedWrite, CasChunkRows, CasRefcountRows,
 };
 pub use owner::domain::{
-    BlobOwner, ClusterHierarchyOwner, ColdTierOwner, GraphShardOwner, JobsOwner, KvOwner,
-    LedgerOnlyOwner, NodeInfoOwner, OwnerDomain, PathIndexOwner, RbacOwner, RequestReplayOwner,
-    SemanticIndexOwner, SqlOwner, StatechartOwner, TenantCatalogOwner, TimeSeriesOwner,
-    VizProvenanceOwner,
+    AgentLibraryOwner, BlobOwner, ClusterHierarchyOwner, ColdTierOwner, GraphShardOwner, JobsOwner,
+    KvOwner, LedgerOnlyOwner, NodeInfoOwner, OwnerDomain, PathIndexOwner, RbacOwner,
+    RequestReplayOwner, SemanticIndexOwner, SqlOwner, StatechartOwner, TenantCatalogOwner,
+    TimeSeriesOwner, VizProvenanceOwner,
 };
 pub use owner::grant::{AuthenticatedScopeGrant, ScopeGrantVerifier};
 pub use owner::handle::OwnedStoreHandle;
 pub use owner::identity::PhysicalStoreIdentity;
 pub use owner::layout::OwnerLayout;
 pub use owner::registry::{
-    declared_table_names, owner_table_names, ANN_CODES, SEMANTIC_POINTERS, SEMANTIC_STATES,
+    declared_table_names, owner_table_names, AGENT_COMPONENT_HEADS,
+    AGENT_COMPONENT_REVISIONS, AGENT_GRAPH_HEADS, AGENT_GRAPH_REVISIONS,
+    AGENT_LIBRARY_HEADS, AGENT_LIBRARY_REVISIONS,
+    ANN_CODES, SEMANTIC_ANN, SEMANTIC_AUTH_RECEIPTS, SEMANTIC_BINDINGS, SEMANTIC_CHECKPOINTS,
+    SEMANTIC_CHECKPOINT_HEADS, SEMANTIC_DEAD_LETTERS, SEMANTIC_GRAPH_PROJECTIONS, SEMANTIC_HEADS,
+    SEMANTIC_LEXICAL, SEMANTIC_POINTERS, SEMANTIC_SOURCE_PROGRESS, SEMANTIC_SQL_SOURCES,
+    SEMANTIC_STAGES, SEMANTIC_STATES, SEMANTIC_TOMBSTONES, SEMANTIC_VECTORS, SQL_SOURCE_AUTHORITY,
 };
 pub use owner::row_key::{
-    is_control_scope, owner_row_key, reserved_control_graph, OwnerRowScope, RowKey,
-    GRAPH_SHARD_CONTROL_GRAPH, GRAPH_SHARD_TENANT,
+    is_control_scope, owner_row_key, reserved_control_graph, OwnerRowScope, OwnerRowScopeStart,
+    RowKey, GRAPH_SHARD_CONTROL_GRAPH, GRAPH_SHARD_TENANT,
 };
 pub use owner::table_api::*;
 pub use payload::private_payload_digest;
@@ -63,6 +69,7 @@ pub use recovery::adopt::{
     inspect_staged_mutation_store, open_recovery, ClassifiedRecoveryStore, RecoveryExpectation,
     ValidatedPlainRecoveryStore, ValidatedRecoveryStore, ValidatedStagedMutationStore,
 };
+pub use recovery::authority::rebind_copied_store;
 pub use recovery::backup::{backup_recovery_store, recovery_store_fingerprint};
 pub use recovery::evidence::{
     backup_strict_recovery_store, strict_recovery_evidence, StrictRecoveryEvidence,
@@ -72,6 +79,9 @@ pub use recovery::validate::{
     validate_recovery_store, validate_recovery_store_read_only, RecoveryStoreCounts,
 };
 pub use scoped::{
-    OwnerReadTable, ScopedOwnerTable, ScopedOwnerTableMut, ScopedTable, ScopedTableMut,
+    OwnerReadTable, ScopeRow, ScopedOwnerTable, ScopedOwnerTableMut, ScopedTable, ScopedTableMut,
 };
-pub use tables::{LedgerRowScope, MutationClass, MutationClassRow, OperationReplayRow, ScopeFence};
+pub use tables::{
+    LedgerRowScope, MutationClass, MutationClassRow, OperationReplayRow, RecordedOperation,
+    ScopeFence,
+};

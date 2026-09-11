@@ -64,7 +64,8 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> Durabilit
         }
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => DurabilityDomain::AnalyticsJob,
-        Method::SubmitWorkItem { .. }
+        Method::KgDelegate { .. }
+        | Method::SubmitWorkItem { .. }
         | Method::SubmitWorkItems { .. }
         | Method::ClaimWorkItem { .. }
         | Method::RenewWorkItemLease { .. }
@@ -140,7 +141,8 @@ pub(super) fn surface_for(method: &Method) -> Option<MutationSurface> {
             Some(MutationSurface::Rdf)
         }
         Method::CreateGraph { .. } | Method::DeleteGraph { .. } => Some(MutationSurface::Lifecycle),
-        Method::SubmitWorkItem { .. }
+        Method::KgDelegate { .. }
+        | Method::SubmitWorkItem { .. }
         | Method::SubmitWorkItems { .. }
         | Method::ReserveWorkItemResources { .. }
         | Method::ReleaseWorkItemResources { .. }
@@ -184,7 +186,8 @@ pub(super) fn surface_for(method: &Method) -> Option<MutationSurface> {
 pub(crate) fn is_work_item_method(method: &Method) -> bool {
     matches!(
         method,
-        Method::SubmitWorkItem { .. }
+        Method::KgDelegate { .. }
+            | Method::SubmitWorkItem { .. }
             | Method::SubmitWorkItems { .. }
             | Method::ClaimWorkItem { .. }
             | Method::RenewWorkItemLease { .. }
@@ -239,4 +242,3 @@ pub(crate) fn is_resource_reservation_method(method: &Method) -> bool {
             | Method::UpdateResourceHost { .. }
     )
 }
-

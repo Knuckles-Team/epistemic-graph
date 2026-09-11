@@ -77,13 +77,12 @@ fn seeded_state() -> test_support::SharedState {
 #[cfg(feature = "redb")]
 fn reopen_redb_with_retry(
     dir: &str,
-    policy: epistemic_graph::durability::DurabilityPolicy,
     cache: usize,
 ) -> epistemic_graph::server::persistence::redb_backend::RedbBackend {
     use epistemic_graph::server::persistence::redb_backend::RedbBackend;
     let mut last_err = None;
     for attempt in 0..50 {
-        match RedbBackend::open(dir.to_string(), policy, cache) {
+        match RedbBackend::open(dir.to_string(), cache) {
             Ok(backend) => return backend,
             Err(e) => {
                 last_err = Some(e);
@@ -107,16 +106,8 @@ fn interval_backend(label: &str) -> (String, Arc<dyn PersistenceBackend>) {
     ));
     let _ = std::fs::remove_dir_all(&dir);
     let dir_s = dir.to_string_lossy().into_owned();
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open(
-            dir_s.clone(),
-            epistemic_graph::durability::DurabilityPolicy::Interval(
-                std::time::Duration::from_millis(20),
-            ),
-            64,
-        )
-        .expect("open redb backend"),
-    );
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir_s.clone(), 64).expect("open redb backend"));
     (dir_s, backend)
 }
 
@@ -128,13 +119,7 @@ async fn reopened_node(
     epistemic_graph::server::persistence::redb_backend::RedbBackend,
     Option<Vec<u8>>,
 ) {
-    let reopened = reopen_redb_with_retry(
-        dir,
-        epistemic_graph::durability::DurabilityPolicy::Interval(std::time::Duration::from_millis(
-            20,
-        )),
-        64,
-    );
+    let reopened = reopen_redb_with_retry(dir, 64);
     let stored = reopened
         .read_node("__commons__", node_id)
         .await
@@ -565,8 +550,8 @@ async fn wire_insert_awaits_durable_backend() {
 /// CommandComplete is sent. We prove the wire write is durable WITHOUT any checkpoint
 /// by reading the row back from a SEPARATE redb backend reopened on the same dir: the
 /// row is only there because the INSERT's await observed a durable commit, exactly
-/// like a normal `Method::AddNode` write. Uses `DurabilityPolicy::Interval` so the ONLY way
-/// the row lands is the group-commit barrier firing the awaited writer.
+/// like a normal `Method::AddNode` write. The row is read only after the
+/// group-commit barrier has fired for the awaited writer.
 #[cfg(feature = "redb")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_insert_authoritative_is_durable_without_checkpoint() {

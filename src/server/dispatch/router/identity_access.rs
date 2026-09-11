@@ -29,12 +29,8 @@ pub(super) async fn dispatch_identity_and_access_methods(
             roles,
         } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 let req_graph = req.graph.clone();
-                let verified_context = verified_context;
-                let state_machine_authorized = state_machine_authorized;
-                let identity_bootstrap = identity_bootstrap;
                 {
                     if !state_machine_authorized {
                         if let Err(message) = verify_register_identity_signature(
@@ -97,12 +93,9 @@ pub(super) async fn dispatch_identity_and_access_methods(
             query,
         } => {
             dispatch_boxed(async {
-                let state = state;
                 let req_id = req.id;
                 let req_agent_id = req.agent_id.clone();
                 let req_graph = req.graph.clone();
-                let verified_context = verified_context;
-                let state_machine_authorized = state_machine_authorized;
                 {
                     if !state_machine_authorized {
                         if let Err(message) = verify_multisig_mutation_signatures(

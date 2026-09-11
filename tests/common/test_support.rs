@@ -12,8 +12,6 @@ use epistemic_graph::server::ServerState;
 use tokio::sync::RwLock;
 
 #[cfg(feature = "redb")]
-use epistemic_graph::durability::DurabilityPolicy;
-#[cfg(feature = "redb")]
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 
 pub type SharedPersistence = Arc<dyn PersistenceBackend>;
@@ -26,11 +24,7 @@ pub type SharedState = Arc<RwLock<ServerState>>;
 /// need to retry an in-process reopen after shutdown.
 #[cfg(feature = "redb")]
 pub fn open_redb_backend(dir: String) -> Result<SharedPersistence, String> {
-    Ok(Arc::new(RedbBackend::open(
-        dir,
-        DurabilityPolicy::Each,
-        8192,
-    )?))
+    Ok(Arc::new(RedbBackend::open(dir, 8192)?))
 }
 
 /// Repeatedly invoke an in-process redb reopen until its prior file lock clears.

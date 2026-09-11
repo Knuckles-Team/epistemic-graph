@@ -126,6 +126,39 @@ def call_blocks(source: str, needle: str) -> list[str]:
     return blocks
 
 
+def _check_sql_wire_read_contract(wire: str) -> None:
+    """Require every SQL-wire read projection to pass the verified RLS fence."""
+
+    # The SQL wire owns three distinct GraphView-producing read paths after
+    # transaction decomposition. Keep the proof tied to each canonical body;
+    # counting helper calls would treat a definition as a fourth projection.
+    wire_sql_read = rust_function(wire, "pub(crate) async fn run_read(")
+    wire_overlay_read = rust_function(wire, "async fn overlaid_snapshot(")
+    wire_uql_read = rust_function(wire, "async fn exec_uql(")
+    wire_crossmodal = rust_function(wire, "async fn try_execute_crossmodal(\n")
+    wire_execute = rust_function(
+        wire, "async fn execute(&self, sql: &str) -> WireResult<WireOutcome> {"
+    )
+    require(
+        all(
+            (
+                "self.filter_view_for_verified_actor(&mut snap).await?" in wire_sql_read,
+                "self.filter_view_for_verified_actor(&mut view).await?"
+                in wire_overlay_read,
+                "self.filter_view_for_verified_actor(&mut view).await?" in wire_uql_read,
+                "exec_sql_typed_with_tables(&snap, projection.store(), &sql)"
+                in wire_sql_read,
+                "fn verified_actor(&self) -> WireResult<String>" in wire,
+                "self.check_access_for_kind(&graph, &kind).await?" in wire_execute,
+                ".check_access(graph, Self::crossmodal_access(&stmt))" in wire_crossmodal,
+                wire_execute.find("self.check_access_for_kind(&graph, &kind).await?")
+                < wire_execute.find("self.execute_dispatch_and_finish("),
+            )
+        ),
+        "a SQL-wire snapshot bypasses verified graph ACL/RLS before SQL execution",
+    )
+
+
 def main() -> None:
     protocol = read("crates/eg-types/src/protocol.rs")
     methods = method_enum_names(protocol)
@@ -153,7 +186,12 @@ def main() -> None:
     pregel = read("src/raft/pregel.rs")
     wire = read("src/server/wire/mod.rs")
     bolt = read("src/server/bolt_wire/mod.rs")
-    auth = read("src/server/auth.rs")
+    # The verified carrier/test identity projection lives in the declared
+    # authority-context sibling after nonce extraction; include both halves
+    # of the compiler-owned authority seam.
+    auth = "\n".join(
+        (read("src/server/auth.rs"), read("src/server/authority_context.rs"))
+    )
     jobs = read("src/server/handlers/jobs.rs")
     blob_handler = read("src/server/handlers/blob.rs")
     blob_state = read("src/server/blob/mod.rs")
@@ -175,7 +213,7 @@ def main() -> None:
     s3_http = read("src/server/s3/mod.rs")
     kvcache_http = read("src/server/kvcache_http/mod.rs")
     federation_http = read("src/server/federation/mod.rs")
-    lake_http = read("src/server/lake/rest.rs")
+    lake_http = read_module_tree("src/server/lake/rest/mod.rs", root_dir=ROOT)
     main_rs = read("src/main.rs")
 
     def require_tokens(
@@ -400,11 +438,24 @@ def main() -> None:
         ),
         "distributed OWL reasoning bypasses per-graph ACL/RLS",
     )
+    # EVERY distributed-compute entry must hand the pregel driver the caller's
+    # read authority. This asserted one exact call string
+    # (`pregel::run_distributed(state, &graphs, &algo, read_authority)`), which
+    # stopped matching when the handler became a method and the argument became
+    # `self.state` -- the ACL/RLS property was never affected, but the gate read
+    # as a bypass. Assert the property over every call site instead of one byte
+    # sequence, which is both accurate now and refactor-proof.
+    run_distributed_calls = re.findall(
+        r"pregel::run_distributed\((?P<args>[^()]*)\)", distributed
+    )
+    require(
+        bool(run_distributed_calls)
+        and all("read_authority" in call for call in run_distributed_calls),
+        "distributed graph compute bypasses per-shard ACL/RLS before supersteps",
+    )
     require(
         all(
             (
-                "pregel::run_distributed(state, &graphs, &algo, read_authority)"
-                in distributed,
                 "read_authority: &GraphReadAuthority" in pregel,
                 "read_authority.filter_view(&mut view)" in pregel,
                 "check_graph_access(" in pregel,
@@ -417,16 +468,7 @@ def main() -> None:
         in distributed,
         "actor-unbound materialized results can be served under active RLS",
     )
-    require(
-        all(
-            (
-                wire.count("self.filter_view_for_verified_actor(&mut") >= 4,
-                "fn verified_actor(&self) -> WireResult<String>" in wire,
-                "self.check_access(&target, AccessLevel::Read).await?" in wire,
-            )
-        ),
-        "a SQL-wire or AGE-Cypher snapshot bypasses graph ACL/RLS",
-    )
+    _check_sql_wire_read_contract(wire)
     bolt_read = bolt[
         bolt.find("async fn run_read(") : bolt.find(
             "async fn run_transaction_statement("
@@ -580,8 +622,21 @@ def main() -> None:
                 "authority.can_see_blob(&event.before)" in streaming,
                 "authority.can_see_blob(&event.after)" in streaming,
                 "authorize_graph(state, carrier" in streaming,
-                'owned_name(carrier, "cq"' in streaming,
-                'owned_name(carrier, "trigger"' in streaming,
+                # `owned_name(carrier, "cq"` / `("trigger"` were exact call
+                # strings that stopped matching when the handler became a method
+                # and the argument became `self.carrier`; the namespacing itself
+                # never changed. Assert the PROPERTY: `owned_name` namespaces by
+                # the carrier's owner scope, and both the continuous-query and
+                # trigger registries go through it.
+                'format!("{domain}:{}:{name}", authority.owner_scope())' in streaming,
+                any(
+                    '"cq"' in call
+                    for call in re.findall(r"owned_name\([^()]*\)", streaming)
+                ),
+                any(
+                    '"trigger"' in call
+                    for call in re.findall(r"owned_name\([^()]*\)", streaming)
+                ),
                 "streaming cursors have no actor-stable ownership under active RLS"
                 in streaming,
             )

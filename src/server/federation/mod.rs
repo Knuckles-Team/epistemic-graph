@@ -42,14 +42,17 @@
 #[cfg(feature = "federation-opensearch")]
 pub mod opensearch;
 
-use std::collections::{HashMap, HashSet};
+mod merge;
+pub use merge::{is_typed_lang, merge_partials, merge_partials_typed};
+
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
+use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
 
 /// Comma-separated peer engine base-URLs, e.g.
@@ -71,8 +74,6 @@ const CONNECT_TIMEOUT_SECS: u64 = 5;
 const READ_TIMEOUT_SECS: u64 = 20;
 /// Response-size cap per peer (bytes) — a hostile/misbehaving peer must not OOM the pool.
 const MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
-/// RRF rank constant `k` (the canonical 60) used when fusing ranked partials.
-const RRF_K: f64 = 60.0;
 
 // ── Normalized federated row ──────────────────────────────────────────────
 
@@ -299,333 +300,6 @@ fn is_blocked_ip(ip: &std::net::IpAddr) -> bool {
                 || (v6.segments()[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
                 || (v6.segments()[0] & 0xfe00) == 0xfc00 // unique-local fc00::/7
         }
-    }
-}
-
-// ── Merge / dedup / RRF re-rank ───────────────────────────────────────────
-
-/// Merge the local + peer partial result sets into ONE answer (CONCEPT:EG-KG.ontology.federation-client).
-///
-/// * Rows are UNIONED and de-duplicated by [`FedRow::key`] (first occurrence wins for
-///   the payload; the best score seen is kept).
-/// * When ANY source contributed a score, the merged rows are re-ranked with Reciprocal
-///   Rank Fusion (RRF) over each source's own ranking (the `Op::FuseRrf` idea). With no
-///   scores anywhere, the union order (first-seen) is preserved.
-/// * A degraded source (`rows: Err`) contributes nothing but is recorded so the metadata
-///   can report `partial: true` + `failed_peers`.
-pub fn merge_partials(outcomes: Vec<PeerOutcome>) -> FederatedResponse {
-    let mut peers_queried: Vec<String> = Vec::new();
-    let mut failed_peers: Vec<String> = Vec::new();
-    let mut healthy_lists: Vec<Vec<FedRow>> = Vec::new();
-    let mut any_score = false;
-    let mut contributing = 0usize;
-
-    for outcome in outcomes {
-        let is_local = outcome.source == "<local>";
-        if !is_local {
-            peers_queried.push(outcome.source.clone());
-        }
-        match outcome.rows {
-            Ok(rows) => {
-                if rows.iter().any(|r| r.score.is_some()) {
-                    any_score = true;
-                }
-                contributing += 1;
-                healthy_lists.push(rows);
-            }
-            Err(_) => {
-                // Local degradation is not a "peer" failure but still forces partial.
-                if !is_local {
-                    failed_peers.push(outcome.source);
-                }
-            }
-        }
-    }
-
-    // Union + dedup by key (keep first payload, best score).
-    let mut order: Vec<String> = Vec::new();
-    let mut merged: HashMap<String, FedRow> = HashMap::new();
-    for list in &healthy_lists {
-        for row in list {
-            match merged.get_mut(&row.key) {
-                Some(existing) => {
-                    if let Some(s) = row.score {
-                        existing.score = Some(match existing.score {
-                            Some(cur) => cur.max(s),
-                            None => s,
-                        });
-                    }
-                }
-                None => {
-                    order.push(row.key.clone());
-                    merged.insert(row.key.clone(), row.clone());
-                }
-            }
-        }
-    }
-
-    let mut rows: Vec<FedRow> = if any_score {
-        // RRF: score each key by Σ 1/(k + rank) over every source list it appears in.
-        let rrf = rrf_scores(&healthy_lists);
-        let mut keyed: Vec<FedRow> = order
-            .into_iter()
-            .filter_map(|k| merged.remove(&k))
-            .collect();
-        keyed.sort_by(|a, b| {
-            let ra = rrf.get(&a.key).copied().unwrap_or(0.0);
-            let rb = rrf.get(&b.key).copied().unwrap_or(0.0);
-            rb.partial_cmp(&ra)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.key.cmp(&b.key))
-        });
-        keyed
-    } else {
-        order
-            .into_iter()
-            .filter_map(|k| merged.remove(&k))
-            .collect()
-    };
-
-    // Stamp the fused RRF score onto ranked rows so the caller sees the merged ranking.
-    if any_score {
-        let rrf = rrf_scores(&healthy_lists);
-        for row in rows.iter_mut() {
-            if let Some(s) = rrf.get(&row.key) {
-                row.score = Some(*s);
-            }
-        }
-    }
-
-    let partial = !failed_peers.is_empty();
-    FederatedResponse {
-        rows,
-        metadata: FederatedMetadata {
-            peers_queried,
-            failed_peers,
-            partial,
-            contributing_sources: contributing,
-        },
-    }
-}
-
-/// Reciprocal Rank Fusion score per key across the source ranked lists (CONCEPT:EG-KG.ontology.federation-client).
-/// Each list is taken in its given order; a key at 0-based `rank` in a list adds
-/// `1/(RRF_K + rank + 1)`; the per-key sum across lists is the fused score.
-fn rrf_scores(lists: &[Vec<FedRow>]) -> HashMap<String, f64> {
-    let mut scores: HashMap<String, f64> = HashMap::new();
-    for list in lists {
-        for (rank, row) in list.iter().enumerate() {
-            let contrib = 1.0 / (RRF_K + (rank as f64) + 1.0);
-            *scores.entry(row.key.clone()).or_insert(0.0) += contrib;
-        }
-    }
-    scores
-}
-
-// ── Schema-aware typed fusion for SQL + SPARQL (CONCEPT:EG-KG.query.schema-typed-fusion-sql) ────────────
-
-/// The schema field name a decoded partial carries for a given `lang` (CONCEPT:EG-KG.query.schema-typed-fusion-sql).
-/// SQL rows carry their column names under `"columns"`; SPARQL solutions carry their
-/// projected variables under `"vars"` (see [`decode_local_rows`]).
-fn typed_schema_field(lang: &str) -> &'static str {
-    match lang {
-        "sparql" => "vars",
-        _ => "columns",
-    }
-}
-/// `true` when a `lang` produces tabular partials that want schema-aware typed fusion
-/// rather than the ranked-search RRF merge (CONCEPT:EG-KG.query.schema-typed-fusion-sql).
-pub fn is_typed_lang(lang: &str) -> bool {
-    matches!(lang, "sql" | "sparql")
-}
-
-/// Pull `(column/variable names, cells)` out of a decoded [`FedRow::data`] payload
-/// (CONCEPT:EG-KG.query.schema-typed-fusion-sql). Reads the name list from `field` (`"columns"` / `"vars"`) and the
-/// values from `"cells"`; a missing/oddly-shaped payload yields empty vecs so the row is
-/// merged as an empty tuple rather than crashing the fusion.
-fn extract_schema_cells(
-    data: &serde_json::Value,
-    field: &str,
-) -> (Vec<String>, Vec<serde_json::Value>) {
-    let names = data
-        .get(field)
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .map(|v| match v {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => other.to_string(),
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let cells = data
-        .get("cells")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    (names, cells)
-}
-
-/// Reconcile one cell value to a canonical, type-aware token used for typed dedup
-/// (CONCEPT:EG-KG.query.schema-typed-fusion-sql). The intent is that logically-equal values compare equal ACROSS
-/// heterogeneous stores even when their JSON encodings differ:
-///
-/// * `null` → a single null token;
-/// * booleans → `b<true|false>`;
-/// * numbers → an integral value normalizes to `n<i64>` (so `30` and `30.0` fuse), a
-///   non-integral to `f<canonical-float>`;
-/// * strings that are an EXACT canonical rendering of a number reconcile to that number
-///   (so a SPARQL string cell `"30"` fuses with a SQL numeric cell `30`, while a
-///   non-canonical string like `"007"` or `"3.10"` is preserved as text to avoid a
-///   surprising merge);
-/// * arrays/objects → their compact JSON, so equal composite values still fuse.
-fn canonical_token(v: &serde_json::Value) -> String {
-    match v {
-        serde_json::Value::Null => "\u{0}null".to_string(),
-        serde_json::Value::Bool(b) => format!("b{b}"),
-        serde_json::Value::Number(n) => canonical_number_token(n),
-        serde_json::Value::String(s) => canonical_scalar_string_token(s),
-        other => format!("j{other}"),
-    }
-}
-
-/// Canonicalize a JSON number: integral values collapse to `n<i64>` so `30` and `30.0`
-/// (and a `u64`/`i64`/integral `f64` encoding of the same value) all fuse (CONCEPT:EG-KG.query.schema-typed-fusion-sql).
-fn canonical_number_token(n: &serde_json::Number) -> String {
-    if let Some(i) = n.as_i64() {
-        return format!("n{i}");
-    }
-    if let Some(u) = n.as_u64() {
-        return format!("n{u}");
-    }
-    if let Some(f) = n.as_f64() {
-        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
-            return format!("n{}", f as i64);
-        }
-        return format!("f{f}");
-    }
-    format!("f{n}")
-}
-
-/// Reconcile a string cell (CONCEPT:EG-KG.query.schema-typed-fusion-sql): if it is the EXACT canonical rendering of a
-/// number it fuses with the numeric encoding of that value; otherwise it stays text.
-fn canonical_scalar_string_token(s: &str) -> String {
-    if let Ok(i) = s.parse::<i64>() {
-        if i.to_string() == s {
-            return format!("n{i}");
-        }
-    }
-    if let Ok(f) = s.parse::<f64>() {
-        if f.is_finite() {
-            if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
-                let iv = f as i64;
-                if iv.to_string() == s {
-                    return format!("n{iv}");
-                }
-            } else if f.to_string() == s {
-                return format!("f{f}");
-            }
-        }
-    }
-    format!("s{s}")
-}
-
-/// Build the typed dedup identity for a row given its `name → value` map and the shared
-/// (sorted, order-independent) union schema (CONCEPT:EG-KG.query.schema-typed-fusion-sql). Iterating the union schema
-/// — not the peer's own column order — makes two peers that list the same columns in a
-/// different order produce the SAME key; a column a peer lacked contributes a `null` token
-/// so a short row fuses with a long row iff they agree on every shared column.
-fn typed_dedup_key(map: &HashMap<String, serde_json::Value>, sorted_schema: &[String]) -> String {
-    let mut parts = Vec::with_capacity(sorted_schema.len());
-    for name in sorted_schema {
-        let tok = map
-            .get(name)
-            .map(canonical_token)
-            .unwrap_or_else(|| canonical_token(&serde_json::Value::Null));
-        parts.push(format!("{name}={tok}"));
-    }
-    parts.join("\u{1f}")
-}
-
-/// Schema-aware typed fusion of SQL / SPARQL federated partials (CONCEPT:EG-KG.query.schema-typed-fusion-sql).
-///
-/// Replaces the hash-of-JSON union+dedup of [`merge_partials`] for tabular results with a
-/// schema-aware merge: it aligns columns/variables BY NAME across every healthy source
-/// into one union schema (first-seen column order), reconciles each cell to a canonical
-/// typed value, de-duplicates rows by that typed tuple, and re-projects every surviving
-/// row onto the union schema — filling a column the source lacked with `null`. Degraded
-/// sources contribute nothing but still flip `partial` + populate `failed_peers`, exactly
-/// as the ranked-search path does. Rows are unordered (no score / no RRF).
-pub fn merge_partials_typed(outcomes: Vec<PeerOutcome>, lang: &str) -> FederatedResponse {
-    let field = typed_schema_field(lang);
-    let mut peers_queried: Vec<String> = Vec::new();
-    let mut failed_peers: Vec<String> = Vec::new();
-    let mut contributing = 0usize;
-    let mut row_maps: Vec<HashMap<String, serde_json::Value>> = Vec::new();
-    let mut union_schema: Vec<String> = Vec::new();
-
-    for outcome in outcomes {
-        let is_local = outcome.source == "<local>";
-        if !is_local {
-            peers_queried.push(outcome.source.clone());
-        }
-        match outcome.rows {
-            Ok(rows) => {
-                contributing += 1;
-                for row in rows {
-                    let (names, cells) = extract_schema_cells(&row.data, field);
-                    let mut map: HashMap<String, serde_json::Value> = HashMap::new();
-                    for (i, name) in names.into_iter().enumerate() {
-                        if !union_schema.contains(&name) {
-                            union_schema.push(name.clone());
-                        }
-                        let val = cells.get(i).cloned().unwrap_or(serde_json::Value::Null);
-                        map.insert(name, val);
-                    }
-                    row_maps.push(map);
-                }
-            }
-            Err(_) => {
-                if !is_local {
-                    failed_peers.push(outcome.source);
-                }
-            }
-        }
-    }
-
-    // Dedup over the full union schema in a canonical (sorted) order so column ordering
-    // is irrelevant; preserve first-seen row order; project each survivor onto the union.
-    let mut sorted_schema = union_schema.clone();
-    sorted_schema.sort();
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut rows: Vec<FedRow> = Vec::new();
-    for map in &row_maps {
-        let key = typed_dedup_key(map, &sorted_schema);
-        if !seen.insert(key.clone()) {
-            continue;
-        }
-        let cells: Vec<serde_json::Value> = union_schema
-            .iter()
-            .map(|name| map.get(name).cloned().unwrap_or(serde_json::Value::Null))
-            .collect();
-        let data = serde_json::json!({ field: union_schema.clone(), "cells": cells });
-        rows.push(FedRow {
-            key,
-            score: None,
-            data,
-        });
-    }
-
-    let partial = !failed_peers.is_empty();
-    FederatedResponse {
-        rows,
-        metadata: FederatedMetadata {
-            peers_queried,
-            failed_peers,
-            partial,
-            contributing_sources: contributing,
-        },
     }
 }
 
@@ -921,7 +595,7 @@ pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
         };
         let state = state.clone();
         tokio::spawn(async move {
-            let (status, ctype, body) = match read_request(&mut stream).await {
+            let (status, ctype, body) = match http1::read_request(&mut stream, HTTP_LIMITS).await {
                 Some(req) => handle(&state, req).await,
                 None => (
                     "400 Bad Request",
@@ -939,72 +613,19 @@ pub async fn serve(listener: TcpListener, state: Arc<RwLock<ServerState>>) {
     }
 }
 
-/// A parsed HTTP request for the federated surface.
-struct HttpRequest {
-    method: String,
-    target: String,
-    body: String,
-}
-
-/// Read one HTTP/1.1 request (headers to the blank line, then `Content-Length` body).
-async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<HttpRequest> {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 4096];
-    let header_end = loop {
-        if let Some(pos) = find_subslice(&buf, b"\r\n\r\n") {
-            break pos;
-        }
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > 16 * 1024 * 1024 {
-            return None; // header flood guard
-        }
-    };
-    let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
-    let mut lines = head.split("\r\n");
-    let request_line = lines.next()?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next()?.to_string();
-    let target = parts.next()?.to_string();
-
-    let mut content_length = 0usize;
-    for line in lines {
-        if let Some((k, v)) = line.split_once(':') {
-            if k.trim().eq_ignore_ascii_case("content-length") {
-                content_length = v.trim().parse().unwrap_or(0);
-            }
-        }
-    }
-    let mut body = buf[header_end + 4..].to_vec();
-    while body.len() < content_length {
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            break;
-        }
-        body.extend_from_slice(&tmp[..n]);
-    }
-    if content_length > 0 && body.len() > content_length {
-        body.truncate(content_length);
-    }
-    Some(HttpRequest {
-        method,
-        target,
-        body: String::from_utf8_lossy(&body).to_string(),
-    })
-}
+/// The federated surface's framing bounds: a `{query, lang}` control body,
+/// never a payload.
+const HTTP_LIMITS: RequestLimits = RequestLimits {
+    max_head_bytes: 64 * 1024,
+    max_body_bytes: 1024 * 1024,
+};
 
 /// Route + execute a `/federated` request (CONCEPT:EG-KG.ontology.federation-client).
 async fn handle(
     state: &Arc<RwLock<ServerState>>,
-    req: HttpRequest,
+    req: HttpMessage,
 ) -> (&'static str, &'static str, String) {
-    let (path, query_string) = match req.target.split_once('?') {
-        Some((p, q)) => (p, q),
-        None => (req.target.as_str(), ""),
-    };
+    let (path, query_string) = req.path_and_query();
     if req.method == "OPTIONS" && path == "/federated" {
         return ("204 No Content", "application/json", String::new());
     }
@@ -1039,7 +660,7 @@ async fn handle(
     let local_only = query_string
         .split('&')
         .any(|kv| matches!(kv, "local=1" | "local=true"));
-    let body: serde_json::Value = match serde_json::from_str(&req.body) {
+    let body: serde_json::Value = match serde_json::from_str(&req.text()) {
         Ok(v) => v,
         Err(e) => {
             return (
@@ -1079,14 +700,6 @@ async fn handle(
         },
     });
     ("200 OK", "application/json", out.to_string())
-}
-
-/// Locate a byte subslice (header-terminator scan).
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() || haystack.len() < needle.len() {
-        return None;
-    }
-    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 #[cfg(test)]
@@ -1202,6 +815,42 @@ mod tests {
         assert_eq!(merged.metadata.failed_peers, vec!["https://dead.example"]);
         assert_eq!(merged.metadata.peers_queried, vec!["https://dead.example"]);
         assert_eq!(merged.metadata.contributing_sources, 1);
+    }
+
+    #[test]
+    fn eg243_merge_keeps_peer_error_and_source_order() {
+        let local = PeerOutcome {
+            source: "<local>".to_string(),
+            rows: Ok(vec![row("local", None)]),
+        };
+        let first_dead = PeerOutcome {
+            source: "https://first-dead.example".to_string(),
+            rows: Err("timeout".to_string()),
+        };
+        let second_dead = PeerOutcome {
+            source: "https://second-dead.example".to_string(),
+            rows: Err("refused".to_string()),
+        };
+
+        let merged = merge_partials(vec![local, first_dead, second_dead]);
+
+        assert_eq!(
+            merged
+                .rows
+                .iter()
+                .map(|r| r.key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["local"]
+        );
+        assert_eq!(
+            merged.metadata.peers_queried,
+            vec![
+                "https://first-dead.example".to_string(),
+                "https://second-dead.example".to_string()
+            ]
+        );
+        assert_eq!(merged.metadata.peers_queried, merged.metadata.failed_peers);
+        assert!(merged.metadata.partial);
     }
 
     #[test]
@@ -1386,28 +1035,6 @@ mod tests {
             serde_json::json!(["alice", 30, null])
         );
         assert!(!merged.metadata.partial);
-    }
-
-    #[test]
-    fn eg309_typed_dedup_reconciles_numeric_string_and_number() {
-        // A SQL numeric cell `30` and a SPARQL-style string cell `"30"` reconcile as the
-        // same typed value; a non-canonical numeric string like `"007"` does NOT.
-        assert_eq!(
-            canonical_token(&serde_json::json!(30)),
-            canonical_token(&serde_json::json!("30"))
-        );
-        assert_eq!(
-            canonical_token(&serde_json::json!(30.0)),
-            canonical_token(&serde_json::json!(30))
-        );
-        assert_ne!(
-            canonical_token(&serde_json::json!("007")),
-            canonical_token(&serde_json::json!(7))
-        );
-        assert_ne!(
-            canonical_token(&serde_json::json!("alice")),
-            canonical_token(&serde_json::json!("bob"))
-        );
     }
 
     #[test]

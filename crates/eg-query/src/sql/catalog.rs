@@ -26,7 +26,7 @@
 //!     `pg_index` (shaped, empty), `pg_proc` (the EG-118 SQL functions), `pg_database`,
 //!     `pg_settings` (minimal).
 //!   * **`information_schema`** — `tables`, `columns`, `schemata`, `views`, `routines`,
-//!     `key_column_usage` (minimal), `table_constraints` (minimal). DataFusion's NATIVE
+//!     `property_graphs`, `pg_element_tables`, `key_column_usage` (minimal), `table_constraints` (minimal). DataFusion's NATIVE
 //!     `information_schema` is disabled in the exec builder because it cannot be extended
 //!     with `routines`/`key_column_usage`/`table_constraints`; synthesizing the whole
 //!     schema keeps it consistent with `pg_catalog` and in sync with the schema-on-read
@@ -52,7 +52,7 @@ use datafusion::logical_expr::{
 };
 use datafusion::prelude::SessionContext;
 
-use crate::tables::StoredFunction;
+use crate::tables::{PropertyGraphCatalogRecord, SqlName, StoredFunction};
 
 /// The OID we synthesize for the single user schema (`public`). Drivers only use OIDs
 /// to JOIN catalog rows together, so a stable arbitrary value is sufficient.
@@ -263,37 +263,105 @@ async fn collect_relations(
 /// schema-qualified TABLE references (`pg_catalog.pg_class`, NOT followed by `(`) are
 /// left intact and still resolve via the synthesized schema provider. Case-insensitive
 /// on the `pg_catalog.` prefix.
-pub(crate) fn strip_pg_catalog_fn_qualifier(sql: &str) -> String {
-    const PREFIX: &str = "pg_catalog.";
-    let lower = sql.to_ascii_lowercase();
+const PG_CATALOG_PREFIX: &str = "pg_catalog.";
+
+/// The end offset of the identifier in a `pg_catalog.<ident>` FUNCTION CALL starting at
+/// `i` — only when that identifier is followed, past whitespace, by `(`. `None` otherwise,
+/// so a `pg_catalog.<table>` reference keeps its qualifier. `lower` is `sql` lowercased.
+fn pg_catalog_call_ident_end(sql: &str, lower: &str, i: usize) -> Option<usize> {
+    if !lower[i..].starts_with(PG_CATALOG_PREFIX) {
+        return None;
+    }
     let bytes = sql.as_bytes();
+    let id_start = i + PG_CATALOG_PREFIX.len();
+    let mut end = id_start;
+    while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+        end += 1;
+    }
+    if end == id_start {
+        return None;
+    }
+    let mut paren = end;
+    while paren < bytes.len() && bytes[paren].is_ascii_whitespace() {
+        paren += 1;
+    }
+    (paren < bytes.len() && bytes[paren] == b'(').then_some(end)
+}
+
+pub(crate) fn strip_pg_catalog_fn_qualifier(sql: &str) -> String {
+    let lower = sql.to_ascii_lowercase();
     let mut out = String::with_capacity(sql.len());
     let mut i = 0usize;
     while i < sql.len() {
-        if lower[i..].starts_with(PREFIX) {
-            let id_start = i + PREFIX.len();
-            let mut j = id_start;
-            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
-                j += 1;
-            }
-            if j > id_start {
-                // Peek past whitespace for a `(` — only then is it a function call.
-                let mut k = j;
-                while k < bytes.len() && bytes[k].is_ascii_whitespace() {
-                    k += 1;
-                }
-                if k < bytes.len() && bytes[k] == b'(' {
-                    out.push_str(&sql[id_start..j]);
-                    i = j;
-                    continue;
-                }
-            }
+        if let Some(end) = pg_catalog_call_ident_end(sql, &lower, i) {
+            out.push_str(&sql[i + PG_CATALOG_PREFIX.len()..end]);
+            i = end;
+            continue;
         }
         let ch = sql[i..].chars().next().unwrap();
         out.push(ch);
         i += ch.len_utf8();
     }
     out
+}
+
+/// `pg_index`: shaped but empty (CONCEPT:EG-KG.query.route-create-view-create). The engine's secondary indexes are
+/// implicit (index-pushdown providers), not first-class `pg_index` rows; an empty table
+/// is the faithful "no user-visible indexes" answer and keeps a `\d`-style join running.
+static PG_INDEX_COLUMNS: [(&str, DataType); 7] = [
+    ("indexrelid", DataType::Int32),
+    ("indrelid", DataType::Int32),
+    ("indnatts", DataType::Int32),
+    ("indisunique", DataType::Boolean),
+    ("indisprimary", DataType::Boolean),
+    ("indisclustered", DataType::Boolean),
+    ("indkey", DataType::Utf8),
+];
+
+/// `information_schema.key_column_usage`: shaped but empty (minimal, CONCEPT:EG-KG.query.route-create-view-create).
+/// PK/UNIQUE constraint metadata lives in the redb table store (not threaded into the
+/// per-query catalog build); an empty-but-shaped table keeps a reflect query running.
+static INFO_KEY_COLUMN_USAGE_COLUMNS: [(&str, DataType); 8] = [
+    ("constraint_catalog", DataType::Utf8),
+    ("constraint_schema", DataType::Utf8),
+    ("constraint_name", DataType::Utf8),
+    ("table_catalog", DataType::Utf8),
+    ("table_schema", DataType::Utf8),
+    ("table_name", DataType::Utf8),
+    ("column_name", DataType::Utf8),
+    ("ordinal_position", DataType::Int32),
+];
+
+/// `information_schema.table_constraints`: shaped but empty (minimal, CONCEPT:EG-KG.query.route-create-view-create).
+static INFO_TABLE_CONSTRAINTS_COLUMNS: [(&str, DataType); 7] = [
+    ("constraint_catalog", DataType::Utf8),
+    ("constraint_schema", DataType::Utf8),
+    ("constraint_name", DataType::Utf8),
+    ("table_catalog", DataType::Utf8),
+    ("table_schema", DataType::Utf8),
+    ("table_name", DataType::Utf8),
+    ("constraint_type", DataType::Utf8),
+];
+
+/// A catalog relation that is SHAPED but always empty: the column list is the whole
+/// payload, and the zero-row batch is the same construction for every one of them.
+fn empty_catalog_batch(
+    what: &str,
+    columns: &[(&str, DataType)],
+) -> Result<(SchemaRef, RecordBatch), String> {
+    let schema = Arc::new(Schema::new(
+        columns
+            .iter()
+            .map(|(name, ty)| Field::new(*name, ty.clone(), false))
+            .collect::<Vec<_>>(),
+    ));
+    let arrays = columns
+        .iter()
+        .map(|(_, ty)| arrow::array::new_empty_array(ty))
+        .collect::<Vec<_>>();
+    RecordBatch::try_new(schema.clone(), arrays)
+        .map(|b| (schema, b))
+        .map_err(|e| format!("{what} batch: {e}"))
 }
 
 // ── pg_catalog tables ─────────────────────────────────────────────────────────
@@ -447,35 +515,6 @@ fn pg_type_batch() -> Result<(SchemaRef, RecordBatch), String> {
     )
     .map(|b| (schema, b))
     .map_err(|e| format!("pg_type batch: {e}"))
-}
-
-/// `pg_index`: shaped but empty (CONCEPT:EG-KG.query.route-create-view-create). The engine's secondary indexes are
-/// implicit (index-pushdown providers), not first-class `pg_index` rows; an empty table
-/// is the faithful "no user-visible indexes" answer and keeps a `\d`-style join running.
-fn pg_index_batch() -> Result<(SchemaRef, RecordBatch), String> {
-    let schema = Arc::new(Schema::new(vec![
-        Field::new("indexrelid", DataType::Int32, false),
-        Field::new("indrelid", DataType::Int32, false),
-        Field::new("indnatts", DataType::Int32, false),
-        Field::new("indisunique", DataType::Boolean, false),
-        Field::new("indisprimary", DataType::Boolean, false),
-        Field::new("indisclustered", DataType::Boolean, false),
-        Field::new("indkey", DataType::Utf8, false),
-    ]));
-    RecordBatch::try_new(
-        schema.clone(),
-        vec![
-            Arc::new(Int32Array::from(Vec::<i32>::new())),
-            Arc::new(Int32Array::from(Vec::<i32>::new())),
-            Arc::new(Int32Array::from(Vec::<i32>::new())),
-            Arc::new(BooleanArray::from(Vec::<bool>::new())),
-            Arc::new(BooleanArray::from(Vec::<bool>::new())),
-            Arc::new(BooleanArray::from(Vec::<bool>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-        ],
-    )
-    .map(|b| (schema, b))
-    .map_err(|e| format!("pg_index batch: {e}"))
 }
 
 /// `pg_proc`: one row per durable SQL stored function (CONCEPT:EG-KG.query.create-drop-function). `prokind='f'`;
@@ -765,62 +804,143 @@ fn info_routines_batch(functions: &[StoredFunction]) -> Result<(SchemaRef, Recor
     .map_err(|e| format!("information_schema.routines batch: {e}"))
 }
 
-/// `information_schema.key_column_usage`: shaped but empty (minimal, CONCEPT:EG-KG.query.route-create-view-create).
-/// PK/UNIQUE constraint metadata lives in the redb table store (not threaded into the
-/// per-query catalog build); an empty-but-shaped table keeps a reflect query running.
-fn info_key_column_usage_batch() -> Result<(SchemaRef, RecordBatch), String> {
+/// `information_schema.property_graphs`: one row per admitted property graph.
+///
+/// This is the EG-local SQL/PGQ subset. A missing three-part catalog is emitted
+/// as an empty string; an unqualified property-graph name has already resolved
+/// to the `public` schema in its admitted catalog record.
+fn info_property_graphs_batch(
+    records: &[PropertyGraphCatalogRecord],
+) -> Result<(SchemaRef, RecordBatch), String> {
     let schema = Arc::new(Schema::new(vec![
-        Field::new("constraint_catalog", DataType::Utf8, false),
-        Field::new("constraint_schema", DataType::Utf8, false),
-        Field::new("constraint_name", DataType::Utf8, false),
-        Field::new("table_catalog", DataType::Utf8, false),
-        Field::new("table_schema", DataType::Utf8, false),
-        Field::new("table_name", DataType::Utf8, false),
-        Field::new("column_name", DataType::Utf8, false),
-        Field::new("ordinal_position", DataType::Int32, false),
+        Field::new("property_graph_catalog", DataType::Utf8, false),
+        Field::new("property_graph_schema", DataType::Utf8, false),
+        Field::new("property_graph_name", DataType::Utf8, false),
     ]));
+    let catalogs: Vec<String> = records
+        .iter()
+        .map(|record| {
+            record
+                .name
+                .catalog
+                .as_ref()
+                .map(|catalog| catalog.value().to_string())
+                .unwrap_or_default()
+        })
+        .collect();
+    let schemas: Vec<String> = records
+        .iter()
+        .map(|record| record.name.schema.value().to_string())
+        .collect();
+    let names: Vec<String> = records
+        .iter()
+        .map(|record| record.name.object.value().to_string())
+        .collect();
     RecordBatch::try_new(
         schema.clone(),
         vec![
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(Int32Array::from(Vec::<i32>::new())),
+            Arc::new(StringArray::from(catalogs)),
+            Arc::new(StringArray::from(schemas)),
+            Arc::new(StringArray::from(names)),
         ],
     )
     .map(|b| (schema, b))
-    .map_err(|e| format!("information_schema.key_column_usage batch: {e}"))
+    .map_err(|e| format!("information_schema.property_graphs batch: {e}"))
 }
 
-/// `information_schema.table_constraints`: shaped but empty (minimal, CONCEPT:EG-KG.query.route-create-view-create).
-fn info_table_constraints_batch() -> Result<(SchemaRef, RecordBatch), String> {
+/// Resolve an admitted relation name into its catalog/schema/object columns.
+/// Admission canonicalizes unqualified element relations to `public`, but the
+/// explicit defaults here keep the projection total for records from any
+/// valid catalog revision.
+fn relation_catalog_parts(name: &SqlName) -> (String, String, String) {
+    match name.0.as_slice() {
+        [object] => (
+            String::new(),
+            "public".to_string(),
+            object.value().to_string(),
+        ),
+        [schema, object] => (
+            String::new(),
+            schema.value().to_string(),
+            object.value().to_string(),
+        ),
+        [catalog, schema, object] => (
+            catalog.value().to_string(),
+            schema.value().to_string(),
+            object.value().to_string(),
+        ),
+        _ => unreachable!("validated SQL relation name has one to three parts"),
+    }
+}
+
+/// `information_schema.pg_element_tables`: one row for each admitted vertex or
+/// edge element table in each property graph.
+fn info_pg_element_tables_batch(
+    records: &[PropertyGraphCatalogRecord],
+) -> Result<(SchemaRef, RecordBatch), String> {
     let schema = Arc::new(Schema::new(vec![
-        Field::new("constraint_catalog", DataType::Utf8, false),
-        Field::new("constraint_schema", DataType::Utf8, false),
-        Field::new("constraint_name", DataType::Utf8, false),
-        Field::new("table_catalog", DataType::Utf8, false),
-        Field::new("table_schema", DataType::Utf8, false),
-        Field::new("table_name", DataType::Utf8, false),
-        Field::new("constraint_type", DataType::Utf8, false),
+        Field::new("property_graph_catalog", DataType::Utf8, false),
+        Field::new("property_graph_schema", DataType::Utf8, false),
+        Field::new("property_graph_name", DataType::Utf8, false),
+        Field::new("element_table_catalog", DataType::Utf8, false),
+        Field::new("element_table_schema", DataType::Utf8, false),
+        Field::new("element_table_name", DataType::Utf8, false),
+        Field::new("element_table_kind", DataType::Utf8, false),
     ]));
+    let mut graph_catalogs = Vec::new();
+    let mut graph_schemas = Vec::new();
+    let mut graph_names = Vec::new();
+    let mut table_catalogs = Vec::new();
+    let mut table_schemas = Vec::new();
+    let mut table_names = Vec::new();
+    let mut table_kinds = Vec::new();
+
+    for record in records {
+        let graph_catalog = record
+            .name
+            .catalog
+            .as_ref()
+            .map(|catalog| catalog.value().to_string())
+            .unwrap_or_default();
+        let graph_schema = record.name.schema.value().to_string();
+        let graph_name = record.name.object.value().to_string();
+        for (kind, relation) in record
+            .accepted_definition
+            .vertex_tables
+            .iter()
+            .map(|table| ("VERTEX", &table.relation))
+            .chain(
+                record
+                    .accepted_definition
+                    .edge_tables
+                    .iter()
+                    .map(|table| ("EDGE", &table.relation)),
+            )
+        {
+            let (table_catalog, table_schema, table_name) = relation_catalog_parts(relation);
+            graph_catalogs.push(graph_catalog.clone());
+            graph_schemas.push(graph_schema.clone());
+            graph_names.push(graph_name.clone());
+            table_catalogs.push(table_catalog);
+            table_schemas.push(table_schema);
+            table_names.push(table_name);
+            table_kinds.push(kind);
+        }
+    }
     RecordBatch::try_new(
         schema.clone(),
         vec![
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
-            Arc::new(StringArray::from(Vec::<&str>::new())),
+            Arc::new(StringArray::from(graph_catalogs)),
+            Arc::new(StringArray::from(graph_schemas)),
+            Arc::new(StringArray::from(graph_names)),
+            Arc::new(StringArray::from(table_catalogs)),
+            Arc::new(StringArray::from(table_schemas)),
+            Arc::new(StringArray::from(table_names)),
+            Arc::new(StringArray::from(table_kinds)),
         ],
     )
     .map(|b| (schema, b))
-    .map_err(|e| format!("information_schema.table_constraints batch: {e}"))
+    .map_err(|e| format!("information_schema.pg_element_tables batch: {e}"))
 }
 
 // ── catalog scalar functions ──────────────────────────────────────────────────
@@ -1064,6 +1184,7 @@ pub(crate) async fn register_system_catalogs(
     user_relations: &[(String, SchemaRef)],
     views: &[(String, String)],
     functions: &[StoredFunction],
+    property_graphs: &[PropertyGraphCatalogRecord],
 ) -> Result<(), String> {
     let rels = collect_relations(ctx, nodes_schema, edges_schema, user_relations, views).await;
 
@@ -1077,7 +1198,11 @@ pub(crate) async fn register_system_catalogs(
     register_syscat_table(&pg_schema, "pg_class", pg_class_batch(&rels)?)?;
     register_syscat_table(&pg_schema, "pg_attribute", pg_attribute_batch(&rels)?)?;
     register_syscat_table(&pg_schema, "pg_type", pg_type_batch()?)?;
-    register_syscat_table(&pg_schema, "pg_index", pg_index_batch()?)?;
+    register_syscat_table(
+        &pg_schema,
+        "pg_index",
+        empty_catalog_batch("pg_index", &PG_INDEX_COLUMNS)?,
+    )?;
     register_syscat_table(&pg_schema, "pg_proc", pg_proc_batch(functions)?)?;
     register_syscat_table(&pg_schema, "pg_database", pg_database_batch()?)?;
     register_syscat_table(&pg_schema, "pg_settings", pg_settings_batch()?)?;
@@ -1094,13 +1219,29 @@ pub(crate) async fn register_system_catalogs(
     register_syscat_table(&info_schema, "routines", info_routines_batch(functions)?)?;
     register_syscat_table(
         &info_schema,
+        "property_graphs",
+        info_property_graphs_batch(property_graphs)?,
+    )?;
+    register_syscat_table(
+        &info_schema,
+        "pg_element_tables",
+        info_pg_element_tables_batch(property_graphs)?,
+    )?;
+    register_syscat_table(
+        &info_schema,
         "key_column_usage",
-        info_key_column_usage_batch()?,
+        empty_catalog_batch(
+            "information_schema.key_column_usage",
+            &INFO_KEY_COLUMN_USAGE_COLUMNS,
+        )?,
     )?;
     register_syscat_table(
         &info_schema,
         "table_constraints",
-        info_table_constraints_batch()?,
+        empty_catalog_batch(
+            "information_schema.table_constraints",
+            &INFO_TABLE_CONSTRAINTS_COLUMNS,
+        )?,
     )?;
     catalog
         .register_schema("information_schema", info_schema)

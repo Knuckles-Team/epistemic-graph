@@ -183,6 +183,51 @@ impl std::fmt::Debug for LoadedVoice {
 /// seam analogous to `cpu_budget.rs` is not needed here: this crate cannot
 /// oversubscribe a constrained cgroup because it never sizes a thread pool from the
 /// (BUG-283-blind) host CPU count in the first place.
+/// Refuse to enter `ort` when no ONNX Runtime can possibly be loaded.
+///
+/// The `ort-load-dynamic` feature sets `ort-sys/disable-linking`, so NOTHING is
+/// linked at build time and `ort` must `dlopen` a library named by
+/// `ORT_DYLIB_PATH` (see this crate's `Cargo.toml`). When that variable is unset
+/// -- which is what a plain `--all-features` build produces, because
+/// `--all-features` turns this feature ON -- `ort::setup_api` fails.
+///
+/// `ort` 2.0.0-rc.12 does not REPORT that failure. Constructing the error
+/// re-enters the same `OnceLock` that is still mid-initialization, so
+/// `Once::call` blocks on itself and the process hangs forever at 0% CPU with no
+/// diagnostic. Observed stack, outermost first:
+///
+/// ```text
+/// EnvironmentBuilder::create_environment -> OnceLock::try_init_inner
+///   -> ort::setup_api                    -> OnceLock::try_init_inner
+///     -> ort::error::Error::new_internal -> OnceLock::try_init_inner  (blocks)
+/// ```
+///
+/// This crate's `Cargo.toml` already records the same reentrant-lock defect for
+/// the API-version-MISMATCH case; it fires identically when there is no library
+/// at all. The hang is worse than the missing capability, because a wedged test
+/// binary is indistinguishable from a slow one -- it silently truncated every
+/// full workspace test run in this repository without ever reporting a failure.
+///
+/// So check the one precondition `ort` cannot report on, and fail closed with a
+/// reason, which is this crate's contract everywhere else.
+fn require_onnx_runtime_available() -> Result<(), TtsError> {
+    #[cfg(feature = "ort-load-dynamic")]
+    match std::env::var_os("ORT_DYLIB_PATH") {
+        Some(path) if std::path::Path::new(&path).is_file() => {}
+        Some(_) => {
+            return Err(TtsError::ModelUnavailable {
+                reason: "ORT_DYLIB_PATH does not name a readable onnxruntime shared library",
+            })
+        }
+        None => {
+            return Err(TtsError::ModelUnavailable {
+                reason: "ort-load-dynamic build requires ORT_DYLIB_PATH to name an onnxruntime shared library",
+            })
+        }
+    }
+    Ok(())
+}
+
 fn build_portable_onnx_session(model_path: &Path) -> ort::Result<ort::session::Session> {
     let mut builder = ort::session::Session::builder()?
         .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Disable)?
@@ -196,6 +241,9 @@ impl LoadedVoice {
     /// [`verify_voice_digests`] first — this function does not re-check digests, only
     /// shape/compatibility.
     pub fn load(paths: &VoicePaths) -> Result<Self, TtsError> {
+        // Before any file read or runtime call: without a loadable runtime,
+        // `ort` hangs instead of erroring.
+        require_onnx_runtime_available()?;
         let config_bytes =
             fs::read(&paths.config_path).map_err(|_| TtsError::ModelUnavailable {
                 reason: "voice config file could not be read",

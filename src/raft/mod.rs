@@ -859,6 +859,7 @@ mod sanitized_modality_command_tests {
             crate::server::mutation_batch::CompileBatch {
                 batch_id: "opaque-batch",
                 request_id: 1,
+                attempt_nonce: None,
                 principal: Some("principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
                 tenant: "opaque-tenant",
                 graph: "opaque-graph",
@@ -923,6 +924,10 @@ pub struct RaftRequest {
 pub struct RaftMutationContext {
     pub batch_id: String,
     pub request_id: u64,
+    /// Authenticated transport nonce carried into the mutation envelope on the
+    /// state-machine apply path. Internal control-plane entries leave this
+    /// absent; replicated caller mutations must preserve it end to end.
+    pub attempt_nonce: Option<eg_types::contract::Nonce>,
     /// Opaque tenant scope derived from the verified carrier. Raw tenant names are
     /// never copied into consensus or MutationBatch authority.
     pub tenant_scope: String,
@@ -944,6 +949,7 @@ impl RaftMutationContext {
     pub(crate) fn from_verified_request(
         batch_id: String,
         request_id: u64,
+        attempt_nonce: Option<eg_types::contract::Nonce>,
         tenant_scope: &str,
         principal_fingerprint: String,
         identity_bootstrap: bool,
@@ -954,6 +960,7 @@ impl RaftMutationContext {
         let context = Self {
             batch_id,
             request_id,
+            attempt_nonce,
             tenant_scope: tenant_scope.to_string(),
             principal_fingerprint,
             identity_bootstrap,
@@ -987,6 +994,7 @@ impl RaftMutationContext {
                 coordinator_id,
             ),
             request_id,
+            attempt_nonce: None,
             tenant_scope: Self::internal_tenant_scope(),
             principal_fingerprint: crate::server::mutation_batch::opaque_coordinator_key(
                 "principal:sha256",
@@ -1209,9 +1217,21 @@ pub struct RaftResponse {
     /// Present only for an engine-native ChangeEnvelope entry.
     #[serde(deserialize_with = "deserialize_required_option")]
     pub change_envelope_commit: Option<crate::change_envelope::ChangeEnvelopeCommit>,
-    /// Exact result produced by a bounded engine-native state-machine command.
+    /// Exact result produced by a bounded engine-native state-machine command or
+    /// an ordinary atomic graph method whose apply result is part of its
+    /// consensus contract (for example, a CAS or create-if-absent).
     #[serde(deserialize_with = "deserialize_required_option")]
     pub native_result: Option<crate::protocol::ResultPayload>,
+    /// Exact durable MutationBatch receipt for a command whose caller needs
+    /// the committed identity and replay marker in addition to its terminal
+    /// result.  The field is optional so older Raft responses remain readable;
+    /// a receipt is never reconstructed from `applied` or `native_result`.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_required_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub native_commit: Option<crate::mutation_batch::MutationBatchCommit>,
     /// Deterministic domain rejection produced while applying a committed command.
     /// Transport/internal errors still fail the state machine rather than entering
     /// this field.
@@ -1229,6 +1249,7 @@ impl Default for RaftResponse {
             applied: false,
             change_envelope_commit: None,
             native_result: None,
+            native_commit: None,
             native_error: None,
             projection_pending: false,
         }
@@ -1246,7 +1267,210 @@ impl RaftResponse {
         if self.native_result.is_some() && self.native_error.is_some() {
             return Err("Raft native response cannot contain both result and error".to_string());
         }
+        if self.native_commit.is_some() && self.native_error.is_some() {
+            return Err("Raft native response cannot contain both commit and error".to_string());
+        }
+        if self.change_envelope_commit.is_some()
+            && (self.native_result.is_some() || self.native_commit.is_some())
+        {
+            return Err(
+                "Raft response cannot contain both change-envelope and native receipts".to_string(),
+            );
+        }
+        if let Some(commit) = &self.native_commit {
+            if !self.applied {
+                return Err("Raft native commit receipt requires applied=true".to_string());
+            }
+            commit
+                .validate()
+                .map_err(|error| format!("Raft native commit receipt is invalid: {error}"))?;
+            let durable_result = commit
+                .record
+                .result_msgpack
+                .as_deref()
+                .filter(|bytes| !bytes.is_empty())
+                .ok_or_else(|| {
+                    "Raft native commit receipt is missing its terminal result".to_string()
+                })?;
+            rmp_serde::from_slice::<crate::protocol::ResultPayload>(durable_result).map_err(
+                |_| "Raft native commit receipt has an invalid terminal result".to_string(),
+            )?;
+            if let Some(result) = &self.native_result {
+                let encoded = rmp_serde::to_vec_named(result)
+                    .map_err(|error| format!("Raft native result cannot be encoded: {error}"))?;
+                if durable_result != encoded.as_slice() {
+                    return Err(
+                        "Raft native result does not match its durable commit receipt".to_string(),
+                    );
+                }
+            }
+        }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod raft_response_receipt_tests {
+    use super::*;
+
+    fn cas_receipt(replayed: bool) -> crate::mutation_batch::MutationBatchCommit {
+        let conditions = rmp_serde::to_vec_named(&serde_json::json!({"epoch": 0})).unwrap();
+        let updates = rmp_serde::to_vec_named(&serde_json::json!({"epoch": 1})).unwrap();
+        let batch = crate::server::mutation_batch::compile_methods(
+            crate::server::mutation_batch::CompileBatch {
+                batch_id: "raft-receipt-cas",
+                request_id: 7,
+                attempt_nonce: None,
+                principal: Some("receipt-test-principal"),
+                tenant: "receipt-tenant",
+                graph: "receipt-graph",
+                placement_epoch: 0,
+                idempotency_key: "raft-receipt-cas",
+                expected_graph_version: Some(0),
+                fencing_token: None,
+                created_at_ms: 11,
+                default_surface: crate::mutation_batch::MutationSurface::Graph,
+                authoritative_state: None,
+            },
+            vec![crate::protocol::Method::CompareAndSetNodeFields {
+                node_id: "reservation".to_string(),
+                conditions_msgpack: conditions,
+                updates_msgpack: updates,
+            }],
+        )
+        .unwrap();
+        let identity = batch.identity.clone();
+        let record = crate::mutation_batch::MutationBatchRecord {
+            batch,
+            identity: identity.clone(),
+            status: crate::mutation_batch::MutationBatchStatus::Committed,
+            committed_version: crate::mutation_batch::CommittedVersion::Graph {
+                source: 0,
+                target: 1,
+            },
+            result_msgpack: Some(
+                rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(false)).unwrap(),
+            ),
+            committed_at_ms: 11,
+        };
+        let commit = crate::mutation_batch::MutationBatchCommit {
+            record,
+            identity,
+            replayed,
+        };
+        commit.validate().unwrap();
+        commit
+    }
+
+    #[test]
+    fn native_commit_round_trips_fresh_replay_and_false_result() {
+        for replayed in [false, true] {
+            let response = RaftResponse {
+                applied: true,
+                native_result: Some(crate::protocol::ResultPayload::Bool(false)),
+                native_commit: Some(cas_receipt(replayed)),
+                ..Default::default()
+            };
+            response.validate().unwrap();
+            let encoded = rmp_serde::to_vec_named(&response).unwrap();
+            let decoded: RaftResponse = rmp_serde::from_slice(&encoded).unwrap();
+            assert!(matches!(
+                decoded.native_result,
+                Some(crate::protocol::ResultPayload::Bool(false))
+            ));
+            assert_eq!(
+                decoded.native_commit.as_ref().map(|commit| commit.replayed),
+                Some(replayed)
+            );
+            assert!(decoded.native_commit.is_some());
+        }
+    }
+
+    #[test]
+    fn native_commit_validation_rejects_inconsistent_envelopes() {
+        let commit = cas_receipt(false);
+        let mut response = RaftResponse {
+            applied: false,
+            native_commit: Some(commit.clone()),
+            ..Default::default()
+        };
+        let error = response
+            .validate()
+            .expect_err("a durable receipt cannot claim an unapplied response");
+        assert!(error.contains("applied=true"), "{error}");
+
+        response.applied = true;
+        response.native_result = Some(crate::protocol::ResultPayload::Bool(true));
+        let error = response
+            .validate()
+            .expect_err("the wire result cannot disagree with the durable false receipt");
+        assert!(error.contains("does not match"), "{error}");
+
+        response.native_result = Some(crate::protocol::ResultPayload::Bool(false));
+        response.change_envelope_commit = Some(crate::change_envelope::ChangeEnvelopeCommit {
+            envelope_id: "envelope".to_string(),
+            batch_id: "batch".to_string(),
+            content_version: crate::change_envelope::ContentVersion {
+                object_id: "object".to_string(),
+                digest_algorithm: "sha256".to_string(),
+                digest: "a".repeat(64),
+                previous_digest: None,
+                source_version: crate::change_envelope::ContentVersionPosition::Sequence(1),
+            },
+            cursor: None,
+            outbox_count: 0,
+            replayed: false,
+        });
+        let error = response
+            .validate()
+            .expect_err("native and change-envelope receipts are separate response families");
+        assert!(error.contains("both change-envelope and native"), "{error}");
+    }
+
+    #[test]
+    fn native_commit_validation_rejects_missing_or_corrupt_terminal_result() {
+        for result_msgpack in [None, Some(Vec::new()), Some(vec![0xc1])] {
+            let mut commit = cas_receipt(false);
+            commit.record.result_msgpack = result_msgpack;
+            let response = RaftResponse {
+                applied: true,
+                native_commit: Some(commit),
+                ..Default::default()
+            };
+            let error = response
+                .validate()
+                .expect_err("a native receipt must carry a decodable terminal result");
+            assert!(error.contains("terminal result"), "{error}");
+        }
+    }
+
+    #[test]
+    fn legacy_response_defaults_native_commit_to_none() {
+        #[derive(Serialize)]
+        struct LegacyRaftResponse {
+            schema_version: u16,
+            applied: bool,
+            change_envelope_commit: Option<crate::change_envelope::ChangeEnvelopeCommit>,
+            native_result: Option<crate::protocol::ResultPayload>,
+            native_error: Option<String>,
+            projection_pending: bool,
+        }
+
+        let encoded = rmp_serde::to_vec_named(&LegacyRaftResponse {
+            schema_version: RAFT_RESPONSE_SCHEMA_VERSION,
+            applied: true,
+            change_envelope_commit: None,
+            native_result: Some(crate::protocol::ResultPayload::Bool(true)),
+            native_error: None,
+            projection_pending: false,
+        })
+        .unwrap();
+        let decoded: RaftResponse = rmp_serde::from_slice(&encoded).unwrap();
+        assert!(decoded.native_commit.is_none());
+        assert!(matches!(
+            decoded.native_result,
+            Some(crate::protocol::ResultPayload::Bool(true))
+        ));
     }
 }
 

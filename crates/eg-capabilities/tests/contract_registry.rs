@@ -67,7 +67,7 @@ fn descriptor_ids() -> Vec<String> {
 }
 
 /// The bijection can only hold under the CANONICAL profile, and that is a property of the
-/// two sides, not a convenience: the text scan is cfg-BLIND (it sees all 408 variants,
+/// two sides, not a convenience: the text scan is cfg-BLIND (it sees all 410 variants,
 /// 139 of them behind a `#[cfg(feature = ...)]`) while `method_descriptors()` is
 /// cfg-CONDITIONAL (7 rows behind `jobs`/`statechart`/`knowledge-batch`/
 /// `modality-serving`/`quantum`/`asr-native`/`viz`). `canonical-ledger` selects exactly
@@ -98,7 +98,7 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     );
     assert_eq!(
         variants.len(),
-        408,
+        410,
         "the wire method census changed; update this exact count deliberately"
     );
 }

@@ -9,6 +9,15 @@
 //! the data lives at the bottom of the DAG, the logic stays where it belongs.
 
 pub mod acl;
+// RF-020 — durable Agent Library identity and mutation-context contracts. The
+// physical table and transaction adapter live above this pure-data crate.
+pub mod agent_component;
+pub mod agent_graph;
+pub mod agent_library;
+pub mod agent_ontology;
+pub mod agent_template;
+// RF-020 — typed Agent Library delegation admission/result currency.
+pub mod delegation;
 // CONCEPT:EG-KG.compute.native-asr-whisper-provider — the native-ASR agent-facing wire op
 // (`AsrOp`), gated `asr-native`. Lives here (not in `eg-asr-whisper`), for the
 // SAME reason `quantum.rs` lives here rather than in `eg-quantum-core`: `eg-types`
@@ -137,10 +146,22 @@ pub mod wire;
 pub use row_predicate::{CmpOp, RowPredicate};
 
 // CONCEPT:EG-KG.compute.uncertainty-values — surface the distribution VALUE at the crate root for callers.
+pub use agent_library::{
+    AgentLibraryCommittedResult, AgentLibraryEntry, AgentLibraryEntryDraft, AgentLibraryLifecycle,
+    AgentLibraryMutationContext, AgentLibraryMutationKind, AgentLibraryOp, AgentLibraryOutboxEvent,
+    AgentLibraryPublishRequest, AgentLibraryRetireRequest, AgentLibraryStatusRequest,
+    AgentLibraryWriteResult, AGENT_LIBRARY_DEFINITION_DIGEST_DOMAIN,
+    AGENT_LIBRARY_ENTRY_SCHEMA_VERSION, AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION,
+    AGENT_LIBRARY_RESULT_SCHEMA_ID, AGENT_LIBRARY_RESULT_SCHEMA_VERSION,
+};
 pub use change_envelope::{
     BlobReference, ChangeCursor, ChangeEnvelope, ChangeEnvelopeCommit, ChangeEnvelopeRecord,
     ContentVersion, ContentVersionPosition, CursorPosition, EvidenceRecord, FeatureRecord,
     LineageRecord, MaterialOperation, PolicyRecord, PrivacyAttestation, CHANGE_ENVELOPE_VERSION,
+};
+pub use delegation::{
+    AgentLibraryEntryRef, KgDelegateDecision, KgDelegateRequest, KgDelegateResult,
+    KgDelegateSchemaVersion,
 };
 pub use distribution::Distribution;
 pub use embedding::{
@@ -165,7 +186,7 @@ pub use modality::{
 pub use mutation_batch::{
     CommittedVersion, IncarnationId, LogicalName, MutationBatch, MutationBatchCommit,
     MutationBatchRecord, MutationBatchStatus, MutationOperation, MutationOutboxIntent,
-    MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor, MutationRequestContext,
+    MutationEnvelope, MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor,
     MutationScope, MutationScopeIdentity, MutationStateDescriptor, MutationSurface, ScopeTenantId,
     VersionExpectation, MUTATION_BATCH_VERSION,
 };

@@ -61,17 +61,22 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpListener;
 
 use eg_viz_core::{
     select_tier, ColumnStoreIngest, Encodings, FrameBudget, LodTier, MarkKind, TierInput,
 };
 use eg_viz_kernels::lttb_reduce;
 
+use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::viz_engine::VizEngineState;
 
-const MAX_HTTP_HEADER_BYTES: usize = 16 * 1024;
+/// This surface serves GET tile reads only; it never accepts a request body.
+const HTTP_LIMITS: RequestLimits = RequestLimits {
+    max_head_bytes: 16 * 1024,
+    max_body_bytes: 0,
+};
 /// Bound on the row count this endpoint will read+filter+reduce per tile
 /// request — independent of (and far below) the static-export path's
 /// `MAX_SYNTHETIC_SCATTER_ROWS`/`MAX_INLINE_COLUMN_ROWS` ingest caps. A
@@ -126,7 +131,7 @@ pub async fn serve(
         #[cfg(not(feature = "viz-graph-tiles"))]
         let _ = &state;
         tokio::spawn(async move {
-            let Some(request) = read_request(&mut stream).await else {
+            let Some(request) = http1::read_request(&mut stream, HTTP_LIMITS).await else {
                 return;
             };
             // VIZ-2: `/graph_tile/*` needs genuine async chunked-transfer
@@ -162,48 +167,6 @@ pub async fn serve(
 }
 
 const TILE_CONTENT_TYPE: &str = "application/octet-stream";
-
-struct HttpRequest {
-    method: String,
-    target: String,
-}
-
-/// Minimal GET-only HTTP/1.1 request-line + header reader — self-contained
-/// (not shared with `lake::rest`'s fuller POST-capable reader; this surface
-/// only ever serves `GET`), mirroring that module's own "the SAME
-/// dependency-free idiom" precedent rather than depending on it directly.
-async fn read_request(stream: &mut TcpStream) -> Option<HttpRequest> {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 4096];
-    loop {
-        if find_subslice(&buf, b"\r\n\r\n").is_some() {
-            break;
-        }
-        let n = stream.read(&mut tmp).await.ok()?;
-        if n == 0 {
-            return None;
-        }
-        buf.extend_from_slice(&tmp[..n]);
-        if buf.len() > MAX_HTTP_HEADER_BYTES {
-            return None;
-        }
-    }
-    let header_end = find_subslice(&buf, b"\r\n\r\n")?;
-    let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
-    let request_line = head.split("\r\n").next()?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next()?.to_string();
-    let target = parts.next()?.to_string();
-    let version = parts.next()?;
-    if !version.starts_with("HTTP/1.") {
-        return None;
-    }
-    Some(HttpRequest { method, target })
-}
-
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
 
 fn hex_val(b: u8) -> Option<u8> {
     match b {
@@ -248,7 +211,7 @@ pub(crate) fn parse_query(target: &str) -> (&str, HashMap<String, String>) {
     (path, params)
 }
 
-fn route(engine: &VizEngineState, request: &HttpRequest) -> (&'static str, &'static str, Vec<u8>) {
+fn route(engine: &VizEngineState, request: &HttpMessage) -> (&'static str, &'static str, Vec<u8>) {
     if request.method != "GET" {
         return ("405 Method Not Allowed", "text/plain", b"GET only".to_vec());
     }

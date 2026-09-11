@@ -1,6 +1,6 @@
 //! Durable ledger row primitives, written through a storage-kernel capability.
 
-use crate::tables::{BATCHES, IDEMPOTENCY, PRIVATE_PAYLOADS, VERSIONS};
+use crate::tables::{BATCHES, MAINTENANCE, PRIVATE_PAYLOADS, VERSIONS};
 use crate::admitted::AdmittedMutation;
 use eg_storage::{
     decode_batch_record, encode_bounded, ledger_scope_key, private_payload_digest, OwnerDomain,
@@ -9,14 +9,21 @@ use eg_types::{MutationBatch, MutationBatchRecord, MutationScopeIdentity, Versio
 
 const MAX_PRIVATE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 
-pub(crate) fn idempotency_batch_id<D: OwnerDomain>(
+/// The batch id an owner-maintenance write's claim key already names, if any.
+///
+/// Reachable ONLY from the maintenance arm of [`crate::commit::begin`]: an
+/// operation's key is resolved by `mutation_replay_operations`, which decides
+/// replay-versus-conflict as well as first-wins. Two tables answering "was this
+/// key already used" is the second replay authority RF-ADR-001 forbids, so this
+/// one now answers only for the class that has no caller identity to compare.
+pub(crate) fn maintenance_claim<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
 ) -> Result<Option<String>, String> {
     let identity_key = ledger_scope_key(&batch.identity);
-    let table = write.scoped_table(IDEMPOTENCY)?;
+    let table = write.scoped_table(MAINTENANCE)?;
     let existing = table
-        .get((identity_key.as_str(), batch.idempotency_key.as_str()))
+        .get((identity_key.as_str(), batch.idempotency_key()))
         .map_err(|error| error.to_string())?
         .map(|value| value.value().to_string());
     Ok(existing)
@@ -85,13 +92,15 @@ pub(crate) fn persist_record<D: OwnerDomain>(
     )
 }
 
-pub(crate) fn persist_idempotency<D: OwnerDomain>(
+/// Claim one maintenance key for this batch. First writer wins; a later
+/// maintenance write under the same claim key replays instead of applying.
+pub(crate) fn persist_maintenance<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
 ) -> Result<(), String> {
     let identity_key = ledger_scope_key(&batch.identity);
-    write.scoped_table(IDEMPOTENCY)?.insert(
-        (identity_key.as_str(), batch.idempotency_key.as_str()),
+    write.scoped_table(MAINTENANCE)?.insert(
+        (identity_key.as_str(), batch.idempotency_key()),
         batch.batch_id.as_str(),
     )
 }
@@ -139,21 +148,6 @@ pub(crate) fn remove_private<D: OwnerDomain>(
     write
         .scoped_table(PRIVATE_PAYLOADS)?
         .remove((identity_key, batch_id))
-}
-
-pub(crate) fn verify_replay_identity(
-    proposed: &MutationBatch,
-    stored: &MutationBatch,
-) -> Result<(), String> {
-    proposed.validate_write_budget()?;
-    stored.validate_write_budget()?;
-    if encode_bounded(proposed, "proposed mutation batch")?
-        == encode_bounded(stored, "stored mutation batch")?
-    {
-        Ok(())
-    } else {
-        Err("IDEMPOTENCY_CONFLICT: key was already used by a different mutation".to_string())
-    }
 }
 
 fn validate_private_size(sealed: &[u8]) -> Result<(), String> {

@@ -56,75 +56,96 @@ pub fn is_without_rowid(sql: &str) -> bool {
 
 /// Parse the column list out of a `CREATE TABLE name (col decl, …)` statement.
 pub fn parse_columns(sql: &str) -> Result<Vec<ColumnDef>> {
-    let bytes = sql.as_bytes();
     // Find the first top-level '(' after CREATE TABLE.
     let open = sql
         .find('(')
         .ok_or_else(|| Error::corrupt("CREATE TABLE has no column list"))?;
     // Find the MATCHING closing paren for that open paren (track depth + quote state).
-    let mut depth = 0i32;
-    let mut close = None;
-    let mut i = open;
-    let mut quote: Option<u8> = None;
-    while i < bytes.len() {
-        let c = bytes[i];
-        match quote {
-            Some(q) => {
-                if c == q {
-                    // Doubled quote is an escape inside the same string.
-                    if i + 1 < bytes.len() && bytes[i + 1] == q {
-                        i += 1;
-                    } else {
-                        quote = None;
-                    }
-                }
-            }
-            None => match c {
-                b'\'' | b'"' | b'`' => quote = Some(c),
-                b'[' => quote = Some(b']'),
-                b'(' => depth += 1,
-                b')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close = Some(i);
-                        break;
-                    }
-                }
-                _ => {}
-            },
-        }
-        i += 1;
-    }
-    let close = close.ok_or_else(|| Error::corrupt("unbalanced CREATE TABLE parens"))?;
+    let close = find_column_list_close(sql.as_bytes(), open)
+        .ok_or_else(|| Error::corrupt("unbalanced CREATE TABLE parens"))?;
     let inner = &sql[open + 1..close];
 
     // Split on top-level commas.
-    let entries = split_top_level(inner);
-    let mut cols = Vec::new();
-    for entry in entries {
-        let entry = entry.trim();
-        if entry.is_empty() {
+    parse_column_entries(split_top_level(inner))
+}
+
+/// Find the closing paren for the opening paren at `open`, respecting quoted text.
+fn find_column_list_close(bytes: &[u8], open: usize) -> Option<usize> {
+    let mut depth = 0i32;
+    let mut quote: Option<u8> = None;
+    let mut i = open;
+    while i < bytes.len() {
+        if consume_quoted(bytes, &mut i, &mut quote) {
             continue;
         }
-        // A table-level constraint (PRIMARY KEY / UNIQUE / CHECK / FOREIGN KEY / CONSTRAINT)
-        // is not a column definition — skip it.
-        let first = first_token(entry);
-        let upper_first = first.0.to_ascii_uppercase();
-        if matches!(
-            upper_first.as_str(),
-            "PRIMARY" | "UNIQUE" | "CHECK" | "FOREIGN" | "CONSTRAINT"
-        ) {
-            continue;
+        match bytes[i] {
+            b'\'' | b'"' | b'`' => quote = Some(bytes[i]),
+            b'[' => quote = Some(b']'),
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
         }
-        cols.push(ColumnDef {
-            name: unquote(&first.0),
-            decl_type: type_token(first.1),
-        });
+        i += 1;
     }
-    if cols.is_empty() {
+    None
+}
+
+/// Turn split entries into column definitions, dropping table-level constraints.
+fn parse_column_entries(entries: Vec<String>) -> Result<Vec<ColumnDef>> {
+    let mut columns = Vec::new();
+    for entry in entries {
+        if let Some(column) = parse_column_entry(&entry) {
+            columns.push(column);
+        }
+    }
+    if columns.is_empty() {
         return Err(Error::corrupt("CREATE TABLE has no columns"));
     }
-    Ok(cols)
+    Ok(columns)
+}
+
+fn parse_column_entry(entry: &str) -> Option<ColumnDef> {
+    let entry = entry.trim();
+    if entry.is_empty() {
+        return None;
+    }
+    // A table-level constraint (PRIMARY KEY / UNIQUE / CHECK / FOREIGN KEY / CONSTRAINT)
+    // is not a column definition — skip it.
+    let first = first_token(entry);
+    let upper_first = first.0.to_ascii_uppercase();
+    if matches!(
+        upper_first.as_str(),
+        "PRIMARY" | "UNIQUE" | "CHECK" | "FOREIGN" | "CONSTRAINT"
+    ) {
+        return None;
+    }
+    Some(ColumnDef {
+        name: unquote(&first.0),
+        decl_type: type_token(first.1),
+    })
+}
+
+/// Consume one byte while a quote is open, including doubled quote escapes.
+fn consume_quoted(bytes: &[u8], i: &mut usize, quote: &mut Option<u8>) -> bool {
+    let q = match *quote {
+        Some(q) => q,
+        None => return false,
+    };
+    if bytes[*i] == q {
+        // Doubled quote is an escape inside the same string.
+        if *i + 1 < bytes.len() && bytes[*i + 1] == q {
+            *i += 1;
+        } else {
+            *quote = None;
+        }
+    }
+    *i += 1;
+    true
 }
 
 /// Split `s` on commas that are not inside parens or quotes.
@@ -136,28 +157,19 @@ fn split_top_level(s: &str) -> Vec<String> {
     let mut quote: Option<u8> = None;
     let mut i = 0;
     while i < bytes.len() {
-        let c = bytes[i];
-        match quote {
-            Some(q) => {
-                if c == q {
-                    if i + 1 < bytes.len() && bytes[i + 1] == q {
-                        i += 1;
-                    } else {
-                        quote = None;
-                    }
-                }
+        if consume_quoted(bytes, &mut i, &mut quote) {
+            continue;
+        }
+        match bytes[i] {
+            b'\'' | b'"' | b'`' => quote = Some(bytes[i]),
+            b'[' => quote = Some(b']'),
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            b',' if depth == 0 => {
+                out.push(s[start..i].to_string());
+                start = i + 1;
             }
-            None => match c {
-                b'\'' | b'"' | b'`' => quote = Some(c),
-                b'[' => quote = Some(b']'),
-                b'(' => depth += 1,
-                b')' => depth -= 1,
-                b',' if depth == 0 => {
-                    out.push(s[start..i].to_string());
-                    start = i + 1;
-                }
-                _ => {}
-            },
+            _ => {}
         }
         i += 1;
     }
@@ -182,27 +194,31 @@ fn first_token(s: &str) -> (String, &str) {
         _ => None,
     };
     if let Some(closer) = closer {
-        // Consume the quoted identifier.
-        let mut i = 1;
-        while i < bytes.len() {
-            if bytes[i] == closer {
-                if opener != b'[' && i + 1 < bytes.len() && bytes[i + 1] == closer {
-                    i += 2;
-                    continue;
-                }
-                let token = &s[..=i];
-                let rest = &s[i + 1..];
-                return (token.to_string(), rest);
-            }
-            i += 1;
-        }
-        return (s.to_string(), "");
+        return quoted_token(s, opener, closer);
     }
     // Unquoted: token runs until whitespace.
     match s.find(char::is_whitespace) {
         Some(pos) => (s[..pos].to_string(), &s[pos..]),
         None => (s.to_string(), ""),
     }
+}
+
+fn quoted_token(s: &str, opener: u8, closer: u8) -> (String, &str) {
+    let bytes = s.as_bytes();
+    let mut i = 1;
+    while i < bytes.len() {
+        if bytes[i] == closer {
+            if opener != b'[' && i + 1 < bytes.len() && bytes[i + 1] == closer {
+                i += 2;
+                continue;
+            }
+            let token = &s[..=i];
+            let rest = &s[i + 1..];
+            return (token.to_string(), rest);
+        }
+        i += 1;
+    }
+    (s.to_string(), "")
 }
 
 /// Extract the declared-type token(s) from the remainder after a column name — everything
@@ -291,6 +307,37 @@ mod tests {
         assert_eq!(cols[0].decl_type, "DECIMAL(10,2)");
         assert_eq!(cols[1].name, "c");
         assert_eq!(cols[1].decl_type, "VARCHAR(20)");
+    }
+
+    #[test]
+    fn parse_quote_delimiter_and_error_regressions() {
+        let success_cases: &[(&str, &[(&str, &str)])] = &[(
+            r#"CREATE TABLE quoted ("double""quote" TEXT DEFAULT 'a,b', [bracket,name] INTEGER, `back``tick` BLOB, π REAL, 名称 TEXT)"#,
+            &[
+                ("double\"quote", "TEXT"),
+                ("bracket,name", "INTEGER"),
+                ("back`tick", "BLOB"),
+                ("π", "REAL"),
+                ("名称", "TEXT"),
+            ],
+        )];
+        for &(sql, expected) in success_cases {
+            let columns = parse_columns(sql).unwrap();
+            let actual: Vec<_> = columns
+                .iter()
+                .map(|column| (column.name.as_str(), column.decl_type.as_str()))
+                .collect();
+            assert_eq!(actual.as_slice(), expected);
+        }
+
+        let error_cases = [(
+            "CREATE TABLE broken (id INTEGER",
+            "unbalanced CREATE TABLE parens",
+        )];
+        for &(sql, expected) in &error_cases {
+            let error = parse_columns(sql).unwrap_err();
+            assert!(matches!(error, Error::Corrupt(message) if message == expected));
+        }
     }
 
     #[test]

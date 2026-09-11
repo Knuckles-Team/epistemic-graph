@@ -75,6 +75,8 @@ pub(crate) async fn make_state(
 
     Arc::new(RwLock::new(ServerState {
         #[cfg(feature = "redb")]
+        agent_library: None,
+        #[cfg(feature = "redb")]
         cold_tracker,
         registry,
         isolation,
@@ -148,17 +150,33 @@ pub(crate) fn current_isolation(agent_id: &str) -> IsolationLayer {
     isolation
 }
 
+/// The four per-harness labels a signed test request is stamped with.
+///
+/// Bundled because they vary together -- every harness picks one agent and
+/// names its nonce, idempotency key and security-state directory after itself --
+/// and because eight positional `&str`s at one call site is exactly the shape
+/// that silently swaps two of them.
+pub(crate) struct HarnessLabels<'a> {
+    pub(crate) agent_id: &'a str,
+    pub(crate) nonce: &'a str,
+    pub(crate) idempotency: &'a str,
+    pub(crate) security_state: &'a str,
+}
+
 /// Mint a verified request envelope with the harness's test deployment claims.
 pub(crate) fn signed_request(
     id: u64,
     graph: &str,
     method: Method,
     secret: &str,
-    agent_id: &str,
-    nonce_label: &str,
-    idempotency_label: &str,
-    security_state_label: &str,
+    labels: HarnessLabels<'_>,
 ) -> Request {
+    let HarnessLabels {
+        agent_id,
+        nonce: nonce_label,
+        idempotency: idempotency_label,
+        security_state: security_state_label,
+    } = labels;
     for (key, value) in [
         ("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test"),
         ("EPISTEMIC_GRAPH_TENANT", "tenant-shared"),
@@ -171,13 +189,15 @@ pub(crate) fn signed_request(
     std::env::set_var("EPISTEMIC_GRAPH_SECURITY_STATE_DIR", security_state_dir);
 
     let principal = agent_id.to_owned();
-    let mut context = RequestContextClaims::default();
-    context.principal = principal.clone();
-    context.tenant = "tenant-shared".to_string();
-    context.audience = "epistemic-graph-test".to_string();
-    context.agent_id = principal.clone();
-    context.scopes = vec!["*".to_string()];
-    context.policy_version = "policy-test".to_string();
+    let context = RequestContextClaims {
+        principal: principal.clone(),
+        tenant: "tenant-shared".to_string(),
+        audience: "epistemic-graph-test".to_string(),
+        agent_id: principal.clone(),
+        scopes: vec!["*".to_string()],
+        policy_version: "policy-test".to_string(),
+        ..Default::default()
+    };
     let mut request = Request {
         id,
         graph: graph.to_owned(),

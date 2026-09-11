@@ -1029,7 +1029,7 @@ class KnowledgeStreamBatch(TypedDict):
     family: Literal[
         "graph", "sql", "rdf", "vector", "time_series", "job", "cross_modal"
     ]
-    projection: Literal["arrow_ipc_v1"]
+    projection: Literal["arrow_ipc"]
     cursor: KnowledgeStreamCursor
     payload: bytes
 
@@ -2674,8 +2674,8 @@ def _knowledge_batch(
         raise ValueError("batch.schema_version must be 1")
     if batch["family"] != family:
         raise ValueError("KnowledgeStream response family does not match its query")
-    if batch["projection"] != "arrow_ipc_v1":
-        raise ValueError("KnowledgeStream response must use arrow_ipc_v1")
+    if batch["projection"] != "arrow_ipc":
+        raise ValueError("KnowledgeStream response must use arrow_ipc")
     cursor = _knowledge_cursor(batch["cursor"])
     if cursor["family"] != family or cursor["batch_size"] != batch_size:
         raise ValueError("KnowledgeStream response cursor does not match its request")
@@ -3957,7 +3957,9 @@ class WorkItemClient:
         await self._require_submit_method("SubmitWorkItem")
         result = (
             await _gen.coordination.send_submit_work_item(
-                self._client, {"request": value}
+                self._client,
+                {"request": value},
+                idempotency_key=value["idempotency_key"],
             )
         ).payload
         return _submit_work_item_result(result)
@@ -3983,7 +3985,9 @@ class WorkItemClient:
         await self._require_submit_method("SubmitWorkItems")
         result = (
             await _gen.coordination.send_submit_work_items(
-                self._client, {"request": value}
+                self._client,
+                {"request": value},
+                idempotency_key=value["idempotency_key"],
             )
         ).payload
         return _submit_work_items_result(result)
@@ -4051,17 +4055,31 @@ class WorkItemClient:
             cls._claim_refused(answer)
         return answer
 
-    async def claim(self, request: dict[str, Any]) -> dict[str, Any]:
+    async def claim(
+        self,
+        request: dict[str, Any],
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
         """Return the authoritative claim result.
 
         ``{"claimed": false, "reason": "empty"|"tenant_quota"}`` is final;
         callers must not fall back to a second claim implementation. The tenant
         limit is required and bounded by the current wire contract (1..=4096).
+
+        ``idempotency_key`` is the stable signed-envelope identity for an
+        intentional retry. It is kept outside the request body because the
+        native claim contract derives its replay identity from the authenticated
+        envelope plus the normalized request.
         """
         value = self._claim_request(request)
+        if idempotency_key is not None:
+            _string("ClaimWorkItem.idempotency_key", idempotency_key)
         result = (
             await _gen.coordination.send_claim_work_item(
-                self._client, {"request": value}
+                self._client,
+                {"request": value},
+                idempotency_key=idempotency_key,
             )
         ).payload
         return self._claim_result(result)
@@ -4138,7 +4156,10 @@ class WorkItemClient:
         fencing_token: int,
         now_ms: int,
         lease_ms: int,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
+        if idempotency_key is not None:
+            _string("RenewWorkItemLease.idempotency_key", idempotency_key)
         return (
             await _gen.coordination.send_renew_work_item_lease(
                 self._client,
@@ -4151,6 +4172,7 @@ class WorkItemClient:
                     "now_ms": int(now_ms),
                     "lease_ms": int(lease_ms),
                 },
+                idempotency_key=idempotency_key,
             )
         ).payload
 
@@ -4185,6 +4207,7 @@ class WorkItemClient:
                     "retryable": bool(retryable),
                     "now_ms": int(now_ms),
                 },
+                idempotency_key=idempotency_key,
             )
         ).payload
 
@@ -4213,6 +4236,7 @@ class WorkItemClient:
                     "reason_ref": reason_ref,
                     "now_ms": int(now_ms),
                 },
+                idempotency_key=idempotency_key,
             )
         ).payload
 
@@ -4244,6 +4268,7 @@ class WorkItemClient:
                     "reason_ref": reason_ref,
                     "now_ms": int(now_ms),
                 },
+                idempotency_key=idempotency_key,
             )
         ).payload
 
@@ -4261,6 +4286,7 @@ class WorkItemClient:
         set_metadata: dict[str, Any] | None = None,
         expected_prio_bucket: int | None = None,
         set_prio_bucket: int | None = None,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Atomic compare-and-set on one WorkItem's non-authority SCHEDULING
         METADATA (BUG-111): ``checkpoint_id`` / ``metadata`` / ``prio_bucket``.
@@ -4297,6 +4323,8 @@ class WorkItemClient:
             raise ValueError("cas_metadata requires a non-empty expected_status")
         _string("CasWorkItemMetadata.tenant_ref", tenant)
         _string("CasWorkItemMetadata.work_item_id", work_item_id)
+        if idempotency_key is not None:
+            _string("CasWorkItemMetadata.idempotency_key", idempotency_key)
 
         lease_field = _cas_expected_lease(expected_lease)
 
@@ -4322,7 +4350,9 @@ class WorkItemClient:
         }
         result = (
             await _gen.coordination.send_cas_work_item_metadata(
-                self._client, {"request": request}
+                self._client,
+                {"request": request},
+                idempotency_key=idempotency_key,
             )
         ).payload
         return _cas_metadata_result(result, work_item_id)
@@ -4348,7 +4378,9 @@ class WorkItemClient:
         await self._require_resource_method("ReserveWorkItemResources")
         value = (
             await _gen.coordination.send_reserve_work_item_resources(
-                self._client, {"request": payload}
+                self._client,
+                {"request": payload},
+                idempotency_key=payload["idempotency_key"],
             )
         ).payload
         return _resource_reservation_result(value)
@@ -4360,7 +4392,9 @@ class WorkItemClient:
         await self._require_resource_method("ReleaseWorkItemResources")
         value = (
             await _gen.coordination.send_release_work_item_resources(
-                self._client, {"request": payload}
+                self._client,
+                {"request": payload},
+                idempotency_key=payload["idempotency_key"],
             )
         ).payload
         return _resource_reservation_result(value)
@@ -4372,7 +4406,9 @@ class WorkItemClient:
         await self._require_resource_method("ReclaimWorkItemResources")
         value = (
             await _gen.coordination.send_reclaim_work_item_resources(
-                self._client, {"request": payload}
+                self._client,
+                {"request": payload},
+                idempotency_key=payload["idempotency_key"],
             )
         ).payload
         return _resource_reservation_result(value)
@@ -13538,7 +13574,7 @@ class KnowledgeStreamClient:
             "schema_version": 1,
             "query": current_query,
             "batch_size": current_batch_size,
-            "projection": "arrow_ipc_v1",
+            "projection": "arrow_ipc",
         }
         if cursor is not None:
             current_cursor = _knowledge_cursor(cursor)

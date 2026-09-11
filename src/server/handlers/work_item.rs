@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use crate::graph::GraphCore;
 use crate::protocol::{Method, Response};
+use crate::server::auth::VerifiedRequestContext;
 use crate::server::persistence::PersistenceBackend;
 
 /// Already-authorized graph and placement context for one WorkItem transition.
@@ -16,6 +17,7 @@ pub(crate) struct HandleContext<'a> {
     pub(crate) req_id: u64,
     pub(crate) graph_name: &'a str,
     pub(crate) caller: Option<&'a str>,
+    pub(crate) verified_context: &'a VerifiedRequestContext,
     pub(crate) core: &'a Arc<GraphCore>,
     pub(crate) persistence: &'a Option<Arc<dyn PersistenceBackend>>,
     #[cfg(feature = "raft")]
@@ -61,6 +63,8 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         ctx.persistence.as_ref(),
         ctx.core,
         ctx.req_id,
+        ctx.verified_context.attempt_nonce(),
+        Some(ctx.verified_context.idempotency_key()),
         ctx.caller,
         ctx.graph_name,
         placement_epoch,

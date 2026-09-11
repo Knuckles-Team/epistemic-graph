@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eg_graphql::LiveQuery;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, RwLock, Semaphore};
 
@@ -37,6 +37,7 @@ use crate::isolation::{AccessLevel, IsolationLayer};
 use crate::protocol::{GraphType, Method, Request};
 use crate::server::access::{check_graph_access, GraphReadAuthority};
 use crate::server::auth::{verify_request_with_security_dir, VerifiedRequestContext};
+use crate::server::http1::{self, HttpMessage, RequestLimits};
 use crate::server::ServerState;
 
 /// Environment/CLI address used by `main.rs` to opt into this listener.
@@ -47,7 +48,11 @@ pub const GRAPHQL_REQUEST_ID_HEADER: &str = "x-epistemic-request-id";
 const KEEPALIVE_SECS: u64 = 15;
 const HTTP_READ_TIMEOUT_SECS: u64 = 10;
 const HTTP_WRITE_TIMEOUT_SECS: u64 = 10;
-const MAX_HEADER_BYTES: usize = 64 * 1024;
+/// The handshake carries headers only; a body would be stream input.
+const HANDSHAKE_LIMITS: RequestLimits = RequestLimits {
+    max_head_bytes: 64 * 1024,
+    max_body_bytes: 0,
+};
 const MAX_QUERY_BYTES: usize = 32 * 1024;
 const MAX_GRAPH_BYTES: usize = 512;
 const MAX_AUTHORIZATION_BYTES: usize = 48 * 1024;
@@ -131,12 +136,6 @@ pub async fn serve(
 }
 
 #[derive(Debug)]
-struct HttpRequest {
-    method: String,
-    target: String,
-    headers: HashMap<String, String>,
-}
-
 struct CanonicalSubscription {
     graph: String,
     query: String,
@@ -157,8 +156,8 @@ async fn handle_conn(
     .await
     {
         Err(_) => return write_simple(&mut stream, "408 Request Timeout", "request timeout").await,
-        Ok(Err(_)) => return write_simple(&mut stream, "400 Bad Request", "invalid request").await,
-        Ok(Ok(request)) => request,
+        Ok(None) => return write_simple(&mut stream, "400 Bad Request", "invalid request").await,
+        Ok(Some(request)) => request,
     };
 
     if http.method != "GET" {
@@ -510,7 +509,7 @@ fn preflight_query_shape(query: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn canonical_subscription(http: &HttpRequest) -> Result<CanonicalSubscription, String> {
+fn canonical_subscription(http: &HttpMessage) -> Result<CanonicalSubscription, String> {
     let (path, query_string) = http
         .target
         .split_once('?')
@@ -575,84 +574,22 @@ fn canonical_subscription(http: &HttpRequest) -> Result<CanonicalSubscription, S
     })
 }
 
-/// Strict HTTP/1.1 header parser. Duplicate headers, folded headers, request bodies,
-/// transfer encodings, invalid UTF-8, and oversized heads are rejected before auth.
-async fn read_request(stream: &mut TcpStream) -> Result<HttpRequest, String> {
-    let mut bytes = Vec::new();
-    let mut chunk = [0u8; 2048];
-    let head_end = loop {
-        if let Some(end) = find_subslice(&bytes, b"\r\n\r\n") {
-            break end;
-        }
-        let read = stream.read(&mut chunk).await.map_err(|_| "read failed")?;
-        if read == 0 {
-            return Err("incomplete request".into());
-        }
-        bytes.extend_from_slice(&chunk[..read]);
-        if bytes.len() > MAX_HEADER_BYTES {
-            return Err("request head too large".into());
-        }
-    };
-    if head_end + 4 != bytes.len() {
-        return Err("request body or pipelining is not supported".into());
-    }
-    let head = std::str::from_utf8(&bytes[..head_end]).map_err(|_| "invalid header encoding")?;
-    let mut lines = head.split("\r\n");
-    let request_line = lines.next().ok_or("missing request line")?;
-    if !request_line.is_ascii()
-        || request_line.bytes().filter(|byte| *byte == b' ').count() != 2
-        || request_line.bytes().any(|byte| byte.is_ascii_control())
+/// Read one framed HTTP/1.1 handshake request. Beyond [`http1`]'s framing the
+/// subscription surface refuses HTTP/1.0, a non-ASCII target, an empty header
+/// value and a missing `Host`; its zero body budget refuses a body or a
+/// pipelined second request, because the connection is about to become a
+/// stream and any byte the handshake did not consume would be read as stream
+/// input.
+async fn read_request(stream: &mut TcpStream) -> Option<HttpMessage> {
+    let request = http1::read_request(stream, HANDSHAKE_LIMITS).await?;
+    if request.version != "HTTP/1.1"
+        || !request.target.is_ascii()
+        || request.header("host").is_empty()
+        || request.headers.values().any(|value| value.is_empty())
     {
-        return Err("invalid request line".into());
+        return None;
     }
-    let mut parts = request_line.split(' ');
-    let method = parts.next().ok_or("missing method")?;
-    let target = parts.next().ok_or("missing target")?;
-    let version = parts.next().ok_or("missing HTTP version")?;
-    if parts.next().is_some()
-        || version != "HTTP/1.1"
-        || !target.starts_with('/')
-        || !target.is_ascii()
-        || target.chars().any(char::is_control)
-    {
-        return Err("invalid request line".into());
-    }
-
-    let mut headers = HashMap::new();
-    for line in lines {
-        if line.is_empty() || line.starts_with(' ') || line.starts_with('\t') {
-            return Err("invalid header line".into());
-        }
-        let (name, value) = line.split_once(':').ok_or("invalid header")?;
-        if name.is_empty()
-            || !name
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-        {
-            return Err("invalid header name".into());
-        }
-        let value = value.trim();
-        if value.is_empty() || value.chars().any(char::is_control) {
-            return Err("invalid header value".into());
-        }
-        let name = name.to_ascii_lowercase();
-        if headers.insert(name, value.to_string()).is_some() {
-            return Err("duplicate header".into());
-        }
-    }
-    if headers.get("host").is_none_or(|host| host.is_empty())
-        || headers.contains_key("transfer-encoding")
-        || headers
-            .get("content-length")
-            .is_some_and(|value| value != "0")
-    {
-        return Err("invalid request framing".into());
-    }
-    Ok(HttpRequest {
-        method: method.to_string(),
-        target: target.to_string(),
-        headers,
-    })
+    Some(request)
 }
 
 fn parse_form(input: &str) -> Result<HashMap<String, String>, String> {
@@ -704,12 +641,6 @@ fn percent_decode(input: &str) -> Result<String, String> {
         }
     }
     String::from_utf8(output).map_err(|_| "invalid UTF-8 in query parameter".into())
-}
-
-fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
 }
 
 async fn write_stream_head(stream: &mut TcpStream) -> Result<(), String> {
@@ -786,7 +717,7 @@ mod tests {
         rmp_serde::to_vec_named(&value).unwrap()
     }
 
-    fn http(target: &str, authorization: Option<&str>) -> HttpRequest {
+    fn http(target: &str, authorization: Option<&str>) -> HttpMessage {
         let mut headers = HashMap::from([
             ("host".to_string(), "graph.invalid".to_string()),
             (GRAPHQL_REQUEST_ID_HEADER.to_string(), "41".to_string()),
@@ -794,10 +725,12 @@ mod tests {
         if let Some(value) = authorization {
             headers.insert("authorization".to_string(), value.to_string());
         }
-        HttpRequest {
+        HttpMessage {
             method: "GET".into(),
             target: target.into(),
+            version: "HTTP/1.1".into(),
             headers,
+            body: Vec::new(),
         }
     }
 

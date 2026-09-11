@@ -1,14 +1,14 @@
-use super::envelope::{MutationEnvelopeParts, MutationEnvelope, MutationPayload};
+use super::envelope::{MutationRequestEnvelopeParts, MutationRequestEnvelope, MutationPayload};
 use super::payload::{validate_payload_byte_budget, validate_payload_shape_and_scope};
 use super::MUTATION_ENVELOPE_SCHEMA_V1;
 use crate::contract::{Digest256, ResourceId, MAX_MUTATION_ENVELOPE_BYTES};
 use crate::msgpack::{validate_single_value, MsgpackLimits};
 
-impl MutationEnvelope {
+impl MutationRequestEnvelope {
     /// Builds a structurally checked untrusted envelope without a
     /// serialize-then-deserialize round trip. Success does not authorize or
     /// admit execution.
-    pub fn new(parts: MutationEnvelopeParts) -> Result<Self, String> {
+    pub fn new(parts: MutationRequestEnvelopeParts) -> Result<Self, String> {
         parts.payload.validate()?;
         let operation_replay_digest = parts.operation_identity.digest()?;
         let nonce_replay_digest = parts.nonce_replay_key.digest()?;

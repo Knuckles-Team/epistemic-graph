@@ -46,10 +46,12 @@ const SECRET: &str = "harness";
 const TENANT: &str = "tenant-shared";
 const HOST: &str = "rmdd27-resource-host";
 const AUTH_AGENT: &str = "rmdd27-resource-public-test";
+const DELEGATE_AGENT: &str = "rmdd27-delegate-selected-agent";
 const CONFLICT_AGENT: &str = "rmdd27-resource-conflict-test";
 const RACE_AGENT_A: &str = "rmdd27-resource-race-agent-a";
 const RACE_AGENT_B: &str = "rmdd27-resource-race-agent-b";
 const WORK_ITEM: &str = "rmdd27-resource-work-item";
+const DELEGATE_WORK_ITEM: &str = "rmdd27-delegate-work-item";
 const WORKER: &str = "rmdd27-resource-worker";
 const REPOSITORY: &str = "rmdd27-resource-repository";
 const JOB: &str = "rmdd27-resource-job";
@@ -525,6 +527,486 @@ fn signed_request_as(request_id: u64, agent_id: &str, method: Method) -> Request
     request
 }
 
+#[cfg(feature = "redb")]
+fn delegation_library_draft() -> eg_types::AgentLibraryEntryDraft {
+    let prefixed = |seed: char| format!("sha256:{}", seed.to_string().repeat(64));
+    let policy_digest =
+        crate::server::persistence::agent_library::current_agent_library_policy_digest()
+            .expect("Agent Library policy digest");
+    eg_types::AgentLibraryEntryDraft {
+        agent_id: DELEGATE_AGENT.to_string(),
+        package_id: "rmdd27-delegate-package".to_string(),
+        version: "1.0.0".to_string(),
+        role: "worker".to_string(),
+        role_digest: prefixed('1'),
+        system_prompt: eg_types::agent_component::ComponentDependency {
+            component_id: "cas:rmdd27-delegate-prompt".to_string(),
+            kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
+            definition_digest: prefixed('2'),
+        },
+        tools: vec![
+            eg_types::agent_component::ComponentDependency {
+                component_id: "tool:rmdd27-search".to_string(),
+                kind: eg_types::agent_component::AgentComponentKind::Tool,
+                definition_digest: prefixed('3'),
+            },
+        ],
+        skills: vec![
+            eg_types::agent_component::ComponentDependency {
+                component_id: "skill:rmdd27-delegate".to_string(),
+                kind: eg_types::agent_component::AgentComponentKind::Skill,
+                definition_digest: prefixed('4'),
+            },
+        ],
+        model_profile: eg_types::agent_component::ComponentDependency {
+            component_id: "model-profile:rmdd27".to_string(),
+            kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
+            definition_digest: prefixed('5'),
+        },
+        model_identity: "model:rmdd27".to_string(),
+        ontologies: vec![
+            eg_types::agent_component::ComponentDependency {
+                component_id: "ontology:rmdd27".to_string(),
+                kind: eg_types::agent_component::AgentComponentKind::Ontology,
+                definition_digest: prefixed('6'),
+            },
+        ],
+        tenant_id: TENANT.to_string(),
+        actor_scope: "delegate:target".to_string(),
+        purpose_id: "delegation.execute".to_string(),
+        policy_digest,
+        source_revision: "agent-library:rmdd27:1".to_string(),
+        source_revision_digest: prefixed('7'),
+        runtime: Default::default(),
+        instantiated_from: None,
+    }
+}
+
+#[cfg(feature = "redb")]
+async fn seed_delegation_library(cluster: &Cluster) -> eg_types::AgentLibraryEntry {
+    let draft = delegation_library_draft();
+    let policy_digest = draft.policy_digest.clone();
+    let caller_principal = crate::server::mutation_batch::principal_fingerprint(AUTH_AGENT)
+        .expect("harness caller principal fingerprint");
+    let mut retained = None;
+    for node_id in cluster.all_ids() {
+        let state = state_for(cluster, node_id);
+        let store = state
+            .write()
+            .await
+            .ensure_agent_library()
+            .expect("open Agent Library owner");
+        let context = eg_types::AgentLibraryMutationContext {
+            request_id: 10_000 + node_id,
+            principal: store.owner_principal().to_string(),
+            caller_principal: caller_principal.clone(),
+            attempt_nonce: eg_types::contract::Nonce::from_bytes([node_id as u8; 32]),
+            tenant_id: TENANT.to_string(),
+            actor_scope: "delegate:builder".to_string(),
+            purpose_id: "agent-library:publish".to_string(),
+            policy_revision: "policy-test".to_string(),
+            policy_digest: policy_digest.clone(),
+            policy_decision_id: format!("rmdd27-delegate-policy-{node_id}"),
+            idempotency_key: format!("rmdd27-delegate-library-seed-{node_id}"),
+            expected_revision: Some(0),
+            trace_id: Some(format!("rmdd27-delegate-library-trace-{node_id}")),
+            created_at_ms: 1,
+        };
+        let result = store
+            .publish(eg_types::AgentLibraryPublishRequest {
+                context,
+                entry: draft.clone(),
+            })
+            .expect("publish selected Agent Library revision");
+        if let Some(previous) = retained.as_ref() {
+            assert_eq!(previous, &result.entry);
+        } else {
+            retained = Some(result.entry);
+        }
+    }
+    retained.expect("cluster has at least one retained Agent Library entry")
+}
+
+#[cfg(feature = "redb")]
+async fn advance_delegation_library(cluster: &Cluster, retained: &eg_types::AgentLibraryEntry) {
+    let mut draft = retained.as_draft();
+    draft.version = "2.0.0".to_string();
+    draft.source_revision = "agent-library:rmdd27:2".to_string();
+    draft.source_revision_digest =
+        "sha256:8888888888888888888888888888888888888888888888888888888888888888".to_string();
+    let policy_digest = draft.policy_digest.clone();
+    let caller_principal = crate::server::mutation_batch::principal_fingerprint(AUTH_AGENT)
+        .expect("harness caller principal fingerprint");
+    for node_id in cluster.all_ids() {
+        let state = state_for(cluster, node_id);
+        let store = state
+            .write()
+            .await
+            .ensure_agent_library()
+            .expect("open Agent Library owner for revision advance");
+        let result = store
+            .publish(eg_types::AgentLibraryPublishRequest {
+                context: eg_types::AgentLibraryMutationContext {
+                    request_id: 11_000 + node_id,
+                    principal: store.owner_principal().to_string(),
+                    caller_principal: caller_principal.clone(),
+                    attempt_nonce: eg_types::contract::Nonce::from_bytes([100 + node_id as u8; 32]),
+                    tenant_id: TENANT.to_string(),
+                    actor_scope: "delegate:builder".to_string(),
+                    purpose_id: "agent-library:publish".to_string(),
+                    policy_revision: "policy-test".to_string(),
+                    policy_digest: policy_digest.clone(),
+                    policy_decision_id: format!("rmdd27-delegate-policy-advance-{node_id}"),
+                    idempotency_key: format!("rmdd27-delegate-library-advance-{node_id}"),
+                    expected_revision: Some(retained.entry_revision),
+                    trace_id: Some(format!("rmdd27-delegate-library-advance-trace-{node_id}")),
+                    created_at_ms: 2,
+                },
+                entry: draft.clone(),
+            })
+            .expect("publish next retained Agent Library revision");
+        assert_eq!(result.entry.entry_revision, retained.entry_revision + 1);
+        assert_ne!(result.entry.definition_digest, retained.definition_digest);
+    }
+}
+
+#[cfg(feature = "redb")]
+async fn retire_delegation_library(cluster: &Cluster, retained: &eg_types::AgentLibraryEntry) {
+    let policy_digest =
+        crate::server::persistence::agent_library::current_agent_library_policy_digest()
+            .expect("Agent Library policy digest for retirement");
+    let caller_principal = crate::server::mutation_batch::principal_fingerprint(AUTH_AGENT)
+        .expect("harness caller principal fingerprint");
+    let expected_revision = retained.entry_revision + 1;
+    for node_id in cluster.all_ids() {
+        let state = state_for(cluster, node_id);
+        let store = state
+            .write()
+            .await
+            .ensure_agent_library()
+            .expect("open Agent Library owner for retirement");
+        let result = store
+            .retire(eg_types::AgentLibraryRetireRequest {
+                context: eg_types::AgentLibraryMutationContext {
+                    request_id: 12_000 + node_id,
+                    principal: store.owner_principal().to_string(),
+                    caller_principal: caller_principal.clone(),
+                    attempt_nonce: eg_types::contract::Nonce::from_bytes([150 + node_id as u8; 32]),
+                    tenant_id: TENANT.to_string(),
+                    actor_scope: "delegate:builder".to_string(),
+                    purpose_id: "agent-library:retire".to_string(),
+                    policy_revision: "policy-test".to_string(),
+                    policy_digest: policy_digest.clone(),
+                    policy_decision_id: format!("rmdd27-delegate-policy-retire-{node_id}"),
+                    idempotency_key: format!("rmdd27-delegate-library-retire-{node_id}"),
+                    expected_revision: Some(expected_revision),
+                    trace_id: Some(format!("rmdd27-delegate-library-retire-trace-{node_id}")),
+                    created_at_ms: 3,
+                },
+                agent_id: retained.agent_id.clone(),
+            })
+            .expect("retire selected Agent Library head");
+        assert!(result.entry.is_retired());
+        assert_eq!(result.entry.entry_revision, expected_revision + 1);
+    }
+}
+
+#[cfg(feature = "redb")]
+fn delegation_method(entry: &eg_types::AgentLibraryEntry) -> Method {
+    let now_ms = unix_ms();
+    let context = eg_types::epistemic_operations::RequestContext {
+        schema_version: eg_types::epistemic_operations::RequestContextSchemaVersion::V2,
+        request_id: "rmdd27-delegate-context-request".to_string(),
+        subject_id: AUTH_AGENT.to_string(),
+        tenant_id: TENANT.to_string(),
+        agent_id: AUTH_AGENT.to_string(),
+        scopes: vec!["work:delegate".to_string()],
+        audience: "epistemic-graph-test".to_string(),
+        authentication_method:
+            eg_types::epistemic_operations::RequestContextAuthenticationMethod::LocalProcess,
+        policy_version: "policy-test".to_string(),
+        graph: GRAPH.to_string(),
+        placement_epoch: None,
+        trace_id: "rmdd27-delegate-context-trace".to_string(),
+        issued_at_ms: now_ms,
+        expires_at_ms: now_ms.saturating_add(60_000),
+    };
+    let raw_digest = |field: &str| {
+        field
+            .strip_prefix("sha256:")
+            .expect("Agent Library fixture uses prefixed digests")
+            .to_string()
+    };
+    Method::KgDelegate {
+        request: Box::new(eg_types::KgDelegateRequest {
+            schema_version: eg_types::KgDelegateSchemaVersion::V1,
+            context,
+            delegation_id: "rmdd27-delegation".to_string(),
+            run_id: "rmdd27-run".to_string(),
+            trace_id: "rmdd27-trace".to_string(),
+            target: eg_types::delegation::DelegationTarget::Agent {
+                entry: eg_types::AgentLibraryEntryRef::from_entry(entry),
+            },
+            input_ref: "cas:rmdd27-delegate-input".to_string(),
+            command_digest: IMMUTABLE_DIGEST.to_string(),
+            capability_digest: raw_digest(&entry.tool_set_digest()),
+            catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
+            policy_digest: entry.policy_digest.clone(),
+            model_digest: Some(raw_digest(&entry.model_profile_digest())),
+            idempotency_key: "rmdd27-delegation-idempotency".to_string(),
+            kind: "agent.execute".to_string(),
+            actor_scope: entry.actor_scope.clone(),
+            purpose: entry.purpose_id.clone(),
+            work_item_id: Some(DELEGATE_WORK_ITEM.to_string()),
+            priority: 10,
+            max_attempts: 3,
+            deadline_unix: Some((now_ms / 1_000 + 60) as f64),
+            max_tenant_in_flight: 10,
+        }),
+    }
+}
+
+#[cfg(feature = "redb")]
+fn replayable_delegation_method(
+    entry: &eg_types::AgentLibraryEntry,
+    deadline_unix: Option<f64>,
+) -> Method {
+    let mut method = delegation_method(entry);
+    if let Method::KgDelegate { request } = &mut method {
+        request.deadline_unix = deadline_unix;
+    }
+    method
+}
+
+#[cfg(feature = "redb")]
+fn decode_delegation_result(response: crate::protocol::Response) -> eg_types::KgDelegateResult {
+    assert!(response.error.is_none(), "delegation failed: {response:?}");
+    let payload = response.result.expect("delegation result");
+    let bytes = match payload {
+        ResultPayload::Raw(bytes) => bytes,
+        other => panic!("delegation result has unexpected payload: {other:?}"),
+    };
+    eg_types::msgpack::decode_bounded(
+        &bytes,
+        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+    )
+    .expect("decode typed kg-delegate result")
+}
+
+#[cfg(feature = "redb")]
+fn seed_restart_delegate_entry(persist_dir: &str) -> eg_types::AgentLibraryEntry {
+    use eg_types::agent_library::{AgentLibraryEntryDraft, AgentLibraryMutationContext};
+    use eg_types::contract::Nonce;
+
+    let digest = |seed: char| format!("sha256:{}", seed.to_string().repeat(64));
+    let store = crate::server::persistence::agent_library::AgentLibraryStore::open(persist_dir)
+        .expect("open durable Agent Library owner for restart fixture");
+    let policy_digest =
+        crate::server::persistence::agent_library::current_agent_library_policy_digest()
+            .expect("derive Agent Library policy digest");
+    let entry = store
+        .publish(eg_types::AgentLibraryPublishRequest {
+            context: AgentLibraryMutationContext {
+                request_id: 90_001,
+                principal: store.owner_principal().to_string(),
+                caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
+                attempt_nonce: Nonce::from_bytes([0x91; 32]),
+                tenant_id: TENANT.to_string(),
+                actor_scope: "action-scope:agent-library-publish".to_string(),
+                purpose_id: "agent-library:publish".to_string(),
+                policy_revision: "policy-test".to_string(),
+                policy_digest,
+                policy_decision_id: "rmdd27-agent-library-publish".to_string(),
+                idempotency_key: "rmdd27-agent-library-publish".to_string(),
+                expected_revision: Some(0),
+                trace_id: Some("rmdd27-agent-library-publish-trace".to_string()),
+                created_at_ms: unix_ms(),
+            },
+            entry: AgentLibraryEntryDraft {
+                agent_id: "rmdd27-selected-agent".to_string(),
+                package_id: "rmdd27-agent-package".to_string(),
+                version: "1.0.0".to_string(),
+                role: "worker".to_string(),
+                role_digest: digest('a'),
+                system_prompt: eg_types::agent_component::ComponentDependency {
+                    component_id: "prompt:rmdd27-agent-v1".to_string(),
+                    kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
+                    definition_digest: digest('b'),
+                },
+                tools: vec![
+                    eg_types::agent_component::ComponentDependency {
+                        component_id: "tool:rmdd27-search".to_string(),
+                        kind: eg_types::agent_component::AgentComponentKind::Tool,
+                        definition_digest: digest('c'),
+                    },
+                ],
+                skills: vec![
+                    eg_types::agent_component::ComponentDependency {
+                        component_id: "skill:rmdd27-reason".to_string(),
+                        kind: eg_types::agent_component::AgentComponentKind::Skill,
+                        definition_digest: digest('d'),
+                    },
+                ],
+                model_profile: eg_types::agent_component::ComponentDependency {
+                    component_id: "model-profile:rmdd27-default".to_string(),
+                    kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
+                    definition_digest: digest('e'),
+                },
+                model_identity: "model:rmdd27-default".to_string(),
+                ontologies: vec![
+                    eg_types::agent_component::ComponentDependency {
+                        component_id: "ontology:rmdd27-core".to_string(),
+                        kind: eg_types::agent_component::AgentComponentKind::Ontology,
+                        definition_digest: digest('f'),
+                    },
+                ],
+                tenant_id: TENANT.to_string(),
+                actor_scope: "definition:rmdd27-selected-agent".to_string(),
+                purpose_id: "delegation.execute".to_string(),
+                policy_digest: digest('0'),
+                source_revision: "rmdd27-agent-source:1".to_string(),
+                source_revision_digest: digest('1'),
+                runtime: Default::default(),
+                instantiated_from: None,
+            },
+        })
+        .expect("publish retained Agent Library definition")
+        .entry;
+    drop(store);
+    entry
+}
+
+#[cfg(feature = "redb")]
+fn restart_delegate_method(entry: &eg_types::AgentLibraryEntry) -> Method {
+    let raw_digest = |seed: char| seed.to_string().repeat(64);
+    let now_ms = unix_ms();
+    let agent_entry = eg_types::AgentLibraryEntryRef::from_entry(entry);
+    let unprefixed = |digest: &str| digest.strip_prefix("sha256:").unwrap().to_string();
+    Method::KgDelegate {
+        request: Box::new(eg_types::KgDelegateRequest {
+            schema_version: eg_types::KgDelegateSchemaVersion::V1,
+            context: eg_types::epistemic_operations::RequestContext {
+                schema_version: eg_types::epistemic_operations::RequestContextSchemaVersion::V2,
+                request_id: "rmdd27-restart-delegate-request".to_string(),
+                subject_id: "rmdd27-restart-delegate-subject".to_string(),
+                tenant_id: TENANT.to_string(),
+                agent_id: AUTH_AGENT.to_string(),
+                scopes: vec!["work:delegate".to_string()],
+                audience: "epistemic-graph-test".to_string(),
+                authentication_method:
+                    eg_types::epistemic_operations::RequestContextAuthenticationMethod::LocalProcess,
+                policy_version: "policy-test".to_string(),
+                graph: GRAPH.to_string(),
+                placement_epoch: None,
+                trace_id: "rmdd27-restart-delegate-context-trace".to_string(),
+                issued_at_ms: now_ms,
+                expires_at_ms: now_ms.saturating_add(60_000),
+            },
+            delegation_id: "rmdd27-restart-delegation".to_string(),
+            run_id: "rmdd27-restart-run".to_string(),
+            trace_id: "rmdd27-restart-trace".to_string(),
+            target: eg_types::delegation::DelegationTarget::Agent { entry: agent_entry },
+            input_ref: "cas:rmdd27-restart-input".to_string(),
+            command_digest: raw_digest('2'),
+            capability_digest: unprefixed(&entry.tool_set_digest()),
+            catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
+            policy_digest: entry.policy_digest.clone(),
+            model_digest: Some(unprefixed(&entry.model_profile_digest())),
+            idempotency_key: "rmdd27-restart-delegate-idempotency".to_string(),
+            kind: "agent.execute".to_string(),
+            actor_scope: entry.actor_scope.clone(),
+            purpose: entry.purpose_id.clone(),
+            work_item_id: Some("rmdd27-restart-delegate-work-item".to_string()),
+            priority: 10,
+            max_attempts: 3,
+            deadline_unix: Some((now_ms / 1_000 + 60) as f64),
+            max_tenant_in_flight: 10,
+        }),
+    }
+}
+
+#[cfg(feature = "redb")]
+fn missing_authority_delegate_method() -> Method {
+    let raw_digest = |seed: char| seed.to_string().repeat(64);
+    let prefixed_digest = |seed: char| format!("sha256:{}", raw_digest(seed));
+    let now_ms = unix_ms();
+    Method::KgDelegate {
+        request: Box::new(eg_types::KgDelegateRequest {
+            schema_version: eg_types::KgDelegateSchemaVersion::V1,
+            context: eg_types::epistemic_operations::RequestContext {
+                schema_version: eg_types::epistemic_operations::RequestContextSchemaVersion::V2,
+                request_id: "rmdd27-missing-authority-request".to_string(),
+                subject_id: "rmdd27-missing-authority-subject".to_string(),
+                tenant_id: TENANT.to_string(),
+                agent_id: AUTH_AGENT.to_string(),
+                scopes: vec!["work:delegate".to_string()],
+                audience: "epistemic-graph-test".to_string(),
+                authentication_method:
+                    eg_types::epistemic_operations::RequestContextAuthenticationMethod::LocalProcess,
+                policy_version: "policy-test".to_string(),
+                graph: GRAPH.to_string(),
+                placement_epoch: None,
+                trace_id: "rmdd27-missing-authority-context-trace".to_string(),
+                issued_at_ms: now_ms,
+                expires_at_ms: now_ms.saturating_add(60_000),
+            },
+            delegation_id: "rmdd27-missing-authority-delegation".to_string(),
+            run_id: "rmdd27-missing-authority-run".to_string(),
+            trace_id: "rmdd27-missing-authority-trace".to_string(),
+            target: eg_types::delegation::DelegationTarget::Agent {
+                entry: eg_types::AgentLibraryEntryRef {
+                    tenant_id: TENANT.to_string(),
+                    agent_id: "rmdd27-selected-agent".to_string(),
+                    entry_revision: 1,
+                    definition_digest: prefixed_digest('a'),
+                    source_revision: "agent-library:rmdd27:1".to_string(),
+                    source_revision_digest: prefixed_digest('b'),
+                    actor_scope: "delegate:target".to_string(),
+                    purpose_id: "delegation.execute".to_string(),
+                    policy_digest: prefixed_digest('c'),
+                },
+            },
+            input_ref: "cas:rmdd27-missing-authority-input".to_string(),
+            command_digest: raw_digest('d'),
+            capability_digest: raw_digest('e'),
+            catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
+            policy_digest: prefixed_digest('c'),
+            model_digest: Some(raw_digest('f')),
+            idempotency_key: "rmdd27-missing-authority-idempotency".to_string(),
+            kind: "agent.execute".to_string(),
+            actor_scope: "delegate:target".to_string(),
+            purpose: "delegation.execute".to_string(),
+            work_item_id: Some("rmdd27-missing-authority-work-item".to_string()),
+            priority: 10,
+            max_attempts: 3,
+            deadline_unix: Some((now_ms / 1_000 + 60) as f64),
+            max_tenant_in_flight: 10,
+        }),
+    }
+}
+
+#[cfg(feature = "redb")]
+fn missing_authority_delegate_batch_id() -> String {
+    native_work_item_batch_id("rmdd27-missing-authority-idempotency")
+}
+
+#[cfg(feature = "redb")]
+fn native_work_item_batch_id(idempotency_key: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut digest = Sha256::new();
+    digest.update(b"epistemic-graph.work-item-terminal.v1");
+    for field in [
+        GRAPH.as_bytes(),
+        TENANT.as_bytes(),
+        idempotency_key.as_bytes(),
+    ] {
+        digest.update((field.len() as u64).to_be_bytes());
+        digest.update(field);
+    }
+    format!("work:{}", hex::encode(digest.finalize()))
+}
+
 async fn attach_multi_raft(cluster: &Cluster) {
     let nodes: Vec<_> = cluster
         .members
@@ -740,6 +1222,34 @@ async fn wait_for_node_leader(cluster: &Cluster, node_id: NodeId, expected_leade
     panic!("node {node_id} did not learn leader {expected_leader}");
 }
 
+#[cfg(feature = "redb")]
+async fn transfer_graph_leader(cluster: &Cluster, from: NodeId, target: NodeId) {
+    let state = state_for(cluster, from);
+    let multi = state
+        .read()
+        .await
+        .multi_raft
+        .clone()
+        .expect("reopened member has MultiRaft authority");
+    let routed = multi
+        .handle_for_graph(GRAPH)
+        .await
+        .expect("reopened member has the graph Raft group");
+    assert_eq!(
+        routed.handle.current_leader().await,
+        Some(from),
+        "leadership transfer must start from the current leader"
+    );
+    routed
+        .handle
+        .raft
+        .trigger()
+        .transfer_leader(target)
+        .await
+        .expect("transfer graph leadership to the reopened member");
+    wait_for_node_leader(cluster, target, target).await;
+}
+
 fn decode_host_result(response: crate::protocol::Response, expected_revision: u64) {
     let result: ResourceHostUpdateResult = decode_raw(response, "native update");
     assert!(
@@ -952,6 +1462,18 @@ async fn wait_for_backend_revision(cluster: &Cluster, node_id: NodeId, expected_
         tokio::time::sleep(Duration::from_millis(150)).await;
     }
     panic!("node {node_id} did not apply host revision {expected_revision}: {last_error}");
+}
+
+#[cfg(feature = "redb")]
+async fn wait_for_graph_node(cluster: &Cluster, node_id: NodeId, node: &str) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while tokio::time::Instant::now() < deadline {
+        if cluster.has_node_in(node_id, GRAPH, node).await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+    panic!("node {node_id} did not apply graph node '{node}'");
 }
 
 async fn wait_for_public_active_status(
@@ -1678,6 +2200,439 @@ async fn native_resource_public_dispatch_readindex_and_failover_scenario() {
         );
         assert_eq!(queried.lifecycle_revision, released.lifecycle_revision);
     }
+
+    cluster.finish().await;
+}
+
+/// RF-020 admission must use the same signed native WorkItem route as every
+/// other clustered write.  This drives a real KgDelegate request through a
+/// follower redirect, leader proposal, replicated apply, leader failure, and
+/// fresh-nonce replay.  The final conflicting payload proves the native
+/// idempotency record remains the authority after failover.
+#[cfg(feature = "redb")]
+#[test]
+fn kg_delegate_public_dispatch_replicates_and_replays_after_failover() {
+    run_cluster_acceptance(
+        "rmdd27-kg-delegate-public-failover",
+        kg_delegate_public_dispatch_replicates_and_replays_after_failover_scenario,
+    );
+}
+
+#[cfg(feature = "redb")]
+async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scenario() {
+    let _auth_env_guard = configure_auth_test_environment(TENANT, "rmdd27-kg-delegate-public-auth");
+    let _partition_guard = crate::raft::network::partition::test_guard();
+    let mut cluster = ClusterGuard::new(
+        Cluster::start(3, "rmdd27-kg-delegate-public")
+            .await
+            .expect("cluster starts"),
+    );
+    ensure_commons_graph(&cluster).await;
+    let entry = seed_delegation_library(&cluster).await;
+    attach_multi_raft(&cluster).await;
+    let leader = cluster
+        .wait_for_leader(Duration::from_secs(15))
+        .await
+        .expect("initial leader elected");
+
+    let accepted_method = delegation_method(&entry);
+    let accepted_deadline = match &accepted_method {
+        Method::KgDelegate { request } => request.deadline_unix,
+        _ => unreachable!(),
+    };
+    let accepted = decode_delegation_result(
+        dispatch_method(&cluster, leader, 1, accepted_method.clone()).await,
+    );
+    assert_eq!(accepted.decision, eg_types::KgDelegateDecision::Accepted);
+    assert_eq!(accepted.work_item_id, DELEGATE_WORK_ITEM);
+
+    // The native idempotency key is stable across fresh authenticated envelopes,
+    // while an identical signed envelope is rejected by the outer nonce ledger.
+    let same_envelope = signed_request_as(5, AUTH_AGENT, accepted_method.clone());
+    let native_replay = decode_delegation_result(
+        dispatch_bounded(&state_for(&cluster, leader), same_envelope.clone()).await,
+    );
+    assert_eq!(
+        native_replay.decision,
+        eg_types::KgDelegateDecision::Replayed
+    );
+    let nonce_replay = dispatch_bounded(&state_for(&cluster, leader), same_envelope).await;
+    assert_eq!(
+        nonce_replay.error.as_deref(),
+        Some("nonce already used (replay rejected)"),
+        "the exact signed KgDelegate envelope must be rejected before native replay"
+    );
+
+    let follower = cluster
+        .all_ids()
+        .into_iter()
+        .find(|node_id| *node_id != leader)
+        .expect("a follower exists");
+    wait_for_graph_node(&cluster, follower, DELEGATE_WORK_ITEM).await;
+    wait_for_node_leader(&cluster, follower, leader).await;
+    assert_redirect(
+        dispatch_method(&cluster, follower, 2, accepted_method.clone()).await,
+        leader,
+    );
+    assert!(
+        cluster
+            .has_node_in(follower, GRAPH, DELEGATE_WORK_ITEM)
+            .await,
+        "follower must apply the acknowledged native WorkItem admission"
+    );
+
+    // Advance the selected definition independently on every member.  The
+    // replay below still names B's original immutable revision; a handler that
+    // resolves only the current head would reject this otherwise valid retry.
+    advance_delegation_library(&cluster, &entry).await;
+    retire_delegation_library(&cluster, &entry).await;
+
+    // A fresh stable key cannot pin an old published revision once the current
+    // Agent Library head is retired.  This refusal must happen before native
+    // WorkItem admission, so it cannot create a second receipt or outbox row.
+    let mut retired_old_revision = replayable_delegation_method(&entry, accepted_deadline);
+    if let Method::KgDelegate { request } = &mut retired_old_revision {
+        request.delegation_id = "rmdd27-retired-old-revision-delegation".to_string();
+        request.run_id = "rmdd27-retired-old-revision-run".to_string();
+        request.trace_id = "rmdd27-retired-old-revision-trace".to_string();
+        request.idempotency_key = "rmdd27-retired-old-revision-idempotency".to_string();
+        request.work_item_id = Some("rmdd27-retired-old-revision-work-item".to_string());
+    }
+    let refused = dispatch_method(&cluster, leader, 3, retired_old_revision).await;
+    assert!(
+        refused
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("head is retired")),
+        "a fresh key pinned to an old revision must refuse after retirement: {refused:?}"
+    );
+    assert!(
+        !cluster
+            .has_node_in(leader, GRAPH, "rmdd27-retired-old-revision-work-item")
+            .await,
+        "retired old revision refusal must not write a WorkItem"
+    );
+    let leader_backend = state_for(&cluster, leader)
+        .read()
+        .await
+        .persistence
+        .clone()
+        .expect("leader has persistence");
+    assert!(
+        leader_backend
+            .read_mutation_batch(
+                &crate::persist::sanitize(GRAPH),
+                &native_work_item_batch_id("rmdd27-retired-old-revision-idempotency"),
+            )
+            .await
+            .expect("read refused retired-key receipt")
+            .is_none(),
+        "retired old revision refusal must not write a native receipt"
+    );
+    assert!(
+        leader_backend
+            .read_mutation_outbox(
+                &crate::persist::sanitize(GRAPH),
+                &native_work_item_batch_id("rmdd27-retired-old-revision-idempotency"),
+            )
+            .await
+            .expect("read refused retired-key outbox")
+            .is_empty(),
+        "retired old revision refusal must not write a native outbox row"
+    );
+
+    cluster.kill(leader).await.expect("kill initial leader");
+    let new_leader = cluster
+        .wait_for_leader_excluding(leader, Duration::from_secs(20))
+        .await
+        .expect("survivor elected after leader failure");
+    let replayed = decode_delegation_result(
+        dispatch_method(
+            &cluster,
+            new_leader,
+            4,
+            replayable_delegation_method(&entry, accepted_deadline),
+        )
+        .await,
+    );
+    assert_eq!(replayed.decision, eg_types::KgDelegateDecision::Replayed);
+    assert_eq!(replayed.work_item_id, accepted.work_item_id);
+    assert_eq!(replayed.outbox_id, accepted.outbox_id);
+
+    let mut conflict = replayable_delegation_method(&entry, accepted_deadline);
+    if let Method::KgDelegate { request } = &mut conflict {
+        request.command_digest = "b".repeat(64);
+    }
+    let conflict = dispatch_method(&cluster, new_leader, 5, conflict).await;
+    assert!(
+        conflict
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("IDEMPOTENCY_CONFLICT")),
+        "changed payload under the native key must conflict: {conflict:?}"
+    );
+
+    // Reopen the killed member over its original redb and prove that the
+    // replicated WorkItem and native replay receipt survive process recovery.
+    cluster
+        .restart(leader)
+        .await
+        .expect("restart the original leader over durable redb");
+    ensure_commons_graph(&cluster).await;
+    attach_multi_raft(&cluster).await;
+    wait_for_graph_node(&cluster, leader, DELEGATE_WORK_ITEM).await;
+    wait_for_node_leader(&cluster, leader, new_leader).await;
+    assert!(
+        cluster.has_node_in(leader, GRAPH, DELEGATE_WORK_ITEM).await,
+        "reopened member must retain the replicated WorkItem"
+    );
+    transfer_graph_leader(&cluster, new_leader, leader).await;
+    wait_for_node_leader(&cluster, new_leader, leader).await;
+    let reopened = decode_delegation_result(
+        dispatch_method(
+            &cluster,
+            leader,
+            6,
+            replayable_delegation_method(&entry, accepted_deadline),
+        )
+        .await,
+    );
+    assert_eq!(reopened.decision, eg_types::KgDelegateDecision::Replayed);
+    assert_eq!(reopened.work_item_id, accepted.work_item_id);
+    assert_eq!(reopened.outbox_id, accepted.outbox_id);
+    assert_eq!(reopened.command_digest, accepted.command_digest);
+    assert_eq!(reopened.target, accepted.target);
+
+    let backend = state_for(&cluster, leader)
+        .read()
+        .await
+        .persistence
+        .clone()
+        .expect("reopened member has persistence");
+    let graph_fname = crate::persist::sanitize(GRAPH);
+    let record = backend
+        .read_mutation_batch(
+            &graph_fname,
+            &native_work_item_batch_id("rmdd27-delegation-idempotency"),
+        )
+        .await
+        .expect("read reopened native delegation receipt")
+        .expect("reopened native delegation receipt exists");
+    let native_payload: ResultPayload = eg_types::msgpack::decode_bounded(
+        record
+            .result_msgpack
+            .as_ref()
+            .expect("native receipt result"),
+        eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+    )
+    .expect("decode reopened native result envelope");
+    let native: eg_types::native_control::SubmitWorkItemResult = match native_payload {
+        ResultPayload::Raw(bytes) => eg_types::msgpack::decode_bounded(
+            &bytes,
+            eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
+        )
+        .expect("decode reopened native delegation receipt"),
+        ResultPayload::Json(value) => {
+            serde_json::from_value(value).expect("decode reopened native JSON receipt")
+        }
+        other => panic!("reopened native result has unexpected shape: {other:?}"),
+    };
+    assert_eq!(native.work_item_id, accepted.work_item_id);
+    assert_eq!(native.outbox_id, accepted.outbox_id);
+    assert_eq!(native.command_digest, accepted.command_digest);
+    assert_eq!(native.idempotency_key, "rmdd27-delegation-idempotency");
+    let request = match accepted_method {
+        Method::KgDelegate { request } => request,
+        _ => unreachable!(),
+    };
+    assert_eq!(
+        native.provenance_refs,
+        crate::server::handlers::delegation::provenance_refs(&request),
+        "reopened receipt must retain the exact delegation provenance"
+    );
+
+    cluster.finish().await;
+}
+
+/// The first signed KgDelegate after a node restart must reopen the durable
+/// Agent Library owner itself. The fixture seeds the retained definition before
+/// the crash, then deliberately leaves the reopened ServerState's in-memory
+/// `agent_library` handle unset until this public route is dispatched.
+#[cfg(feature = "redb")]
+#[test]
+fn kg_delegate_public_dispatch_first_request_after_restart() {
+    run_cluster_acceptance(
+        "rmdd27-kg-delegate-public-first-after-restart",
+        kg_delegate_public_dispatch_first_request_after_restart_scenario,
+    );
+}
+
+#[cfg(feature = "redb")]
+async fn kg_delegate_public_dispatch_first_request_after_restart_scenario() {
+    let _auth_env_guard =
+        configure_auth_test_environment(TENANT, "rmdd27-kg-delegate-public-restart-auth");
+    let _partition_guard = crate::raft::network::partition::test_guard();
+    let mut cluster = ClusterGuard::new(
+        Cluster::start(1, "rmdd27-kg-delegate-public-first-after-restart")
+            .await
+            .expect("cluster starts"),
+    );
+    ensure_commons_graph(&cluster).await;
+    let node_id = cluster
+        .all_ids()
+        .into_iter()
+        .next()
+        .expect("single-node cluster has a node");
+    let persist_dir = state_for(&cluster, node_id)
+        .read()
+        .await
+        .persist_dir
+        .clone()
+        .expect("restart fixture has a durable persist directory");
+    let entry = seed_restart_delegate_entry(&persist_dir);
+    assert!(
+        state_for(&cluster, node_id)
+            .read()
+            .await
+            .agent_library
+            .is_none(),
+        "seed setup must not initialize the ServerState library handle"
+    );
+
+    cluster.kill(node_id).await.expect("kill node for restart");
+    cluster.restart(node_id).await.expect("restart node");
+    ensure_commons_graph(&cluster).await;
+    assert!(
+        state_for(&cluster, node_id)
+            .read()
+            .await
+            .agent_library
+            .is_none(),
+        "reopened state must begin without an in-memory Agent Library handle"
+    );
+    let leader = cluster
+        .wait_for_leader(Duration::from_secs(15))
+        .await
+        .expect("restarted single-node cluster elects a leader");
+    let response = dispatch_method(&cluster, leader, 1, restart_delegate_method(&entry)).await;
+    let result: eg_types::KgDelegateResult = decode_raw(response, "KgDelegate after restart");
+    assert_eq!(
+        result.decision,
+        eg_types::KgDelegateDecision::Accepted,
+        "first post-restart delegation must commit through native admission"
+    );
+    assert_eq!(
+        result.target,
+        eg_types::delegation::DelegationTarget::Agent {
+            entry: eg_types::AgentLibraryEntryRef::from_entry(&entry),
+        }
+    );
+    assert!(
+        state_for(&cluster, node_id)
+            .read()
+            .await
+            .agent_library
+            .is_some(),
+        "first KgDelegate must lazily attach the durable Agent Library owner"
+    );
+    assert!(
+        cluster
+            .has_node_in(node_id, GRAPH, "rmdd27-restart-delegate-work-item")
+            .await,
+        "native KgDelegate admission must materialize the WorkItem"
+    );
+
+    cluster.finish().await;
+}
+
+/// A signed KgDelegate request must fail closed when the process is configured
+/// as clustered but its MultiRaft placement authority is unavailable. The
+/// explicit missing composition must not fall through to a local WorkItem
+/// commit or leave a receipt/outbox row behind.
+#[cfg(feature = "redb")]
+#[test]
+fn kg_delegate_public_dispatch_rejects_missing_cluster_authority() {
+    run_cluster_acceptance(
+        "rmdd27-kg-delegate-public-missing-authority",
+        kg_delegate_public_dispatch_rejects_missing_cluster_authority_scenario,
+    );
+}
+
+#[cfg(feature = "redb")]
+async fn kg_delegate_public_dispatch_rejects_missing_cluster_authority_scenario() {
+    let _auth_env_guard =
+        configure_auth_test_environment(TENANT, "rmdd27-kg-delegate-public-missing-authority-auth");
+    let _partition_guard = crate::raft::network::partition::test_guard();
+    let cluster = ClusterGuard::new(
+        Cluster::start(3, "rmdd27-kg-delegate-public-missing-authority")
+            .await
+            .expect("cluster starts"),
+    );
+    ensure_commons_graph(&cluster).await;
+    let node_id = cluster
+        .all_ids()
+        .into_iter()
+        .next()
+        .expect("cluster has a node");
+    let state = state_for(&cluster, node_id);
+    let raft = state
+        .read()
+        .await
+        .raft
+        .clone()
+        .expect("clustered fixture has a configured Raft handle");
+    state
+        .write()
+        .await
+        .install_missing_placement_authority(raft);
+
+    let backend = state
+        .read()
+        .await
+        .persistence
+        .clone()
+        .expect("cluster member has persistence");
+    let graph_fname = crate::persist::sanitize(GRAPH);
+    let before_version = backend
+        .read_mutation_graph_version(&graph_fname)
+        .await
+        .expect("read graph version before rejected admission")
+        .unwrap_or(0);
+    let response = dispatch_method(&cluster, node_id, 1, missing_authority_delegate_method()).await;
+    assert_eq!(
+        response.error.as_deref(),
+        Some("CLUSTER_CONFIGURATION_INVALID: MultiRaft placement authority is required"),
+        "missing clustered placement must refuse the signed KgDelegate: {response:?}"
+    );
+    assert!(
+        !cluster
+            .has_node_in(node_id, GRAPH, "rmdd27-missing-authority-work-item")
+            .await,
+        "missing clustered placement must not write a WorkItem"
+    );
+    let batch_id = missing_authority_delegate_batch_id();
+    assert!(
+        backend
+            .read_mutation_batch(&graph_fname, &batch_id)
+            .await
+            .expect("read rejected admission receipt")
+            .is_none(),
+        "missing clustered placement must not write a MutationBatch receipt"
+    );
+    assert!(
+        backend
+            .read_mutation_outbox(&graph_fname, &batch_id)
+            .await
+            .expect("read rejected admission outbox")
+            .is_empty(),
+        "missing clustered placement must not write an outbox row"
+    );
+    let after_version = backend
+        .read_mutation_graph_version(&graph_fname)
+        .await
+        .expect("read graph version after rejected admission")
+        .unwrap_or(0);
+    assert_eq!(after_version, before_version);
 
     cluster.finish().await;
 }

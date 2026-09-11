@@ -21,18 +21,26 @@ impl SemanticStore {
         rows
     }
 
+    /// Validate an embedding against this store's declared space and backend
+    /// width before any resident state is touched. Callers that already hold a
+    /// read guard can use this admission check without cloning the corpus.
+    pub fn validate_embedding(&self, embedding: &[f32]) -> Result<(), EmbeddingDimensionError> {
+        let expected_dim = self
+            .space
+            .as_ref()
+            .map(|space| space.dimensions)
+            .unwrap_or_else(|| self.dim());
+        check_embedding_dimension_bounded(embedding, expected_dim, MAX_GENERIC_DIMENSION)
+            .map(|_| ())
+    }
+
     /// Reject malformed data before touching either resident rows or HNSW.
     pub fn add_embedding(
         &mut self,
         node_id: String,
         embedding: Vec<f32>,
     ) -> Result<(), EmbeddingDimensionError> {
-        let expected_dim = self
-            .space
-            .as_ref()
-            .map(|space| space.dimensions)
-            .unwrap_or_else(|| self.dim());
-        check_embedding_dimension_bounded(&embedding, expected_dim, MAX_GENERIC_DIMENSION)?;
+        self.validate_embedding(&embedding)?;
 
         let is_update = self.embeddings.contains_key(&node_id);
         self.embeddings.insert(node_id.clone(), embedding.clone());

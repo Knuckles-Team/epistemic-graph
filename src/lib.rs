@@ -42,9 +42,6 @@ pub use eg_compute::finance;
 pub use eg_compute::reasoning;
 pub use eg_compute::{algorithms, ast, parser, screen};
 
-#[cfg(any(feature = "server", feature = "redb"))]
-pub mod durability;
-
 #[cfg(feature = "server")]
 pub mod channels;
 pub mod metrics;
@@ -73,9 +70,17 @@ pub(crate) mod redb_layout;
 pub mod store_authority;
 // The one shape every small kernel-owned sidecar file in this binary takes.
 #[cfg(feature = "redb")]
+/// Taking a lock whose previous holder panicked, without turning one bug into a
+/// permanent outage. A bare `.unwrap()` on a poisoned lock is the absence of a
+/// decision; these make the decision explicit and visible.
+pub(crate) mod lock_recovery;
 pub mod redb_store;
 #[cfg(feature = "redb")]
 pub mod sidecar_store;
+/// Bounded rendezvous and joins for concurrency tests. A test that hangs takes
+/// the whole binary with it; a test that fails names itself.
+#[cfg(test)]
+pub(crate) mod test_rendezvous;
 
 // CONCEPT:INT-P2-2 -- the Loop statechart definition (W2.5 control-plane migration):
 // `LoopStatus`'s 16 values as a reusable `eg_statechart::StatechartDef`, instantiated

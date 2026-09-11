@@ -42,3 +42,20 @@ pub enum GraphOwner {
     SessionUser,
     Role(SqlIdentifier),
 }
+
+/// The deliberately narrow Phase-2 privilege grammar: only graph-object
+/// `SELECT`, for one exact principal at a time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropertyGraphPrivilegeOperation {
+    Grant,
+    Revoke,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyGraphPrivilegeStatement {
+    pub operation: PropertyGraphPrivilegeOperation,
+    pub name: SqlName,
+    /// Exact verified actor identity. Quoted spelling preserves case and may
+    /// exceed the SQL object-name limit; it is bounded like catalog owners.
+    pub principal: String,
+}

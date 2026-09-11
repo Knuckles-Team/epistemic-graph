@@ -447,6 +447,18 @@ impl MatrixAcc {
     }
 
     /// Rebuild the `n×dim` matrix from the flat buffer, or `None` if empty/degenerate.
+    /// Flatten one partial's `Float64` buffer in, preserving order and skipping nulls.
+    fn absorb_partial(&mut self, child: &ArrayRef) {
+        let Some(vals) = child.as_any().downcast_ref::<Float64Array>() else {
+            return;
+        };
+        self.flat.extend(
+            (0..vals.len())
+                .filter(|&j| !vals.is_null(j))
+                .map(|j| vals.value(j)),
+        );
+    }
+
     fn matrix(&self) -> Option<Array2<f64>> {
         let dim = self.dim.filter(|&d| d > 0)?;
         if self.flat.is_empty() || !self.flat.len().is_multiple_of(dim) {
@@ -455,6 +467,26 @@ impl MatrixAcc {
         let n = self.flat.len() / dim;
         Array2::from_shape_vec((n, dim), self.flat.clone()).ok()
     }
+}
+
+/// One aggregate state column, downcast to `T` or the named execution error.
+fn state_column<'a, T: 'static>(
+    states: &'a [ArrayRef],
+    i: usize,
+    expected: &str,
+) -> DfResult<&'a T> {
+    states[i]
+        .as_any()
+        .downcast_ref::<T>()
+        .ok_or_else(|| datafusion::error::DataFusionError::Execution(expected.into()))
+}
+
+/// The `k` (component/cluster count) argument: the first non-null value of an `Int64`
+/// column, clamped at zero.
+fn first_k(col: &Int64Array) -> Option<usize> {
+    (0..col.len())
+        .find(|&i| !col.is_null(i))
+        .map(|i| col.value(i).max(0) as usize)
 }
 
 impl Accumulator for MatrixAcc {
@@ -467,17 +499,9 @@ impl Accumulator for MatrixAcc {
         }
         // pca/kmeans: the 2nd argument is the (constant) component/cluster count `k`.
         if self.op.takes_k() && self.k.is_none() && values.len() > 1 {
-            let ks = arrow::compute::cast(values[1].as_ref(), &DataType::Int64)
+            self.k = arrow::compute::cast(values[1].as_ref(), &DataType::Int64)
                 .ok()
-                .and_then(|a| a.as_any().downcast_ref::<Int64Array>().cloned());
-            if let Some(ks) = ks {
-                for i in 0..ks.len() {
-                    if !ks.is_null(i) {
-                        self.k = Some(ks.value(i).max(0) as usize);
-                        break;
-                    }
-                }
-            }
+                .and_then(|a| a.as_any().downcast_ref::<Int64Array>().and_then(first_k));
         }
         Ok(())
     }
@@ -485,22 +509,8 @@ impl Accumulator for MatrixAcc {
     fn merge_batch(&mut self, states: &[ArrayRef]) -> DfResult<()> {
         // state[0] = List<Float64> flat rows (one list per partial); state[1] = dim;
         // state[2] = k (pca). Flatten every partial's flat buffer in, preserving order.
-        let list = states[0]
-            .as_any()
-            .downcast_ref::<ListArray>()
-            .ok_or_else(|| {
-                datafusion::error::DataFusionError::Execution(
-                    "svd/pca: state[0] must be List<Float64>".into(),
-                )
-            })?;
-        let dims = states[1]
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .ok_or_else(|| {
-                datafusion::error::DataFusionError::Execution(
-                    "svd/pca: state[1] (dim) must be Int64".into(),
-                )
-            })?;
+        let list = state_column::<ListArray>(states, 0, "svd/pca: state[0] must be List<Float64>")?;
+        let dims = state_column::<Int64Array>(states, 1, "svd/pca: state[1] (dim) must be Int64")?;
         for i in 0..list.len() {
             if !dims.is_null(i) {
                 self.dim.get_or_insert(dims.value(i) as usize);
@@ -508,24 +518,13 @@ impl Accumulator for MatrixAcc {
             if list.is_null(i) {
                 continue;
             }
-            let child = list.value(i);
-            if let Some(vals) = child.as_any().downcast_ref::<Float64Array>() {
-                for j in 0..vals.len() {
-                    if !vals.is_null(j) {
-                        self.flat.push(vals.value(j));
-                    }
-                }
-            }
+            self.absorb_partial(&list.value(i));
         }
-        if self.op.takes_k() && self.k.is_none() && states.len() > 2 {
-            if let Some(ks) = states[2].as_any().downcast_ref::<Int64Array>() {
-                for i in 0..ks.len() {
-                    if !ks.is_null(i) {
-                        self.k = Some(ks.value(i).max(0) as usize);
-                        break;
-                    }
-                }
-            }
+        if self.op.takes_k() && self.k.is_none() {
+            self.k = states
+                .get(2)
+                .and_then(|s| s.as_any().downcast_ref::<Int64Array>())
+                .and_then(first_k);
         }
         Ok(())
     }

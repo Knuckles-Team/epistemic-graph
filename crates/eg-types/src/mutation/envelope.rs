@@ -106,14 +106,14 @@ impl MutationPayload {
 
 /// Non-deserializable assembly input for the untrusted wire envelope.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MutationEnvelopeParts {
+pub struct MutationRequestEnvelopeParts {
     pub payload: MutationPayload,
     pub verified_authority: VerifiedAuthority,
     pub operation_identity: OperationReplayIdentity,
     pub nonce_replay_key: NonceReplayKey,
 }
 
-impl MutationEnvelopeParts {
+impl MutationRequestEnvelopeParts {
     pub fn new(
         payload: MutationPayload,
         verified_authority: VerifiedAuthority,
@@ -138,7 +138,7 @@ impl MutationEnvelopeParts {
 /// replay verification. That executable type must not live in `eg-types`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct MutationEnvelope {
+pub struct MutationRequestEnvelope {
     pub(super) schema_version: ResourceId,
     pub(super) mutation_id: OpaqueId,
     pub(super) verified_authority: VerifiedAuthority,
@@ -158,7 +158,7 @@ pub struct MutationEnvelope {
 
 #[derive(Deserialize)]
 #[serde(field_identifier, rename_all = "snake_case")]
-enum MutationEnvelopeField {
+enum MutationRequestEnvelopeField {
     SchemaVersion,
     MutationId,
     VerifiedAuthority,
@@ -176,9 +176,9 @@ enum MutationEnvelopeField {
     EnvelopeDigest,
 }
 
-struct MutationEnvelopeVisitor;
+struct MutationRequestEnvelopeVisitor;
 
-struct MutationEnvelopeFields {
+struct MutationRequestEnvelopeFields {
     budget: StructuralBudget,
     schema_version: Option<ResourceId>,
     mutation_id: Option<OpaqueId>,
@@ -197,7 +197,7 @@ struct MutationEnvelopeFields {
     envelope_digest: Option<Digest256>,
 }
 
-impl MutationEnvelopeFields {
+impl MutationRequestEnvelopeFields {
     fn new() -> Self {
         Self {
             budget: StructuralBudget::new(),
@@ -221,60 +221,60 @@ impl MutationEnvelopeFields {
 }
 
 fn read_identity_field<'de, A>(
-    fields: &mut MutationEnvelopeFields,
-    field: MutationEnvelopeField,
+    fields: &mut MutationRequestEnvelopeFields,
+    field: MutationRequestEnvelopeField,
     map: &mut A,
 ) -> Result<(), A::Error>
 where
     A: MapAccess<'de>,
 {
     match field {
-        MutationEnvelopeField::SchemaVersion => {
+        MutationRequestEnvelopeField::SchemaVersion => {
             read_map_value_once(&mut fields.schema_version, "schema_version", map)
         }
-        MutationEnvelopeField::MutationId => {
+        MutationRequestEnvelopeField::MutationId => {
             read_map_value_once(&mut fields.mutation_id, "mutation_id", map)
         }
-        MutationEnvelopeField::VerifiedAuthority => {
+        MutationRequestEnvelopeField::VerifiedAuthority => {
             read_map_value_once(&mut fields.verified_authority, "verified_authority", map)
         }
-        MutationEnvelopeField::OperationIdentity => {
+        MutationRequestEnvelopeField::OperationIdentity => {
             read_map_value_once(&mut fields.operation_identity, "operation_identity", map)
         }
-        MutationEnvelopeField::NonceReplayKey => {
+        MutationRequestEnvelopeField::NonceReplayKey => {
             read_map_value_once(&mut fields.nonce_replay_key, "nonce_replay_key", map)
         }
-        MutationEnvelopeField::Scope => read_map_value_once(&mut fields.scope, "scope", map),
+        MutationRequestEnvelopeField::Scope => read_map_value_once(&mut fields.scope, "scope", map),
         _ => unreachable!("identity field dispatcher received a different field group"),
     }
 }
 
 fn read_digest_field<'de, A>(
-    fields: &mut MutationEnvelopeFields,
-    field: MutationEnvelopeField,
+    fields: &mut MutationRequestEnvelopeFields,
+    field: MutationRequestEnvelopeField,
     map: &mut A,
 ) -> Result<(), A::Error>
 where
     A: MapAccess<'de>,
 {
     match field {
-        MutationEnvelopeField::OperationReplayDigest => read_map_value_once(
+        MutationRequestEnvelopeField::OperationReplayDigest => read_map_value_once(
             &mut fields.operation_replay_digest,
             "operation_replay_digest",
             map,
         ),
-        MutationEnvelopeField::NonceReplayDigest => {
+        MutationRequestEnvelopeField::NonceReplayDigest => {
             read_map_value_once(&mut fields.nonce_replay_digest, "nonce_replay_digest", map)
         }
-        MutationEnvelopeField::RequestedResult => {
+        MutationRequestEnvelopeField::RequestedResult => {
             read_map_value_once(&mut fields.requested_result, "requested_result", map)
         }
-        MutationEnvelopeField::CanonicalPayloadDigest => read_map_value_once(
+        MutationRequestEnvelopeField::CanonicalPayloadDigest => read_map_value_once(
             &mut fields.canonical_payload_digest,
             "canonical_payload_digest",
             map,
         ),
-        MutationEnvelopeField::EnvelopeDigest => {
+        MutationRequestEnvelopeField::EnvelopeDigest => {
             read_map_value_once(&mut fields.envelope_digest, "envelope_digest", map)
         }
         _ => unreachable!("digest field dispatcher received a different field group"),
@@ -282,27 +282,27 @@ where
 }
 
 fn read_collection_field<'de, A>(
-    fields: &mut MutationEnvelopeFields,
-    field: MutationEnvelopeField,
+    fields: &mut MutationRequestEnvelopeFields,
+    field: MutationRequestEnvelopeField,
     map: &mut A,
 ) -> Result<(), A::Error>
 where
     A: MapAccess<'de>,
 {
     match field {
-        MutationEnvelopeField::Preconditions => read_budgeted_collection(
+        MutationRequestEnvelopeField::Preconditions => read_budgeted_collection(
             &mut fields.preconditions,
             "preconditions",
             map,
             &mut fields.budget,
         ),
-        MutationEnvelopeField::Effects => {
+        MutationRequestEnvelopeField::Effects => {
             read_budgeted_collection(&mut fields.effects, "effects", map, &mut fields.budget)
         }
-        MutationEnvelopeField::Outbox => {
+        MutationRequestEnvelopeField::Outbox => {
             read_budgeted_collection(&mut fields.outbox, "outbox", map, &mut fields.budget)
         }
-        MutationEnvelopeField::Provenance => read_budgeted_collection(
+        MutationRequestEnvelopeField::Provenance => read_budgeted_collection(
             &mut fields.provenance,
             "provenance",
             map,
@@ -330,29 +330,29 @@ where
 }
 
 fn read_envelope_field<'de, A>(
-    fields: &mut MutationEnvelopeFields,
-    field: MutationEnvelopeField,
+    fields: &mut MutationRequestEnvelopeFields,
+    field: MutationRequestEnvelopeField,
     map: &mut A,
 ) -> Result<(), A::Error>
 where
     A: MapAccess<'de>,
 {
     match field {
-        MutationEnvelopeField::SchemaVersion
-        | MutationEnvelopeField::MutationId
-        | MutationEnvelopeField::VerifiedAuthority
-        | MutationEnvelopeField::OperationIdentity
-        | MutationEnvelopeField::NonceReplayKey
-        | MutationEnvelopeField::Scope => read_identity_field(fields, field, map),
-        MutationEnvelopeField::OperationReplayDigest
-        | MutationEnvelopeField::NonceReplayDigest
-        | MutationEnvelopeField::RequestedResult
-        | MutationEnvelopeField::CanonicalPayloadDigest
-        | MutationEnvelopeField::EnvelopeDigest => read_digest_field(fields, field, map),
-        MutationEnvelopeField::Preconditions
-        | MutationEnvelopeField::Effects
-        | MutationEnvelopeField::Outbox
-        | MutationEnvelopeField::Provenance => read_collection_field(fields, field, map),
+        MutationRequestEnvelopeField::SchemaVersion
+        | MutationRequestEnvelopeField::MutationId
+        | MutationRequestEnvelopeField::VerifiedAuthority
+        | MutationRequestEnvelopeField::OperationIdentity
+        | MutationRequestEnvelopeField::NonceReplayKey
+        | MutationRequestEnvelopeField::Scope => read_identity_field(fields, field, map),
+        MutationRequestEnvelopeField::OperationReplayDigest
+        | MutationRequestEnvelopeField::NonceReplayDigest
+        | MutationRequestEnvelopeField::RequestedResult
+        | MutationRequestEnvelopeField::CanonicalPayloadDigest
+        | MutationRequestEnvelopeField::EnvelopeDigest => read_digest_field(fields, field, map),
+        MutationRequestEnvelopeField::Preconditions
+        | MutationRequestEnvelopeField::Effects
+        | MutationRequestEnvelopeField::Outbox
+        | MutationRequestEnvelopeField::Provenance => read_collection_field(fields, field, map),
     }
 }
 
@@ -363,11 +363,11 @@ where
     value.ok_or_else(|| E::missing_field(field))
 }
 
-fn finish_envelope<E>(fields: MutationEnvelopeFields) -> Result<MutationEnvelope, E>
+fn finish_envelope<E>(fields: MutationRequestEnvelopeFields) -> Result<MutationRequestEnvelope, E>
 where
     E: serde::de::Error,
 {
-    Ok(MutationEnvelope {
+    Ok(MutationRequestEnvelope {
         schema_version: require_field(fields.schema_version, "schema_version")?,
         mutation_id: require_field(fields.mutation_id, "mutation_id")?,
         verified_authority: require_field(fields.verified_authority, "verified_authority")?,
@@ -392,8 +392,8 @@ where
     })
 }
 
-impl<'de> Visitor<'de> for MutationEnvelopeVisitor {
-    type Value = MutationEnvelope;
+impl<'de> Visitor<'de> for MutationRequestEnvelopeVisitor {
+    type Value = MutationRequestEnvelope;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("a named untrusted mutation-envelope.v1 map")
@@ -404,7 +404,7 @@ impl<'de> Visitor<'de> for MutationEnvelopeVisitor {
         A: SeqAccess<'de>,
     {
         Err(A::Error::custom(
-            "MutationEnvelope requires a named map; positional sequences are forbidden",
+            "MutationRequestEnvelope requires a named map; positional sequences are forbidden",
         ))
     }
 
@@ -412,15 +412,15 @@ impl<'de> Visitor<'de> for MutationEnvelopeVisitor {
     where
         A: MapAccess<'de>,
     {
-        let mut fields = MutationEnvelopeFields::new();
-        while let Some(field) = map.next_key::<MutationEnvelopeField>()? {
+        let mut fields = MutationRequestEnvelopeFields::new();
+        while let Some(field) = map.next_key::<MutationRequestEnvelopeField>()? {
             read_envelope_field(&mut fields, field, &mut map)?;
         }
         finish_envelope::<A::Error>(fields)
     }
 }
 
-impl<'de> Deserialize<'de> for MutationEnvelope {
+impl<'de> Deserialize<'de> for MutationRequestEnvelope {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -443,9 +443,9 @@ impl<'de> Deserialize<'de> for MutationEnvelope {
             "envelope_digest",
         ];
         let envelope = deserializer.deserialize_struct(
-            "MutationEnvelope",
+            "MutationRequestEnvelope",
             FIELDS,
-            MutationEnvelopeVisitor,
+            MutationRequestEnvelopeVisitor,
         )?;
         envelope
             .validate_untrusted_request()

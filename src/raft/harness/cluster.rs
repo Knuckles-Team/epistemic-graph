@@ -133,7 +133,7 @@ async fn allocate_root(
     on_allocated: impl FnOnce(&std::path::Path) + Send + 'static,
 ) -> Result<std::path::PathBuf, String> {
     let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
-    let (claim_sender, claim_receiver) = std::sync::mpsc::channel();
+    let (claim_sender, claim_receiver) = std::sync::mpsc::sync_channel(1);
     let tag = tag.to_string();
     let _allocation_task = ::tokio::task::spawn_blocking(move || {
         let result = 'allocate: {
@@ -919,8 +919,8 @@ mod filesystem_boundary_tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn abandoned_allocated_root_is_removed_off_the_executor() {
-        let (path_sender, path_receiver) = mpsc::channel();
-        let (release_sender, release_receiver) = mpsc::channel();
+        let (path_sender, path_receiver) = mpsc::sync_channel(1);
+        let (release_sender, release_receiver) = mpsc::sync_channel(1);
         let worker_started = Arc::new(AtomicUsize::new(0));
         let worker_finished = Arc::new(AtomicUsize::new(0));
         let allocation = {

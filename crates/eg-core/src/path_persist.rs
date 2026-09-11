@@ -136,20 +136,20 @@ fn path_index_batch(
     let batch = eg_types::MutationBatch {
         schema_version: eg_types::MUTATION_BATCH_VERSION,
         batch_id: batch_id.clone(),
-        context: eg_types::MutationRequestContext {
-            request_id: 0,
-            principal: principal.to_string(),
-            purpose: None,
-            policy_fingerprint: None,
-            trace_id: None,
-            // A maintenance mutation claims no capability: a plain
-            // `Native`-versioned write, not the reserved-system `Unversioned`
-            // path. Empty is the true fact here, not a placeholder.
-            verified_capabilities: std::collections::BTreeSet::new(),
-        },
+        // A path-index snapshot has no caller, so it is a MAINTENANCE mutation
+        // (RF-RULING-005): still ledgered, fenced and version-bumping, but with
+        // no operation replay identity and no attempt nonce. The envelope makes
+        // that structural -- it carries no authority to derive one from -- and
+        // names what was written and against which store.
+        envelope: eg_types::mutation_batch::MutationEnvelope::maintenance_for_scope(
+            identity,
+            principal,
+            "path_index_snapshot",
+            &batch_id,
+        )
+        .map_err(redb_store::PathPersistError::Redb)?,
         identity: identity.clone(),
         placement_epoch: 0,
-        idempotency_key: batch_id,
         version_expectation: eg_types::VersionExpectation::Native(expected_version),
         fencing_token: None,
         authoritative_state: None,
@@ -319,32 +319,24 @@ mod redb_store {
             }
         }
 
-        /// The scope's authoritative mutation version.
-        fn version(&self) -> Result<u64, PathPersistError> {
-            let read = self
-                .kernel
-                .read_scope(&self.owner)
-                .map_err(PathPersistError::Redb)?;
-            eg_transaction::version(&read).map_err(PathPersistError::Redb)
-        }
-
         /// Fallible save — the typed backing of the trait's best-effort `save`. Writes
         /// the whole snapshot in ONE durable (immediate-fsync) transaction.
         pub fn try_save(&self, idx: &PersistedPathIndex) -> Result<(), PathPersistError> {
             let bytes = serde_json::to_vec(idx)?;
-            let expected_version = self.version()?;
-            let batch = super::path_index_batch(
-                self.owner.identity(),
-                self.owner.principal(),
-                expected_version,
-            )?;
             // A path-index snapshot carries no caller identity -- the index is a
             // pure derivation of the graph -- so it is a MAINTENANCE mutation
             // (RF-RULING-005): still ledgered, fenced and version-bumping, because
             // an un-ledgered owner write would be a second authority.
-            let (write, begun) = self
+            let (write, batch, begun) = self
                 .mutations
-                .admit_maintenance(&self.owner, &batch)
+                .admit_current(&self.owner, |version| {
+                    super::path_index_batch(
+                        self.owner.identity(),
+                        self.owner.principal(),
+                        version,
+                    )
+                    .map_err(|error| error.to_string())
+                })
                 .map_err(PathPersistError::Redb)?;
             let source_version = match begun {
                 Begin::Replay(_) => {

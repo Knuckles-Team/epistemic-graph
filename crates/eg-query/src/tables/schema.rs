@@ -995,6 +995,62 @@ impl TableSchema {
         &mut self.columns
     }
 
+    /// Append a column. A primary-key column is never nullable.
+    pub(crate) fn add_column(&mut self, column: &Column) -> Result<(), String> {
+        if self.column(&column.name).is_some() {
+            return Err(format!(
+                "column `{}` already exists in table `{}`",
+                column.name, self.name
+            ));
+        }
+        self.columns_mut().push(column.clone());
+        if column.primary_key {
+            self.columns_mut().last_mut().unwrap().nullable = false;
+        }
+        Ok(())
+    }
+
+    /// Remove a column. A table always keeps at least one.
+    pub(crate) fn drop_column(&mut self, column: &str) -> Result<(), String> {
+        let index = self.require_column_index(column)?;
+        if self.columns().len() == 1 {
+            return Err(format!(
+                "cannot drop the only column `{column}` of table `{}`",
+                self.name
+            ));
+        }
+        self.columns_mut().remove(index);
+        Ok(())
+    }
+
+    /// Rename a column in place. Renaming a column to its own name is a no-op, not a
+    /// collision.
+    pub(crate) fn rename_column(&mut self, from: &str, to: &str) -> Result<(), String> {
+        if from != to && self.column(to).is_some() {
+            return Err(format!(
+                "column `{to}` already exists in table `{}`",
+                self.name
+            ));
+        }
+        let index = self.require_column_index(from)?;
+        self.columns_mut()[index].name = to.to_string();
+        Ok(())
+    }
+
+    /// Retype a column in place. Whether the conversion is allowed is the migration
+    /// policy's question, not the schema's.
+    pub(crate) fn set_column_type(&mut self, column: &str, ty: ColumnType) -> Result<(), String> {
+        let index = self.require_column_index(column)?;
+        self.columns_mut()[index].ty = ty;
+        Ok(())
+    }
+
+    /// The position of an existing column, or the standard "does not exist" error.
+    pub(crate) fn require_column_index(&self, column: &str) -> Result<usize, String> {
+        self.column_index(column)
+            .ok_or_else(|| format!("column `{column}` does not exist in table `{}`", self.name))
+    }
+
     /// The position of `column` in the schema's column order, if present.
     /// The first lookup builds the directory in O(W); warm lookups are expected O(1).
     pub fn column_index(&self, column: &str) -> Option<usize> {

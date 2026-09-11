@@ -97,7 +97,10 @@ pub fn reserved_control_graph(layout: OwnerLayout) -> Option<&'static str> {
 /// control/serving split holds identically for a sole admit, for a group
 /// member, and on the read side.
 pub fn is_control_scope(layout: OwnerLayout, identity: &MutationScopeIdentity) -> bool {
-    match (reserved_control_graph(layout), identity.scope().graph_name()) {
+    match (
+        reserved_control_graph(layout),
+        identity.scope().graph_name(),
+    ) {
         (Some(reserved), Some(graph)) => graph.as_str() == reserved,
         _ => false,
     }
@@ -136,12 +139,61 @@ impl OwnerRowScope for &str {
     }
 }
 
+/// The least key one serving scope can own, for a scope-bounded range scan.
+///
+/// Separate from [`OwnerRowScope`] because it is parameterised by the lifetime
+/// of the scope name it borrows: the leading component of the returned key IS
+/// that name, so it cannot be produced from the `&self` of a row.
+///
+/// This exists so a scope-bounded scan needs no upper bound at all. An
+/// inclusive one cannot be written for a key whose non-leading components
+/// include a `&str`, because `&str` has no maximum: `"\u{10FFFF}"` is the
+/// greatest scalar value but not the greatest string, since any string having
+/// it as a proper prefix sorts after it. The scan therefore starts here and
+/// stops on the first key that leaves the scope -- see
+/// [`crate::ScopedOwnerTable::scope_rows`]. Same reasoning as
+/// [`crate::OwnerReadTable::range_from`], which exists because "a prefix scan
+/// of one partition has no natural inclusive upper bound"; that accessor is
+/// bounded by its table's layout, this one by the holder's serving scope.
+pub trait OwnerRowScopeStart<'a>: Sized {
+    fn scope_start(scope: &'a str) -> Self;
+}
+
+impl<'a> OwnerRowScopeStart<'a> for &'a str {
+    fn scope_start(scope: &'a str) -> Self {
+        scope
+    }
+}
+
+/// The least value of one non-leading key component.
+trait RowKeyFloor {
+    const FLOOR: Self;
+}
+
+impl RowKeyFloor for &str {
+    const FLOOR: Self = "";
+}
+
+impl RowKeyFloor for u32 {
+    const FLOOR: Self = 0;
+}
+
+impl RowKeyFloor for u64 {
+    const FLOOR: Self = 0;
+}
+
 macro_rules! owner_row_scope_tuples {
     ($( ($($rest:ty),*) ),* $(,)?) => {
         $(
-            impl OwnerRowScope for (&str, $($rest),*) {
+            impl<'a> OwnerRowScope for (&'a str, $($rest),*) {
                 fn owner_scope(&self) -> &str {
                     self.0
+                }
+            }
+
+            impl<'a> OwnerRowScopeStart<'a> for (&'a str, $($rest),*) {
+                fn scope_start(scope: &'a str) -> Self {
+                    (scope, $(<$rest as RowKeyFloor>::FLOOR),*)
                 }
             }
         )*
@@ -157,4 +209,7 @@ owner_row_scope_tuples!(
     (&str, &str, u32),
     (&str, &str, &str),
     (&str, &str, u64, &str),
+    // `development_lane_pressure_index`:
+    // `(graph, tenant, scope, metric, value, counter_key)`.
+    (&str, &str, &str, u64, &str),
 );
