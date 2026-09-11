@@ -407,6 +407,77 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # ── WIRING gates ──────────────────────────────────────────────────────────
+  # Every gate above this block measures code SHAPE: complexity, size,
+  # duplication, layering, lint. Each of the four below measures whether a
+  # thing that EXISTS is CONNECTED, which no shape measure can see. An
+  # undeclared module is short, simple, unduplicated and correctly layered; a
+  # method with no dispatch arm is a clean enum variant; an unregistered table
+  # is a tidy constant; an unresolved pin is a validated field. Each of the
+  # four defects these were built from passed every scanner in this file.
+  #
+  # All four are pure stdlib text/AST scans over the compiler-declared module
+  # tree -- no cargo, no build, no network.
+  # STAGING NOTE (owner-stamped, 2026-09-11). `orphan-modules` and
+  # `pinned-reference-resolution` are RED BY DESIGN on the current tree: they
+  # report real, named, tracked debt (2 orphan roots / 163 KB; 4 unresolved
+  # reference edges + 2 unpinned references). They are NOT allowlisted,
+  # suppressed or weakened, and they still FAIL — they run at pre-push and in
+  # every explicit gate sweep.
+  #
+  # They are held off `pre-commit` for one reason: a permanently-failing
+  # pre-commit hook forces every commit to use --no-verify, which silently
+  # disables the OTHER 60 gates too. That is not hypothetical — it is exactly
+  # how a broken dupehound gate and four files of EOF debt reached main in this
+  # program. Blocking one class of debt at the cost of disabling all enforcement
+  # is a net loss.
+  #
+  # RETURN THEM TO `pre-commit` the moment their findings reach zero. Whoever
+  # closes the last orphan or the last unresolved edge owns that edit.
+  - id: orphan-modules
+    name: Every tracked Rust file is compiled by some cargo target
+    entry: python3 scripts/check_orphan_modules.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-push, manual]
+  - id: contract-method-reachability
+    name: Every contract method reaches a dispatch arm, and its digests round-trip
+    entry: python3 scripts/check_contract_method_reachability.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit, pre-push, manual]
+  - id: durable-table-registration
+    name: Every durable table is in the owner registry, manifest and census
+    entry: python3 scripts/check_durable_table_registration.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit, pre-push, manual]
+  # STAGING NOTE (owner-stamped, 2026-09-11). `orphan-modules` and
+  # `pinned-reference-resolution` are RED BY DESIGN on the current tree: they
+  # report real, named, tracked debt (2 orphan roots / 163 KB; 4 unresolved
+  # reference edges + 2 unpinned references). They are NOT allowlisted,
+  # suppressed or weakened, and they still FAIL — they run at pre-push and in
+  # every explicit gate sweep.
+  #
+  # They are held off `pre-commit` for one reason: a permanently-failing
+  # pre-commit hook forces every commit to use --no-verify, which silently
+  # disables the OTHER 60 gates too. That is not hypothetical — it is exactly
+  # how a broken dupehound gate and four files of EOF debt reached main in this
+  # program. Blocking one class of debt at the cost of disabling all enforcement
+  # is a net loss.
+  #
+  # RETURN THEM TO `pre-commit` the moment their findings reach zero. Whoever
+  # closes the last orphan or the last unresolved edge owns that edit.
+  - id: pinned-reference-resolution
+    name: Every pinned cross-record reference has a production resolver
+    entry: python3 scripts/check_pinned_reference_resolution.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-push, manual]
   # Anti-drift check for the ci-gate-replica hook (pre-push/manual, below) —
   # pure YAML parse, no cargo/build, <1s, so it runs on EVERY commit rather
   # than waiting for a push to discover a workflow grew a job
