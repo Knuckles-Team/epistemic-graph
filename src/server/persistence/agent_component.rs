@@ -74,10 +74,20 @@ const MAX_AGENT_COMPONENT_SEARCH_BYTES: usize = 8 * 1024 * 1024;
 ///
 /// A publish adds one point lookup per distinct pin, so the fan-out needs its
 /// own bound rather than inheriting whatever the per-list bounds multiply out
-/// to. Set above the largest LEGAL pin count so it refuses abuse, never a
-/// record that validates: an entry may pin `MAX_REFERENCE_COUNT` tools, skills,
-/// ontologies, toolset refs and validator refs plus four scalars.
-const MAX_RESOLVED_COMPONENT_PINS: usize = 8_192;
+/// to. Set above the largest LEGAL pin count of ANY subject that resolves
+/// through this helper, so it refuses abuse and never a record that validates:
+///
+/// * a COMPONENT pins up to `MAX_DEPENDENCIES` (256) requirements plus the one
+///   MCP server its provenance names -- 257;
+/// * a LIBRARY ENTRY pins `MAX_REFERENCE_COUNT` (1,024) tools, skills,
+///   ontologies, toolset refs and validator refs, plus four scalars, plus up
+///   to `MAX_PARAMS` (32) template-instance bindings -- 5,156;
+/// * a GRAPH pins, per node, two data contracts and either a decision
+///   predicate or up to `MAX_BINDINGS` (64) template bindings, across
+///   `MAX_NODES` (256) nodes, plus a condition on each of `MAX_EDGES` (1,024)
+///   edges, plus its synthesis evidence -- 17,921, which is what raised this
+///   bound from 8,192 when graph pins started resolving.
+const MAX_RESOLVED_COMPONENT_PINS: usize = 32_768;
 /// Most revision rows one publish may read while resolving its pins.
 ///
 /// The second half of the cost bound: the pin count caps how many components
@@ -171,24 +181,23 @@ impl AgentLibraryStore {
 
         // L1 -> L1: a component's own `requires` are pinned references too, and
         // the same argument applies -- resolution is by (id, kind, digest)
-        // alone, so an unresolved pin is a claim nothing checks.
+        // alone, so an unresolved pin is a claim nothing checks. The MCP server
+        // an ingested tool/prompt/resource is provenanced to is the SAME kind
+        // of pin and is resolved in the same pass: `pinned_components()` is the
+        // one list, so a second pin set cannot be forgotten here.
         //
         // The reference graph stays acyclic for the reason the module header
         // gives: a dependency can only pin a digest that already exists.
         // Resolution does not need a cycle check, it needs to prove the pin is
         // real.
-        {
-            let pins: Vec<&eg_types::agent_component::ComponentDependency> =
-                request.component.requires.iter().collect();
-            if let Err(error) = self.resolve_component_pins_in_write(
-                &txn,
-                &request.context.tenant_id,
-                "agent component",
-                &pins,
-            ) {
-                txn.abort()?;
-                return Err(error);
-            }
+        if let Err(error) = self.resolve_component_pins_in_write(
+            &txn,
+            &request.context.tenant_id,
+            "agent component",
+            &request.component.pinned_components(),
+        ) {
+            txn.abort()?;
+            return Err(error);
         }
 
         let entry = match AgentComponentEntry::create(
@@ -1255,6 +1264,15 @@ pub(crate) fn seed_draft_components_for_test(
     pins.extend(draft.runtime.output_validator_refs.iter_mut());
     pins.extend(draft.runtime.deps_contract.iter_mut());
     pins.extend(draft.runtime.output_contract.iter_mut());
+    // The values a template instantiation bound into this agent are pinned
+    // components too, and admission resolves them with the rest -- so a fixture
+    // that left them at an invented digest would be refused.
+    pins.extend(
+        draft
+            .instantiated_from
+            .iter_mut()
+            .flat_map(|instance| instance.bindings.values_mut()),
+    );
     for (index, pin) in pins.into_iter().enumerate() {
         let seeded = seed_component_for_test(
             store,
@@ -1272,12 +1290,77 @@ mod tests {
     use super::*;
     use eg_types::agent_component::{
         AgentComponentDraft, AgentComponentFacts, AgentComponentKind, AgentComponentSearchRequest,
-        ComponentProvenance, ToolEffect,
+        ComponentDependency, ComponentProvenance, ToolEffect,
     };
     use eg_types::contract::Nonce;
 
     fn digest(byte: char) -> String {
         format!("sha256:{}", byte.to_string().repeat(64))
+    }
+
+    /// The MCP server every ingested `tool()` fixture is provenanced to.
+    ///
+    /// Publishing a tool RESOLVES that provenance pin, so the server has to
+    /// exist at the pinned revision before any tool in this module can
+    /// publish. That is the point of the pin, and the fixtures seed it rather
+    /// than the assertions being relaxed to tolerate a dangling one.
+    const MCP_SERVER_ID: &str = "mcp:search-server";
+    /// Attempt-nonce space reserved for the fixture seed, above every nonce a
+    /// test picks for itself, so seeding can never consume a test's nonce.
+    const SEED_NONCE: u8 = 250;
+
+    /// The server record a tool's provenance points at. Native provenance: an
+    /// MCP server cannot itself be provenanced to one.
+    fn mcp_server_draft(tenant_id: &str) -> AgentComponentDraft {
+        AgentComponentDraft {
+            component_id: MCP_SERVER_ID.to_string(),
+            kind: AgentComponentKind::McpServer,
+            version: "1.0.0".to_string(),
+            content_digest: digest('1'),
+            content_ref: None,
+            facts: AgentComponentFacts::Opaque,
+            provenance: ComponentProvenance::Native,
+            summary: "the search mcp server".to_string(),
+            // Deliberately unclassified: every task-constrained search in this
+            // module asserts on which TOOLS it finds, and a seeded server that
+            // matched a task would change those answers.
+            classification: Vec::new(),
+            requires: Vec::new(),
+            provides: Vec::new(),
+            attributes: Default::default(),
+            tenant_id: tenant_id.to_string(),
+            actor_scope: "action-scope:a".to_string(),
+            purpose_id: "agent-component:publish".to_string(),
+            policy_digest: super::super::agent_library::current_agent_library_policy_digest()
+                .unwrap(),
+            source_revision: "rev-1".to_string(),
+            source_revision_digest: digest('8'),
+        }
+    }
+
+    /// The digest a tool's provenance must pin. Derived from the same draft the
+    /// seed publishes, so the two cannot drift: a fixture that pinned a
+    /// hand-written digest would be refused by resolution, correctly.
+    fn mcp_server_digest(tenant_id: &str) -> String {
+        AgentComponentEntry::publish(mcp_server_draft(tenant_id), 1, 10)
+            .expect("the fixture server is a valid draft")
+            .definition_digest
+    }
+
+    fn seed_mcp_server(store: &AgentLibraryStore, tenant_id: &str, nonce: u8) {
+        store
+            .publish_component(AgentComponentPublishRequest {
+                context: context_for(
+                    tenant_id,
+                    store,
+                    &format!("{tenant_id}-mcp-server-seed"),
+                    nonce,
+                    0,
+                    "agent-component:publish",
+                ),
+                component: mcp_server_draft(tenant_id),
+            })
+            .expect("the fixture mcp server seeds");
     }
 
     fn tool(component_id: &str, capability: &str, effect: ToolEffect) -> AgentComponentDraft {
@@ -1301,7 +1384,11 @@ mod tests {
                 required_scopes: Vec::new(),
             },
             provenance: ComponentProvenance::McpServer {
-                server_component_id: "mcp:search-server".to_string(),
+                server: ComponentDependency {
+                    component_id: MCP_SERVER_ID.to_string(),
+                    kind: AgentComponentKind::McpServer,
+                    definition_digest: mcp_server_digest(tenant_id),
+                },
                 upstream_name: component_id.to_string(),
             },
             summary: format!("tool {component_id}"),
@@ -1360,6 +1447,7 @@ mod tests {
     fn open_store() -> (tempfile::TempDir, AgentLibraryStore) {
         let dir = tempfile::tempdir().unwrap();
         let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
+        seed_mcp_server(&store, "tenant-a", SEED_NONCE);
         (dir, store)
     }
 
@@ -1433,6 +1521,7 @@ mod tests {
         let path = dir.path().to_str().unwrap();
         {
             let store = AgentLibraryStore::open(path).unwrap();
+            seed_mcp_server(&store, "tenant-a", SEED_NONCE);
             store
                 .publish_component(AgentComponentPublishRequest {
                     context: context(&store, "key-1", 1, 0, "agent-component:publish"),
@@ -1449,6 +1538,90 @@ mod tests {
             .current_component("tenant-a", "tool:a")
             .unwrap()
             .is_some());
+    }
+
+    // ---- provenance is a PIN, and admission resolves it ----
+
+    #[test]
+    fn a_component_provenanced_to_a_server_that_does_not_exist_is_refused() {
+        // `server_component_id` used to be a bare id, so no check could tell an
+        // ingest that named the reviewed server from one that named anything
+        // at all. It is a `ComponentDependency` now, resolved like every other.
+        let (_dir, store) = open_store();
+        let mut orphan = tool("tool:web", "eg:capability/retrieval/web-search", ToolEffect::Read);
+        orphan.provenance = ComponentProvenance::McpServer {
+            server: ComponentDependency {
+                component_id: "mcp:ghost-server".to_string(),
+                kind: AgentComponentKind::McpServer,
+                definition_digest: mcp_server_digest("tenant-a"),
+            },
+            upstream_name: "search".to_string(),
+        };
+        let error = store
+            .publish_component(AgentComponentPublishRequest {
+                context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                component: orphan,
+            })
+            .expect_err("an unresolvable provenance pin must be refused");
+        assert!(error.contains("which does not exist in this tenant"), "got: {error}");
+        assert!(store.current_component("tenant-a", "tool:web").unwrap().is_none());
+    }
+
+    #[test]
+    fn a_component_provenanced_to_an_invented_server_digest_is_refused() {
+        // The half an id alone could never carry: WHICH revision of the server
+        // this tool's surface was read from.
+        let (_dir, store) = open_store();
+        let mut stale = tool("tool:web", "eg:capability/retrieval/web-search", ToolEffect::Read);
+        stale.provenance = ComponentProvenance::McpServer {
+            server: ComponentDependency {
+                component_id: MCP_SERVER_ID.to_string(),
+                kind: AgentComponentKind::McpServer,
+                definition_digest: digest('7'),
+            },
+            upstream_name: "search".to_string(),
+        };
+        let error = store
+            .publish_component(AgentComponentPublishRequest {
+                context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                component: stale,
+            })
+            .expect_err("a digest no server revision carries must be refused");
+        assert!(error.contains("that was never published"), "got: {error}");
+    }
+
+    #[test]
+    fn a_component_provenanced_to_a_record_that_is_not_a_server_is_refused() {
+        // The kind travels inside the pin, so admission refuses a provenance
+        // that names a real record of the wrong kind rather than discovering it
+        // when something tries to call the server.
+        let (_dir, store) = open_store();
+        let toolset = seed_component_for_test(
+            &store,
+            "tenant-a",
+            "toolset:search",
+            AgentComponentKind::Toolset,
+            60,
+        );
+        let mut mislabelled =
+            tool("tool:web", "eg:capability/retrieval/web-search", ToolEffect::Read);
+        mislabelled.provenance = ComponentProvenance::McpServer {
+            server: ComponentDependency {
+                component_id: toolset.component_id,
+                // The pin CLAIMS McpServer -- local validation is satisfied --
+                // while the record it names is a toolset.
+                kind: AgentComponentKind::McpServer,
+                definition_digest: toolset.definition_digest,
+            },
+            upstream_name: "search".to_string(),
+        };
+        let error = store
+            .publish_component(AgentComponentPublishRequest {
+                context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                component: mislabelled,
+            })
+            .expect_err("a provenance naming a non-server must be refused");
+        assert!(error.contains("but it is a toolset"), "got: {error}");
     }
 
     // ---- the query the layer exists for ----
@@ -1541,6 +1714,7 @@ mod tests {
         // foreign row and has to break on it.
         let (_dir, store) = open_store();
         seed_search_corpus(&store);
+        seed_mcp_server(&store, "tenant-b", SEED_NONCE - 1);
         for (index, (id, capability)) in [
             ("tool:web", "eg:capability/retrieval/web-search"),
             ("tool:vector", "eg:capability/retrieval/vector-search"),
@@ -1706,6 +1880,7 @@ mod tests {
         // open-ended range reaches a foreign row -- must not surface one.
         let (_dir, store) = open_store();
         seed_search_corpus(&store);
+        seed_mcp_server(&store, "tenant-b", SEED_NONCE - 1);
         for (index, (id, capability)) in [
             ("tool:web", "eg:capability/retrieval/web-search"),
             ("tool:vector", "eg:capability/retrieval/vector-search"),

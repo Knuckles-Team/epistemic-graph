@@ -48,8 +48,19 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::agent_library::AgentLibraryLifecycle;
 
-pub const AGENT_COMPONENT_SCHEMA_VERSION: u16 = 1;
-pub const AGENT_COMPONENT_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-component-definition/v1";
+/// Advanced to 2 by the pre-freeze contract review.
+/// [`ComponentProvenance::McpServer`] stopped naming its server by bare id and
+/// now PINS it as a [`ComponentDependency`], so the definition digest's input
+/// set gained the server's kind and digest. Bumping here is what makes a v1
+/// record a TYPED rejection ("schema version 1 is no longer accepted") rather
+/// than a confusing digest mismatch on a row that re-derives to a different
+/// value for a reason nothing states -- the same reasoning
+/// `agent_library.rs:17-20` gives for its own bump.
+pub const AGENT_COMPONENT_SCHEMA_VERSION: u16 = 2;
+/// Format-identity constant (RF-ADR-006), advanced with the schema version:
+/// the digest covers a different shape, so it must be minted under a different
+/// domain or two different definitions could collide across the bump.
+pub const AGENT_COMPONENT_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-component-definition/v2";
 /// Format-identity constant (RF-ADR-006) for the tenant binding inside an
 /// opaque search cursor. See [`encode_search_cursor`].
 pub const AGENT_COMPONENT_SEARCH_CURSOR_DOMAIN: &[u8] = b"au-eg/agent-component-search-cursor/v1";
@@ -319,11 +330,24 @@ pub enum ComponentProvenance {
         package_id: String,
         package_version: String,
     },
-    /// Ingested by listing an MCP server's surface. `server_component_id`
-    /// points at the [`AgentComponentKind::McpServer`] record, so the server
-    /// is one node every tool/prompt/resource it serves hangs off.
+    /// Ingested by listing an MCP server's surface.
+    ///
+    /// `server` PINS the [`AgentComponentKind::McpServer`] record by
+    /// `(id, kind, digest)`, so the server is one node every tool/prompt/
+    /// resource it serves hangs off AND the server a record claims is the
+    /// server that was reviewed. It was a bare `server_component_id: String`
+    /// -- the last unpinned cross-record reference in this contract -- and an
+    /// id alone is unresolvable in principle: no admission check can tell an
+    /// ingest that named the reviewed server from one that named a different
+    /// server, or a republished one whose tool surface has since moved.
+    ///
+    /// A full [`ComponentDependency`] rather than an id+digest pair, because
+    /// the kind belongs inside the pin exactly as it does everywhere else
+    /// here: resolution is by `(id, kind, digest)`, and carrying the kind is
+    /// what lets admission refuse a provenance that names a `Toolset` where
+    /// the serving server belongs instead of discovering it at execution.
     McpServer {
-        server_component_id: String,
+        server: ComponentDependency,
         /// The name the server itself uses. Distinct from `component_id`,
         /// which is EG-scoped: two servers may both expose a `search` tool.
         upstream_name: String,
@@ -342,12 +366,41 @@ impl ComponentProvenance {
                 validate_text("provenance package_version", package_version)
             }
             Self::McpServer {
-                server_component_id,
+                server,
                 upstream_name,
             } => {
-                validate_text("provenance server_component_id", server_component_id)?;
+                validate_text("provenance server component_id", &server.component_id)?;
+                validate_digest(
+                    "provenance server definition_digest",
+                    &server.definition_digest,
+                )?;
+                // The kind half of the pin is checked HERE as well as at
+                // resolution: a provenance that names a toolset is malformed
+                // whether or not a store is open, and refusing it locally keeps
+                // the error legible instead of surfacing as a resolution
+                // mismatch against a record that does exist.
+                if server.kind != AgentComponentKind::McpServer {
+                    return Err(format!(
+                        "agent component provenance must pin an mcp_server component, got '{}'",
+                        server.kind.as_str()
+                    ));
+                }
                 validate_text("provenance upstream_name", upstream_name)
             }
+        }
+    }
+
+    /// The component record this provenance PINS, if any.
+    ///
+    /// The resolver half of the pin: admission has to prove the named server
+    /// exists at the pinned revision, in this tenant, under the pinned kind,
+    /// exactly as it already proves `requires` does. Exposed as one accessor
+    /// so a future provenance variant that pins a record cannot be added
+    /// without a caller here noticing.
+    pub fn pinned_component(&self) -> Option<&ComponentDependency> {
+        match self {
+            Self::McpServer { server, .. } => Some(server),
+            Self::Native | Self::SourcePackage { .. } => None,
         }
     }
 
@@ -569,6 +622,18 @@ impl AgentComponentEntry {
 }
 
 impl AgentComponentDraft {
+    /// Every L1 record this component pins: what it `requires`, plus the MCP
+    /// server its provenance names.
+    ///
+    /// One list rather than two call sites, so admission cannot resolve one
+    /// pin set and silently miss the other -- which is exactly how the
+    /// provenance reference stayed unresolved while `requires` was resolved.
+    pub fn pinned_components(&self) -> Vec<&ComponentDependency> {
+        let mut all: Vec<&ComponentDependency> = self.requires.iter().collect();
+        all.extend(self.provenance.pinned_component());
+        all
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         for (field, value) in [
             ("component_id", self.component_id.as_str()),
@@ -792,10 +857,12 @@ fn put_provenance(hasher: &mut Sha256, provenance: &ComponentProvenance) {
             put_text(hasher, package_version);
         }
         ComponentProvenance::McpServer {
-            server_component_id,
+            server,
             upstream_name,
         } => {
-            put_text(hasher, server_component_id);
+            put_text(hasher, &server.component_id);
+            put_text(hasher, server.kind.as_str());
+            put_text(hasher, &server.definition_digest);
             put_text(hasher, upstream_name);
         }
     }
@@ -1495,6 +1562,15 @@ mod tests {
 
     // ---- ingestion provenance ----
 
+    /// The pinned MCP server every served component's provenance names.
+    fn mcp_server_pin(seed: char) -> ComponentDependency {
+        ComponentDependency {
+            component_id: "mcp:search-server".into(),
+            kind: AgentComponentKind::McpServer,
+            definition_digest: digest(seed),
+        }
+    }
+
     fn mcp_tool(component_id: &str, capability: &str, effect: ToolEffect) -> AgentComponentDraft {
         let mut source = draft(component_id, AgentComponentKind::Tool);
         source.facts = AgentComponentFacts::Tool {
@@ -1502,7 +1578,7 @@ mod tests {
             required_scopes: Vec::new(),
         };
         source.provenance = ComponentProvenance::McpServer {
-            server_component_id: "mcp:search-server".into(),
+            server: mcp_server_pin('a'),
             upstream_name: "search".into(),
         };
         source.classification = vec![capability.into()];
@@ -1521,17 +1597,32 @@ mod tests {
 
         let mut bound = orphan.clone();
         bound.provenance = ComponentProvenance::McpServer {
-            server_component_id: "mcp:search-server".into(),
+            server: mcp_server_pin('a'),
             upstream_name: "summarize".into(),
         };
         bound.validate().expect("a served prompt names its server");
+
+        // The server half of the provenance is a PIN, not a bare id: it
+        // carries the kind, and a provenance that names something which is not
+        // an MCP server is refused before any store is opened.
+        let mut mis_kinded = bound.clone();
+        mis_kinded.provenance = ComponentProvenance::McpServer {
+            server: ComponentDependency {
+                component_id: "toolset:search".into(),
+                kind: AgentComponentKind::Toolset,
+                definition_digest: digest('a'),
+            },
+            upstream_name: "summarize".into(),
+        };
+        let error = mis_kinded.validate().expect_err("must be refused");
+        assert!(error.contains("must pin an mcp_server component"), "got: {error}");
     }
 
     #[test]
     fn an_mcp_server_is_not_provenanced_to_itself() {
         let mut recursive = draft("mcp:search-server", AgentComponentKind::McpServer);
         recursive.provenance = ComponentProvenance::McpServer {
-            server_component_id: "mcp:search-server".into(),
+            server: mcp_server_pin('a'),
             upstream_name: "self".into(),
         };
         let error = recursive.validate().expect_err("must be refused");
@@ -1644,7 +1735,7 @@ mod tests {
             required_scopes: vec!["scope:read".into()],
         };
         full.provenance = ComponentProvenance::McpServer {
-            server_component_id: "mcp:search-server".into(),
+            server: mcp_server_pin('a'),
             upstream_name: "search".into(),
         };
         full.classification = vec!["eg:capability/retrieval/web-search".into()];
@@ -1705,6 +1796,37 @@ mod tests {
                 }
             }),
             ("provenance", |d| d.provenance = ComponentProvenance::Native),
+            // The variant's OWN fields, not just the choice of variant: an
+            // `McpServer` provenance carries a pin, and a pin whose digest is
+            // stored but unhashed is a reference that can be repointed at a
+            // different revision of the server without moving the digest an
+            // approver signed off on.
+            ("provenance.server.component_id", |d| {
+                d.provenance = ComponentProvenance::McpServer {
+                    server: ComponentDependency {
+                        component_id: "mcp:other-server".into(),
+                        kind: AgentComponentKind::McpServer,
+                        definition_digest: digest('a'),
+                    },
+                    upstream_name: "search".into(),
+                }
+            }),
+            ("provenance.server.definition_digest", |d| {
+                d.provenance = ComponentProvenance::McpServer {
+                    server: mcp_server_pin('b'),
+                    upstream_name: "search".into(),
+                }
+            }),
+            // `provenance.server.kind` has no mutator: validation pins it to
+            // exactly `McpServer`, so there is no PUBLISHABLE draft that
+            // differs in it alone. It is hashed anyway, so the field stays
+            // covered if that constraint is ever relaxed.
+            ("provenance.upstream_name", |d| {
+                d.provenance = ComponentProvenance::McpServer {
+                    server: mcp_server_pin('a'),
+                    upstream_name: "find".into(),
+                }
+            }),
             ("summary", |d| d.summary = "a different tool".into()),
             ("classification", |d| {
                 d.classification = vec!["eg:capability/analysis/summarize".into()]

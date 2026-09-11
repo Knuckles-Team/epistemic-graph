@@ -65,6 +65,39 @@ pub struct AgentTemplateWriteResult {
 }
 
 impl AgentLibraryStore {
+    /// Resolve pinned references to TEMPLATE records, inside an admitted
+    /// write. The mechanics, the bounds and the reasoning are
+    /// [`super::agent_pin_resolution::resolve_pins`]'s; this module is where
+    /// `decode_template` is in scope.
+    pub(super) fn resolve_template_pins_in_write(
+        &self,
+        write: &super::agent_pin_resolution::Write<'_>,
+        tenant_id: &str,
+        subject: &str,
+        pins: &[super::agent_pin_resolution::TemplatePin<'_>],
+    ) -> Result<(), String> {
+        let pins: Vec<(&str, &str, Option<u64>)> = pins
+            .iter()
+            .map(|pin| (pin.template_id, pin.definition_digest, pin.entry_revision))
+            .collect();
+        super::agent_pin_resolution::resolve_pins(
+            super::agent_pin_resolution::PinLayer {
+                record_kind: "template",
+                heads: eg_storage::AGENT_TEMPLATE_HEADS,
+                revisions: eg_storage::AGENT_TEMPLATE_REVISIONS,
+                max_pins: super::agent_pin_resolution::MAX_RESOLVED_TEMPLATE_PINS,
+                retained_revision_bound: MAX_AGENT_TEMPLATE_REVISIONS,
+                decode: |bytes: &[u8]| {
+                    decode_template(bytes).map(|e| (e.definition_digest, e.lifecycle))
+                },
+            },
+            write,
+            tenant_id,
+            subject,
+            &pins,
+        )
+    }
+
     /// Publish the next template revision.
     pub fn publish_template(
         &self,

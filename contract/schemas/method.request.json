@@ -3583,14 +3583,14 @@
           "type": "object"
         },
         {
-          "description": "Ingested by listing an MCP server's surface. `server_component_id`\npoints at the [`AgentComponentKind::McpServer`] record, so the server\nis one node every tool/prompt/resource it serves hangs off.",
+          "description": "Ingested by listing an MCP server's surface.\n\n`server` PINS the [`AgentComponentKind::McpServer`] record by\n`(id, kind, digest)`, so the server is one node every tool/prompt/\nresource it serves hangs off AND the server a record claims is the\nserver that was reviewed. It was a bare `server_component_id: String`\n-- the last unpinned cross-record reference in this contract -- and an\nid alone is unresolvable in principle: no admission check can tell an\ningest that named the reviewed server from one that named a different\nserver, or a republished one whose tool surface has since moved.\n\nA full [`ComponentDependency`] rather than an id+digest pair, because\nthe kind belongs inside the pin exactly as it does everywhere else\nhere: resolution is by `(id, kind, digest)`, and carrying the kind is\nwhat lets admission refuse a provenance that names a `Toolset` where\nthe serving server belongs instead of discovering it at execution.",
           "properties": {
             "origin": {
               "const": "mcp_server",
               "type": "string"
             },
-            "server_component_id": {
-              "type": "string"
+            "server": {
+              "$ref": "#/$defs/ComponentDependency"
             },
             "upstream_name": {
               "description": "The name the server itself uses. Distinct from `component_id`,\nwhich is EG-scoped: two servers may both expose a `search` tool.",
@@ -3599,7 +3599,7 @@
           },
           "required": [
             "origin",
-            "server_component_id",
+            "server",
             "upstream_name"
           ],
           "type": "object"
