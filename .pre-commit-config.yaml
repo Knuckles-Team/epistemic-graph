@@ -418,29 +418,17 @@ repos:
   #
   # All four are pure stdlib text/AST scans over the compiler-declared module
   # tree -- no cargo, no build, no network.
-  # STAGING NOTE (owner-stamped, 2026-09-11). `orphan-modules` and
-  # `pinned-reference-resolution` are RED BY DESIGN on the current tree: they
-  # report real, named, tracked debt (2 orphan roots / 163 KB; 4 unresolved
-  # reference edges + 2 unpinned references). They are NOT allowlisted,
-  # suppressed or weakened, and they still FAIL — they run at pre-push and in
-  # every explicit gate sweep.
-  #
-  # They are held off `pre-commit` for one reason: a permanently-failing
-  # pre-commit hook forces every commit to use --no-verify, which silently
-  # disables the OTHER 60 gates too. That is not hypothetical — it is exactly
-  # how a broken dupehound gate and four files of EOF debt reached main in this
-  # program. Blocking one class of debt at the cost of disabling all enforcement
-  # is a net loss.
-  #
-  # RETURN THEM TO `pre-commit` the moment their findings reach zero. Whoever
-  # closes the last orphan or the last unresolved edge owns that edit.
+  # `orphan-modules` returned to `pre-commit` on 2026-09-11: it is GREEN
+  # (1334 tracked Rust files, all compiled by 200 cargo targets) now that the
+  # semantic-index subsystem is wired. It was held off pre-commit only while it
+  # reported the 163 KB of orphaned source that is now compiled.
   - id: orphan-modules
     name: Every tracked Rust file is compiled by some cargo target
     entry: python3 scripts/check_orphan_modules.py
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-push, manual]
+    stages: [pre-commit, pre-push, manual]
   - id: contract-method-reachability
     name: Every contract method reaches a dispatch arm, and its digests round-trip
     entry: python3 scripts/check_contract_method_reachability.py
@@ -455,22 +443,25 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [pre-commit, pre-push, manual]
-  # STAGING NOTE (owner-stamped, 2026-09-11). `orphan-modules` and
-  # `pinned-reference-resolution` are RED BY DESIGN on the current tree: they
-  # report real, named, tracked debt (2 orphan roots / 163 KB; 4 unresolved
-  # reference edges + 2 unpinned references). They are NOT allowlisted,
-  # suppressed or weakened, and they still FAIL — they run at pre-push and in
-  # every explicit gate sweep.
+  # STAGING NOTE (owner-stamped, 2026-09-11). `pinned-reference-resolution` is
+  # RED BY DESIGN on the current tree: 4 of 8 pinned reference edges have no
+  # production resolver (GRAPH->COMPONENT, GRAPH->LIBRARY, GRAPH->TEMPLATE,
+  # LIBRARY->TEMPLATE), plus 2 UNPINNED references
+  # (`ComponentProvenance{,::McpServer}.server_component_id`, which name a
+  # record by id with no digest, so no resolver can check identity even in
+  # principle). It is NOT allowlisted, suppressed or weakened, and it still
+  # FAILS — it runs at pre-push and in every explicit gate sweep.
   #
-  # They are held off `pre-commit` for one reason: a permanently-failing
+  # It is held off `pre-commit` for one reason: a permanently-failing
   # pre-commit hook forces every commit to use --no-verify, which silently
   # disables the OTHER 60 gates too. That is not hypothetical — it is exactly
   # how a broken dupehound gate and four files of EOF debt reached main in this
-  # program. Blocking one class of debt at the cost of disabling all enforcement
-  # is a net loss.
+  # program. Blocking one class of debt at the cost of disabling all
+  # enforcement is a net loss.
   #
-  # RETURN THEM TO `pre-commit` the moment their findings reach zero. Whoever
-  # closes the last orphan or the last unresolved edge owns that edit.
+  # RETURN IT TO `pre-commit` the moment its findings reach zero. Whoever
+  # resolves the last edge owns that edit. `orphan-modules` was held here for
+  # the same reason and was returned on 2026-09-11 once it went green.
   - id: pinned-reference-resolution
     name: Every pinned cross-record reference has a production resolver
     entry: python3 scripts/check_pinned_reference_resolution.py
