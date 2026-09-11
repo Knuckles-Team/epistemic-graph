@@ -242,6 +242,29 @@ async fn wait_for_leader(multi: &Arc<MultiRaft>, gid: GroupId, node_id: NodeId) 
 }
 
 /// Start a one-node cluster, create its requested groups, and wait for each leader.
+/// [`start_single_node_groups`], but RECOVERING the durable graph image into the
+/// serving projection first -- the order a restarting process uses.
+///
+/// `EgStore::open`'s own doc states the contract: "the graph DATA is recovered
+/// separately by the M2 `load_all` path BEFORE Raft starts, so on boot the
+/// applied pointers and the on-disk graph data agree." A harness that brings the
+/// groups up and only then calls `load_all` inverts that, and is not simulating
+/// the restart it claims to.
+pub(crate) async fn start_recovered_single_node_groups(
+    dir: &str,
+    backend: Arc<dyn PersistenceBackend>,
+    isolation: IsolationLayer,
+    auth_secret: &str,
+    group_ids: &[GroupId],
+) -> (Arc<MultiRaft>, Arc<RwLock<ServerState>>) {
+    let state = make_state(dir, backend.clone(), isolation, auth_secret).await;
+    backend
+        .load_all(&state)
+        .await
+        .expect("recover the durable graph image before Raft starts");
+    start_groups_on_state(backend, group_ids, state).await
+}
+
 pub(crate) async fn start_single_node_groups(
     dir: &str,
     backend: Arc<dyn PersistenceBackend>,
@@ -250,6 +273,17 @@ pub(crate) async fn start_single_node_groups(
     group_ids: &[GroupId],
 ) -> (Arc<MultiRaft>, Arc<RwLock<ServerState>>) {
     let state = make_state(dir, backend.clone(), isolation, auth_secret).await;
+    start_groups_on_state(backend, group_ids, state).await
+}
+
+/// Bind the harness listener, start `MultiRaft` over `state`, and bring every
+/// requested group to a leader. Shared by both starters above, which differ only
+/// in whether the durable image is recovered into `state` first.
+async fn start_groups_on_state(
+    backend: Arc<dyn PersistenceBackend>,
+    group_ids: &[GroupId],
+    state: Arc<RwLock<ServerState>>,
+) -> (Arc<MultiRaft>, Arc<RwLock<ServerState>>) {
     let ctx = AppCtx {
         state: state.clone(),
         router: None,

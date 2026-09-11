@@ -225,10 +225,10 @@ fn shard_carries_encryption_metadata(shard: &Shard) -> Result<bool, String> {
 /// store with a binding row but no canary (or vice versa) is treated as tampered and
 /// fails closed; neither half is ever silently recreated.
 #[cfg(feature = "security")]
-fn verify_or_establish_encryption_canary(
+fn plan_encryption_canary(
     shard: &Shard,
     cipher: &crate::crypto::ValueCipher,
-) -> Result<CanaryOutcome, String> {
+) -> Result<CanaryPlan, String> {
     let (existing_canary, existing_binding) = {
         let control = shard.control_read()?;
         let table = control.open_owner_table(ENCRYPTION_CANARY)?;
@@ -274,7 +274,7 @@ fn verify_or_establish_encryption_canary(
                         .to_string(),
                 );
             }
-            Ok(CanaryOutcome::Verified)
+            Ok(CanaryPlan::Verified(CanaryOutcome::Verified))
         }
         (Some(sealed), None) => {
             // Upgrade the pre-NE-028 fixed canary only after proving the configured
@@ -298,8 +298,11 @@ fn verify_or_establish_encryption_canary(
             let binding = crate::crypto::EncryptionKeyBinding::from_key_ref(configured_ref);
             let binding_bytes = binding.encode()?;
             let sealed = cipher.seal(&expected_plaintext);
-            write_encryption_canary(shard, &sealed, &binding_bytes)?;
-            Ok(CanaryOutcome::UpgradedLegacy)
+            Ok(CanaryPlan::Write {
+                sealed,
+                binding_bytes,
+                outcome: CanaryOutcome::UpgradedLegacy,
+            })
         }
         (None, Some(_)) => Err(
             "refusing to open the durable graph store: encryption key binding exists but \
@@ -329,8 +332,61 @@ fn verify_or_establish_encryption_canary(
             let binding = crate::crypto::EncryptionKeyBinding::from_key_ref(configured_ref);
             let binding_bytes = binding.encode()?;
             let sealed = cipher.seal(&expected_plaintext);
+            Ok(CanaryPlan::Write {
+                sealed,
+                binding_bytes,
+                outcome: CanaryOutcome::Established,
+            })
+        }
+    }
+}
+
+/// What [`plan_encryption_canary`] decided this store needs, WITHOUT doing it.
+///
+/// The two halves are separate because the decision is per-STORE while the
+/// refusal is per-PERSIST-DIR. A dir holds K shard files, each with its own
+/// canary table and its own local view of "am I empty?", and `open` refuses the
+/// whole dir if ANY of them refuses. While establishing the canary happened
+/// inside the per-shard decision, a refusal on the one shard that held the data
+/// still left every OTHER shard — genuinely empty, and so genuinely eligible to
+/// have a canary established — durably converted to a key-required store.
+///
+/// The dir was then bricked in both directions: it would not open WITH the key
+/// (the data shard refuses "this store was written in PLAINTEXT") and would not
+/// open WITHOUT it (the converted shards refuse "this store carries
+/// encryption-at-rest metadata"), which makes the first refusal's own documented
+/// remediation -- "unset EPISTEMIC_GRAPH_ENCRYPTION_KEY to keep serving this
+/// store as it is" -- false. K is greater than one by default in a served
+/// process (`resolve_shard_count` autosizes from CPUs, and under Raft K == N
+/// groups), so this was the ordinary case, not an edge one.
+///
+/// Planning first makes the refusal byte-clean: the open path plans every shard,
+/// and only once every shard has agreed does it apply any plan.
+#[cfg(feature = "security")]
+enum CanaryPlan {
+    /// This store already carries a canary this key verifies, or carries none
+    /// and needs none. Nothing to write.
+    Verified(CanaryOutcome),
+    /// This store needs its canary written before it can be served.
+    Write {
+        sealed: Vec<u8>,
+        binding_bytes: Vec<u8>,
+        outcome: CanaryOutcome,
+    },
+}
+
+/// Commit a [`CanaryPlan`], after every store in the persist dir has agreed.
+#[cfg(feature = "security")]
+fn apply_encryption_canary(shard: &Shard, plan: CanaryPlan) -> Result<CanaryOutcome, String> {
+    match plan {
+        CanaryPlan::Verified(outcome) => Ok(outcome),
+        CanaryPlan::Write {
+            sealed,
+            binding_bytes,
+            outcome,
+        } => {
             write_encryption_canary(shard, &sealed, &binding_bytes)?;
-            Ok(CanaryOutcome::Established)
+            Ok(outcome)
         }
     }
 }
@@ -1155,16 +1211,30 @@ struct ShardWriter {
     handle: parking_lot::Mutex<Option<JoinHandle<()>>>,
 }
 
+/// One shard file opened and DECIDED, with nothing written yet.
+///
+/// The second half of the two-phase open (see [`CanaryPlan`]): the persist dir's
+/// refusal is collective, so every shard is planned before any shard is changed.
+struct PreparedShard {
+    db_path: String,
+    shard: Arc<Shard>,
+    #[cfg(feature = "security")]
+    cipher: Option<crate::crypto::ValueCipher>,
+    #[cfg(feature = "security")]
+    canary: Option<CanaryPlan>,
+    #[cfg(feature = "security")]
+    txn_recovery_cipher: Option<crate::crypto::ValueCipher>,
+}
+
 impl ShardWriter {
-    /// Open (or create) `db_path` as a kernel-owned store and spawn its dedicated
-    /// group-commit writer thread.
-    fn open(
-        db_path: String,
-        thread_name: String,
-        capacity: usize,
-        flush_threshold: usize,
-        group_commit: RedbGroupCommitConfig,
-    ) -> Result<Self, String> {
+    /// Open (or create) `db_path` as a kernel-owned store and DECIDE its
+    /// encryption posture, writing nothing.
+    ///
+    /// Every fallible, refusing step lives here and every durable one lives in
+    /// [`Self::spawn`], so a persist dir whose open is refused is byte-identical
+    /// to what it was before the call — see [`CanaryPlan`] for the bricking this
+    /// separation prevents.
+    fn prepare(db_path: String) -> Result<PreparedShard, String> {
         // ONE shared `Shard` per file (CONCEPT:EG-KG.storage.snapshot-read-off-writer): the writer thread and
         // the snapshot-read path both hold a clone of this `Arc`, and redb's exclusive
         // per-file lock is why reads share it rather than re-opening.
@@ -1177,13 +1247,6 @@ impl ShardWriter {
         // that used to run here is deleted: beside `create_owner` it would be a
         // second physical authority over the same file.
         let shard = Arc::new(Shard::open(std::path::Path::new(&db_path))?);
-        let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
-        // Adaptive group-commit micro-linger config + observability (CONCEPT:EG-KG.backend.adaptive-linger-coalesce).
-        // Resolved once by the backend open path (Configuration discipline); the
-        // writer thread owns the supplied config and a clone of the stats Arc so
-        // callers can read batch-size/throughput live.
-        let stats = Arc::new(RedbCommitStats::default());
-        let stats_writer = stats.clone();
         // Encryption-at-rest (CONCEPT:EG-KG.sharding.row-level-security): resolve the value-blob cipher ONCE at
         // open from EPISTEMIC_GRAPH_ENCRYPTION_KEY (the KMS seam). `None` ⇒ encryption
         // OFF ⇒ the durable format + write/read paths are byte-for-byte unchanged.
@@ -1198,40 +1261,19 @@ impl ShardWriter {
         // fallible step in this function already uses (`RedbBackend::open`
         // propagates it to `main.rs`'s existing `eprintln!` + `exit(1)` refusal).
         #[cfg(feature = "security")]
+        let mut canary_plan: Option<CanaryPlan> = None;
+        #[cfg(feature = "security")]
         match &cipher {
             Some(c) => {
                 // GOC-16 / BUG-248: fail closed BEFORE the writer thread spawns or any
                 // listener binds if the configured key does not match the key that
-                // sealed this store's existing data — see
-                // `verify_or_establish_encryption_canary`'s doc for exactly what this
-                // does and does not cover.
+                // sealed this store's existing data — see `plan_encryption_canary`'s
+                // doc for exactly what this does and does not cover.
                 //
-                // BUG-PE-055: log AFTER the check, and say which of the three things
-                // actually happened. The old unconditional "ENABLED" line was emitted
-                // before the check ran, so it appeared even on a store that was about
-                // to be refused — and, worse, it read identically whether the key was
-                // the store's existing key or a brand-new one being imposed on it.
-                match verify_or_establish_encryption_canary(&shard, c)? {
-                    CanaryOutcome::Verified => tracing::info!(
-                        "redb encryption-at-rest ENABLED (value blobs sealed with \
-                         ChaCha20-Poly1305); the configured key matches this store's \
-                         existing key binding"
-                    ),
-                    CanaryOutcome::UpgradedLegacy => tracing::info!(
-                        "redb encryption-at-rest ENABLED (value blobs sealed with \
-                         ChaCha20-Poly1305); this store's pre-key-lifecycle canary was \
-                         verified and upgraded to a bound key reference"
-                    ),
-                    CanaryOutcome::Established => tracing::warn!(
-                        "redb encryption-at-rest ENABLED (value blobs sealed with \
-                         ChaCha20-Poly1305) and a NEW key binding was established: this \
-                         store had no encryption canary and no durable rows, so {} is \
-                         being used for the FIRST time here. If you expected this store \
-                         to already hold data, it is not the store you meant — check the \
-                         persist dir before writing to it.",
-                        crate::crypto::ENCRYPTION_KEY_ENV,
-                    ),
-                }
+                // DECIDE only. The plan is applied in `spawn`, after every shard in
+                // this persist dir has agreed — see `CanaryPlan`'s doc for why a
+                // per-shard write here bricked a multi-shard dir on a refusal.
+                canary_plan = Some(plan_encryption_canary(&shard, c)?);
             }
             None => {
                 // BUG-PE-055: the no-key path never looked at the canary, so a store
@@ -1272,10 +1314,6 @@ impl ShardWriter {
                 }
             }
         }
-        // Keep a clone of the cipher for the snapshot-read path (CONCEPT:EG-KG.storage.snapshot-read-off-writer); the
-        // writer thread takes ownership of the original below.
-        #[cfg(feature = "security")]
-        let cipher_for_reads = cipher.clone();
         // Transaction-recovery-plan cipher (D-ORC-50) — resolved SEPARATELY from the
         // data-at-rest cipher above so enabling multi-op OCC transaction durability never
         // implies (and never requires) enabling at-rest encryption of existing plaintext
@@ -1283,12 +1321,84 @@ impl ShardWriter {
         #[cfg(feature = "security")]
         let txn_recovery_cipher = crate::crypto::ValueCipher::from_env_for_txn_recovery();
         #[cfg(feature = "security")]
-        if txn_recovery_cipher.is_some() && cipher_for_reads.is_none() {
+        if txn_recovery_cipher.is_some() && cipher.is_none() {
             tracing::info!(
                 "redb transaction-recovery-plan sealing ENABLED via a dedicated key \
                  (EPISTEMIC_GRAPH_TXN_RECOVERY_KEY) — data-at-rest encryption remains OFF"
             );
         }
+        Ok(PreparedShard {
+            db_path,
+            shard,
+            #[cfg(feature = "security")]
+            cipher,
+            #[cfg(feature = "security")]
+            canary: canary_plan,
+            #[cfg(feature = "security")]
+            txn_recovery_cipher,
+        })
+    }
+
+    /// Commit this shard's decided encryption plan and spawn its group-commit
+    /// writer thread. Called only after EVERY shard in the persist dir prepared
+    /// successfully, so this is the first point at which anything is written.
+    fn spawn(
+        prepared: PreparedShard,
+        thread_name: String,
+        capacity: usize,
+        flush_threshold: usize,
+        group_commit: RedbGroupCommitConfig,
+    ) -> Result<Self, String> {
+        let PreparedShard {
+            db_path,
+            shard,
+            #[cfg(feature = "security")]
+            cipher,
+            #[cfg(feature = "security")]
+            canary,
+            #[cfg(feature = "security")]
+            txn_recovery_cipher,
+        } = prepared;
+        // BUG-PE-055: log AFTER the decision, and say which of the three things
+        // actually happened. The old unconditional "ENABLED" line was emitted
+        // before the check ran, so it appeared even on a store that was about to
+        // be refused — and, worse, it read identically whether the key was the
+        // store's existing key or a brand-new one being imposed on it.
+        #[cfg(feature = "security")]
+        if let Some(plan) = canary {
+            match apply_encryption_canary(&shard, plan)? {
+                CanaryOutcome::Verified => tracing::info!(
+                    "redb encryption-at-rest ENABLED (value blobs sealed with \
+                     ChaCha20-Poly1305); the configured key matches this store's \
+                     existing key binding"
+                ),
+                CanaryOutcome::UpgradedLegacy => tracing::info!(
+                    "redb encryption-at-rest ENABLED (value blobs sealed with \
+                     ChaCha20-Poly1305); this store's pre-key-lifecycle canary was \
+                     verified and upgraded to a bound key reference"
+                ),
+                CanaryOutcome::Established => tracing::warn!(
+                    "redb encryption-at-rest ENABLED (value blobs sealed with \
+                     ChaCha20-Poly1305) and a NEW key binding was established: this \
+                     store had no encryption canary and no durable rows, so {} is \
+                     being used for the FIRST time here. If you expected this store \
+                     to already hold data, it is not the store you meant — check the \
+                     persist dir before writing to it.",
+                    crate::crypto::ENCRYPTION_KEY_ENV,
+                ),
+            }
+        }
+        let (tx, rx) = sync_channel::<Cmd>(capacity.max(1));
+        // Adaptive group-commit micro-linger config + observability (CONCEPT:EG-KG.backend.adaptive-linger-coalesce).
+        // Resolved once by the backend open path (Configuration discipline); the
+        // writer thread owns the supplied config and a clone of the stats Arc so
+        // callers can read batch-size/throughput live.
+        let stats = Arc::new(RedbCommitStats::default());
+        let stats_writer = stats.clone();
+        // Keep a clone of the cipher for the snapshot-read path (CONCEPT:EG-KG.storage.snapshot-read-off-writer); the
+        // writer thread takes ownership of the original below.
+        #[cfg(feature = "security")]
+        let cipher_for_reads = cipher.clone();
         // A `Weak` for the off-writer snapshot-read path (CONCEPT:EG-KG.storage.snapshot-read-off-writer). The writer
         // thread below takes the SOLE STRONG `Arc`, so the redb file lock releases
         // exactly when that thread exits on shutdown — matching the pre-EG-027 lifetime
@@ -1606,11 +1716,10 @@ impl RedbBackend {
             };
             shard_specs.push((i, db_path, thread_name));
         }
-        let opened: Vec<Result<ShardWriter, String>> = std::thread::scope(|scope| {
+        let opened: Vec<Result<(PreparedShard, String), String>> = std::thread::scope(|scope| {
             let handles: Vec<_> = shard_specs
                 .into_iter()
                 .map(|(i, db_path, thread_name)| {
-                    let group_commit = group_commit.clone();
                     scope.spawn(move || {
                         let bytes_on_disk = std::fs::metadata(&db_path).map(|m| m.len()).ok();
                         tracing::info!(
@@ -1620,13 +1729,7 @@ impl RedbBackend {
                                 .unwrap_or_else(|| "new".to_string())
                         );
                         let t0 = std::time::Instant::now();
-                        let result = ShardWriter::open(
-                            db_path.clone(),
-                            thread_name,
-                            capacity,
-                            flush_threshold,
-                            group_commit,
-                        );
+                        let result = ShardWriter::prepare(db_path.clone());
                         match &result {
                             Ok(_) => tracing::info!(
                                 "redb: shard {i}/{k} open finished in {:?}",
@@ -1637,7 +1740,7 @@ impl RedbBackend {
                                 t0.elapsed()
                             ),
                         }
-                        result
+                        result.map(|prepared| (prepared, thread_name))
                     })
                 })
                 .collect();
@@ -1649,9 +1752,26 @@ impl RedbBackend {
                 })
                 .collect()
         });
-        let mut shards = Vec::with_capacity(k);
+        // PHASE 1 of the open is now complete and NOTHING has been written. A
+        // refusal from ANY shard aborts here, leaving the persist dir
+        // byte-identical -- which is what makes the refusals above (and their
+        // advice to unset the key and carry on) actually true for a K > 1 store.
+        // See `CanaryPlan`'s doc.
+        let mut prepared = Vec::with_capacity(k);
         for shard in opened {
-            shards.push(shard?);
+            prepared.push(shard?);
+        }
+        // PHASE 2: every shard agreed, so commit each decided plan and start each
+        // writer thread.
+        let mut shards = Vec::with_capacity(k);
+        for (shard, thread_name) in prepared {
+            shards.push(ShardWriter::spawn(
+                shard,
+                thread_name,
+                capacity,
+                flush_threshold,
+                group_commit.clone(),
+            )?);
         }
         if k > 1 {
             tracing::info!(
@@ -7768,9 +7888,32 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A backend whose `commit_crossmodal` always FAILS — used to prove the handler
-    /// rolls back ALL modalities (applies nothing in-memory) on a durable-commit
-    /// failure: no partial cross-modal commit (CONCEPT:EG-KG.txn.reader-never-sees-node).
+    /// A backend whose cross-modal DURABLE COMMIT always FAILS — used to prove the
+    /// handler rolls back ALL modalities (applies nothing in-memory) on a
+    /// durable-commit failure: no partial cross-modal commit
+    /// (CONCEPT:EG-KG.txn.reader-never-sees-node).
+    ///
+    /// Everything that is NOT the injected failure delegates to a real
+    /// `RedbBackend`, including the `as_redb` downcast. That delegation is load
+    /// bearing twice over, and both halves were missing:
+    ///
+    /// * `as_redb` defaults to `None` on the trait (`persistence/mod.rs`), and
+    ///   `handlers::txn::begin_txn_lifecycle_receipt` refuses every
+    ///   txn-lifecycle method — `BeginTxn` included — without it ("transaction
+    ///   lifecycle requires durable redb"). So this double failed the very FIRST
+    ///   call of `stage_crossmodal`, and both tests using it died on
+    ///   `panic!("BeginTxn id, got None")` before reaching the rollback they
+    ///   name. The staging half of the scenario was never exercised at all.
+    /// * the commit path calls `commit_mutation_batch_crossmodal`, not the
+    ///   lower-level `commit_crossmodal` this double used to override. Overriding
+    ///   only the latter left the injection attached to a method the handler no
+    ///   longer calls: the commit would have failed anyway, but on the trait's
+    ///   own "backend does not support atomic cross-modal MutationBatch commits"
+    ///   default — i.e. the test would have asserted rollback after a
+    ///   NOT-IMPLEMENTED error rather than after the mid-way durable failure it
+    ///   describes. Both are overridden now, with the same injected message, so
+    ///   whichever seam a future refactor routes through, the failure the test
+    ///   names is the failure it gets.
     struct FailingBackend {
         inner: Arc<RedbBackend>,
     }
@@ -7783,6 +7926,9 @@ mod tests {
         async fn record_durable(&self, g: &str, m: &Method) -> Result<(), String> {
             self.inner.record_durable(g, m).await
         }
+        fn as_redb(&self) -> Option<&RedbBackend> {
+            self.inner.as_redb()
+        }
         async fn commit_crossmodal(
             &self,
             _g: &str,
@@ -7792,6 +7938,13 @@ mod tests {
             _meas: &[crate::MeasurementBatch],
         ) -> Result<(), String> {
             // Simulate a mid-way durable failure: NOTHING is written to redb.
+            Err("injected durable commit failure".to_string())
+        }
+        async fn commit_mutation_batch_crossmodal(
+            &self,
+            _args: crate::server::persistence::CrossModalCommitArgs<'_>,
+        ) -> Result<crate::server::persistence::MutationBatchCommit, String> {
+            // The seam the cross-modal Commit handler actually calls.
             Err("injected durable commit failure".to_string())
         }
         fn shutdown(&self) {
@@ -9086,8 +9239,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
         const K: usize = 4;
+        // `record_durable`/`read_node`/`shard_index` all take a graph FNAME -- the
+        // sanitized storage spelling, as their parameter names and `shard_index`'s
+        // own doc say, and as every production caller passes
+        // (`server::mutation::commit_finalize_durable` does
+        // `crate::persist::sanitize(ctx.graph_name)` first). This test is the only
+        // one in the file that picked a name needing sanitization (`:` is outside
+        // the storage alphabet) and then skipped the step, so its durable commit
+        // was refused by `validate_ordinary_physical_graph_key` with "physical
+        // graph key must use the sanitized storage alphabet". Sanitize once and
+        // use the fname everywhere the API asks for one -- which keeps the point
+        // of the test (a punctuated, namespaced graph name routes deterministically
+        // and survives a restart) rather than trading it for an unpunctuated name.
         let graph = "agent:router-test";
-        let owner = shard_index(graph, K);
+        let graph_fname = crate::persist::sanitize(graph);
+        let owner = shard_index(&graph_fname, K);
 
         {
             let backend = RedbBackend::open_with_shards(dir_s.clone(), 256, K).expect("open K=4");
@@ -9101,7 +9267,7 @@ mod tests {
             }
             backend
                 .record_durable(
-                    graph,
+                    &graph_fname,
                     &Method::AddNode {
                         node_id: "n1".to_string(),
                         properties_msgpack: props(serde_json::json!({"v": 1})),
@@ -9118,7 +9284,7 @@ mod tests {
                 }
             }
             assert!(
-                backend.read_node(graph, "n1").await.unwrap().is_some(),
+                backend.read_node(&graph_fname, "n1").await.unwrap().is_some(),
                 "node readable pre-restart"
             );
             backend.shutdown();
@@ -9130,7 +9296,7 @@ mod tests {
             let backend = RedbBackend::open_with_shards(dir_s.clone(), 256, K).expect("reopen K=4");
             assert_eq!(backend.shard_count(), K, "K reconciled from disk");
             assert!(
-                backend.read_node(graph, "n1").await.unwrap().is_some(),
+                backend.read_node(&graph_fname, "n1").await.unwrap().is_some(),
                 "node survived restart, served from the same shard"
             );
             backend.shutdown();

@@ -1507,10 +1507,17 @@ fn migrate_in_place_inner(
         // operator can inspect or remove the named tree", and a backup that
         // cannot be opened cannot be inspected -- and it REGRESSED four tests
         // (1680/42 -> 1676/46). Something downstream depends on the snapshot
-        // still carrying the original root, so it stays evidence, and
-        // `in_place_fault_after_first_graft_keeps_live_source_and_backup` (which
-        // opens the snapshot in place) stays red pending that being understood
-        // rather than guessed at.
+        // still carrying the original root, so it stays evidence.
+        //
+        // Resolved 2026-09-11 (eg-f3 burndown): "inspect" does not require
+        // opening the evidence WHERE IT LIES, and it must not, because
+        // `rebind_copied_store` rewrites the file it is given -- inspecting by
+        // rebinding in place would destroy the very byte-identity that makes the
+        // tree evidence. The recovery step is: copy the tree out, rebind the
+        // COPY against the original it was taken from, open the copy. Both
+        // requirements then hold at once, and
+        // `in_place_fault_after_first_graft_keeps_live_source_and_backup` proves
+        // it -- including that the evidence is byte-identical afterwards.
         //
         // `copied_from` is the ORIGINAL, not the intermediate snapshot: these are
         // plain byte copies, so the build source still carries the root of the
@@ -1960,9 +1967,53 @@ mod tests {
             })
             .expect("immutable migration backup");
         assert!(backup.join("source").join("graph-0.redb").exists());
-        let backup_backend =
-            RedbBackend::open(backup.join("source").to_string_lossy().to_string(), 256)
-                .expect("immutable source backup remains usable");
+
+        // "Usable" is proved the way an operator actually recovers from this
+        // tree, not by opening it where it lies (eg-f3 burndown, 2026-09-11).
+        //
+        // A store's physical root is `(dev, ino)`-derived and checked on every
+        // open, so a byte copy cannot be served at a new path until it is
+        // rebound -- and `rebind_copied_store` REWRITES the file it is given.
+        // Opening `.shard-migrate-backup-*/source` in place therefore had only
+        // two outcomes: refuse with "mutation store root incarnation mismatch"
+        // (what this test hit), or mutate the evidence. `migrate_in_place_inner`
+        // records that rebinding the snapshot in place was tried and regressed
+        // four tests, because something downstream depends on the snapshot still
+        // carrying the ORIGINAL root -- so the evidence stays pristine, by
+        // design, and the recovery step is: copy it out, rebind the COPY against
+        // the original it was taken from, open the copy.
+        //
+        // That is what is exercised here. The assertion is not weakened: it still
+        // proves both graphs are fully readable out of the preserved backup, and
+        // it additionally proves the evidence survives the read unmodified.
+        let evidence = backup.join("source");
+        let evidence_before: Vec<(std::path::PathBuf, Vec<u8>)> = std::fs::read_dir(&evidence)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "redb"))
+            .map(|path| {
+                let bytes = std::fs::read(&path).unwrap();
+                (path, bytes)
+            })
+            .collect();
+        assert!(
+            !evidence_before.is_empty(),
+            "the preserved backup must contain at least one store file"
+        );
+        let recovery = dir.join(".recovery-open");
+        let _ = std::fs::remove_dir_all(&recovery);
+        std::fs::create_dir_all(&recovery).unwrap();
+        for (path, _) in &evidence_before {
+            let name = path.file_name().unwrap();
+            std::fs::copy(path, recovery.join(name)).unwrap();
+            // The snapshot is a plain byte copy of the live source, so it still
+            // carries that store's root -- which is what `copied_from` must name.
+            eg_storage::rebind_copied_store(&recovery.join(name), &dir.join(name))
+                .expect("rebind the recovery copy of the immutable backup");
+        }
+        let backup_backend = RedbBackend::open(recovery.to_string_lossy().to_string(), 256)
+            .expect("immutable source backup remains usable");
         for graph in &graphs {
             assert!(
                 backup_backend
@@ -1973,6 +2024,15 @@ mod tests {
             );
         }
         backup_backend.shutdown();
+        drop(backup_backend);
+        for (path, bytes) in &evidence_before {
+            assert_eq!(
+                &std::fs::read(path).unwrap(),
+                bytes,
+                "reading the backup must leave the evidence byte-identical: {}",
+                path.display()
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

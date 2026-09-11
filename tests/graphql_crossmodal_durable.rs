@@ -121,6 +121,19 @@ async fn graphql_cross_modal_commit_survives_reopen() {
     let dir = test_support::fresh_dir("eg-gqlxm");
     let dir_s = dir.to_string_lossy().to_string();
 
+    // A multi-op cross-modal Commit seals its recovery plan, so durability
+    // REQUIRES a key: `crypto::resolve_txn_recovery_key` reads
+    // `EPISTEMIC_GRAPH_TXN_RECOVERY_KEY` first and falls back to
+    // `EPISTEMIC_GRAPH_ENCRYPTION_KEY`, and with neither set `commitTransaction`
+    // correctly refuses with "transaction durability requires
+    // EPISTEMIC_GRAPH_ENCRYPTION_KEY to be configured". This binary provisioned
+    // neither, so the refusal -- not the reopen behaviour this test names -- is
+    // what it measured. `provision_encryption_key_once` is the shared helper for
+    // exactly this (it is `Once`-guarded, so it is safe for both tests in this
+    // binary), and it must run BEFORE the backend opens: the cipher is resolved
+    // once at open.
+    test_support::provision_encryption_key_once("gql-crossmodal-durable-encryption-key");
+
     // ── Phase 1: open the durable tier, create the graph, run the cross-modal txn ──
     let backend = test_support::open_redb_backend(dir_s.clone()).unwrap();
     let state = state_with(backend.clone(), dir_s.clone());

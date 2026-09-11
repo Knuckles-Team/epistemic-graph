@@ -505,7 +505,15 @@ async fn an_identical_repeat_render_request_is_served_from_the_cache() {
 async fn render_provenance_is_queryable_after_a_render_and_absent_before() {
     let state = state();
 
-    let before = Box::pin(dispatch(
+    // A result reference carries an opaque per-caller owner prefix, and
+    // `handlers::viz` checks it BEFORE any state lookup, deliberately: "cache/
+    // provenance hits cannot cross principals". A hand-picked literal such as
+    // `"eg:viz_result:nonexistent"` carries no prefix, so it is refused as
+    // out-of-scope and never reaches the provenance lookup at all -- which is
+    // what this probe used to assert `error.is_none()` about. Pin BOTH halves
+    // instead: an out-of-scope reference is refused, and an IN-scope reference
+    // that no render ever produced answers `None` rather than erroring.
+    let out_of_scope = Box::pin(dispatch(
         &state,
         test_support::commons_request(
             SECRET,
@@ -518,17 +526,15 @@ async fn render_provenance_is_queryable_after_a_render_and_absent_before() {
         ),
     ))
     .await;
-    assert!(before.error.is_none());
-    match &before.result {
-        Some(ResultPayload::Raw(bytes)) => {
-            let value: Option<serde_json::Value> = rmp_serde::from_slice(bytes).unwrap();
-            assert!(
-                value.is_none(),
-                "an unknown result_ref must answer None, not an error"
-            );
-        }
-        other => panic!("expected Raw result, got {other:?}"),
-    }
+    let refusal = out_of_scope
+        .error
+        .as_deref()
+        .expect("a result_ref outside the verified owner scope must be refused");
+    assert!(
+        refusal.contains("ACCESS_DENIED"),
+        "an out-of-scope result_ref must be refused before any provenance lookup, \
+         so absence cannot be probed across principals; got: {refusal}"
+    );
 
     let mut columns = std::collections::BTreeMap::new();
     columns.insert("x".to_string(), VizColumnValues::F64(vec![1.0, 2.0]));
@@ -556,6 +562,33 @@ async fn render_provenance_is_queryable_after_a_render_and_absent_before() {
     .await;
     let payload = raw_result(&render_resp);
 
+    // IN scope (it keeps the render's own owner prefix) but never produced by any
+    // render: the provenance lookup must answer `None`, not an error.
+    let absent = Box::pin(dispatch(
+        &state,
+        test_support::commons_request(
+            SECRET,
+            15,
+            Method::Viz {
+                op: VizOp::RenderProvenance {
+                    result_ref: format!("{}-never-rendered", payload.result_ref),
+                },
+            },
+        ),
+    ))
+    .await;
+    assert!(absent.error.is_none(), "{:?}", absent.error);
+    match &absent.result {
+        Some(ResultPayload::Raw(bytes)) => {
+            let value: Option<serde_json::Value> = rmp_serde::from_slice(bytes).unwrap();
+            assert!(
+                value.is_none(),
+                "an in-scope result_ref that was never rendered must answer None"
+            );
+        }
+        other => panic!("expected Raw result, got {other:?}"),
+    }
+
     let after = Box::pin(dispatch(
         &state,
         test_support::commons_request(
@@ -574,7 +607,26 @@ async fn render_provenance_is_queryable_after_a_render_and_absent_before() {
         Some(ResultPayload::Raw(bytes)) => {
             let value: Option<serde_json::Value> = rmp_serde::from_slice(bytes).unwrap();
             let record = value.expect("provenance record must exist after a real render");
-            assert_eq!(record["dataset_ref"], serde_json::json!("ds:provenance"));
+            // The provenance row records the OWNER-SCOPED dataset reference the
+            // render actually resolved (`scoped_dataset_ref` ->
+            // `authority.namespace(VIZ_DATASET_NAMESPACE, dataset_ref)`), not the
+            // caller's raw label: "a caller cannot reuse another principal's raw
+            // dataset_ref", and a raw label in a durable row would defeat that.
+            // Pinning the literal `"ds:provenance"` asserted the opposite of the
+            // module's own scoping contract; pin the contract instead -- the
+            // recorded reference is the opaque scoped form, and the raw label
+            // does not appear in it.
+            let recorded = record["dataset_ref"]
+                .as_str()
+                .expect("provenance record names a dataset reference");
+            assert!(
+                recorded.starts_with("viz-dataset:"),
+                "provenance must record the owner-scoped dataset reference, got {recorded}"
+            );
+            assert!(
+                !recorded.contains("ds:provenance"),
+                "the caller's raw dataset label must not reach a durable provenance row: {recorded}"
+            );
             assert_eq!(record["row_count"], serde_json::json!(2));
             assert_eq!(record["exact"], serde_json::json!(true));
         }

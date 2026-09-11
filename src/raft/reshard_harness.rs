@@ -145,18 +145,62 @@ async fn reshard_data_durable_across_restart() {
         for i in 0..4 {
             write_via_owner(&multi, &format!("d{i}")).await.unwrap();
         }
-        tenants
+        let report = tenants
             .reshard_graph(GRAPH, GROUP_B)
             .await
             .expect("reshard");
-        multi.stop_listener();
-        multi.close_group(GROUP_A).await.unwrap();
-        multi.close_group(GROUP_B).await.unwrap();
+        // Pin the durable barrier the restart assertion below depends on, the way
+        // the sibling `reshard_keeps_data_and_serves_after` already does. Without
+        // it, "d0 durable across restart" could not distinguish "the restart lost
+        // it" from "the reshard never observed it durable in the first place".
+        assert_eq!(
+            report.nodes_transferred, 4,
+            "4 nodes must be durable at the transfer barrier"
+        );
+        // Node TEARDOWN, not group close: see the same fix in
+        // `placement_harness::catalog_persists_and_reloads_with_epoch`.
+        // `close_group` leaves the control-plane tasks and the owning
+        // `ServerState::multi_raft` publication alive, and that publication plus
+        // the manager's own `ctx.state` handle are a reference cycle, so the
+        // backend Arc never fell back to one and `reopen_backend` timed out
+        // naming the leak. `shutdown()` breaks the cycle.
+        multi.shutdown().await;
     }
     // Restart over the SAME files: every reshareded node is durable.
+    //
+    // Recovery order matters and this fixture had it backwards: `EgStore::open`'s
+    // own doc states that "the graph DATA is recovered separately by the M2
+    // `load_all` path BEFORE Raft starts, so on boot the applied pointers and the
+    // on-disk graph data agree". Calling `bring_up` (which creates the groups) and
+    // only THEN `load_all` inverts that contract, so this was not simulating the
+    // restart it claims to.
     let backend2 = fixture::reopen_backend(backend, &dir).expect("reopen");
-    let (multi2, state2) = bring_up(&dir, backend2.clone()).await;
-    backend2.load_all(&state2).await.expect("load_all");
+    let (multi2, state2) = fixture::start_recovered_single_node_groups(
+        &dir,
+        backend2.clone(),
+        crate::isolation::IsolationLayer::new(),
+        "reshard-test",
+        &[GROUP_A, GROUP_B],
+    )
+    .await;
+    multi2.router().assign(GRAPH, GROUP_B);
+    // Name WHICH half failed. `has_node` answers `false` both when the graph is
+    // absent from the recovered registry and when the graph is there but the row
+    // is not -- two completely different defects that a bare "d0 durable across
+    // restart" cannot tell apart.
+    {
+        let s = state2.read().await;
+        let names: Vec<String> = s
+            .registry
+            .list()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert!(
+            s.registry.exists(GRAPH),
+            "the recovered registry must hold {GRAPH}; it holds {names:?}"
+        );
+    }
     for i in 0..4 {
         assert!(
             has_node(&state2, &format!("d{i}")).await,

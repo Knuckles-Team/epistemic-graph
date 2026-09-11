@@ -27,6 +27,60 @@ pub fn open_redb_backend(dir: String) -> Result<SharedPersistence, String> {
     Ok(Arc::new(RedbBackend::open(dir, 8192)?))
 }
 
+/// Reopen a durable redb directory IN-PROCESS after proving this process holds
+/// no other reference to the handle being replaced.
+///
+/// `previous` is the handle being replaced. It is shut down, then this waits —
+/// bounded — until it is the LAST reference and drops it. `shutdown()` stops the
+/// writer thread but does NOT close the underlying redb `Database`: that happens
+/// only when the last owning value drops, and redb keeps its advisory per-file
+/// lock until then. So a clone still held anywhere — most often a
+/// `ServerState::persistence` the caller has not cleared — keeps the lock and the
+/// reopen fails with "Database already open. Cannot acquire lock."
+///
+/// Callers must therefore clear `state.persistence` (and any other clone they
+/// own) BEFORE calling this, and hand the last one over here.
+///
+/// This is deliberately NOT [`reopen_with_bounded_retry`]: retrying the OPEN can
+/// only mask a release that was going to happen anyway. Against a genuinely
+/// leaked handle it turns a lifetime bug into a storage error 2s later, which is
+/// exactly how `commit_retry_after_ack_loss_reconciles_across_resident_graphs`
+/// and `native_lifecycle_reopen_refuses_stale_begin_and_stage_success` failed:
+/// both reopened while `state.persistence` still held the old backend. Waiting on
+/// the REFERENCE COUNT, and naming the count when it never reaches one, reports
+/// the leak instead of the symptom — the same discipline
+/// `src/raft/harness/fixture.rs::release_sole_reference` already applies to the
+/// Raft harness backends.
+#[cfg(feature = "redb")]
+pub async fn reopen_after_sole_reference<T, F, E>(
+    previous: SharedPersistence,
+    mut open: F,
+    panic_label: &str,
+) -> T
+where
+    F: FnMut() -> Result<T, E>,
+    E: std::fmt::Debug,
+{
+    previous.shutdown();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while Arc::strong_count(&previous) > 1 {
+        if std::time::Instant::now() >= deadline {
+            panic!(
+                "{panic_label}: {} other reference(s) to the durable backend were still \
+                 alive after 10s, so its redb file lock is still held -- clear every \
+                 clone (ServerState::persistence included) before reopening",
+                Arc::strong_count(&previous) - 1
+            );
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    drop(previous);
+    match open() {
+        Ok(value) => value,
+        Err(error) => panic!("{panic_label}: {error:?}"),
+    }
+}
+
 /// Repeatedly invoke an in-process redb reopen until its prior file lock clears.
 ///
 /// The opener remains caller-owned so each fixture keeps its exact policy,
