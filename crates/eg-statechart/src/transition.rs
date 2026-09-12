@@ -458,7 +458,7 @@ fn record_history(
     history: &mut BTreeMap<StateId, BTreeSet<StateId>>,
 ) {
     for h in exit_all {
-        if !def.state(h).is_some_and(|st| st.history.is_some()) {
+        if def.state(h).is_none_or(|st| st.history.is_none()) {
             continue;
         }
         let snapshot: BTreeSet<StateId> = active

@@ -201,9 +201,9 @@ impl KnowledgeStreamAuthority {
                 .policy_store
                 .as_ref()
                 .ok_or_else(|| "KnowledgeStream policy authority is unavailable".to_string())?;
-            return lease
+            lease
                 .filter_view(store.as_ref(), view)
-                .map_err(|_| "KnowledgeStream policy decision lease is stale".to_string());
+                .map_err(|_| "KnowledgeStream policy decision lease is stale".to_string())
         }
         #[cfg(not(feature = "security"))]
         {
@@ -237,7 +237,7 @@ impl KnowledgeStreamAuthority {
             ) {
                 return Err("KnowledgeStream policy decision lease binding mismatch".to_string());
             }
-            return Ok(());
+            Ok(())
         }
         #[cfg(not(feature = "security"))]
         {
@@ -286,12 +286,12 @@ impl KnowledgeStreamAuthority {
     pub(super) fn validate_if_bound(&self, before: bool) -> Result<(), String> {
         #[cfg(feature = "security")]
         {
-            return match (&self.policy_lease, &self.policy_store) {
+            match (&self.policy_lease, &self.policy_store) {
                 (None, None) => Ok(()),
                 (Some(_), Some(_)) if before => self.validate_before(),
                 (Some(_), Some(_)) => self.validate_after(),
                 _ => Err("KnowledgeStream policy authority is unavailable".to_string()),
-            };
+            }
         }
         #[cfg(not(feature = "security"))]
         {

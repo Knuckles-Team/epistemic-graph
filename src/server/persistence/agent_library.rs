@@ -183,7 +183,7 @@ impl AgentLibraryStore {
         &self,
         request: AgentLibraryStatusRequest,
     ) -> Result<Option<AgentLibraryWriteResult>, String> {
-        validate_context(&self, &request.context)?;
+        validate_context(self, &request.context)?;
         eg_types::agent_library::validate_key(&request.context.tenant_id, &request.agent_id)?;
         let owner = self.scope_handle(&request.context.tenant_id)?;
         let batch_id = batch_id(&request.context.idempotency_key)?;
@@ -201,7 +201,7 @@ impl AgentLibraryStore {
                 return Err(
                     "CORRUPT_MUTATION_LEDGER: Agent Library status has no typed replay receipt"
                         .to_string(),
-                )
+                );
             }
             (Some(record), Some(replay_row)) => (record, replay_row),
         };
@@ -323,10 +323,7 @@ impl AgentLibraryStore {
             })
             .collect();
         super::agent_pin_resolution::resolve_template_pins_in_write(
-            write,
-            tenant_id,
-            subject,
-            &templates,
+            write, tenant_id, subject, &templates,
         )
     }
 
@@ -929,10 +926,8 @@ fn receipt_result(receipt: &MutationReceipt) -> Result<AgentLibraryCommittedResu
     if schema_id.as_str() != AGENT_LIBRARY_RESULT_SCHEMA_ID {
         return Err("Agent Library replay receipt has an unexpected result schema".to_string());
     }
-    let result: AgentLibraryCommittedResult = super::agent_row::decode(
-        payload.as_slice(),
-        "Agent Library replay result payload",
-    )?;
+    let result: AgentLibraryCommittedResult =
+        super::agent_row::decode(payload.as_slice(), "Agent Library replay result payload")?;
     result.validate()?;
     Ok(result)
 }
@@ -1103,10 +1098,10 @@ fn read_history(
         (None, None) => return Ok((None, entries)),
         (None, Some(_)) => return Err("agent library revisions exist without a head".to_string()),
         (Some(_), None) => {
-            return Err("agent library head points to an empty revision chain".to_string())
+            return Err("agent library head points to an empty revision chain".to_string());
         }
         (Some(head), Some(last)) if head != last.entry_revision => {
-            return Err("agent library head does not match the final revision".to_string())
+            return Err("agent library head does not match the final revision".to_string());
         }
         (Some(_), Some(_)) => {}
     }
@@ -1678,10 +1673,8 @@ fn record_result(
     if schema_id.as_str() != AGENT_LIBRARY_RESULT_SCHEMA_ID {
         return Err("Agent Library receipt has an unexpected result schema".to_string());
     }
-    let result: AgentLibraryCommittedResult = super::agent_row::decode(
-        payload.as_slice(),
-        "Agent Library domain result payload",
-    )?;
+    let result: AgentLibraryCommittedResult =
+        super::agent_row::decode(payload.as_slice(), "Agent Library domain result payload")?;
     result.validate()?;
     Ok(result)
 }
@@ -1838,7 +1831,10 @@ pub(crate) fn seed_agent_for_test(
     agent_id: &str,
     nonce_index: u8,
 ) -> String {
-    if let Some(existing) = store.current(tenant_id, agent_id).expect("read a seeded agent") {
+    if let Some(existing) = store
+        .current(tenant_id, agent_id)
+        .expect("read a seeded agent")
+    {
         return existing.definition_digest;
     }
     let mut entry = seed_agent_draft_for_test(store, tenant_id, agent_id, nonce_index);
@@ -1955,11 +1951,7 @@ mod tests {
         )
     }
 
-    fn draft(
-        store: &AgentLibraryStore,
-        tenant_id: &str,
-        agent_id: &str,
-    ) -> AgentLibraryEntryDraft {
+    fn draft(store: &AgentLibraryStore, tenant_id: &str, agent_id: &str) -> AgentLibraryEntryDraft {
         use eg_types::agent_component::AgentComponentKind;
         AgentLibraryEntryDraft {
             agent_id: agent_id.to_string(),

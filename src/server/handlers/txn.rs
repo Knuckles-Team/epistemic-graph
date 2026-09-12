@@ -604,7 +604,7 @@ async fn validate_txn_lifecycle_replay(
             _ => {
                 return Err(
                     "transaction lifecycle receipt has the wrong BeginTxn result".to_string(),
-                )
+                );
             }
         }
     } else {
@@ -751,7 +751,13 @@ pub(crate) fn fault_after_txn_lifecycle_effect(req_id: u64) {
 #[cfg(feature = "graphql")]
 pub(crate) enum GraphQlLifecycleAdmission {
     Replayed(ResultPayload),
-    Execute(TxnLifecycleReceipt),
+    /// Boxed because the receipt is ~450 bytes against the replayed payload's
+    /// much smaller one, so unboxed both arms paid the receipt's size. Safe
+    /// here for the same reason as elsewhere in this module: this enum is the
+    /// in-process return of one admission call, derives no `Serialize`, and
+    /// never crosses the wire or a durable boundary -- the receipt it carries
+    /// has its own durable representation, which boxing does not touch.
+    Execute(Box<TxnLifecycleReceipt>),
 }
 
 /// Consume the verified carrier's nonce and stable key for one native GraphQL
@@ -770,7 +776,7 @@ pub(crate) async fn begin_graphql_lifecycle(
     if let Some(result) = receipt.saga.replayed.clone() {
         return Ok(GraphQlLifecycleAdmission::Replayed(result));
     }
-    Ok(GraphQlLifecycleAdmission::Execute(receipt))
+    Ok(GraphQlLifecycleAdmission::Execute(Box::new(receipt)))
 }
 
 /// Terminalize a native GraphQL staging operation through the same durable
@@ -971,7 +977,7 @@ async fn reconcile_txn_candidate(
         ReconcileCandidateMatch::ForeignAuthority(field) => {
             return Err(format!(
                 "committed transaction receipt does not match caller scope ({field})"
-            ))
+            ));
         }
     }
     let bytes = record
@@ -1881,7 +1887,7 @@ fn resolve_txn_default_core(
             return Err(Response::err(
                 req_id,
                 format!("unknown transaction '{}'", txn_id),
-            ))
+            ));
         }
     };
     let default_graph = entry.value().lock().graph.clone();
@@ -2408,7 +2414,7 @@ async fn commit_resume_txn(
             return Err(Response::err(
                 req_id,
                 format!("transaction receipt reconciliation failed: {error}"),
-            ))
+            ));
         }
     }
     let resumed = match resume_txn_receipt(
@@ -2629,7 +2635,7 @@ async fn prepare_consensus_resume_txn(
             return Err(Response::err(
                 req_id,
                 format!("transaction receipt reconciliation failed: {error}"),
-            ))
+            ));
         }
     }
     let resumed = match resume_txn_receipt(persistence, req_id, caller, txn_id, None, None, None) {
@@ -3244,7 +3250,7 @@ fn commit_prepared_authorize(
             return Err(Response::err(
                 req_id,
                 format!("Graph '{}' not found", txn.graph),
-            ))
+            ));
         }
     };
     if !consensus_apply_is_authorized() {
@@ -3506,7 +3512,7 @@ async fn compile_prepared_batch(
             return Err(Response::err(
                 req_id,
                 format!("authoritative graph version read failed: {error}"),
-            ))
+            ));
         }
     };
     let batch = match crate::server::mutation_batch::compile_methods(
@@ -3532,7 +3538,7 @@ async fn compile_prepared_batch(
             return Err(Response::err(
                 req_id,
                 format!("MutationBatch compile failed: {e}"),
-            ))
+            ));
         }
     };
     let result_msgpack = match rmp_serde::to_vec_named(&ResultPayload::Bool(true)) {
@@ -3541,7 +3547,7 @@ async fn compile_prepared_batch(
             return Err(Response::err(
                 req_id,
                 format!("MutationBatch result encode failed: {e}"),
-            ))
+            ));
         }
     };
     Ok((batch, result_msgpack))
@@ -3598,7 +3604,7 @@ async fn commit_prepared_durable(args: CommitPreparedDurableArgs<'_>) -> Respons
     {
         Ok(committed) => committed,
         Err(e) => {
-            return Response::err(req_id, format!("MutationBatch durable commit failed: {e}"))
+            return Response::err(req_id, format!("MutationBatch durable commit failed: {e}"));
         }
     };
     if committed.replayed {
@@ -3660,7 +3666,7 @@ async fn commit_prepared_replayed(
             {
                 Ok(Some(value)) => value,
                 Ok(None) => {
-                    return Response::err(req_id, "committed transaction graph image is missing")
+                    return Response::err(req_id, "committed transaction graph image is missing");
                 }
                 Err(error) => return Response::err(req_id, error),
             };
@@ -3758,7 +3764,7 @@ pub(crate) async fn commit_graphql_cross_modal(
         },
         Some((receipt, None, Some(txn))) => (receipt, txn),
         Some((_receipt, Some(_), Some(_))) | Some((_receipt, None, None)) => {
-            return Err("GraphQL cross-modal parent receipt is inconsistent".to_string())
+            return Err("GraphQL cross-modal parent receipt is inconsistent".to_string());
         }
         None => {
             let staged = registry
@@ -4328,7 +4334,7 @@ async fn commit_recoverable_slices(
                 return Response::err(
                     req_id,
                     format!("cross-shard recovery lookup failed: {error}"),
-                )
+                );
             }
         };
         if let Some(multi) = multi {
@@ -4439,7 +4445,10 @@ async fn apply_slices_locally(
             match s.registry.get(&slice.graph_name) {
                 Some(e) => e.core.clone(),
                 None => {
-                    return Response::err(req_id, format!("Graph '{}' not found", slice.graph_name))
+                    return Response::err(
+                        req_id,
+                        format!("Graph '{}' not found", slice.graph_name),
+                    );
                 }
             }
         };
@@ -4919,8 +4928,7 @@ mod keyed_recovery_window_tests {
             &ResultPayload::String("txn-lost-after-restart".to_string()),
         )
         .await
-        .err()
-        .expect("missing volatile handle must not replay success");
+        .expect_err("missing volatile handle must not replay success");
         assert!(
             error.contains("volatile staging state is unavailable"),
             "{error}"

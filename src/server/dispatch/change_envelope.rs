@@ -853,14 +853,14 @@ pub(super) async fn route_change_envelope_ops(
                             return Response::err(
                                 req_id,
                                 format!("ApplyChangeEnvelope atomic commit failed: {error}"),
-                            )
+                            );
                         }
                     };
                     let projection_error = if committed.replayed {
                         None
                     } else {
                         crate::server::mutation_batch::publish_change_envelope_projection(
-                            &core, &envelope,
+                            core, &envelope,
                         )
                         .err()
                     };
@@ -995,7 +995,7 @@ pub(super) async fn route_change_envelope_ops(
                     };
                 }
             }
-            .await)
+            .await);
         }
         Method::GetChangeCursor {
             source,
@@ -1020,7 +1020,7 @@ pub(super) async fn route_change_envelope_ops(
                     };
                 }
             }
-            .await)
+            .await);
         }
         other => Err(other),
     }

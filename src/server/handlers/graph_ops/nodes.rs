@@ -144,11 +144,11 @@ pub(super) async fn try_handle_node_reads(
     } = ctx;
     ControlFlow::Break(match method {
         Method::HasNode { node_id } => {
-            let g = &*core;
+            let g = core;
             Response::ok(req_id, ResultPayload::Bool(g.has_node(&node_id)))
         }
         Method::GetNodes => {
-            let g = &*core;
+            let g = core;
             // Intelligent overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation): a `GetNodes` is an
             // UNBOUNDED full-graph dump. On a large graph (e.g. `__commons__` with
             // 166K+ nodes carrying 1024-dim embeddings) materializing every node's
@@ -176,7 +176,7 @@ pub(super) async fn try_handle_node_reads(
             after,
             limit,
         } => {
-            let g = &*core;
+            let g = core;
             let nodes: Vec<(String, serde_json::Value)> = g
                 .get_nodes_by_label_page(&label, after.as_deref(), limit)
                 .into_iter()
@@ -237,16 +237,16 @@ pub(super) async fn try_handle_node_batch(
         }
         Method::HasNodesBatch { node_ids } => handle_has_nodes_batch(req_id, core, &node_ids),
         Method::NodeCount => {
-            let g = &*core;
+            let g = core;
             Response::ok(req_id, ResultPayload::Count(g.node_count() as u64))
         }
         Method::NodeIds => {
-            let g = &*core;
+            let g = core;
             Response::ok(req_id, ResultPayload::Ids(g.node_ids()))
         }
         Method::MatchOntologyTerms { query } => {
             // CONCEPT:EG-ORCH.routing.lexical-capability-escalation — lexical capability gate; cached aho-corasick scan.
-            let g = &*core;
+            let g = core;
             Response::ok(req_id, ResultPayload::raw(&g.match_ontology_terms(&query)))
         }
         // AddEmbedding (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see

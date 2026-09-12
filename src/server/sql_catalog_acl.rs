@@ -123,7 +123,10 @@ fn run_snapshot_before_read_lock_hook() {
     SNAPSHOT_BEFORE_READ_LOCK.with(|hook| {
         if let Some((reached, proceed)) = hook.borrow_mut().take() {
             reached.send(()).expect("snapshot test receiver is alive");
-            proceed.recv().expect("snapshot test sender is alive");
+            crate::test_rendezvous::recv_within(
+                &proceed,
+                "the snapshot test releasing its read-lock hook",
+            );
         }
     });
 }
@@ -2126,6 +2129,7 @@ mod tests {
     use super::*;
     use crate::server::auth::VerifiedRequestContext;
     use crate::server::sql_tables::test_persist_dir;
+    use crate::test_rendezvous::{join_bounded, recv_within};
 
     const SEMANTIC_CURSOR_SECRET: &[u8; 32] = b"semantic-cursor-test-secret-0001";
     const OTHER_SEMANTIC_CURSOR_SECRET: &[u8; 32] = &[7; 32];
@@ -3249,7 +3253,10 @@ mod tests {
             let snapshot = source_acl_snapshot(&reader_dir, &reader_authority, "orders").unwrap();
             done_tx.send(snapshot).unwrap();
         });
-        reached_rx.recv().unwrap();
+        recv_within(
+            &reached_rx,
+            "the reader thread reaching the snapshot read lock",
+        );
         proceed_tx.send(()).unwrap();
         assert!(
             done_rx
@@ -3258,10 +3265,10 @@ mod tests {
             "the public snapshot API must block behind a source mutation guard"
         );
         drop(write_guard);
-        let during = done_rx.recv().unwrap();
+        let during = recv_within(&done_rx, "the reader's snapshot, once the guard is dropped");
         assert_eq!(during.source_acl_revision, 1);
         assert!(during.privileges.is_empty());
-        handle.join().unwrap();
+        join_bounded(handle, "the blocked snapshot reader thread");
     }
 
     // ── AuthorizedTable's Debug must never leak the principal ──────────────

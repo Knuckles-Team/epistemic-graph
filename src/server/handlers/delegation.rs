@@ -134,7 +134,7 @@ async fn admit_request(
         }
     };
     let retained = if requested_is_graph {
-        RetainedTarget::Graph(
+        RetainedTarget::Graph(Box::new(
             retained_graph(
                 store.as_ref(),
                 ctx.verified_context.tenant(),
@@ -142,9 +142,9 @@ async fn admit_request(
                 requested_revision,
             )
             .map_err(AdmissionError::Message)?,
-        )
+        ))
     } else {
-        RetainedTarget::Agent(
+        RetainedTarget::Agent(Box::new(
             retained_agent(
                 store.as_ref(),
                 ctx.verified_context.tenant(),
@@ -152,7 +152,7 @@ async fn admit_request(
                 requested_revision,
             )
             .map_err(AdmissionError::Message)?,
-        )
+        ))
     };
     let bound = bind_request(request, ctx.verified_context, &retained, ctx.graph_name)
         .map_err(AdmissionError::Message)?;
@@ -249,6 +249,11 @@ async fn replay_before_library(
 }
 
 #[cfg(feature = "redb")]
+// `clustered` is read only by the `raft` clustered-dispatch branch below. In a
+// build without that feature it is genuinely unused rather than dead: it is part
+// of this handler's shared signature, and renaming it to `_clustered` would
+// break the clustered build, which reads it by name.
+#[cfg_attr(not(feature = "raft"), allow(unused_variables))]
 async fn submit_native(
     ctx: &HandleContext<'_>,
     placement_epoch: u64,
@@ -300,8 +305,19 @@ async fn submit_native(
 /// branch lives here and nowhere else.
 #[cfg(feature = "redb")]
 pub(crate) enum RetainedTarget {
-    Agent(AgentLibraryEntry),
-    Graph(eg_types::agent_graph::AgentGraphEntry),
+    /// Boxed because `AgentLibraryEntry` is ~900 bytes while the graph entry is
+    /// a fraction of that, so an unboxed enum made every `RetainedTarget` --
+    /// including every `Graph` one -- pay the agent's size. The indirection is
+    /// free of consequence here: this type is a resolution result that lives
+    /// only in process. It derives no `Serialize`, never reaches the wire, and
+    /// never crosses a durable boundary, so boxing cannot change a stored or
+    /// transmitted representation.
+    Agent(Box<AgentLibraryEntry>),
+    /// Boxed for the same reason and with the same safety argument as `Agent`
+    /// above: ~370 bytes against a boxed sibling, and no wire or durable
+    /// representation to disturb. Boxing only one arm just moves the cost to
+    /// the other, so both are indirect and the enum is now two words.
+    Graph(Box<eg_types::agent_graph::AgentGraphEntry>),
 }
 
 #[cfg(feature = "redb")]
@@ -336,7 +352,7 @@ impl RetainedTarget {
 
     pub(crate) fn as_agent(&self) -> Option<&AgentLibraryEntry> {
         match self {
-            Self::Agent(entry) => Some(entry),
+            Self::Agent(entry) => Some(entry.as_ref()),
             Self::Graph(_) => None,
         }
     }
@@ -396,6 +412,9 @@ fn retained_agent(
 }
 
 #[cfg(feature = "redb")]
+// Same as `submit_native` above: `ctx` is read only by the `raft` block, so it
+// is unused -- not dead -- in a build without it.
+#[cfg_attr(not(feature = "raft"), allow(unused_variables))]
 async fn placement_authority(
     ctx: &HandleContext<'_>,
 ) -> Result<(u64, Option<u64>, bool), Response> {
@@ -569,9 +588,7 @@ fn validate_retained_target(
     // Tenant, scope, purpose and policy are checked identically for both
     // targets -- they are properties of the delegation, not of what it runs.
     if retained.tenant_id() != verified_context.tenant() {
-        return Err(
-            "kg-delegate retained target is outside authenticated tenant".to_string(),
-        );
+        return Err("kg-delegate retained target is outside authenticated tenant".to_string());
     }
     if request.actor_scope != retained.actor_scope() || request.purpose != retained.purpose_id() {
         return Err(
@@ -582,19 +599,25 @@ fn validate_retained_target(
         return Err("kg-delegate policy digest is stale or unresolved".to_string());
     }
     match (&request.target, retained) {
-        (eg_types::delegation::DelegationTarget::Agent { entry }, RetainedTarget::Agent(retained_agent)) => {
+        (
+            eg_types::delegation::DelegationTarget::Agent { entry },
+            RetainedTarget::Agent(retained_agent),
+        ) => {
             retained_agent.validate()?;
             if retained_agent.is_retired() {
                 return Err("kg-delegate retained Agent Library entry is retired".to_string());
             }
             if *entry != AgentLibraryEntryRef::from_entry(retained_agent) {
                 return Err(
-                    "kg-delegate agent entry is not the retained revision/digest".to_string()
+                    "kg-delegate agent entry is not the retained revision/digest".to_string(),
                 );
             }
             validate_execution_bindings(request, retained_agent)?;
         }
-        (eg_types::delegation::DelegationTarget::Graph { graph }, RetainedTarget::Graph(retained_graph)) => {
+        (
+            eg_types::delegation::DelegationTarget::Graph { graph },
+            RetainedTarget::Graph(retained_graph),
+        ) => {
             retained_graph.validate()?;
             // The composed ceiling must be the one this graph was ADMITTED
             // with. A caller that could raise it would escape the bound the
@@ -644,7 +667,7 @@ fn validate_retained_target(
         _ => {
             return Err(
                 "kg-delegate resolved a different target kind than the request named".to_string(),
-            )
+            );
         }
     }
     Ok(())
@@ -661,8 +684,10 @@ fn validate_execution_bindings(
     request: &KgDelegateRequest,
     retained_agent: &AgentLibraryEntry,
 ) -> Result<(), String> {
-    let expected_model =
-        unprefixed_digest("model_profile_digest", &retained_agent.model_profile_digest())?;
+    let expected_model = unprefixed_digest(
+        "model_profile_digest",
+        retained_agent.model_profile_digest(),
+    )?;
     if request.model_digest.as_deref() != Some(expected_model.as_str()) {
         return Err(
             "kg-delegate model digest does not match retained Agent Library model".to_string(),
@@ -705,7 +730,7 @@ fn delegation_metadata(
 ) -> BTreeMap<String, serde_json::Value> {
     let mut metadata = delegation_wire_metadata(request);
     let retained_agent = match retained {
-        RetainedTarget::Agent(entry) => entry,
+        RetainedTarget::Agent(entry) => entry.as_ref(),
         RetainedTarget::Graph(graph) => {
             metadata.extend(BTreeMap::from([
                 ("target_kind".to_string(), json!("agent_graph")),
@@ -1020,33 +1045,27 @@ mod tests {
                     kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
                     definition_digest: prefixed_digest('b'),
                 },
-                tools: vec![
-                    eg_types::agent_component::ComponentDependency {
-                        component_id: "tool:1".into(),
-                        kind: eg_types::agent_component::AgentComponentKind::Tool,
-                        definition_digest: prefixed_digest('c'),
-                    },
-                ],
-                skills: vec![
-                    eg_types::agent_component::ComponentDependency {
-                        component_id: "skill:1".into(),
-                        kind: eg_types::agent_component::AgentComponentKind::Skill,
-                        definition_digest: prefixed_digest('d'),
-                    },
-                ],
+                tools: vec![eg_types::agent_component::ComponentDependency {
+                    component_id: "tool:1".into(),
+                    kind: eg_types::agent_component::AgentComponentKind::Tool,
+                    definition_digest: prefixed_digest('c'),
+                }],
+                skills: vec![eg_types::agent_component::ComponentDependency {
+                    component_id: "skill:1".into(),
+                    kind: eg_types::agent_component::AgentComponentKind::Skill,
+                    definition_digest: prefixed_digest('d'),
+                }],
                 model_profile: eg_types::agent_component::ComponentDependency {
                     component_id: "model-profile:1".into(),
                     kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
                     definition_digest: prefixed_digest('e'),
                 },
                 model_identity: "model:1".into(),
-                ontologies: vec![
-                    eg_types::agent_component::ComponentDependency {
-                        component_id: "ontology:1".into(),
-                        kind: eg_types::agent_component::AgentComponentKind::Ontology,
-                        definition_digest: prefixed_digest('f'),
-                    },
-                ],
+                ontologies: vec![eg_types::agent_component::ComponentDependency {
+                    component_id: "ontology:1".into(),
+                    kind: eg_types::agent_component::AgentComponentKind::Ontology,
+                    definition_digest: prefixed_digest('f'),
+                }],
                 tenant_id: "tenant:1".into(),
                 actor_scope: format!("tenant:1/{agent_id}"),
                 purpose_id: "delegation.execute".into(),
@@ -1083,12 +1102,15 @@ mod tests {
             },
             input_ref: "cas:input:1".into(),
             command_digest: digest('2'),
-            capability_digest: unprefixed_digest("tool_surface_digest", &entry.tool_surface_digest())
-                .unwrap(),
+            capability_digest: unprefixed_digest(
+                "tool_surface_digest",
+                &entry.tool_surface_digest(),
+            )
+            .unwrap(),
             catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
             policy_digest: entry.policy_digest.clone(),
             model_digest: Some(
-                unprefixed_digest("model_profile_digest", &entry.model_profile_digest()).unwrap(),
+                unprefixed_digest("model_profile_digest", entry.model_profile_digest()).unwrap(),
             ),
             idempotency_key: "delegate-idempotency:1".into(),
             kind: "agent.execute".into(),
@@ -1113,8 +1135,13 @@ mod tests {
     #[test]
     fn bind_uses_authenticated_outer_tenant_and_pinned_entry() {
         let entry = agent_entry();
-        let bound =
-            bind_request(request("tenant:1", &entry), &verified(), &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap();
+        let bound = bind_request(
+            request("tenant:1", &entry),
+            &verified(),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
+            "tenant:1",
+        )
+        .unwrap();
         assert_eq!(bound.work_item.context.tenant_id, "tenant:1");
         assert_eq!(bound.work_item.provenance_refs.len(), 4);
         // The delegation's capability currency IS the retained entry's tool-surface
@@ -1152,7 +1179,13 @@ mod tests {
                 "catalog_digest" => request.catalog_digest = value,
                 _ => unreachable!(),
             }
-            let error = bind_request(request, &verified(), &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap_err();
+            let error = bind_request(
+                request,
+                &verified(),
+                &RetainedTarget::Agent(Box::new(entry.clone())),
+                "tenant:1",
+            )
+            .unwrap_err();
             assert!(error.contains("digest"), "{field}: {error}");
         }
     }
@@ -1160,8 +1193,13 @@ mod tests {
     #[test]
     fn caller_may_delegate_to_another_retained_agent_in_same_tenant() {
         let entry = agent_entry_for("agent:2");
-        let bound =
-            bind_request(request("tenant:1", &entry), &verified(), &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap();
+        let bound = bind_request(
+            request("tenant:1", &entry),
+            &verified(),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
+            "tenant:1",
+        )
+        .unwrap();
         assert_eq!(bound.work_item.context.agent_id, "agent:1");
         assert_eq!(bound.work_item.metadata["agent_id"], json!("agent:2"));
     }
@@ -1174,10 +1212,14 @@ mod tests {
         // The request must not ASK for `work:delegate` either, or the earlier
         // forged-scope check fires first and the delegate-policy gate this test
         // names is never reached.
-        let request =
-            request_with_context(context_with_scopes("tenant:1", &[]), &entry);
-        let error =
-            bind_request(request, &caller, &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap_err();
+        let request = request_with_context(context_with_scopes("tenant:1", &[]), &entry);
+        let error = bind_request(
+            request,
+            &caller,
+            &RetainedTarget::Agent(Box::new(entry.clone())),
+            "tenant:1",
+        )
+        .unwrap_err();
         assert!(error.contains("work:delegate"), "{error}");
     }
 
@@ -1187,7 +1229,7 @@ mod tests {
         let error = bind_request(
             request("tenant:other", &entry),
             &verified(),
-            &RetainedTarget::Agent(entry.clone()),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
             "tenant:other",
         )
         .unwrap_err();
@@ -1202,7 +1244,7 @@ mod tests {
         let error = bind_request(
             request("tenant:1", &entry),
             &verified(),
-            &RetainedTarget::Agent(retained.clone()),
+            &RetainedTarget::Agent(Box::new(retained.clone())),
             "tenant:1",
         )
         .unwrap_err();
@@ -1214,7 +1256,13 @@ mod tests {
         let entry = agent_entry();
         let mut request = request("tenant:1", &entry);
         request.policy_digest = prefixed_digest('9');
-        let error = bind_request(request, &verified(), &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap_err();
+        let error = bind_request(
+            request,
+            &verified(),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
+            "tenant:1",
+        )
+        .unwrap_err();
         assert!(error.contains("policy digest"));
     }
 
@@ -1223,15 +1271,26 @@ mod tests {
         let entry = agent_entry();
         let retired = entry.retire(8, 2).unwrap();
         let request = request("tenant:1", &retired);
-        let error = bind_request(request, &verified(), &RetainedTarget::Agent(retired.clone()), "tenant:1").unwrap_err();
+        let error = bind_request(
+            request,
+            &verified(),
+            &RetainedTarget::Agent(Box::new(retired.clone())),
+            "tenant:1",
+        )
+        .unwrap_err();
         assert!(error.contains("retired"));
     }
 
     #[test]
     fn native_result_maps_only_matching_admission() {
         let entry = agent_entry();
-        let bound =
-            bind_request(request("tenant:1", &entry), &verified(), &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap();
+        let bound = bind_request(
+            request("tenant:1", &entry),
+            &verified(),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
+            "tenant:1",
+        )
+        .unwrap();
         let result = SubmitWorkItemResult {
             schema_version: NativeControlSchemaVersion::V1,
             work_item_id: "workitem:1".into(),
@@ -1256,8 +1315,13 @@ mod tests {
     #[test]
     fn native_replay_maps_to_replayed_result() {
         let entry = agent_entry();
-        let bound =
-            bind_request(request("tenant:1", &entry), &verified(), &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap();
+        let bound = bind_request(
+            request("tenant:1", &entry),
+            &verified(),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
+            "tenant:1",
+        )
+        .unwrap();
         let result = SubmitWorkItemResult {
             schema_version: NativeControlSchemaVersion::V1,
             work_item_id: "workitem:1".into(),
@@ -1451,8 +1515,13 @@ mod tests {
     /// admission resolves it.
     #[cfg(feature = "redb")]
     fn nested_graph(store: &AgentLibraryStore) -> eg_types::agent_graph::AgentGraphEntry {
-        let child =
-            publish_graph_shape(store, "graph:child", child_graph_shape(store), "key-child", 1);
+        let child = publish_graph_shape(
+            store,
+            "graph:child",
+            child_graph_shape(store),
+            "key-child",
+            1,
+        );
         let parent = publish_graph_shape(
             store,
             "graph:parent",
@@ -1518,7 +1587,7 @@ mod tests {
         let bound = bind_request(
             graph_request(&graph),
             &graph_verified(),
-            &RetainedTarget::Graph(graph.clone()),
+            &RetainedTarget::Graph(Box::new(graph.clone())),
             "tenant-a",
         )
         .expect("a retained nested graph is admissible");
@@ -1555,7 +1624,8 @@ mod tests {
         let (_dir, store) = graph_test_store();
         let graph = nested_graph(&store);
         let mut request = graph_request(&graph);
-        let eg_types::delegation::DelegationTarget::Graph { graph: reference } = &mut request.target
+        let eg_types::delegation::DelegationTarget::Graph { graph: reference } =
+            &mut request.target
         else {
             panic!("the fixture builds a graph target");
         };
@@ -1563,7 +1633,7 @@ mod tests {
         let error = bind_request(
             request,
             &graph_verified(),
-            &RetainedTarget::Graph(graph.clone()),
+            &RetainedTarget::Graph(Box::new(graph.clone())),
             "tenant-a",
         )
         .expect_err("a self-raised ceiling must be refused");
@@ -1591,7 +1661,7 @@ mod tests {
         let error = bind_request(
             wrong_digest,
             &graph_verified(),
-            &RetainedTarget::Graph(graph.clone()),
+            &RetainedTarget::Graph(Box::new(graph.clone())),
             "tenant-a",
         )
         .expect_err("a mispinned record must be refused");
@@ -1605,7 +1675,7 @@ mod tests {
         let error = bind_request(
             wrong_capability,
             &graph_verified(),
-            &RetainedTarget::Graph(graph.clone()),
+            &RetainedTarget::Graph(Box::new(graph.clone())),
             "tenant-a",
         )
         .expect_err("a capability digest that is not the shape must be refused");
@@ -1619,7 +1689,7 @@ mod tests {
         let error = bind_request(
             graph_request(&graph),
             &graph_verified(),
-            &RetainedTarget::Agent(entry),
+            &RetainedTarget::Agent(Box::new(entry)),
             "tenant-a",
         )
         .expect_err("a target-kind mismatch must be refused");
@@ -1661,8 +1731,13 @@ mod tests {
     #[test]
     fn delegated_admission_uses_the_existing_work_item_native_command() {
         let entry = agent_entry();
-        let bound =
-            bind_request(request("tenant:1", &entry), &verified(), &RetainedTarget::Agent(entry.clone()), "tenant:1").unwrap();
+        let bound = bind_request(
+            request("tenant:1", &entry),
+            &verified(),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
+            "tenant:1",
+        )
+        .unwrap();
         let command = crate::raft::NativeMutationCommand::from_public_method(
             bound.method(),
             "delegation-native-route-test",

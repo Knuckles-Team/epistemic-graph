@@ -34,6 +34,7 @@
 //! defaults into that downgrade; an operator must type it.
 
 use crate::acl::{AgentRole, RequestContextClaims};
+use crate::lock_recovery::{LockRecovery, WriteRecovery};
 use crate::protocol::{
     build_context_operation_signature_bytes, build_envelope_v2_bytes, Method, Request,
 };
@@ -414,7 +415,7 @@ const MAX_WARNED_NODE_BINDING_PRINCIPALS: usize = 10_000;
 fn warn_absent_node_claim_once(principal: &str) {
     static WARNED: OnceLock<std::sync::Mutex<HashSet<String>>> = OnceLock::new();
     let warned = WARNED.get_or_init(|| std::sync::Mutex::new(HashSet::new()));
-    let mut warned = warned.lock().unwrap_or_else(|e| e.into_inner());
+    let mut warned = warned.lock_recovering("absent-node-claim warning dedup set");
     if warned.len() >= MAX_WARNED_NODE_BINDING_PRINCIPALS {
         warned.clear();
     }
@@ -1532,12 +1533,7 @@ impl SignerRegistryStore {
     }
 
     fn current(&self) -> std::sync::Arc<SignerKeyRegistry> {
-        std::sync::Arc::clone(
-            &self
-                .current
-                .read()
-                .unwrap_or_else(|poisoned| poisoned.into_inner()),
-        )
+        std::sync::Arc::clone(&self.current.lock_or_panic("signer key registry"))
     }
 
     /// Add-new -> cutover -> retire-old rotation, one call per transition:
@@ -1553,10 +1549,7 @@ impl SignerRegistryStore {
     /// replace.
     fn reload_from_json(&self, raw: &str) -> Result<(), String> {
         let candidate = SignerKeyRegistry::from_json(raw)?;
-        let mut current = self
-            .current
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut current = self.current.write_or_panic("signer key registry");
         *current = std::sync::Arc::new(candidate);
         Ok(())
     }
@@ -1569,10 +1562,7 @@ impl SignerRegistryStore {
     /// currently trusted (already gone, or never existed) is a silent no-op,
     /// so the caller cannot use this to probe which signer ids exist.
     fn revoke(&self, signer_id: &str) {
-        let mut current = self
-            .current
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut current = self.current.write_or_panic("signer key registry");
         if current.signers.contains_key(signer_id) {
             let mut signers = current.signers.clone();
             signers.remove(signer_id);

@@ -4111,7 +4111,7 @@ impl SemanticCodeStore {
                     other => {
                         return Err(SemanticCodeError::Corrupt(format!(
                             "semantic metadata replay has non-native committed version {other:?}"
-                        )))
+                        )));
                     }
                 };
                 Ok(SemanticMutationReceipt {
@@ -4162,7 +4162,7 @@ impl SemanticCodeStore {
                     other => {
                         return Err(SemanticCodeError::Corrupt(format!(
                             "semantic metadata commit has non-native committed version {other:?}"
-                        )))
+                        )));
                     }
                 };
                 Ok(SemanticMutationReceipt {
@@ -5228,7 +5228,7 @@ fn validate_stage_predecessor_write(
             stage,
             checkpoint_digest,
         } => {
-            if !progress.is_some_and(|value| value.completed_stage == Some(*stage))
+            if progress.is_none_or(|value| value.completed_stage != Some(*stage))
                 || !checkpoint(*checkpoint_digest, *stage)?
             {
                 return Err(SemanticCodeError::Refused(
@@ -5238,7 +5238,7 @@ fn validate_stage_predecessor_write(
         }
         SemanticStagePredecessor::GenerationCoverage { checkpoint: value } => {
             value.require_complete().map_err(semantic_contract_error)?;
-            if !progress.is_some_and(|row| row.completed_stage == Some(SemanticStage::Vector))
+            if progress.is_none_or(|row| row.completed_stage != Some(SemanticStage::Vector))
                 || !checkpoint(value.checkpoint_digest, SemanticStage::Vector)?
             {
                 return Err(SemanticCodeError::Refused(

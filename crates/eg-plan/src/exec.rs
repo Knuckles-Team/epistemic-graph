@@ -2327,9 +2327,27 @@ fn tensor_op(
                         // Recover from a poisoned lock: `put` is infallible, so the
                         // guard is never left in a bad state; keep the write-back
                         // durable rather than propagating a poison panic.
+                        //
+                        // `into_inner` is a `disallowed_methods` entry whose fix is
+                        // the root crate's `lock_recovery`, which eg-plan sits BELOW
+                        // in the crate DAG and so cannot reach (the eg-wasm
+                        // precedent). What the rule actually forbids is recovering
+                        // SILENTLY; the report below is what makes this a decision.
+                        // The CAS is a content-addressed store, so a half-applied
+                        // `put` is re-derivable rather than corrupting.
+                        #[allow(clippy::disallowed_methods)]
                         store
                             .lock()
-                            .unwrap_or_else(|p| p.into_inner())
+                            .unwrap_or_else(|poisoned| {
+                                eprintln!(
+                                    "eg-plan: recovered the poisoned derived-tensor CAS \
+                                     mutex; a previous holder panicked mid-put, so a \
+                                     write-back may be incomplete. The CAS is \
+                                     content-addressed and re-derivable, so serving \
+                                     continues."
+                                );
+                                poisoned.into_inner()
+                            })
                             .put(&derived);
                         true
                     }

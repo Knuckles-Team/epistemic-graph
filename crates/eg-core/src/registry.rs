@@ -933,7 +933,7 @@ impl GraphRegistry {
         produced: bool,
     ) -> bool {
         self.ticket_is_current(ticket)
-            && !(ticket.materializer.is_some() && !produced)
+            && (ticket.materializer.is_none() || produced)
             && ticket.accepts_material(incarnation)
     }
 

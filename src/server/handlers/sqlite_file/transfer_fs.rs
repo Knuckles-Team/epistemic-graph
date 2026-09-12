@@ -291,6 +291,7 @@ pub(super) fn test_destination(path: &Path) -> ExportDestination {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_rendezvous::{join_bounded, meet};
     #[cfg(target_os = "linux")]
     use std::io::Write;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -384,16 +385,28 @@ mod tests {
         let (other_barrier, other_root, other_moved) =
             (Arc::clone(&barrier), root.clone(), moved.clone());
         let attacker = std::thread::spawn(move || {
-            other_barrier.wait();
+            meet(
+                &other_barrier,
+                "root-replacement race: attacker at the swap point",
+            );
             fs::renameat(fs::CWD, &other_root, fs::CWD, &other_moved).unwrap();
             create_dir(&other_root, 0o777);
-            other_barrier.wait();
+            meet(
+                &other_barrier,
+                "root-replacement race: attacker finished the swap",
+            );
         });
         let result = open_root_path_after_check(&root, || {
-            barrier.wait();
-            barrier.wait();
+            meet(
+                &barrier,
+                "root-replacement race: checked root, swap may begin",
+            );
+            meet(
+                &barrier,
+                "root-replacement race: waiting for the swap to land",
+            );
         });
-        attacker.join().unwrap();
+        join_bounded(attacker, "the root-replacement attacker thread");
         assert!(result.is_err());
         fs::rmdir(&root).unwrap();
         fs::rmdir(&moved).unwrap();
@@ -408,24 +421,24 @@ mod tests {
         let root = test_root.join("transfer-root");
         create_dir(&root, 0o700);
         let pinned_root = open_root_path(&root).unwrap();
-        write_bytes(&outside, &vec![0_u8; 32]);
+        write_bytes(&outside, &[0_u8; 32]);
         let link = root.join("escape.db");
         fs::symlinkat(&outside, &pinned_root.file, "escape.db").unwrap();
         assert!(open_import_at(&pinned_root, "escape.db", 64).is_err());
         let bounded = root.join("bounded.db");
-        write_bytes(&bounded, &vec![0_u8; 9]);
+        write_bytes(&bounded, &[0_u8; 9]);
         assert_eq!(
             expect_import_error(open_import_at(&pinned_root, "bounded.db", 8)),
             "SQLite import source exceeds the configured size limit"
         );
         let growing = root.join("growing.db");
-        write_bytes(&growing, &vec![0_u8; 8]);
+        write_bytes(&growing, &[0_u8; 8]);
         assert_eq!(
             expect_import_error(open_import_at_after_metadata(
                 &pinned_root,
                 "growing.db",
                 8,
-                || write_bytes(&growing, &vec![0_u8; 9]),
+                || write_bytes(&growing, &[0_u8; 9]),
             )),
             "SQLite import source exceeds the configured size limit"
         );
@@ -521,15 +534,27 @@ mod tests {
         let other_barrier = Arc::clone(&barrier);
         let other_path = destination.clone();
         let attacker = std::thread::spawn(move || {
-            other_barrier.wait();
+            meet(
+                &other_barrier,
+                "destination-creation race: attacker at the write point",
+            );
             write_bytes(&other_path, b"other");
-            other_barrier.wait();
+            meet(
+                &other_barrier,
+                "destination-creation race: attacker finished the write",
+            );
         });
         let result = install_export_after_sidecar_check(&temp, &target, || {
-            barrier.wait();
-            barrier.wait();
+            meet(
+                &barrier,
+                "destination-creation race: sidecar checked, write may begin",
+            );
+            meet(
+                &barrier,
+                "destination-creation race: waiting for the write to land",
+            );
         });
-        attacker.join().unwrap();
+        join_bounded(attacker, "the destination-creation attacker thread");
         assert_eq!(
             result.unwrap_err(),
             "SQLite export destination already exists"

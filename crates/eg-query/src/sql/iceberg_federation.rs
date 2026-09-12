@@ -177,6 +177,12 @@ impl IcebergCatalogConfig {
     }
 }
 
+/// How long one iceberg catalog/table call may take before it is reported as a
+/// stalled federation rather than a slow one. Generous: these are remote object
+/// store and catalog round trips, and a large table's metadata scan is legitimately
+/// slow. Finite so a catalog that never answers is an error, not a hung query.
+const ICEBERG_FEDERATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// Bridge one async iceberg-crate future to a sync caller (see the module doc for why:
 /// `TableFunctionImpl::call_with_args` is sync and `TableProvider::scan` runs inside
 /// whatever runtime DataFusion's own executor already occupies, so this ALWAYS runs the
@@ -187,14 +193,29 @@ where
     F: std::future::Future<Output = iceberg::Result<T>> + Send + 'static,
     T: Send + 'static,
 {
+    // The `JoinHandle::join` entry forbids an unbounded join because a wedged
+    // worker takes its joiner with it. The deadline belongs on the OPERATION,
+    // not the join: bounding the catalog/table future inside the runtime makes
+    // a stalled iceberg call a DataFusion error with a cause, and leaves this
+    // join prompt in every case -- which a deadline on the join itself could
+    // not do, since it would abandon a live runtime thread holding the scan.
+    #[allow(clippy::disallowed_methods)]
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .worker_threads(2)
             .build()
             .map_err(|e| DataFusionError::Execution(format!("iceberg federation runtime: {e}")))?;
-        rt.block_on(fut)
-            .map_err(|e| DataFusionError::Execution(format!("iceberg federation: {e}")))
+        rt.block_on(async move {
+            match tokio::time::timeout(ICEBERG_FEDERATION_TIMEOUT, fut).await {
+                Ok(result) => result
+                    .map_err(|e| DataFusionError::Execution(format!("iceberg federation: {e}"))),
+                Err(_) => Err(DataFusionError::Execution(format!(
+                    "iceberg federation: the catalog did not answer within {}s",
+                    ICEBERG_FEDERATION_TIMEOUT.as_secs()
+                ))),
+            }
+        })
     })
     .join()
     .map_err(|_| DataFusionError::Execution("iceberg federation: worker thread panicked".into()))?

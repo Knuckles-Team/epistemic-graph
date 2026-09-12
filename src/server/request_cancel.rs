@@ -20,6 +20,7 @@
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
+use crate::lock_recovery::LockRecovery;
 use eg_query::CancellationToken;
 
 fn registry() -> &'static Mutex<HashMap<u64, CancellationToken>> {
@@ -40,8 +41,7 @@ pub struct RequestCancelGuard {
 impl Drop for RequestCancelGuard {
     fn drop(&mut self) {
         registry()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .lock_recovering("request cancellation registry")
             .remove(&self.req_id);
     }
 }
@@ -52,8 +52,7 @@ impl Drop for RequestCancelGuard {
 /// guard alive for exactly as long as that work can still observe `token`.
 pub fn register(req_id: u64, token: CancellationToken) -> RequestCancelGuard {
     registry()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .lock_recovering("request cancellation registry")
         .insert(req_id, token);
     RequestCancelGuard { req_id }
 }
@@ -65,8 +64,7 @@ pub fn register(req_id: u64, token: CancellationToken) -> RequestCancelGuard {
 /// never cancellable to begin with, is a harmless no-op).
 pub fn cancel(req_id: u64) -> bool {
     match registry()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .lock_recovering("request cancellation registry")
         .get(&req_id)
     {
         Some(tok) => {
@@ -160,7 +158,7 @@ mod tests {
     /// the default posture: no server-side deadline unless explicitly configured.
     #[tokio::test]
     async fn spawn_timeout_noop_when_unset() {
-        let _env = TIMEOUT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _env = TIMEOUT_ENV_LOCK.lock_recovering("SQL request-timeout env lock");
         std::env::remove_var("EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS");
         let tok = CancellationToken::new();
         assert!(spawn_timeout(tok).is_none());
@@ -175,7 +173,7 @@ mod tests {
     async fn spawn_timeout_trips_after_deadline() {
         let tok = CancellationToken::new();
         let handle = {
-            let _env = TIMEOUT_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let _env = TIMEOUT_ENV_LOCK.lock_recovering("SQL request-timeout env lock");
             std::env::set_var("EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS", "10");
             let handle = spawn_timeout(tok.clone());
             std::env::remove_var("EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS");

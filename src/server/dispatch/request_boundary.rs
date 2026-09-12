@@ -751,32 +751,6 @@ pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available
     }
 }
 
-#[cfg(test)]
-mod native_resource_capability_tests {
-    use super::append_native_resource_ops;
-
-    #[test]
-    fn native_resource_ops_are_advertised_only_when_backend_declares_support() {
-        let mut dark = Vec::new();
-        append_native_resource_ops(&mut dark, false);
-        assert!(dark.is_empty());
-
-        let mut served = Vec::new();
-        append_native_resource_ops(&mut served, true);
-        assert_eq!(
-            served,
-            vec![
-                "ReserveWorkItemResources",
-                "ReleaseWorkItemResources",
-                "ReclaimWorkItemResources",
-                "QueryWorkItemReservation",
-                "ResourceReservationStatus",
-                "UpdateResourceHost",
-            ]
-        );
-    }
-}
-
 /// Dispatch a native transport request whose current envelope was verified
 /// before optional QoS admission. This keeps authentication single-pass: a
 /// mutation nonce is consumed by the durable MutationBatch ledger and a
@@ -1445,6 +1419,32 @@ fn finalize_dispatch_response(
         }
     }
     response
+}
+
+#[cfg(test)]
+mod native_resource_capability_tests {
+    use super::append_native_resource_ops;
+
+    #[test]
+    fn native_resource_ops_are_advertised_only_when_backend_declares_support() {
+        let mut dark = Vec::new();
+        append_native_resource_ops(&mut dark, false);
+        assert!(dark.is_empty());
+
+        let mut served = Vec::new();
+        append_native_resource_ops(&mut served, true);
+        assert_eq!(
+            served,
+            vec![
+                "ReserveWorkItemResources",
+                "ReleaseWorkItemResources",
+                "ReclaimWorkItemResources",
+                "QueryWorkItemReservation",
+                "ResourceReservationStatus",
+                "UpdateResourceHost",
+            ]
+        );
+    }
 }
 
 #[cfg(not(feature = "redb"))]

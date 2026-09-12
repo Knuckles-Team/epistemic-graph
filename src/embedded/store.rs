@@ -85,7 +85,10 @@ impl EmbeddedRedbStore {
     #[cfg(test)]
     pub(super) fn block_next_register_failure(
         &self,
-    ) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::SyncSender<()>) {
+    ) -> (
+        std::sync::mpsc::Receiver<()>,
+        std::sync::mpsc::SyncSender<()>,
+    ) {
         let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
         let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
         *self.register_failure_block.lock().unwrap() = Some(RegisterFailureBlock {
@@ -147,7 +150,10 @@ impl EmbeddedRedbStore {
         #[cfg(test)]
         if let Some(block) = self.register_failure_block.lock().unwrap().take() {
             let _ = block.entered.send(());
-            let _ = block.release.recv();
+            crate::test_rendezvous::recv_within(
+                &block.release,
+                "the injected registration-failure release",
+            );
             return Err("injected embedded graph registration failure".to_string());
         }
         redb_store::write_graph_meta_with_incarnation(

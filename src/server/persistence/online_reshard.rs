@@ -93,6 +93,7 @@ use crate::redb_store::{
     RESOURCE_FAIRNESS, RESOURCE_HOSTS, RESOURCE_RESERVATIONS, RESOURCE_RESERVATION_ATTEMPTS,
     RESOURCE_RESERVATION_TENANT_INDEX, WORK_ITEM_COMMAND_SEQUENCE,
 };
+use crate::server::persistence::writer_reply::await_writer_reply;
 
 /// One graph's scope-bounded read of the shard's scope-prefixed owner tables.
 type GraphRead<'a> = ScopedRead<'a, GraphShardOwner>;
@@ -1694,9 +1695,7 @@ fn export_from(source_tx: &SyncSender<Cmd>, graph: &str) -> Result<RawGraphRows,
             reply,
         })
         .map_err(|_| writer_gone())?;
-    receive
-        .recv()
-        .map_err(|_| "redb writer dropped export reply".to_string())?
+    await_writer_reply(&receive, "export")?
 }
 
 /// PHASE 1 of the online move (CONCEPT:EG-KG.backend.flush-pending-first, R1 delta-copy) — the BULK pass, run WITHOUT
@@ -1725,9 +1724,7 @@ pub(crate) fn bulk_copy(
             reply,
         })
         .map_err(|_| writer_gone())?;
-    receive
-        .recv()
-        .map_err(|_| "redb writer dropped import reply".to_string())??;
+    await_writer_reply(&receive, "import")??;
     Ok(rows)
 }
 
@@ -1779,9 +1776,7 @@ pub(crate) fn delta_flip_purge(
             reply,
         })
         .map_err(|_| writer_gone())?;
-    receive
-        .recv()
-        .map_err(|_| "redb writer dropped delta import reply".to_string())??;
+    await_writer_reply(&receive, "delta import")??;
 
     // 3. Flip the durable route — reads/writes now follow the graph to the destination
     //    (preserving any cluster-node placement).
