@@ -1,7 +1,7 @@
 {
   "artifact_digests": {
     "contract/methods.json": "1ce5502cbb901002d4df3516205e82a034f8919942087fa4e3ae3758741125b7",
-    "contract/schemas/method.request.json": "22c05ca6450ca6bfcc4dbc84e5b4ab454a2a6bac0073ccb797b0eeaa1ffc78e9",
+    "contract/schemas/method.request.json": "05d15674802b75bdf52f217cfc70734caf111fcbb8717f40d858812ccd431c0d",
     "contract/schemas/result.Bool.json": "f4bcf35f07ea1acd8a6067aa0279864f120fc1eb6e308afb0720e034b2d57744",
     "contract/schemas/result.Count.json": "c139342b656a7d5b0bf598ad6a64f92992dc1071ab8f6568bcfa55422f1f326a",
     "contract/schemas/result.EdgeList.json": "837e5e87b9131e55b1136b2fd5588b002ff9c26eeaad14892a3b3f2b83e1cbc2",
@@ -28,8 +28,8 @@
     "epistemic_graph/generated/storage.py": "768804103220681735de4834d7c3c0bcb9dbcc9c3091d3af7eb306fde1e498bc",
     "epistemic_graph/generated/transactions.py": "620eca482b86fd65c956204e308ef15a4d6765fa21887a4a93dbe40dd85998be"
   },
-  "cargo_lock_sha256": "78962b424ed5c7e698355184f879428097eb06bba78e8493fadc8b09025b5da3",
-  "contract_digest": "4b006421280062e1e37f9f33c27a8fdc704d4a66eee78258ae9a1be6af8a7c3c",
+  "cargo_lock_sha256": "2d09df71aedddead47c01fb9f94721dc152de2e09c3235c7a27c7e2aecb6ed0f",
+  "contract_digest": "d12cb473ec820617ec64d9548db3487a8ef904a1fcbfa7fd8848734d867bcbca",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -343,6 +343,6 @@
     "dispatch-only": 83,
     "undeclared": 223
   },
-  "source_tree_oid": "f8c7289874a55c047a0dc56c735e9e4cf3e0cdd8a885e77e52a8b8e4c292d8ea",
+  "source_tree_oid": "2ad02001cef71f01d53a916e9061a89bb91928fe94af995dfe2d486ce1f796a5",
   "typed_result_methods": 129
 }
