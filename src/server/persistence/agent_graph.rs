@@ -60,8 +60,6 @@ use super::agent_library::{
 
 const AGENT_GRAPH_OUTBOX_TOPIC: &str = "eg.agent-graph.revision.v1";
 const AGENT_GRAPH_RESULT_SCHEMA_ID: &str = "agent-graph-result.v1";
-const MAX_AGENT_GRAPH_ROW_BYTES: usize = 16 * 1024 * 1024;
-const MAX_AGENT_GRAPH_ROW_ITEMS: usize = 200_000;
 const MAX_AGENT_GRAPH_REVISIONS: usize = 16_384;
 const MAX_AGENT_GRAPH_HISTORY_BYTES: usize = 256 * 1024 * 1024;
 
@@ -234,7 +232,7 @@ impl AgentLibraryStore {
             "agent graph",
             &graph.pinned_components(),
         )?;
-        self.resolve_agent_pins_in_write(
+        super::agent_pin_resolution::resolve_agent_pins_in_write(
             write,
             tenant_id,
             "agent graph",
@@ -253,7 +251,12 @@ impl AgentLibraryStore {
                 }
             })
             .collect();
-        self.resolve_template_pins_in_write(write, tenant_id, "agent graph", &templates)?;
+        super::agent_pin_resolution::resolve_template_pins_in_write(
+            write,
+            tenant_id,
+            "agent graph",
+            &templates,
+        )?;
         eg_types::agent_graph::validate_composition(tenant_id, &graph.shape, |graph_id, shape| {
             self.resolve_composed_graph(write, tenant_id, graph_id, shape)
         })
@@ -896,41 +899,19 @@ fn read_graph_history(
 }
 
 fn decode_graph(bytes: &[u8]) -> Result<AgentGraphEntry, String> {
-    let entry = eg_types::msgpack::decode_bounded::<AgentGraphEntry>(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AGENT_GRAPH_ROW_BYTES,
-            MAX_AGENT_GRAPH_ROW_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "agent graph row is invalid or exceeds resource limits".to_string())?;
+    let entry: AgentGraphEntry = super::agent_row::decode(bytes, "agent graph row")?;
     entry.validate()?;
     Ok(entry)
 }
 
 fn decode_committed_result(bytes: &[u8]) -> Result<AgentGraphCommittedResult, String> {
-    let result = eg_types::msgpack::decode_bounded::<AgentGraphCommittedResult>(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AGENT_GRAPH_ROW_BYTES,
-            MAX_AGENT_GRAPH_ROW_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "agent graph result is invalid or exceeds resource limits".to_string())?;
+    let result: AgentGraphCommittedResult = super::agent_row::decode(bytes, "agent graph result")?;
     result.graph.validate()?;
     Ok(result)
 }
 
 fn graph_domain_result(result: &AgentGraphCommittedResult) -> Result<MutationResult, String> {
-    let payload = eg_storage::encode_bounded(result, "agent graph domain result payload")?;
-    let payload = eg_types::contract::RecordBytes::new(payload)?;
-    Ok(MutationResult::DomainResult {
-        schema_id: eg_types::contract::SchemaId::new(AGENT_GRAPH_RESULT_SCHEMA_ID)?,
-        payload_digest: payload.digest()?,
-        payload,
-    })
+    super::agent_row::domain_result(result, AGENT_GRAPH_RESULT_SCHEMA_ID, "agent graph")
 }
 
 fn encode_graph_domain_result(result: &AgentGraphCommittedResult) -> Result<Vec<u8>, String> {

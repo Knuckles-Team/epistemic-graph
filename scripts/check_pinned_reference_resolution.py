@@ -87,8 +87,18 @@ ID_TARGETS = {
 }
 
 _TABLE_CONSTANT = re.compile(r"\bAGENT_(?P<layer>[A-Z]+)_(?:HEADS|REVISIONS)\b")
+# The type half runs to the comma that ENDS the declaration, not to the first
+# comma in it.  `[^,\n]+` truncated every multi-parameter generic at its first
+# argument, so `bindings: BTreeMap<String, ComponentDependency>` read as
+# `BTreeMap<String` and its `ComponentDependency` pin was never discovered --
+# which is how the whole TEMPLATE -> COMPONENT edge stayed invisible while the
+# gate reported every edge resolved.  Anchored at end of line (a trailing line
+# comment allowed) so the greedy match backtracks to the LAST comma rather than
+# the first; verified a strict superset of what the old pattern found, 30 pin
+# sites -> 34.
 _FIELD = re.compile(
-    r"(?m)^\s*(?:pub\s+)?(?P<field>[a-z_][a-z0-9_]*)\s*:\s*(?P<type>[^,\n]+),"
+    r"(?m)^[ \t]*(?:pub\s+)?(?P<field>[a-z_][a-z0-9_]*)\s*:\s*"
+    r"(?P<type>[^\n]+),[ \t]*(?://.*)?$"
 )
 _CONTAINER = re.compile(
     r"\b(?P<keyword>struct|enum)\s+(?P<name>[A-Z][A-Za-z0-9_]*)\s*(?:<[^>{]*>)?\s*\{"

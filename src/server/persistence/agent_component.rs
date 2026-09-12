@@ -50,8 +50,6 @@ use super::agent_library::{
 
 const AGENT_COMPONENT_OUTBOX_TOPIC: &str = "eg.agent-component.revision.v1";
 const AGENT_COMPONENT_RESULT_SCHEMA_ID: &str = "agent-component-result.v1";
-const MAX_AGENT_COMPONENT_ROW_BYTES: usize = 16 * 1024 * 1024;
-const MAX_AGENT_COMPONENT_ROW_ITEMS: usize = 200_000;
 const MAX_AGENT_COMPONENT_REVISIONS: usize = 16_384;
 const MAX_AGENT_COMPONENT_HISTORY_BYTES: usize = 256 * 1024 * 1024;
 /// Head rows one search PAGE may examine.
@@ -1046,41 +1044,20 @@ fn read_component_history(
 }
 
 fn decode_component(bytes: &[u8]) -> Result<AgentComponentEntry, String> {
-    let entry = eg_types::msgpack::decode_bounded::<AgentComponentEntry>(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AGENT_COMPONENT_ROW_BYTES,
-            MAX_AGENT_COMPONENT_ROW_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "agent component row is invalid or exceeds resource limits".to_string())?;
+    let entry: AgentComponentEntry = super::agent_row::decode(bytes, "agent component row")?;
     entry.validate()?;
     Ok(entry)
 }
 
 fn decode_committed_result(bytes: &[u8]) -> Result<AgentComponentCommittedResult, String> {
-    let result = eg_types::msgpack::decode_bounded::<AgentComponentCommittedResult>(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AGENT_COMPONENT_ROW_BYTES,
-            MAX_AGENT_COMPONENT_ROW_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "agent component result is invalid or exceeds resource limits".to_string())?;
+    let result: AgentComponentCommittedResult =
+        super::agent_row::decode(bytes, "agent component result")?;
     result.component.validate()?;
     Ok(result)
 }
 
 fn component_domain_result(result: &AgentComponentCommittedResult) -> Result<MutationResult, String> {
-    let payload = eg_storage::encode_bounded(result, "agent component domain result payload")?;
-    let payload = eg_types::contract::RecordBytes::new(payload)?;
-    Ok(MutationResult::DomainResult {
-        schema_id: eg_types::contract::SchemaId::new(AGENT_COMPONENT_RESULT_SCHEMA_ID)?,
-        payload_digest: payload.digest()?,
-        payload,
-    })
+    super::agent_row::domain_result(result, AGENT_COMPONENT_RESULT_SCHEMA_ID, "agent component")
 }
 
 fn encode_component_domain_result(result: &AgentComponentCommittedResult) -> Result<Vec<u8>, String> {

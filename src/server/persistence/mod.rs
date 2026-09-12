@@ -49,6 +49,7 @@ pub mod agent_component;
 pub mod agent_graph;
 pub mod agent_library;
 pub mod agent_pin_resolution;
+pub mod agent_row;
 pub mod agent_template;
 
 #[cfg(feature = "redb")]

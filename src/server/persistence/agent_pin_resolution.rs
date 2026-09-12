@@ -11,13 +11,23 @@
 //!
 //! # What lives here, and what does not
 //!
-//! Each layer owns its own resolver, because each opens ITS OWN durable tables
-//! and decodes ITS OWN record type: components in [`super::agent_component`],
-//! agents in [`super::agent_library`], templates in [`super::agent_template`].
-//! What they share is the per-pin question, and that is what this module holds
-//! -- one head read, one retired check, one bounded fallback scan, one recorded
-//! revision check. A layer hands in its table handles and a decoder; nothing
-//! here knows which layer it is resolving.
+//! The per-pin question -- one head read, one retired check, one bounded
+//! fallback scan, one recorded revision check -- plus the two resolvers that
+//! ask it of a whole publish: [`resolve_agent_pins_in_write`] for the L2 agent
+//! layer and [`resolve_template_pins_in_write`] for the template layer.
+//!
+//! Both used to live in their own layer module, because each needed that
+//! module's row decoder in scope and the decode carried the layer's own row
+//! bounds with it. The bounds are now the hierarchy's
+//! ([`super::agent_row`]), which leaves each layer's decoder a three-line
+//! wrapper it can export `pub(super)` -- so nothing keeps these two apart any
+//! more, and keeping them together is what makes [`PinLayer`] and
+//! [`resolve_pins`] private to this module rather than a shape every layer
+//! assembles for itself.
+//!
+//! The COMPONENT layer's resolver is still its own, in
+//! [`super::agent_component`]: it is the one layer whose pin also names a
+//! KIND, and matching that kind is not a question this module asks.
 //!
 //! # Why INSIDE the write transaction
 //!
@@ -60,9 +70,16 @@ pub(super) const MAX_PIN_RESOLUTION_ROWS: usize = 131_072;
 /// The largest legal count is a graph shape's: one template per `Template`
 /// node, and `MAX_NODES` is 256. A library entry pins at most one, through
 /// `instantiated_from`. Set above both, so it refuses abuse and never a record
-/// that validates. The agent layer's equivalent lives with its own resolver;
-/// this one lives here because `agent_template.rs` is at its file-size cap.
-pub(super) const MAX_RESOLVED_TEMPLATE_PINS: usize = 1_024;
+/// that validates.
+const MAX_RESOLVED_TEMPLATE_PINS: usize = 1_024;
+
+/// Most DISTINCT Agent Library entries one publish may resolve.
+///
+/// The L3 -> L2 fan-out: a graph shape pins one agent per `Agent` node, and
+/// `MAX_NODES` is 256. Set above that largest legal count so it refuses abuse,
+/// never a shape that validates -- the same shape of bound
+/// `MAX_RESOLVED_COMPONENT_PINS` is for L1.
+const MAX_RESOLVED_AGENT_PINS: usize = 1_024;
 
 /// One pinned reference to a durable template revision.
 ///
@@ -92,10 +109,10 @@ struct ResolvedHead {
 /// identity all belong to the same layer and are always supplied together.
 ///
 /// The layer supplies `decode` because only it knows its own record type and
-/// row bounds -- which is also why the two thin callers of [`resolve_pins`]
-/// live in [`super::agent_library`] and [`super::agent_template`] rather than
-/// here: those are the modules where the respective row decoders are in scope.
-pub(super) struct PinLayer<D> {
+/// which sub-record of a row has to validate; the two callers below are the
+/// only ones, which is why neither this struct nor [`resolve_pins`] is visible
+/// outside this module.
+struct PinLayer<D> {
     pub record_kind: &'static str,
     pub heads: redb::TableDefinition<'static, (&'static str, &'static str), u64>,
     pub revisions: redb::TableDefinition<'static, (&'static str, &'static str, u64), &'static [u8]>,
@@ -109,13 +126,84 @@ pub(super) struct PinLayer<D> {
     pub decode: D,
 }
 
+/// Resolve pinned references to L2 AGENT records, inside an admitted write.
+///
+/// A graph's `Agent` node names an entry by `(agent_id, definition_digest)`
+/// and nothing checked that the entry existed. Local validation checks only
+/// that the id is well-formed text and the digest a well-formed
+/// `sha256:<hex>`, so 64 invented hex characters published a graph claiming
+/// -- and, once admitted, executing -- an agent it was never composed
+/// against, and the shape's own `shape_digest` attested to the claim.
+///
+/// There is no kind to match here: the slot is "an agent", and the Agent
+/// Library tables are what discriminate it from a component or a template.
+pub(super) fn resolve_agent_pins_in_write(
+    write: &Write<'_>,
+    tenant_id: &str,
+    subject: &str,
+    pins: &[(&str, &str)],
+) -> Result<(), String> {
+    // An `Agent` node records no revision number, only the digest.
+    let pins: Vec<(&str, &str, Option<u64>)> = pins
+        .iter()
+        .map(|(agent_id, digest)| (*agent_id, *digest, None))
+        .collect();
+    resolve_pins(
+        PinLayer {
+            record_kind: "agent",
+            heads: eg_storage::AGENT_LIBRARY_HEADS,
+            revisions: eg_storage::AGENT_LIBRARY_REVISIONS,
+            max_pins: MAX_RESOLVED_AGENT_PINS,
+            retained_revision_bound: super::agent_library::MAX_AGENT_LIBRARY_REVISIONS,
+            decode: |bytes: &[u8]| {
+                super::agent_library::decode_entry(bytes)
+                    .map(|entry| (entry.definition_digest, entry.lifecycle))
+            },
+        },
+        write,
+        tenant_id,
+        subject,
+        &pins,
+    )
+}
+
+/// Resolve pinned references to TEMPLATE records, inside an admitted write.
+pub(super) fn resolve_template_pins_in_write(
+    write: &Write<'_>,
+    tenant_id: &str,
+    subject: &str,
+    pins: &[TemplatePin<'_>],
+) -> Result<(), String> {
+    let pins: Vec<(&str, &str, Option<u64>)> = pins
+        .iter()
+        .map(|pin| (pin.template_id, pin.definition_digest, pin.entry_revision))
+        .collect();
+    resolve_pins(
+        PinLayer {
+            record_kind: "template",
+            heads: eg_storage::AGENT_TEMPLATE_HEADS,
+            revisions: eg_storage::AGENT_TEMPLATE_REVISIONS,
+            max_pins: MAX_RESOLVED_TEMPLATE_PINS,
+            retained_revision_bound: super::agent_template::MAX_AGENT_TEMPLATE_REVISIONS,
+            decode: |bytes: &[u8]| {
+                super::agent_template::decode_template(bytes)
+                    .map(|entry| (entry.definition_digest, entry.lifecycle))
+            },
+        },
+        write,
+        tenant_id,
+        subject,
+        &pins,
+    )
+}
+
 /// Resolve every `(record_id, definition_digest, recorded_revision)` pin one
 /// publish makes against one layer.
 ///
 /// Deduplicated: a record that pins the same revision from two slots should
 /// cost one lookup, and the fan-out bound should count what is actually
 /// resolved.
-pub(super) fn resolve_pins<D>(
+fn resolve_pins<D>(
     layer: PinLayer<D>,
     write: &Write<'_>,
     tenant_id: &str,
