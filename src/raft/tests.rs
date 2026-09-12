@@ -130,6 +130,10 @@ fn dispatch_on_heap<'a>(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn three_node_cluster_replicates_and_survives_leader_failover() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let tmp = std::env::temp_dir().join(format!("eg-raft-test-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     let dirs: Vec<String> = (1..=3)
@@ -288,6 +292,10 @@ async fn three_node_cluster_replicates_and_survives_leader_failover() {
 /// `graph_compute.py`/`placement_catalog.py` reconnect tests).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cluster_members_reports_topology_and_tracks_leader_failover() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -640,6 +648,10 @@ where
 /// the real boot path instead of only from a test's manual `create_group` calls.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multi_group_startup_creates_n_groups_from_config() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fresh_dir("multigroup-startup");
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
         RedbBackend::open_with_shards(dir.clone(), 4096, 4).expect("open fresh K=4 layout"),
@@ -671,6 +683,10 @@ async fn multi_group_startup_creates_n_groups_from_config() {
 /// always lands on the SAME group.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn graph_routes_to_its_ring_assigned_group_after_multi_group_startup() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fresh_dir("multigroup-routing");
     let backend: Arc<dyn PersistenceBackend> = Arc::new(
         RedbBackend::open_with_shards(dir.clone(), 4096, 3).expect("open fresh K=3 layout"),
@@ -704,6 +720,10 @@ async fn graph_routes_to_its_ring_assigned_group_after_multi_group_startup() {
 /// [`super::DEFAULT_GROUP`] — the guardrail this whole feature must not regress.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn default_startup_stays_single_group_unchanged() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fresh_dir("multigroup-default");
     let state = make_state(&dir).await;
     let ports = free_ports(1);
@@ -1277,6 +1297,10 @@ fn make_log_entry(index: u64, term: u64, node_id: &str) -> EntryOf<super::TypeCo
 /// the log replays from disk with NO leader/network (the in-memory log could not).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn durable_log_replays_from_redb_after_restart() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fresh_dir("logreplay");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let state = make_state_with_backend(&dir, backend.clone()).await;
@@ -1395,6 +1419,10 @@ async fn fault_injection_no_committed_log_entry_lost_on_restart() {
 /// same index — proving the shared-DB composite-key layout isolates groups.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn multi_group_logs_isolate_on_shared_redb() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fresh_dir("multigroup");
     let backend: Arc<dyn PersistenceBackend> =
         Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
@@ -1470,6 +1498,10 @@ async fn multi_group_logs_isolate_on_shared_redb() {
 /// over ONE TCP listener, all over ONE shared redb DB.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_groups_one_node_commit_independently() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use super::multi::MultiRaft;
 
     let dir = fresh_dir("twogroups");
@@ -1688,6 +1720,10 @@ fn group_router_distributes_tenants_across_ring() {
 /// opened WITHOUT a router (the unscoped scaffold path) still dumps the whole registry.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn group_snapshot_is_scoped_to_its_tenant_range() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use super::multi::GroupRouter;
 
     let dir = fresh_dir("scopedsnap");
@@ -1887,6 +1923,10 @@ fn heartbeat_coalescer_batches_per_peer() {
 /// N group heartbeats to one peer cost ONE round-trip, not N.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn coalesced_batch_round_trips_on_one_connection() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use super::multi::MultiRaft;
     use super::network::{GroupRpc, GroupRpcReply, HeartbeatCoalescer, PeerPool};
 
@@ -1964,6 +2004,10 @@ async fn coalesced_batch_round_trips_on_one_connection() {
 /// voters, and the leader balancer then MOVES leadership to the round-robin target node.
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn multi_node_group_join_then_leader_rebalance() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use super::multi::{desired_leader, MultiRaft};
     use super::xread::{ReadPageRequest, RouteToken};
 
@@ -2183,6 +2227,10 @@ async fn multi_node_group_join_then_leader_rebalance() {
 /// observed moving into the voter set via `group_membership`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use super::multi::MultiRaft;
 
     let root = std::env::temp_dir().join(format!("eg-mnlearner-{}", std::process::id()));
@@ -2323,6 +2371,10 @@ async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
 /// replication, not one the test simply asserts knows something it was never told.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use super::multi::MultiRaft;
     use crate::acl::{AgentIdentity, AgentRole};
     use crate::protocol::ResultPayload;
@@ -2643,6 +2695,10 @@ mod dist_compute {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cross_shard_pagerank_matches_single_graph() {
+        // Opens a durable store, so the ambient encryption env must hold still for
+        // this whole body. READ guard: it excludes only a key MUTATOR, never another
+        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         // A union graph split across two shards by a parity rule. Distributed PageRank
         // over the two shards must match the single-graph power iteration on the union.
         let nodes = ["a", "b", "c", "d", "e", "f"];
@@ -2690,6 +2746,10 @@ mod dist_compute {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn cross_shard_connected_components_matches_single_graph() {
+        // Opens a durable store, so the ambient encryption env must hold still for
+        // this whole body. READ guard: it excludes only a key MUTATOR, never another
+        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         // Two components: {a,b,c} (in shA) and {d,e} (split shA/shB) — a cross-shard
         // component. Distributed CC must produce the SAME partition as single-graph CC.
         let nodes = ["a", "b", "c", "d", "e"];
@@ -2743,6 +2803,10 @@ mod dist_compute {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn incremental_cc_equals_from_scratch() {
+        // Opens a durable store, so the ambient encryption env must hold still for
+        // this whole body. READ guard: it excludes only a key MUTATOR, never another
+        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         // Start with two separate components, compute CC, then add a cross-shard edge
         // that MERGES them. The incremental recompute (seeded from the prior labeling,
         // re-propagating only the affected region) must equal a from-scratch CC.
@@ -2845,6 +2909,10 @@ mod matview {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn matview_persists_and_reloads_from_redb() {
+        // Opens a durable store, so the ambient encryption env must hold still for
+        // this whole body. READ guard: it excludes only a key MUTATOR, never another
+        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!(
             "eg-matview-{}-{}",
             std::process::id(),
@@ -3188,6 +3256,10 @@ async fn run_group_write_workload(
 /// `raft::store::apply_request`), not a benchmark to relabel.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn multi_group_write_throughput_scales_vs_single_group() {
+    // Reads the ambient encryption env at its durable open, so the env must hold
+    // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+    // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     const N_GROUPS: u64 = 8;
     const N_GRAPHS: usize = 24;
     const WRITES_PER_GRAPH: u64 = 10;
@@ -3300,6 +3372,10 @@ async fn multi_group_write_throughput_scales_vs_single_group() {
 /// while group 1 independently re-elects.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn per_group_leader_failover_is_independent() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use super::multi::desired_leader;
 
     let root = std::env::temp_dir().join(format!("eg-w12-failover-{}", std::process::id()));

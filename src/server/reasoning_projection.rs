@@ -1763,6 +1763,10 @@ mod tests {
     #[cfg(feature = "redb")]
     #[tokio::test(flavor = "current_thread")]
     async fn delete_recreate_rebuilds_subscription_and_projection_before_ack() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::redb_backend::RedbBackend;
 
         let root = test_root();
@@ -1902,6 +1906,10 @@ mod tests {
     #[cfg(feature = "redb")]
     #[tokio::test(flavor = "current_thread")]
     async fn process_graphs_carries_one_claim_budget_across_graph_scopes() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::persistence::redb_backend::RedbBackend;
 
         let root = test_root();

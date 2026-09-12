@@ -652,12 +652,20 @@ mod tests {
     /// Scenario 1 in isolation — happy commit spans both modalities atomically.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn happy_commit_spans_both_modalities() {
+        // Opens a durable store, so the ambient encryption env must hold still for
+        // this whole body. READ guard: it excludes only a key MUTATOR, never another
+        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         assert!(scenario_happy().await.expect("happy scenario"));
     }
 
     /// Scenario 2 in isolation — participant kill during prepare, no partial commit.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn participant_kill_aborts_no_partial_modality() {
+        // Opens a durable store, so the ambient encryption env must hold still for
+        // this whole body. READ guard: it excludes only a key MUTATOR, never another
+        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         assert!(scenario_participant_kill().await.expect("kill scenario"));
     }
 
@@ -694,6 +702,10 @@ mod tests {
     /// CURRENT epoch commits normally.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn stale_fenced_participant_is_rejected_current_epoch_accepted() {
+        // Opens a durable store, so the ambient encryption env must hold still for
+        // this whole body. READ guard: it excludes only a key MUTATOR, never another
+        // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         assert!(scenario_stale_fenced_participant_rejected()
             .await
             .expect("stale-fence rejection scenario"));

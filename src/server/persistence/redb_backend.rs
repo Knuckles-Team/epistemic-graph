@@ -2459,6 +2459,30 @@ impl RedbBackend {
                     None => continue,
                 }
             };
+            // Publish the authoritative watermark onto a projection this function did
+            // NOT create.
+            //
+            // `GraphRegistry::new` pre-creates `__commons__`, so the branch above never
+            // runs for it and its `create_graph_with_incarnation` adopt never happens.
+            // Recovery then replayed the durable rows onto a projection still serving at
+            // version 0 while this dump proves the ledger is already at N, and
+            // `mutation_batch::compile::authoritative_graph_version`'s preflight refused
+            // EVERY subsequent mutation on the recovered commons graph with
+            // "authoritative graph version N does not match the serving projection 0":
+            // a restarted node could never write to `__commons__` again, and — because a
+            // replicated apply runs the same preflight — could never catch up on it
+            // either. `load_catalog_into` has handled this case since it was written
+            // (`reconcile_bootstrap_catalog_entry`); the eager path, which is the
+            // development profile's recovery path and every harness's, had not.
+            //
+            // `adopt_materialized_version` is a one-shot 0 -> N transition by design, so
+            // the version guard here keeps this to exactly the fresh-projection case and
+            // leaves a live projection alone rather than rewinding it. It runs BEFORE the
+            // row replay, like the created path, so the replay's `dirty` bookkeeping is
+            // identical either way.
+            if dump.source_snapshot_version > 0 && core.version() == 0 {
+                core.adopt_materialized_version(dump.source_snapshot_version)?;
+            }
             // Rebuild via the SAME add_node/add_edge calls the WAL replay uses —
             // these regenerate the ledger as a side effect, so the `ledger` table is
             // only a durable mirror (not separately replayed) to avoid double-
@@ -5473,6 +5497,10 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn redb_backend_outbox_subscription_is_durable_and_topic_bound() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!(
             "eg-redb-outbox-subscribe-{}-{}",
             std::process::id(),
@@ -6359,16 +6387,12 @@ mod tests {
         // doc for the full mechanism.
         #[cfg(feature = "security")]
         let _env_lock = crate::crypto::acquire_test_env_lock().await;
+        // Under the write guard taken above, so it does not acquire anything itself.
+        // ONE shared key value for the whole binary -- see
+        // `crate::crypto::TEST_AT_REST_KEY`'s doc for why a per-module value was the
+        // bug and not a convenience.
         #[cfg(feature = "security")]
-        {
-            static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
-            ENCRYPTION_KEY.call_once(|| {
-                std::env::set_var(
-                    crate::crypto::ENCRYPTION_KEY_ENV,
-                    "redb-backend-txn-test-recovery-key",
-                );
-            });
-        }
+        crate::crypto::provision_test_at_rest_key_under_write_guard();
 
         const SECRET: &str = "redb-txn-secret";
         let dir = std::env::temp_dir().join(format!("eg-redb-txn-{}", std::process::id()));
@@ -7681,17 +7705,13 @@ mod tests {
         // the xshard harness hit. Provision it ONCE before any backend opens. Encryption
         // is symmetric and transparent to every durable round-trip these tests make, so
         // a keyed store behaves identically for their assertions. The env var is
-        // process-global (mirrors `xshard_harness::fresh_dir`). Every caller of
+        // process-global, and it is now ONE shared value for the whole binary (see
+        // `crate::crypto::TEST_AT_REST_KEY`'s doc -- a per-module value is what made
+        // the ambient key change up to seven times over one run). Every caller of
         // `cm_dir` holds `crate::crypto::acquire_test_env_lock()` for its entire test
-        // body (see each call site), so this `Once` always fires under that lock —
-        // do NOT also acquire it here, `std::sync::Mutex` is not reentrant.
-        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
-        ENCRYPTION_KEY.call_once(|| {
-            std::env::set_var(
-                crate::crypto::ENCRYPTION_KEY_ENV,
-                "crossmodal-test-recovery-key",
-            )
-        });
+        // body (see each call site), so the provisioning below always runs under that
+        // lock -- do NOT acquire it here, `tokio::sync::RwLock` is not reentrant.
+        crate::crypto::provision_test_at_rest_key_under_write_guard();
         let d = std::env::temp_dir().join(format!("eg-crossmodal-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();

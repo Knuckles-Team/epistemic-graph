@@ -2943,6 +2943,18 @@ async fn resolve_conflict_hides_other_agents_private_argument_over_rpc() {
 #[cfg(feature = "cluster")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn cross_shard_raft_2pc_single_decision_eg396() {
+    // The proof below opens the SAME durable directory TWICE per scenario (it drops a
+    // whole node + backend to simulate `kill -9`, then reopens to prove recovery), and
+    // `RedbBackend::open` resolves its at-rest cipher from the process-global
+    // `EPISTEMIC_GRAPH_ENCRYPTION_KEY` on EVERY open. `encryption_at_rest_wrong_key_
+    // fails_eg394` in this same binary legitimately drives that var K1 -> K2-wrong ->
+    // restore, and this test held NOTHING -- so a mutation could land between the two
+    // opens of one scenario and the reopen failed with "EPISTEMIC_GRAPH_ENCRYPTION_KEY
+    // does not match the key that previously encrypted this store (canary decryption
+    // failed)". Hold the binary's env lock for this whole body, the same way eg394
+    // holds it for its whole body; `state()` takes it for its provisioning window.
+    #[cfg(all(feature = "security", feature = "redb"))]
+    let _enc_env_guard = ENC_ENV_LOCK.lock().await;
     let report =
         epistemic_graph::raft::xshard_modality_harness::prove_crossshard_modality_2pc_single_decision()
             .await

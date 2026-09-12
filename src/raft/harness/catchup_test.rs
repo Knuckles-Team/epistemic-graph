@@ -56,6 +56,11 @@ impl Drop for ClusterGuard {
 /// applies cleanly on the catch-up path.
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn follower_catchup_replays_create_graph_then_write() {
+    // Brings up a durable redb-backed cluster and restarts members over the SAME
+    // directories, so the ambient encryption env must hold still for this whole
+    // body. READ guard: it excludes only a key MUTATOR, never another opener.
+    // See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     const NEW_GRAPH: &str = "raft-catchup-newgraph";
     let _partition_guard = super::super::network::partition::test_guard();
 

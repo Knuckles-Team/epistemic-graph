@@ -131,6 +131,10 @@ async fn assert_stable_lifecycle_replay(
 #[cfg(feature = "redb")]
 #[tokio::test(flavor = "multi_thread")]
 async fn create_lifecycle_replay_keeps_one_stable_receipt() {
+    // Reads the ambient encryption env at its durable open, so the env must hold
+    // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+    // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = crate::test_support::temp_dir("eg-lifecycle-replay", "create");
     assert_stable_lifecycle_replay(
         &dir,
@@ -154,6 +158,10 @@ async fn create_lifecycle_replay_keeps_one_stable_receipt() {
 #[cfg(feature = "redb")]
 #[tokio::test(flavor = "multi_thread")]
 async fn delete_lifecycle_replay_keeps_one_stable_receipt() {
+    // Reads the ambient encryption env at its durable open, so the env must hold
+    // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+    // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = crate::test_support::temp_dir("eg-lifecycle-replay", "delete");
     let graph = "lifecycle-delete";
     {

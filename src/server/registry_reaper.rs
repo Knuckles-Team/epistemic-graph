@@ -203,6 +203,10 @@ mod tests {
     /// A registration whose lease has NOT lapsed is left untouched.
     #[tokio::test(flavor = "multi_thread")]
     async fn live_lease_is_not_reaped() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-reaper-live-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -233,6 +237,10 @@ mod tests {
     #[cfg(feature = "streaming")]
     #[tokio::test(flavor = "multi_thread")]
     async fn expired_lease_is_reaped_and_emits_cdc() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-reaper-expired-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -318,6 +326,10 @@ mod tests {
     /// authoritative.
     #[tokio::test(flavor = "multi_thread")]
     async fn renewal_racing_the_sweep_is_not_reaped() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-reaper-race-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -346,6 +358,10 @@ mod tests {
     /// job, never a false reap.
     #[tokio::test(flavor = "multi_thread")]
     async fn malformed_lease_field_is_never_reaped() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-reaper-malformed-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -393,6 +409,10 @@ mod tests {
     #[cfg(feature = "streaming")]
     #[tokio::test(flavor = "multi_thread")]
     async fn multiple_independent_servers_one_kill_reaps_only_that_one() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-reaper-multi-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();
@@ -468,6 +488,10 @@ mod tests {
     /// new-correct fields.
     #[tokio::test(flavor = "multi_thread")]
     async fn register_server_repairs_a_hand_broken_entry() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = std::env::temp_dir().join(format!("eg-reaper-repair-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let dir_s = dir.to_string_lossy().to_string();

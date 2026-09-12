@@ -1416,6 +1416,10 @@ mod internal_replay_tests {
     #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread")]
     async fn internal_replay_rejects_a_conflicting_terminal_result_after_kernel_admission() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = crate::test_support::temp_dir(
             "eg-internal-mutation-replay",
             "terminal-result-conflict",
@@ -1577,6 +1581,10 @@ mod internal_replay_tests {
     #[cfg(all(feature = "redb", feature = "program-optimization"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn promotion_replay_and_failed_cas_preserve_authority_and_restart_identity() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         fn identity(
             revision: u64,
             parent_ref: Option<eg_modality::OpaqueRef>,

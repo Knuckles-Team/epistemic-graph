@@ -825,6 +825,10 @@ mod tests {
 
     #[tokio::test]
     async fn eg281_listener_connect_subscribe_publish_deliver_roundtrip() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let addr = spawn_listener().await;
 
         // ── Subscriber connects + subscribes to `sensors/#`. ──

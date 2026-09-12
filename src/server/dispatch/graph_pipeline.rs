@@ -2979,6 +2979,10 @@ mod eg318_dispatch_tests {
     /// reads back the linked children.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_create_summary_then_read_children() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         for (i, id) in ["e1", "e2"].iter().enumerate() {
             let r = dispatch_on_heap(
@@ -3030,6 +3034,10 @@ mod eg318_dispatch_tests {
     /// semantic node id.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_consolidate_returns_semantic_id() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         for (i, id) in ["a", "b"].iter().enumerate() {
             let _ = dispatch_on_heap(
@@ -3065,6 +3073,10 @@ mod eg318_dispatch_tests {
     /// `(decayed, pruned_ids)` tuple.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_maintain_decays_and_evicts() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         // A low-importance node in the working set gets evicted below threshold.
         let _ = dispatch_on_heap(
@@ -3104,6 +3116,10 @@ mod eg318_dispatch_tests {
     /// back the composed world pose.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_scene_object_then_world_transform() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         let pose = serde_json::json!({"translation": {"x": 5.0, "y": 0.0, "z": 0.0}});
         let created = dispatch_on_heap(
@@ -3135,6 +3151,10 @@ mod eg318_dispatch_tests {
     /// DiscountedReturn computes `Σ gamma^t · reward`.
     #[tokio::test(flavor = "multi_thread")]
     async fn eg318_trajectory_append_then_discounted_return() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         let started = dispatch_on_heap(
             &state,
@@ -3198,6 +3218,10 @@ mod eg318_dispatch_tests {
     #[cfg(feature = "tsdb")]
     #[tokio::test(flavor = "multi_thread")]
     async fn timeseries_is_graph_authorized_and_tenant_scoped() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         let path = std::env::temp_dir().join(format!(
             "eg-ts-policy-{}-{}.redb",
@@ -3363,6 +3387,10 @@ mod eg318_dispatch_tests {
     #[cfg(feature = "tsdb")]
     #[tokio::test(flavor = "multi_thread")]
     async fn timeseries_retention_evict_delete_and_list_are_scoped_and_reachable() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state_min();
         let path = std::env::temp_dir().join(format!(
             "eg-ts-retention-{}-{}.redb",
@@ -3605,6 +3633,10 @@ mod eg318_dispatch_tests {
     #[cfg(all(feature = "tsdb", feature = "security"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn timeseries_retention_mutations_require_write_not_read() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector, Role};
 
         let state = state_min();

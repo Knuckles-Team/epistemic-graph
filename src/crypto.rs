@@ -551,6 +551,14 @@ pub fn resolve_txn_recovery_key() -> Option<Vec<u8>> {
 #[cfg(test)]
 pub(crate) static TEST_ENV_LOCK: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
 
+/// The guard a store-opening test holds for its whole body.
+///
+/// Named so the handful of helpers that return one (`embedded`'s
+/// `durable_env_guard`, `raft::xshard_harness::env_read_guard`) do not have to spell
+/// out the concrete guard type.
+#[cfg(test)]
+pub(crate) type TestEnvReadGuard = tokio::sync::RwLockReadGuard<'static, ()>;
+
 /// Acquire [`TEST_ENV_LOCK`] from an `async fn` (`#[tokio::test]`) test body.
 /// Bind the returned guard to a named local at the top of the test so it
 /// lives — and keeps the lock held — for the test's entire body, including
@@ -568,7 +576,7 @@ pub(crate) async fn acquire_test_env_lock() -> tokio::sync::RwLockWriteGuard<'st
 /// parallelism; they exclude only a concurrent key MUTATOR, which is precisely
 /// the interleaving that breaks an open-then-reopen canary check.
 #[cfg(test)]
-pub(crate) async fn acquire_test_env_read_lock() -> tokio::sync::RwLockReadGuard<'static, ()> {
+pub(crate) async fn acquire_test_env_read_lock() -> TestEnvReadGuard {
     TEST_ENV_LOCK.read().await
 }
 
@@ -607,8 +615,74 @@ pub(crate) fn acquire_test_env_lock_blocking() -> tokio::sync::RwLockWriteGuard<
 /// runtime polling it. It locks the same [`TEST_ENV_LOCK`] as every other
 /// participant, so sync and async readers and writers stay mutually consistent.
 #[cfg(test)]
-pub(crate) fn acquire_test_env_read_lock_blocking() -> tokio::sync::RwLockReadGuard<'static, ()> {
+pub(crate) fn acquire_test_env_read_lock_blocking() -> TestEnvReadGuard {
     TEST_ENV_LOCK.blocking_read()
+}
+
+/// The ONE at-rest key every test in this binary that merely needs encryption
+/// CONFIGURED (rather than a specific key) provisions.
+///
+/// Before this existed, SEVEN modules each provisioned their own distinct key value
+/// through their own `std::sync::Once` -- `server::mod::ensure_txn_recovery_key`,
+/// `redb_backend::tests::cm_dir`, `redb_backend::tests::txn_commit_persists_to_redb`,
+/// `handlers::query`'s RYOW fixture, `raft::xshard_harness`, and BOTH of
+/// `server::wire`'s `ensure_env`s. Each `Once` fires at most once, but seven of them
+/// fire in some scheduling-dependent order, so the ambient key CHANGED up to seven
+/// times over the life of one test binary. A store opened under one of those values
+/// and read back after the next transition fails with "decryption failed (wrong key
+/// or tampered ciphertext)" -- and the two `wire` sites held NO lock at all while
+/// doing it, so the change could land inside another test's body no matter what guard
+/// that test held. One value, provisioned through the ONE `Once` below, makes the
+/// ambient key transition exactly once per process (absent -> this), which is the
+/// smallest amount of shared state this requirement can have.
+#[cfg(test)]
+pub(crate) const TEST_AT_REST_KEY: &str = "epistemic-graph-test-at-rest-key";
+
+#[cfg(test)]
+static TEST_AT_REST_KEY_PROVISIONED: std::sync::Once = std::sync::Once::new();
+
+/// Provision [`TEST_AT_REST_KEY`]. **The caller must already hold the WRITE guard.**
+///
+/// For the test bodies that mutate the encryption environment themselves and so
+/// already hold [`acquire_test_env_lock`]: `tokio::sync::RwLock` is not reentrant, so
+/// this must not acquire anything of its own. Every other caller wants
+/// [`provisioned_test_env_read_lock`] instead, which takes the write guard for the
+/// provisioning and hands back a read guard.
+#[cfg(test)]
+pub(crate) fn provision_test_at_rest_key_under_write_guard() {
+    TEST_AT_REST_KEY_PROVISIONED
+        .call_once(|| std::env::set_var(ENCRYPTION_KEY_ENV, TEST_AT_REST_KEY));
+}
+
+/// Provision [`TEST_AT_REST_KEY`] if it is not provisioned yet -- under the WRITE
+/// guard, because that is a process-global mutation -- and then hold the ambient
+/// encryption environment still for the caller's ENTIRE body under the READ guard.
+///
+/// This is what a store-opening test wants when it also needs a key to BE configured
+/// (the transaction-recovery seal fails closed without one). The two guards are taken
+/// in this order and never nested: the write guard is released before the read guard
+/// is acquired, so no body ever holds both. Once the `Once` has completed this costs
+/// one atomic load plus the read acquisition.
+#[cfg(test)]
+pub(crate) async fn provisioned_test_env_read_lock() -> TestEnvReadGuard {
+    if !TEST_AT_REST_KEY_PROVISIONED.is_completed() {
+        let _env_lock = acquire_test_env_lock().await;
+        provision_test_at_rest_key_under_write_guard();
+    }
+    acquire_test_env_read_lock().await
+}
+
+/// Synchronous counterpart to [`provisioned_test_env_read_lock`], for plain `#[test]`
+/// bodies. `blocking_write`/`blocking_read` are legal only outside an async execution
+/// context, which is exactly where a plain `#[test]` runs -- see
+/// [`acquire_test_env_read_lock_blocking`]'s doc.
+#[cfg(test)]
+pub(crate) fn provisioned_test_env_read_lock_blocking() -> TestEnvReadGuard {
+    if !TEST_AT_REST_KEY_PROVISIONED.is_completed() {
+        let _env_lock = acquire_test_env_lock_blocking();
+        provision_test_at_rest_key_under_write_guard();
+    }
+    acquire_test_env_read_lock_blocking()
 }
 
 #[cfg(test)]

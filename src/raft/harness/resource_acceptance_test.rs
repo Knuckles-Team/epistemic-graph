@@ -79,6 +79,19 @@ where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + 'static,
 {
+    // Every scenario below brings up a durable redb-backed cluster and reopens
+    // members over the SAME directories across a restart, and a durable open resolves
+    // its at-rest cipher from the process-global `EPISTEMIC_GRAPH_ENCRYPTION_KEY`. The
+    // env therefore has to hold still for the whole scenario, not just its first open.
+    // A READ guard: it excludes only a key MUTATOR, never another opener, so these
+    // keep running concurrently with the rest of the durable suite. See
+    // `crate::crypto::acquire_test_env_read_lock`'s doc.
+    //
+    // Taken HERE, on the libtest thread, rather than inside the scenario, for two
+    // reasons: `blocking_read` is legal only outside an async execution context, and
+    // waiting out a concurrent key mutator must not be charged against
+    // `CLUSTER_ACCEPTANCE_SCENARIO_TIMEOUT`.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
     let outcome = std::thread::Builder::new()
         .name(name.to_string())
         .stack_size(CLUSTER_ACCEPTANCE_STACK_BYTES)

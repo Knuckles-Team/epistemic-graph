@@ -1051,6 +1051,10 @@ mod tests {
 
     #[tokio::test]
     async fn signed_session_verifies_current_context_and_rejects_tampering() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = seeded_state();
         let request = signed_session_request("__commons__");
         let valid = auth_map(&request);
@@ -1071,6 +1075,10 @@ mod tests {
 
     #[tokio::test]
     async fn signed_session_rejects_cross_tenant_claims() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::acl::RequestContextClaims;
         use crate::server::auth::{compute_verified_envelope_token, VerifiedEnvelopeParams};
 
@@ -1242,6 +1250,10 @@ mod tests {
 
     #[tokio::test]
     async fn bolt_hello_run_pull_roundtrip_against_cypher_engine() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let mut c = spawn_conn(seeded_state());
         c.handshake().await;
 
@@ -1272,6 +1284,10 @@ mod tests {
 
     #[tokio::test]
     async fn forged_hello_principal_is_rejected_before_query_execution() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let mut c = spawn_conn(seeded_state());
         c.handshake().await;
         c.send(&forged_hello()).await;
@@ -1282,6 +1298,10 @@ mod tests {
 
     #[tokio::test]
     async fn unsigned_run_database_cannot_replace_signed_graph() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let mut c = spawn_conn(seeded_state());
         c.handshake().await;
         c.send(&hello()).await;
@@ -1296,6 +1316,10 @@ mod tests {
 
     #[tokio::test]
     async fn bolt_explicit_transaction_begin_run_commit() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let mut c = spawn_conn(seeded_state());
         c.handshake().await;
         c.send(&hello()).await;
@@ -1330,6 +1354,10 @@ mod tests {
 
     #[tokio::test]
     async fn bolt_rollback_discards_staged_write_without_touching_live_graph() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = seeded_state();
         let core = state
             .read()
@@ -1462,6 +1490,10 @@ mod tests {
 
     #[tokio::test]
     async fn bolt_failure_then_ignored_until_reset() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let mut c = spawn_conn(seeded_state());
         c.handshake().await;
         c.send(&hello()).await;

@@ -519,34 +519,103 @@ fn tombstone_claim_from_complete_page(
     prior: &SemanticSqlSourceManifest,
     page_cursor: Option<Vec<u8>>,
     snapshot: AuthorizedSqlSourcePage,
-) -> Result<AuthorizedSqlSourceClaim, SemanticIndexError> {
-    prior.validate_against_binding(binding)?;
-    intent.validate()?;
+) -> Result<AuthorizedSqlSourceClaim, (SemanticIndexError, String)> {
+    // Each precondition is checked and NAMED separately. As one composite `if` all six
+    // produced the same bare `SourceManifestMismatch`, so a refusal never said which of
+    // six independent authorities disagreed -- and a deletion claim is reconstituted
+    // from four of them at once (the retained prior manifest, the leased intent, the
+    // live complete snapshot, and the derived deletion proof).
+    let mismatch = |reason: String| (SemanticIndexError::SourceManifestMismatch, reason);
+    // NOT `SemanticSqlSourceManifest::validate_against_binding`. That predicate pins
+    // `manifest.source_revision` (and `binding_digest`, which folds the revision in) to
+    // the binding's CURRENT source revision -- and a tombstone's `prior` manifest is
+    // retained precisely BECAUSE it was captured at an EARLIER revision: the row
+    // existed at R1 and is absent from the complete page at R2. The predicate therefore
+    // could never hold on this path, and every SQL-source deletion claim was refused
+    // outright with a bare `SourceManifestMismatch` naming nothing.
+    //
+    // Everything else that predicate checks is already enforced, and against a stronger
+    // authority: `SemanticIndexStore::sql_source_manifest` validated this row against
+    // the DURABLE binding at this generation when it read it -- binding id, binding
+    // digest, generation, schema/field-set digests, ACL revision+digest, and that the
+    // manifest's revision AUTHORITY is the binding's (it deliberately does not pin the
+    // revision itself, for exactly this reason). What is left to check here is that the
+    // CALLER-supplied binding is that same binding identity. The revision relationship
+    // is checked below where it belongs: the deletion proof is derived from the PAGE's
+    // revision and must equal the leased intent's `input_digest`.
+    prior.validate().map_err(|error| {
+        (
+            error.clone(),
+            format!("prior manifest is invalid: {error:?}"),
+        )
+    })?;
+    prior
+        .source_identity
+        .validate_against_binding(binding)
+        .map_err(|error| {
+            (
+                error.clone(),
+                format!("prior source identity is outside the binding: {error:?}"),
+            )
+        })?;
+    if prior.binding_id != binding.binding_id
+        || prior.generation != binding.generation
+        || prior.source_schema_digest != binding.source_schema_digest
+        || prior.source_field_set_digest != binding.source_field_set_digest
+        || prior.source_acl_revision != binding.policy_identity.components.source_acl_revision
+        || prior.source_acl_digest != binding.policy_identity.components.source_acl_digest
+    {
+        return Err(mismatch(
+            "prior manifest is bound to a different binding identity".to_string(),
+        ));
+    }
+    intent
+        .validate()
+        .map_err(|error| (error.clone(), format!("stage intent is invalid: {error:?}")))?;
     let source_entity_id = intent
         .scope
         .source_entity_id()
-        .ok_or(SemanticIndexError::SourceManifestMismatch)?;
+        .ok_or_else(|| mismatch("stage scope names no source entity".to_string()))?;
     let complete_snapshot_receipt_digest = snapshot
         .page
         .complete_snapshot_receipt_digest
-        .ok_or(SemanticIndexError::SourceManifestMismatch)?;
+        .ok_or_else(|| mismatch("page carries no complete-snapshot receipt digest".to_string()))?;
     let deletion_proof_digest = sql_source_deletion_proof(
         source_entity_id,
         &snapshot.page.source_revision,
         complete_snapshot_receipt_digest,
     );
-    if intent.stage != SemanticStage::SourceCommit
-        || prior.source_entity_id != source_entity_id
-        || intent.source_revision != snapshot.page.source_revision
-        || !snapshot.page.complete
-        || intent.input_digest != deletion_proof_digest
-        || snapshot
-            .page
-            .sources
-            .iter()
-            .any(|source| source.source_entity_id() == source_entity_id)
+    if intent.stage != SemanticStage::SourceCommit {
+        return Err(mismatch("intent is not a SourceCommit stage".to_string()));
+    }
+    if prior.source_entity_id != source_entity_id {
+        return Err(mismatch(
+            "prior manifest names a different source entity".to_string(),
+        ));
+    }
+    if intent.source_revision != snapshot.page.source_revision {
+        return Err(mismatch(format!(
+            "intent source revision {} is not the page's {}",
+            intent.source_revision, snapshot.page.source_revision
+        )));
+    }
+    if !snapshot.page.complete {
+        return Err(mismatch("page is not a complete snapshot".to_string()));
+    }
+    if intent.input_digest != deletion_proof_digest {
+        return Err(mismatch(
+            "intent input digest is not the derived deletion proof".to_string(),
+        ));
+    }
+    if snapshot
+        .page
+        .sources
+        .iter()
+        .any(|source| source.source_entity_id() == source_entity_id)
     {
-        return Err(SemanticIndexError::SourceManifestMismatch);
+        return Err(mismatch(
+            "the source entity is still present in the page".to_string(),
+        ));
     }
     let claim = AuthorizedSqlSourceClaim {
         source: SemanticSqlSourceRecord {
@@ -566,7 +635,12 @@ fn tombstone_claim_from_complete_page(
         decision_at_ms: snapshot.decision_at_ms,
         intent_digest: intent.intent_digest,
     };
-    source_claim_matches_intent(&claim.source, intent)?;
+    source_claim_matches_intent(&claim.source, intent).map_err(|error| {
+        (
+            error.clone(),
+            format!("reconstituted tombstone does not match the intent: {error:?}"),
+        )
+    })?;
     Ok(claim)
 }
 
@@ -718,24 +792,50 @@ impl SemanticIndexServerAdapter {
         page_cursor: Option<Vec<u8>>,
     ) -> Result<AuthorizedSqlSourceClaim, Response> {
         let service = Arc::clone(&self.service);
+        // The store's own `SemanticCodeError` used to be DISCARDED here
+        // (`map_err(|_| ..)`) and every refusal collapsed into one opaque sentence, so a
+        // caller -- and a failing test -- learned nothing about which authority
+        // disagreed. The wire-visible `SemanticIndexError` code is unchanged (it is a
+        // contract enum); what is added is the REASON alongside it.
         let result = compute_off_lock(req_id, move || {
-            let source_entity_id = intent
-                .scope
-                .source_entity_id()
-                .ok_or(SemanticIndexError::SourceManifestMismatch)?;
+            let source_entity_id = intent.scope.source_entity_id().ok_or_else(|| {
+                (
+                    SemanticIndexError::SourceManifestMismatch,
+                    "stage scope names no source entity".to_string(),
+                )
+            })?;
             let prior = service
                 .sql_source_manifest(binding.generation, source_entity_id)
-                .map_err(|_| SemanticIndexError::SourceManifestMismatch)?
-                .ok_or(SemanticIndexError::SourceManifestMismatch)?;
+                .map_err(|error| {
+                    (
+                        SemanticIndexError::SourceManifestMismatch,
+                        format!("prior SQL source manifest is unreadable: {error:?}"),
+                    )
+                })?
+                .ok_or_else(|| {
+                    (
+                        SemanticIndexError::SourceManifestMismatch,
+                        "no retained prior SQL source manifest for this source entity".to_string(),
+                    )
+                })?;
             let snapshot =
                 AuthorizedSqlSourceReadPort::new(persist_dir, authority, cursor_auth_secret)
-                    .read_snapshot_with_decision(&binding, page_cursor.as_deref())?;
+                    .read_snapshot_with_decision(&binding, page_cursor.as_deref())
+                    .map_err(|error| {
+                        (
+                            error.clone(),
+                            format!("authorized complete-snapshot read refused: {error:?}"),
+                        )
+                    })?;
             tombstone_claim_from_complete_page(&binding, &intent, &prior, page_cursor, snapshot)
         })
         .await?;
-        result.map_err(|error| {
-            tracing::debug!(?error, "semantic SQL tombstone claim was refused");
-            Response::err(req_id, "semantic SQL tombstone claim was refused")
+        result.map_err(|(error, reason)| {
+            tracing::debug!(?error, %reason, "semantic SQL tombstone claim was refused");
+            Response::err(
+                req_id,
+                format!("semantic SQL tombstone claim was refused: {reason}"),
+            )
         })
     }
 
@@ -807,7 +907,8 @@ impl SemanticIndexServerAdapter {
                         &prior,
                         page_cursor,
                         snapshot,
-                    )?
+                    )
+                    .map_err(|(error, _reason)| error)?
                     .source
                 }
             };

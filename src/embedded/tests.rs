@@ -30,7 +30,7 @@ fn tmp_dir(tag: &str) -> PathBuf {
 /// only the ones observed to fail: a lock held at some entrypoints and not
 /// others protects nothing.
 #[must_use]
-fn durable_env_guard() -> tokio::sync::RwLockReadGuard<'static, ()> {
+fn durable_env_guard() -> crate::crypto::TestEnvReadGuard {
     crate::crypto::acquire_test_env_read_lock_blocking()
 }
 
