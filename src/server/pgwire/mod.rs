@@ -1398,7 +1398,7 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
                 "binary COPY of a vector column is not supported (use TEXT COPY or \
                         INSERT)"
                     .to_string(),
-            )
+            );
         }
         // Added with the constraint/column-type work. Binary COPY is REFUSED for
         // these rather than guessed at: each has a non-obvious Postgres binary
@@ -1414,7 +1414,7 @@ fn decode_binary_field(bytes: &[u8], ty: ColumnType) -> Result<serde_json::Value
         | ColumnType::Array(_) => {
             return Err(format!(
                 "binary COPY of a {ty:?} column is not supported (use TEXT COPY or INSERT)"
-            ))
+            ));
         }
     };
     Ok(v)
@@ -2075,7 +2075,10 @@ mod tls_policy_tests {
             assert_ne!(std::thread::current().id(), reactor_thread);
             calls_in_worker.fetch_add(1, Ordering::SeqCst);
             entered_barrier.send(()).expect("signal worker entry");
-            release.recv().expect("wait for async-side release");
+            crate::test_rendezvous::recv_within(
+                &release,
+                "the async side releasing the TLS-material worker",
+            );
             Err(Error::new(ErrorKind::InvalidInput, "test TLS failure"))
         }));
 

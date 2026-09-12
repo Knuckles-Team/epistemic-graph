@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_rendezvous::meet;
 
 #[test]
 fn checkpoint_restore_requires_the_exact_linked_lane_work_item() {
@@ -52,7 +53,10 @@ fn native_same_branch_and_worktree_races_leave_one_winner() {
     let (first_decision, second_decision) = std::thread::scope(|scope| {
         let first_start = Arc::clone(&start);
         let first_thread = scope.spawn(move || {
-            first_start.wait();
+            meet(
+                &first_start,
+                "same-branch race: first lane at the start line",
+            );
             let mut request = first;
             request.idempotency_key = "reserve:race-a".into();
             let bytes = commit_development_lane(
@@ -69,7 +73,10 @@ fn native_same_branch_and_worktree_races_leave_one_winner() {
         });
         let second_start = Arc::clone(&start);
         let second_thread = scope.spawn(move || {
-            second_start.wait();
+            meet(
+                &second_start,
+                "same-branch race: second lane at the start line",
+            );
             let mut request = second;
             request.idempotency_key = "reserve:race-b".into();
             let bytes = commit_development_lane(
@@ -84,7 +91,7 @@ fn native_same_branch_and_worktree_races_leave_one_winner() {
                 .expect("decode branch race result")
                 .decision
         });
-        start.wait();
+        meet(&start, "same-branch race: the driver releasing both lanes");
         (
             first_thread.join().expect("first branch race thread"),
             second_thread.join().expect("second branch race thread"),
@@ -278,7 +285,10 @@ fn native_same_branch_and_worktree_races_leave_one_winner() {
     let (first_decision, second_decision) = std::thread::scope(|scope| {
         let first_start = Arc::clone(&start);
         let first_thread = scope.spawn(move || {
-            first_start.wait();
+            meet(
+                &first_start,
+                "same-branch race: first lane at the start line",
+            );
             let mut request = first;
             request.idempotency_key = "reserve:tree-a".into();
             let bytes = commit_development_lane(
@@ -295,7 +305,10 @@ fn native_same_branch_and_worktree_races_leave_one_winner() {
         });
         let second_start = Arc::clone(&start);
         let second_thread = scope.spawn(move || {
-            second_start.wait();
+            meet(
+                &second_start,
+                "same-branch race: second lane at the start line",
+            );
             let mut request = second;
             request.idempotency_key = "reserve:tree-b".into();
             let bytes = commit_development_lane(
@@ -310,7 +323,7 @@ fn native_same_branch_and_worktree_races_leave_one_winner() {
                 .expect("decode worktree race result")
                 .decision
         });
-        start.wait();
+        meet(&start, "same-branch race: the driver releasing both lanes");
         (
             first_thread.join().expect("first worktree race thread"),
             second_thread.join().expect("second worktree race thread"),

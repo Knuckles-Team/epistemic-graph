@@ -693,6 +693,7 @@ mod tests {
     use eg_query::tables::schema::ArrayElemType;
 
     use super::*;
+    use crate::test_rendezvous::meet;
 
     // The env-var save/restore guard lives once, beside the backup tests that
     // first needed it (`persistence::backup::EnvVarGuard`); this module had an
@@ -870,7 +871,10 @@ mod tests {
         let task = tokio::spawn(run_transfer_job("test", move || {
             worker_executions.fetch_add(1, Ordering::SeqCst);
             entered_tx.send(()).expect("reactor still awaits entry");
-            worker_barrier.wait();
+            meet(
+                &worker_barrier,
+                "transfer job held inside its blocking body",
+            );
             worker_completions.fetch_add(1, Ordering::SeqCst);
             Ok::<_, String>(17_u64)
         }));
@@ -878,7 +882,7 @@ mod tests {
         entered_rx.await.expect("blocking job entered");
         assert_eq!(executions.load(Ordering::SeqCst), 1);
         assert_eq!(completions.load(Ordering::SeqCst), 0);
-        barrier.wait();
+        meet(&barrier, "the test releasing the held transfer job");
         assert_eq!(task.await.expect("join transfer future").unwrap(), 17);
         assert_eq!(executions.load(Ordering::SeqCst), 1);
         assert_eq!(completions.load(Ordering::SeqCst), 1);
@@ -912,7 +916,10 @@ mod tests {
         let worker_completions = Arc::clone(&completions);
         let waiter = tokio::spawn(run_transfer_job("test", move || {
             entered_tx.send(()).expect("test waits for entry");
-            worker_barrier.wait();
+            meet(
+                &worker_barrier,
+                "owned transfer job held after its waiter was cancelled",
+            );
             worker_completions.fetch_add(1, Ordering::SeqCst);
             completed_tx.send(()).expect("test waits for completion");
             Ok::<_, String>(())
@@ -921,7 +928,7 @@ mod tests {
         entered_rx.await.expect("blocking job entered");
         waiter.abort();
         assert!(waiter.await.unwrap_err().is_cancelled());
-        barrier.wait();
+        meet(&barrier, "the test releasing the orphaned transfer job");
         completed_rx.await.expect("owned blocking job completed");
         assert_eq!(completions.load(Ordering::SeqCst), 1);
     }

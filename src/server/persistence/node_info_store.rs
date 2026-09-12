@@ -25,6 +25,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
 
+use crate::lock_recovery::{LockRecovery, WriteRecovery};
 use redb::{ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -361,11 +362,11 @@ impl NodeInfoStore {
     /// through to the durable table when backed.
     pub fn upsert(&self, info: NodeInfo) -> Result<(), String> {
         validate_node_info(&info)?;
-        let mut entries = self.entries.write().unwrap_or_else(|e| e.into_inner());
+        let mut entries = self.entries.write_or_panic("node info entries");
         if !entries.contains_key(&info.node_id) && entries.len() >= MAX_NODE_INFO_ENTRIES {
             return Err("node info store exceeds resource limits".to_string());
         }
-        let mut cluster_id = self.cluster_id.write().unwrap_or_else(|e| e.into_inner());
+        let mut cluster_id = self.cluster_id.write_or_panic("node info cluster identity");
         if cluster_id
             .as_deref()
             .is_some_and(|current| current != info.cluster_id)
@@ -415,8 +416,7 @@ impl NodeInfoStore {
     pub fn all(&self) -> Vec<NodeInfo> {
         let mut v: Vec<NodeInfo> = self
             .entries
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
+            .lock_or_panic("node info entries")
             .values()
             .cloned()
             .collect();
@@ -427,8 +427,7 @@ impl NodeInfoStore {
     /// One node's info, if known.
     pub fn get(&self, node_id: u64) -> Option<NodeInfo> {
         self.entries
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
+            .lock_or_panic("node info entries")
             .get(&node_id)
             .cloned()
     }
@@ -441,8 +440,7 @@ impl NodeInfoStore {
     /// The one cluster identity established by the Raft self-report authority.
     pub fn cluster_id(&self) -> Option<String> {
         self.cluster_id
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
+            .lock_or_panic("node info cluster identity")
             .clone()
     }
 

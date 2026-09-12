@@ -58,6 +58,7 @@ use parking_lot::Mutex;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
+use crate::lock_recovery::LockRecovery;
 use crate::server::blob::store::{ChunkStore, RedbChunkStore};
 use crate::server::http1::{self, HttpMessage, RequestLimits};
 use eg_text::TextIndex;
@@ -511,9 +512,7 @@ where
     P: FnOnce() -> Result<(), String>,
     A: FnOnce(),
 {
-    let _guard = snapshot_write_lock()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _guard = snapshot_write_lock().lock_recovering("obs snapshot write lock");
     let bytes = snapshot().map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
     if bytes.len() > MAX_SNAPSHOT_BYTES {
         return Err(SNAPSHOT_WRITE_ERROR.to_string());
@@ -2022,7 +2021,7 @@ async fn handle_search(
                     "400 Bad Request",
                     "text/plain",
                     format!("parse _search JSON: {e}"),
-                )
+                );
             }
         }
     };
@@ -2292,6 +2291,7 @@ fn query_param(query: &str, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_rendezvous::{join_bounded, recv_within};
     use tokio::io::AsyncReadExt as _;
 
     fn snapshot_temporaries(parent: &Path) -> Vec<PathBuf> {
@@ -2344,11 +2344,9 @@ mod tests {
         let observed = counter.clone();
 
         let lock_holder = std::thread::spawn(move || {
-            let _guard = snapshot_write_lock()
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let _guard = snapshot_write_lock().lock_recovering("obs snapshot write lock");
             entered_tx.send(()).expect("announce held lock");
-            release_rx.recv().expect("release held lock");
+            recv_within(&release_rx, "the test releasing the held snapshot lock");
         });
         entered_rx
             .await
@@ -2360,7 +2358,7 @@ mod tests {
         };
         let (persisted, ()) = tokio::join!(obs.persist_traces(), progress);
         persisted.expect("public trace persistence");
-        lock_holder.join().expect("join lock holder");
+        join_bounded(lock_holder, "the snapshot-lock holder thread");
         assert_eq!(
             counter.load(Ordering::SeqCst),
             1,
@@ -2383,7 +2381,7 @@ mod tests {
                     .send(())
                     .map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
                 release_rx
-                    .recv()
+                    .recv_timeout(crate::test_rendezvous::RENDEZVOUS_TIMEOUT)
                     .map_err(|_| SNAPSHOT_WRITE_ERROR.to_string())?;
                 let result = write_snapshot_atomically_blocking(written_path, || {
                     Ok(b"committed-after-cancellation".to_vec())

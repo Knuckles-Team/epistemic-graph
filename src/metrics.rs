@@ -866,6 +866,7 @@ pub async fn serve(listener: tokio::net::TcpListener) {
 #[cfg(all(test, feature = "metrics"))]
 mod tests {
     use super::*;
+    use crate::lock_recovery::LockRecovery;
 
     // The Prometheus REGISTRY and the bounded graph-label cap (SEEN_GRAPHS) are
     // process-global singletons. Tests that depend on the labelled-series set must
@@ -876,7 +877,7 @@ mod tests {
 
     #[test]
     fn test_render_contains_recorded_series() {
-        let _guard = GLOBAL_LABEL_STATE.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = GLOBAL_LABEL_STATE.lock_recovering("global metric label state");
         record_request("Ping", 0.0007);
         graph_op("agent:metrics-test");
         set_graph_size("agent:metrics-test", 3, 2);
@@ -923,7 +924,7 @@ mod tests {
 
     #[test]
     fn test_graph_label_cardinality_is_bounded() {
-        let _guard = GLOBAL_LABEL_STATE.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = GLOBAL_LABEL_STATE.lock_recovering("global metric label state");
         // Saturate the label space, then confirm new names aggregate.
         for i in 0..200 {
             graph_op(&format!("agent:cardinality-{i}"));

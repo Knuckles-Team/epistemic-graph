@@ -73,6 +73,7 @@ pub mod store_authority;
 /// Taking a lock whose previous holder panicked, without turning one bug into a
 /// permanent outage. A bare `.unwrap()` on a poisoned lock is the absence of a
 /// decision; these make the decision explicit and visible.
+pub(crate) mod bounded_join;
 pub(crate) mod lock_recovery;
 pub mod redb_store;
 #[cfg(feature = "redb")]

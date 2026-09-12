@@ -6,8 +6,46 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::{allocation_bytes, timed, Observation, ProbeError};
+
+/// How long a wire probe waits at a rendezvous before reporting a stall.
+///
+/// These probes deliberately park one thread inside a change callback to prove
+/// the subscriber list stays available. If the defect they test for is present
+/// the parties never meet, so an unbounded wait would hang the probe on exactly
+/// the fault it exists to detect -- and a probe that hangs reports nothing,
+/// which is strictly worse than one that fails by name.
+const PROBE_RENDEZVOUS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 use epistemic_graph::broker::{self, Binding, ExchangeKind, ReadFrom, StreamRetention};
 use epistemic_graph::graph::{ChangeEvent, ChangeNotifier, ChangeSink, GraphCore};
+
+/// Join a probe worker within [`PROBE_RENDEZVOUS_TIMEOUT`], or say which probe
+/// stalled.
+///
+/// `performance_probe` is a module of the SERVER BIN and reaches the engine as
+/// an ordinary dependency, so the library's `pub(crate)` `bounded_join` is not
+/// in scope here. Same mechanism, kept local: the unbounded join runs on a
+/// throwaway thread and the deadline is this `recv_timeout`.
+fn join_probe_worker<T: Send + 'static>(
+    worker: std::thread::JoinHandle<T>,
+    what: &str,
+) -> Result<T, ProbeError> {
+    let (finished, waiting) = std::sync::mpsc::sync_channel(1);
+    #[allow(clippy::disallowed_methods)]
+    let joiner = std::thread::spawn(move || {
+        let value = worker.join();
+        let _ = finished.send(());
+        value
+    });
+    if waiting.recv_timeout(PROBE_RENDEZVOUS_TIMEOUT).is_err() {
+        return Err(format!("{what}: the worker thread did not finish").into());
+    }
+    // The helper already signalled, so neither join can block.
+    #[allow(clippy::disallowed_methods)]
+    match joiner.join() {
+        Ok(Ok(value)) => Ok(value),
+        _ => Err(format!("{what} thread panicked").into()),
+    }
+}
 
 struct CountingSink(AtomicU64);
 
@@ -36,7 +74,13 @@ struct BlockingSink {
 impl ChangeSink for BlockingSink {
     fn on_change(&self, _event: &ChangeEvent) {
         let _ = self.entered.send(());
-        let _ = self.release.lock().expect("probe release lock").recv();
+        // Bounded: if the probe driver never releases this sink, the callback
+        // returns instead of parking this thread for the life of the process.
+        let _ = self
+            .release
+            .lock()
+            .expect("probe release lock")
+            .recv_timeout(PROBE_RENDEZVOUS_TIMEOUT);
     }
 }
 
@@ -98,14 +142,14 @@ fn exercise_notification_reentrancy(
     let worker_notifier = notifier.clone();
     let started = Instant::now();
     let worker = std::thread::spawn(move || worker_notifier.emit(1));
-    entered_rx.recv()?;
+    entered_rx
+        .recv_timeout(PROBE_RENDEZVOUS_TIMEOUT)
+        .map_err(|_| "notification probe: the blocking sink never entered its change callback")?;
     // This must complete while the slow callback is blocked. It deadlocks here
     // if callbacks still run under the subscriber-list mutex.
     notifier.subscribe(&next_sink);
     release_tx.send(())?;
-    worker
-        .join()
-        .map_err(|_| "notification probe thread panicked")?;
+    join_probe_worker(worker, "notification probe")?;
     let latency = u64::try_from(started.elapsed().as_nanos())
         .unwrap_or(u64::MAX)
         .max(1);

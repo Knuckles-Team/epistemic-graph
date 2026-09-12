@@ -2398,12 +2398,12 @@ fn resolve_mutation_authoritative_state(
             }
             (None, None) => None,
             (Some(_), None) => {
-                return Err("MutationBatch state descriptor has no authoritative bytes".to_string())
+                return Err("MutationBatch state descriptor has no authoritative bytes".to_string());
             }
             (None, Some(_)) => {
                 return Err(
                     "authoritative bytes require a MutationBatch state descriptor".to_string(),
-                )
+                );
             }
         },
     )
@@ -5402,6 +5402,11 @@ fn invalidate_graph_edge_ords(graph: &str) {
 /// caller-owned private probe database and returns raw semantic outcomes; release
 /// evidence never includes the supplied path.
 #[doc(hidden)]
+/// How long the edge-ordinal probe worker may run. Its scale is capped at
+/// 100_000 synthetic rows into a caller-owned private database, so this is
+/// generous by more than an order of magnitude.
+const EDGE_ORDINAL_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
 pub fn exact_performance_probe_edge_ordinal(
     database_path: &std::path::Path,
     parallel_rows: usize,
@@ -5410,7 +5415,7 @@ pub fn exact_performance_probe_edge_ordinal(
         return Err("edge-ordinal probe scale is outside its bound".to_string());
     }
     let path = database_path.to_path_buf();
-    std::thread::Builder::new()
+    let worker = std::thread::Builder::new()
         .name("eg-redb-writer-g37".to_string())
         .spawn(move || -> Result<(u32, u32, u32), String> {
             let shard = Shard::open(&path)?;
@@ -5443,9 +5448,16 @@ pub fn exact_performance_probe_edge_ordinal(
             shard.mutations().abort_group(group)?;
             result
         })
-        .map_err(|error| error.to_string())?
-        .join()
-        .map_err(|_| "edge-ordinal probe worker panicked".to_string())?
+        .map_err(|error| error.to_string())?;
+    // The probe's scale is capped at 100_000 rows above, so a worker still
+    // running after this deadline is wedged rather than slow -- and a probe
+    // that hangs reports nothing at all, which is the failure mode this bound
+    // exists to prevent.
+    crate::bounded_join::join_within(
+        worker,
+        "the edge-ordinal probe worker",
+        EDGE_ORDINAL_PROBE_TIMEOUT,
+    )?
 }
 
 fn apply_batch_add_node_row(
@@ -6354,6 +6366,7 @@ mod security_tests {
     //! the server + embedded engine use.
     use super::*;
     use crate::crypto::ValueCipher;
+    use crate::test_rendezvous::join_bounded;
 
     fn open_db(dir: &std::path::Path) -> Shard {
         let path = dir.join("graph-0.redb");
@@ -6478,7 +6491,7 @@ mod security_tests {
     #[test]
     fn edge_ordinal_cache_assigns_u32_max_once_then_fails_closed() {
         let dir = tempdir();
-        std::thread::Builder::new()
+        let writer = std::thread::Builder::new()
             .name("eg-redb-writer-exhaustion-test".to_string())
             .spawn(move || {
                 let db = open_db(&dir);
@@ -6507,9 +6520,8 @@ mod security_tests {
                 db.commit_drain(group, &batches, 0).unwrap();
                 EDGE_ORD_CACHE.with(|cache| cache.borrow_mut().clear());
             })
-            .unwrap()
-            .join()
             .unwrap();
+        join_bounded(writer, "the edge-ordinal writer thread");
     }
 
     /// CONCEPT:EG-KG.storage.redb-store #3 — the O(1) edge-ordinal counter assigns CORRECT, strictly
@@ -6524,7 +6536,7 @@ mod security_tests {
 
         // PHASE 1 — on a dedicated `eg-redb-writer*` thread so the EG-029 counter is active.
         let d1 = dir.clone();
-        std::thread::Builder::new()
+        let writer = std::thread::Builder::new()
             .name("eg-redb-writer-egtest".to_string())
             .spawn(move || {
                 let crypto = DurableCrypto::none();
@@ -6571,15 +6583,14 @@ mod security_tests {
                 commit(add_edge_method("a", "c"));
                 assert_eq!(edge_ords(&db, "g", "a", "c"), vec![0]);
             })
-            .unwrap()
-            .join()
             .unwrap();
+        join_bounded(writer, "the edge-ordinal writer thread");
 
         // PHASE 2 — RESTART: reopen the SAME file on a NEW writer thread (fresh thread-local
         // counter). Adding 3 more a->b must RE-SEED from one scan (max was 5) and continue
         // 6,7,8 — monotonic, no reset, no collision.
         let d2 = dir.clone();
-        std::thread::Builder::new()
+        let writer = std::thread::Builder::new()
             .name("eg-redb-writer-egtest".to_string())
             .spawn(move || {
                 let crypto = DurableCrypto::none();
@@ -6605,9 +6616,8 @@ mod security_tests {
                     "re-seeded counter must continue monotonically after restart"
                 );
             })
-            .unwrap()
-            .join()
             .unwrap();
+        join_bounded(writer, "the edge-ordinal writer thread");
     }
 
     /// CONCEPT:EG-KG.storage.redb-store #4 — with encryption OFF, `seal` returns `Cow::Borrowed` and the
@@ -6990,6 +7000,7 @@ mod mutation_batch_tests {
         DurabilityDomain, IncarnationId, LogicalName, MutationOperation, MutationOutboxIntent,
         MutationScopeIdentity, MutationSurface, ScopeTenantId, MUTATION_BATCH_VERSION,
     };
+    use crate::test_rendezvous::{join_bounded, meet};
     use eg_transaction::OutboxClaimBudget;
     use eg_types::outcome_bundle::{
         CommitOutcomeBundle, OutcomeCompleteness, ReceiptNode, ReceiptNodeKind, RunEvent,
@@ -7074,7 +7085,7 @@ mod mutation_batch_tests {
                 &identity,
                 &format!("principal:sha256:{}", "a".repeat(64)),
                 42,
-                &key.to_string(),
+                key,
             ),
             identity,
             placement_epoch: 7,
@@ -10090,13 +10101,13 @@ mod mutation_batch_tests {
             let barrier = barrier.clone();
             let request = make_request(label, checkpoint);
             handles.push(std::thread::spawn(move || {
-                barrier.wait();
+                meet(&barrier, "concurrent-CAS race: worker at the start line");
                 commit_at(&db, &request, None)
             }));
         }
         let results: Vec<Result<MutationBatchCommit, String>> = handles
             .into_iter()
-            .map(|handle| handle.join().expect("concurrent CAS worker"))
+            .map(|handle| join_bounded(handle, "a concurrent-CAS race worker"))
             .collect();
 
         let decode_result = |committed: &MutationBatchCommit| -> CasWorkItemMetadataResult {
@@ -11963,8 +11974,7 @@ mod mutation_batch_tests {
             .operation()
             .expect("fixture operation envelope")
             .authority
-            .nonce
-            .clone();
+            .nonce;
         let eg_types::mutation_batch::MutationEnvelope::Operation(operation) =
             &mut duplicate_nonce.mutation.envelope
         else {

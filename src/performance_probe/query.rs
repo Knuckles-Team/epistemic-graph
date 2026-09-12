@@ -64,7 +64,7 @@ fn probe_flat_vector_lookup(
     let ((looked_up, reranked), latency) = timed(|| {
         (
             index.vector_of(target).map(Vec::from),
-            index.rerank(&query, &candidates, 8),
+            index.rerank(query, &candidates, 8),
         )
     });
     let reference = items
@@ -90,10 +90,10 @@ fn probe_flat_vector_search(
     scale: usize,
     dim: usize,
 ) -> Result<Observation, ProbeError> {
-    let (selected, latency) = timed(|| index.search(&query, 8, Metric::L2));
+    let (selected, latency) = timed(|| index.search(query, 8, Metric::L2));
     let mut reference: Vec<_> = items
         .iter()
-        .map(|(id, value)| (*id, Metric::L2.distance(&query, value)))
+        .map(|(id, value)| (*id, Metric::L2.distance(query, value)))
         .collect();
     reference.sort_by(|left, right| left.1.total_cmp(&right.1).then(left.0.cmp(&right.0)));
     reference.truncate(8.min(reference.len()));

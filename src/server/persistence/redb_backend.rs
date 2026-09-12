@@ -86,6 +86,7 @@ use crate::redb_store::{
     scan_xshard_decisions, scan_xshard_prepares, write_graph_meta, GraphDump, XshardDecisionScan,
     XshardPrepareScan, RAFT_LOG,
 };
+use crate::server::persistence::writer_reply::await_writer_reply;
 use eg_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
 /// `(first, last)` present Raft log index for a group, or an error (CONCEPT:EG-KG.storage.one-fsync-covers-raft).
 type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
@@ -470,6 +471,11 @@ pub(crate) struct ChangeEnvelopesPayload {
     pub(crate) envelopes: Vec<ChangeEnvelope>,
     pub(crate) committed_at_ms: u64,
 }
+
+/// How long a shard writer may take to tear down after acknowledging
+/// `Cmd::Shutdown` before shutdown stops waiting on it and says so. Teardown
+/// after the ack is a redb close, not data work, so this is short.
+const SHARD_WRITER_JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// A bounded page request over one graph's durable rows — every
 /// [`Cmd::ReadGraphDumpPage`] field except the routing `graph` name and the
@@ -915,7 +921,10 @@ impl RedbGroupCommitTestControl {
             .expect("group-commit test control lock poisoned")
             .take();
         if let Some(release) = release {
-            let _ = release.recv();
+            crate::test_rendezvous::recv_within(
+                &release,
+                "the group-commit test control releasing the writer",
+            );
         }
     }
 }
@@ -1438,9 +1447,19 @@ impl ShardWriter {
         if let Some(handle) = handle {
             let (reply, rx) = std::sync::mpsc::sync_channel(1);
             if self.tx.send(Cmd::Shutdown { reply }).is_ok() {
-                let _ = rx.recv();
+                let _ = await_writer_reply(&rx, "shutdown");
             }
-            let _ = handle.join();
+            // The ack above means the writer's loop has returned, so this join
+            // is prompt in the healthy case. It is still bounded: a writer that
+            // acked and then wedged in its own teardown would otherwise hang
+            // shutdown forever.
+            if let Err(error) = crate::bounded_join::join_within(
+                handle,
+                "the redb shard writer thread",
+                SHARD_WRITER_JOIN_TIMEOUT,
+            ) {
+                eprintln!("redb shard writer did not shut down cleanly: {error}");
+            }
         }
     }
 }
@@ -2018,9 +2037,7 @@ impl RedbBackend {
             let (reply, receive) = std::sync::mpsc::sync_channel(1);
             tx.send(Cmd::ExportGraphRaw { graph, reply })
                 .map_err(|_| "redb writer thread is gone".to_string())?;
-            receive
-                .recv()
-                .map_err(|_| "redb writer dropped snapshot export reply".to_string())?
+            await_writer_reply(&receive, "snapshot export")?
         })
         .await
         .map_err(|error| format!("snapshot export join error: {error}"))?
@@ -2050,9 +2067,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-            receive
-                .recv()
-                .map_err(|_| "redb writer dropped snapshot import reply".to_string())?
+            await_writer_reply(&receive, "snapshot import")?
         })
         .await
         .map_err(|error| format!("snapshot import join error: {error}"))?
@@ -2198,7 +2213,7 @@ impl RedbBackend {
                 _ => {
                     return Err(format!(
                         "{name} is not a registered bundled durable store; declare it in                          durable_stores::DURABLE_STORES before backing it up"
-                    ))
+                    ));
                 }
             }
             if report.bundled_stores.contains_key(name) {
@@ -2259,8 +2274,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped tamper reply".to_string())?
+        await_writer_reply(&rx, "tamper")?
     }
 
     /// Verify ONE graph's tamper-evident hash-chained audit log (CONCEPT:EG-KG.sharding.row-level-security).
@@ -2279,8 +2293,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped audit_verify reply".to_string())?
+        await_writer_reply(&rx, "audit_verify")?
     }
 
     /// Off-writer-thread read: hash each of `node_ids`' CURRENT durable content
@@ -2323,8 +2336,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped provenance_anchor_commit reply".to_string())?
+        await_writer_reply(&rx, "provenance_anchor_commit")?
     }
 
     /// Produce + verify a Merkle inclusion proof for one node against a prior
@@ -2347,8 +2359,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped audit_prove_inclusion reply".to_string())?
+        await_writer_reply(&rx, "audit_prove_inclusion")?
     }
 
     /// Read ONE graph's durable rows as a read-only materialization view
@@ -2365,8 +2376,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped read_graph_dump reply".to_string())?
+        await_writer_reply(&rx, "read_graph_dump")?
     }
 
     /// Read ONE bounded page of one graph's durable rows (CONCEPT:EG-KG.sharding.paged-lazy-open, L38 "paged
@@ -2396,8 +2406,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped read_graph_dump_page reply".to_string())?
+        await_writer_reply(&rx, "read_graph_dump_page")?
     }
 
     /// Reconstruct every graph from the redb store into the registry. The actual
@@ -2762,9 +2771,7 @@ impl PersistenceBackend for RedbBackend {
             let (reply, rx) = std::sync::mpsc::sync_channel(1);
             tx.send(Cmd::ReadGraphDump { graph, reply })
                 .map_err(|_| "redb writer thread is gone".to_string())?;
-            let dump = rx
-                .recv()
-                .map_err(|_| "redb writer dropped authoritative snapshot reply".to_string())??;
+            let dump = await_writer_reply(&rx, "authoritative snapshot")??;
             let version = read_mutation_graph_version_record(&shard, &version_graph)?;
             Ok::<_, String>((dump, version))
         };
@@ -3840,8 +3847,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped raft_log_read reply".to_string())?
+        await_writer_reply(&rx, "raft_log_read")?
     }
 
     /// Delete entries with index >= `from` for a group (conflict truncation).
@@ -3892,8 +3898,7 @@ impl RedbBackend {
             .tx
             .send(Cmd::RaftLogBounds { group_id, reply })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped raft_log_bounds reply".to_string())?
+        await_writer_reply(&rx, "raft_log_bounds")?
     }
 
     /// Durably write one Raft metadata key (vote / applied-state / last-purged).
@@ -3937,8 +3942,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped raft_meta_get reply".to_string())?
+        await_writer_reply(&rx, "raft_meta_get")?
     }
 
     // ── Cross-shard 2PC durable records (CONCEPT:EG-KG.storage.lane-n-increment) ─────────────────────
@@ -3991,8 +3995,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped xshard_prepare_get reply".to_string())?
+        await_writer_reply(&rx, "xshard_prepare_get")?
     }
 
     /// Durably write the coordinator's decision (the atomic commit point). Awaits fsync.
@@ -4107,8 +4110,7 @@ impl RedbBackend {
             .tx
             .send(Cmd::XshardScanPrepares { reply })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped xshard_scan_prepares reply".to_string())?
+        await_writer_reply(&rx, "xshard_scan_prepares")?
     }
 
     /// Scan digest-only decision states (no source payloads).
@@ -4119,8 +4121,7 @@ impl RedbBackend {
             .tx
             .send(Cmd::XshardScanDecisions { reply })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped xshard decision scan".to_string())?
+        await_writer_reply(&rx, "xshard decision scan")?
     }
 
     /// Read a txn's durable decision (Some(true)=commit, Some(false)=abort, None=undecided).
@@ -4134,8 +4135,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped xshard_decision_get reply".to_string())?
+        await_writer_reply(&rx, "xshard_decision_get")?
     }
 
     /// Whether this marker is retained for a separate parent receipt.
@@ -4149,8 +4149,7 @@ impl RedbBackend {
                 reply,
             })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped xshard retain reply".to_string())?
+        await_writer_reply(&rx, "xshard retain")?
     }
 
     /// Durably upsert a named materialized view's serialized blob (CONCEPT:EG-KG.storage.feature).
@@ -4179,8 +4178,7 @@ impl RedbBackend {
             .tx
             .send(Cmd::MatViewScan { reply })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped matview_scan reply".to_string())?
+        await_writer_reply(&rx, "matview_scan")?
     }
 
     /// Durably upsert a PLAN-BACKED matview definition (CONCEPT:EG-KG.storage.plan-backed-matview).
@@ -4226,8 +4224,7 @@ impl RedbBackend {
             .tx
             .send(Cmd::PlanMatViewScan { reply })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped plan_matview_scan reply".to_string())?
+        await_writer_reply(&rx, "plan_matview_scan")?
     }
 
     /// Durably upsert an incremental matview's operator-state snapshot
@@ -4278,8 +4275,7 @@ impl RedbBackend {
             .tx
             .send(Cmd::MatViewOperatorStateScan { reply })
             .map_err(|_| "redb writer thread is gone".to_string())?;
-        rx.recv()
-            .map_err(|_| "redb writer dropped matview_operator_state_scan reply".to_string())?
+        await_writer_reply(&rx, "matview_operator_state_scan")?
     }
 }
 
@@ -7348,9 +7344,10 @@ mod tests {
         };
         receivers.push(enqueue(0));
         tokio::task::spawn_blocking(move || {
-            entered_rx
-                .recv()
-                .expect("redb writer must enter the injected linger gate");
+            crate::test_rendezvous::recv_within(
+                &entered_rx,
+                "the redb writer entering the injected linger gate",
+            );
         })
         .await
         .expect("linger gate waiter must complete");
@@ -9717,6 +9714,16 @@ mod tests {
             .map(|i| {
                 let b = barrier.clone();
                 move || -> Result<usize, String> {
+                    // `Barrier::wait` is a `disallowed_methods` entry because an
+                    // unbounded wait hangs instead of failing. Here the bound
+                    // already exists, and in a better place: the whole fan-out
+                    // is driven under the `tokio::time::timeout(10s)` below,
+                    // which this test's doc comment names as the mechanism that
+                    // "converts into a test failure" the serial-impl regression
+                    // this barrier exists to detect. A second deadline inside
+                    // the closure could only fire after the outer one already
+                    // failed the test.
+                    #[allow(clippy::disallowed_methods)]
                     b.wait();
                     Ok(i)
                 }

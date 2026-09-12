@@ -2041,7 +2041,7 @@ async fn handle_graphql_staging_mutation(
             }
             return Ok(Response::ok(req_id, result));
         }
-        super::txn::GraphQlLifecycleAdmission::Execute(receipt) => receipt,
+        super::txn::GraphQlLifecycleAdmission::Execute(receipt) => *receipt,
     };
     let core_w = read_authority
         .expect("GraphQL mutation authority checked above")
@@ -2058,7 +2058,7 @@ async fn handle_graphql_staging_mutation(
             return Ok(Response::err(
                 req_id,
                 format!("GraphQL cross-modal error: {msg}"),
-            ))
+            ));
         }
         Err(resp) => return Ok(resp),
     };
@@ -3797,7 +3797,7 @@ fn resolve_conflict_wire(
             return Err(format!(
                 "ResolveConflict: unknown semantics '{other}' (expected \
                  grounded|preferred|stable)"
-            ))
+            ));
         }
     };
 
@@ -5403,7 +5403,7 @@ async fn exec_sql_property_graph_privilege(
                     "SQL error: {}",
                     crate::server::sql_catalog_acl::ACCESS_DENIED
                 ),
-            )
+            );
         }
         Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
     };

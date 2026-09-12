@@ -797,11 +797,11 @@ impl Shard {
             // was reported as a hang instead of as the assertion failure it is,
             // and a hung test binary silently truncates the whole run. The
             // error still propagates below and fails the test on its merits.
-            barrier.wait();
+            crate::test_rendezvous::meet(&barrier, "import staged-payload rendezvous");
             // The first trip tells the test that the staged transaction has
             // committed; the second keeps this import paused until the
             // competing cleanup has attempted the same graph guard.
-            barrier.wait();
+            crate::test_rendezvous::meet(&barrier, "import staged-payload release");
         }
         result
     }
@@ -841,11 +841,11 @@ impl Shard {
         &self,
         source: &Shard,
         graph_fname: &str,
-        mut payload: Option<&mut dyn OwnerPayloadTransfer<GraphShardOwner, GraphShardOwner>>,
+        payload: Option<&mut dyn OwnerPayloadTransfer<GraphShardOwner, GraphShardOwner>>,
     ) -> Result<GraftedScope, String> {
         #[cfg(all(test, feature = "server"))]
         if let Some(barrier) = take_test_barrier(&GRAFT_BEFORE_PROTOCOL_LOCK, graph_fname) {
-            barrier.wait();
+            crate::test_rendezvous::meet(&barrier, "graft before-protocol-lock rendezvous");
         }
         let protocol_guard = self.graft_protocol_guard(graph_fname)?;
         let _protocol_guard = protocol_guard
@@ -926,7 +926,6 @@ impl Shard {
             .mutations()
             .graft_begin(source_handle.as_ref(), &destination)?;
         let payload = payload
-            .as_deref_mut()
             .ok_or_else(|| "graph shard graft requires an owner payload transfer".to_string())?;
         let grafted = self.mutations.graft_scope_with_payload(
             GraftSource::new(source.mutations(), source.kernel(), source_handle.as_ref())
@@ -1989,7 +1988,7 @@ mod tests {
     /// and therefore cannot delete the catalog and cancel the reservation while
     /// the importer is still able to rewrite it.
     #[cfg(feature = "server")]
-    use crate::test_rendezvous::meet;
+    use crate::test_rendezvous::{join_bounded, meet};
 
     #[test]
     fn reserved_import_and_loser_cleanup_are_one_graph_protocol() {
@@ -2100,14 +2099,14 @@ mod tests {
             // Unblock both workers before failing, so the regression never
             // leaves redb files or test threads live after the assertion.
             meet(&stage_barrier, "import staged-payload rendezvous");
-            let _ = import.join();
-            let _ = cleanup.join();
+            let _ = join_bounded(import, "the paused graft import");
+            let _ = join_bounded(cleanup, "the competing graft cleanup");
             panic!("loser cleanup crossed catalog deletion while import held the graph protocol");
         }
 
         meet(&stage_barrier, "import staged-payload rendezvous");
-        assert!(import.join().unwrap().is_ok());
-        let cleanup_result = cleanup.join().unwrap();
+        assert!(join_bounded(import, "the paused graft import").is_ok());
+        let cleanup_result = join_bounded(cleanup, "the competing graft cleanup");
         assert!(cleanup_result.is_err());
 
         assert!(!loser.graft_destination_reserved("graph-protocol").unwrap());

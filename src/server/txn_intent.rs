@@ -390,6 +390,7 @@ pub(crate) fn list_intents(authority: &CarrierAuthority, persist_dir: &Path) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_rendezvous::join_bounded;
 
     fn authority() -> CarrierAuthority {
         CarrierAuthority::from_verified(
@@ -452,11 +453,10 @@ mod tests {
             staged_tx
                 .send((tmp_path.to_path_buf(), path.to_path_buf()))
                 .expect("report paused publication");
-            resume_rx
-                .lock()
-                .expect("pause lock")
-                .recv()
-                .expect("resume publication");
+            crate::test_rendezvous::recv_within(
+                &resume_rx.lock().expect("pause lock"),
+                "the test resuming the paused intent publication",
+            );
         });
         set_pre_install_hook(Some(pause_hook));
         let writer_authority = authority.clone();
@@ -484,10 +484,7 @@ mod tests {
             .same_replay_recipe(&original)
             .expect("compare staged recipe"));
         resume_tx.send(()).expect("resume real publication");
-        writer
-            .join()
-            .expect("join paused writer")
-            .expect("publish complete intent");
+        join_bounded(writer, "the paused intent writer").expect("publish complete intent");
         set_pre_install_hook(None);
 
         let published_bytes = std::fs::read(&path).expect("read published intent");
@@ -552,7 +549,7 @@ mod tests {
             crashed_temp.exists(),
             "crashed temp must remain for diagnosis"
         );
-        let crashed_result = crashed_writer.join().expect("join crashed writer");
+        let crashed_result = join_bounded(crashed_writer, "the crashed intent writer");
         assert!(
             crashed_result.is_err(),
             "test hook must interrupt publication"

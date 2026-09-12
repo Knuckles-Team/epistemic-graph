@@ -1103,6 +1103,7 @@ pub async fn serve_tcp(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_rendezvous::{join_bounded, meet};
 
     #[test]
     fn conn_guard_refcounts() {
@@ -1305,7 +1306,10 @@ mod tests {
                     }));
                     tokio::task::yield_now().await;
                     runtime_progress.fetch_add(1, Ordering::SeqCst);
-                    runtime_rendezvous.wait();
+                    meet(
+                        &runtime_rendezvous,
+                        "TLS-preparation runtime at the rendezvous",
+                    );
                     preparation.await.expect("TLS preparation task")
                 })
         });
@@ -1328,16 +1332,19 @@ mod tests {
             }
         });
 
-        rendezvous.wait();
+        meet(
+            &rendezvous,
+            "the test joining the TLS-preparation rendezvous",
+        );
         let _ = watchdog_cancel.send(());
         if !watchdog_released.load(Ordering::SeqCst) {
             std::fs::write(&cert_path, b"invalid certificate").expect("complete certificate read");
         }
-        let error = match runtime.join().expect("current-thread runtime") {
+        let error = match join_bounded(runtime, "the current-thread TLS runtime") {
             Ok(_) => panic!("invalid certificate must fail closed"),
             Err(error) => error,
         };
-        watchdog.join().expect("watchdog");
+        join_bounded(watchdog, "the TLS-read watchdog thread");
 
         assert_eq!(progress.load(Ordering::SeqCst), 1);
         assert!(

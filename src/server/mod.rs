@@ -46,6 +46,14 @@ where
 
 /// Join the engine driver without reflecting a panic payload into logs or errors.
 pub fn join_engine_driver<T>(driver: std::thread::JoinHandle<T>) -> std::io::Result<T> {
+    // `JoinHandle::join` is a `disallowed_methods` entry because an unbounded
+    // wait turns a fault elsewhere into a hang here. This is the one join where
+    // that reasoning does not apply: the engine runtime driver runs for the
+    // whole life of the server, so this wait IS the process's lifetime rather
+    // than a wait for a concurrent party to arrive. Any deadline here would
+    // mean "stop serving after N seconds", and there is no bounded replacement
+    // for "run until the server is asked to stop".
+    #[allow(clippy::disallowed_methods)]
     driver
         .join()
         .map_err(|_| std::io::Error::other("engine runtime driver terminated unexpectedly"))

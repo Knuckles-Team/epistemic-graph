@@ -95,14 +95,14 @@ pub(super) async fn try_handle_edge_reads(
             source_id,
             target_id,
         } => {
-            let g = &*core;
+            let g = core;
             Response::ok(
                 req_id,
                 ResultPayload::Bool(g.has_edge(&source_id, &target_id)),
             )
         }
         Method::GetEdges => {
-            let g = &*core;
+            let g = core;
             // Intelligent overload backstop (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation), the edge-count
             // sibling of the `GetNodes` guard just above `try_handle`'s match:
             // check the cheap O(1) edge count BEFORE building the Vec, and
@@ -115,7 +115,7 @@ pub(super) async fn try_handle_edge_reads(
             Response::ok(req_id, ResultPayload::EdgeList(g.get_edges()))
         }
         Method::GetEdgesPage { after, limit } => {
-            let g = &*core;
+            let g = core;
             let after_ref = after
                 .as_ref()
                 .map(|(s, t, ord)| (s.as_str(), t.as_str(), *ord));
@@ -126,7 +126,7 @@ pub(super) async fn try_handle_edge_reads(
             source_id,
             target_id,
         } => {
-            let g = &*core;
+            let g = core;
             let props = g.get_edge_properties(&source_id, &target_id);
             let val: Vec<serde_json::Value> = props
                 .into_iter()
@@ -157,7 +157,7 @@ pub(super) async fn try_handle_graph_counts(
                  through try_handle_gateway before it ever reaches this terminal handler"
         ),
         Method::EdgeCount => {
-            let g = &*core;
+            let g = core;
             Response::ok(req_id, ResultPayload::Count(g.edge_count() as u64))
         }
         // TopologicalSort / FindCycle / GetShortestPath / components / blast

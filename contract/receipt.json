@@ -142,7 +142,7 @@
     },
     "CONSENSUS_TXN_SCHEMA_VERSION": {
       "sites": [
-        "src/server/handlers/txn.rs:2455"
+        "src/server/handlers/txn.rs:2461"
       ],
       "value": "1"
     },
@@ -220,7 +220,7 @@
     },
     "NODE_INFO_SCOPE_INCARNATION": {
       "sites": [
-        "src/server/persistence/node_info_store.rs:45"
+        "src/server/persistence/node_info_store.rs:46"
       ],
       "value": "\"node-info:v1\""
     },
@@ -280,7 +280,7 @@
     },
     "RAW_GRAPH_ROWS_SCHEMA_VERSION": {
       "sites": [
-        "src/server/persistence/online_reshard.rs:196"
+        "src/server/persistence/online_reshard.rs:197"
       ],
       "value": "2"
     },
@@ -292,7 +292,7 @@
     },
     "REPLAY_SCOPE_INCARNATION": {
       "sites": [
-        "src/server/request_replay.rs:75"
+        "src/server/request_replay.rs:77"
       ],
       "value": "\"request-replay:v1\""
     },

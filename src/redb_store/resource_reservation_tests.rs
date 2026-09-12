@@ -8,6 +8,7 @@ use super::*;
 use crate::mutation_batch::{IncarnationId, MutationScopeIdentity, ScopeTenantId};
 use crate::redb_store::resource::*;
 use crate::redb_store::shard::{Shard, ShardWrite};
+use crate::test_rendezvous::{join_bounded, meet};
 use eg_storage::{GraphShardOwner, ScopedRead};
 
 fn host() -> DurableResourceHost {
@@ -485,7 +486,7 @@ fn resource_batch(
             &identity,
             &format!("principal:sha256:{}", "b".repeat(64)),
             77,
-            &idempotency_key.to_string(),
+            idempotency_key,
         ),
         // Graph scope, not native: `commit_mutation_batch_inner` (via
         // `mutation_batch_graph_name`) fails closed on any batch that is not
@@ -960,13 +961,16 @@ fn mutation_batch_same_attempt_race_has_one_durable_winner_and_replay() {
         let shard = shard.clone();
         let barrier = barrier.clone();
         handles.push(std::thread::spawn(move || {
-            barrier.wait();
+            meet(
+                &barrier,
+                "resource-reservation race: worker at the start line",
+            );
             commit_racing_resource_batch(&shard, &tenant, method, batch_id, idempotency_key)
         }));
     }
     let results: Vec<(MutationBatch, MutationBatchCommit)> = handles
         .into_iter()
-        .map(|handle| handle.join().expect("resource race worker"))
+        .map(|handle| join_bounded(handle, "a resource-reservation race worker"))
         .collect();
     assert!(results.iter().all(|(_, commit)| !commit.replayed));
     let decisions: Vec<_> = results
@@ -1235,7 +1239,10 @@ fn mutation_batch_distinct_work_items_race_for_last_slot() {
         let shard = shard.clone();
         let barrier = barrier.clone();
         std::thread::spawn(move || {
-            barrier.wait();
+            meet(
+                &barrier,
+                "resource-reservation race: worker at the start line",
+            );
             let (_, commit) =
                 commit_racing_resource_batch(&shard, &tenant, method, batch_id, idempotency_key);
             batch_resource_result(&commit).decision
@@ -1244,7 +1251,7 @@ fn mutation_batch_distinct_work_items_race_for_last_slot() {
     .collect::<Vec<_>>();
     let decisions: Vec<_> = handles
         .into_iter()
-        .map(|handle| handle.join().expect("last-slot worker"))
+        .map(|handle| join_bounded(handle, "a last-slot race worker"))
         .collect();
     assert_eq!(
         decisions
@@ -1491,7 +1498,10 @@ fn mutation_batch_cross_host_repository_and_branch_exclusivity_is_atomic() {
         let shard = shard.clone();
         let barrier = barrier.clone();
         std::thread::spawn(move || {
-            barrier.wait();
+            meet(
+                &barrier,
+                "resource-reservation race: worker at the start line",
+            );
             let (_, commit) =
                 commit_racing_resource_batch(&shard, &tenant, method, batch_id, idempotency_key);
             batch_resource_result(&commit).decision
@@ -1500,7 +1510,7 @@ fn mutation_batch_cross_host_repository_and_branch_exclusivity_is_atomic() {
     .collect::<Vec<_>>();
     let decisions: Vec<_> = handles
         .into_iter()
-        .map(|handle| handle.join().expect("exclusive race worker"))
+        .map(|handle| join_bounded(handle, "an exclusive-reservation race worker"))
         .collect();
     assert_eq!(
         decisions
@@ -2804,7 +2814,7 @@ fn native_retry_comparison_normalizes_only_authoritative_time() {
             &identity,
             &format!("principal:sha256:{}", "a".repeat(64)),
             1,
-            &"idem-1".to_string(),
+            "idem-1",
         ),
         // This batch is never committed through `commit_mutation_batch_inner`
         // (there is no `Shard` anywhere in this test) -- it only feeds

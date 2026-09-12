@@ -304,6 +304,14 @@ fn run_spill_worker(
 
     let mut path = None;
     let mut writer: Option<arrow::ipc::writer::FileWriter<std::fs::File>> = None;
+    // `Receiver::recv` is a `disallowed_methods` entry aimed at a caller waiting
+    // for a reply that may never come. This is the opposite shape: it is this
+    // worker's IDLE state, and "no command for a while" is the normal, healthy
+    // case rather than a fault. The loop's termination condition is the sender
+    // dropping, which `recv` reports promptly as `Err`; swapping in
+    // `recv_timeout` inside `while let Ok(..)` would instead make the worker
+    // exit the first time the query paused, silently losing the spill writer.
+    #[allow(clippy::disallowed_methods)]
     while let Ok(command) = receiver.recv() {
         match command {
             SpillCommand::Append { batches, completed } => {

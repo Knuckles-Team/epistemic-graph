@@ -40,6 +40,7 @@ use crate::index::{
     ChangeSet, IndexColumns, IndexDescriptor, IndexError, IndexKind, IndexManifest, Predicate,
     SecondaryIndex, SecondaryIndexFactory,
 };
+use crate::lock_recovery::LockRecovery;
 
 /// Decode a captured `NodeChange.properties_msgpack` blob into a JSON value map. The
 /// coalescer captures the FULL property blob for an added node, and the CAS `updates`
@@ -95,10 +96,7 @@ impl GraphTextIndex {
     /// BM25 top-`k` search over the graph's node text — the read surface a hybrid
     /// planner (lexical `Rank`) consumes. Reflects the last committed batch.
     pub fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit> {
-        self.index
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .search(query, k)
+        self.index.lock_recovering("text index").search(query, k)
     }
 }
 
@@ -127,10 +125,10 @@ impl SecondaryIndex for GraphTextIndex {
         true
     }
     fn manifest(&self) -> IndexManifest {
-        *self.manifest.lock().unwrap_or_else(|e| e.into_inner())
+        *self.manifest.lock_recovering("text index manifest")
     }
     fn publish_manifest(&self, manifest: IndexManifest) {
-        *self.manifest.lock().unwrap_or_else(|e| e.into_inner()) = manifest;
+        *self.manifest.lock_recovering("text index manifest") = manifest;
     }
     fn maintains_manifest(&self) -> bool {
         true
@@ -141,7 +139,7 @@ impl SecondaryIndex for GraphTextIndex {
     /// swallowed (the index self-heals on the next commit / `full_rebuild`), so the
     /// in-lock `commit_batch` never falls back to the core-reading `full_rebuild`.
     fn apply_delta(&self, _core: &GraphCore, change: &ChangeSet) -> Result<(), IndexError> {
-        let mut ix = self.index.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ix = self.index.lock_recovering("text index");
         for id in &change.removed_nodes {
             ix.delete(id);
         }
@@ -177,7 +175,7 @@ impl SecondaryIndex for GraphTextIndex {
     /// topology lock is held on the kill-switch / maintenance path). Drops the whole
     /// index first so it reflects exactly the live set.
     fn full_rebuild(&self, core: &GraphCore) -> Result<(), IndexError> {
-        let mut ix = self.index.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ix = self.index.lock_recovering("text index");
         ix.clear()
             .map_err(|e| IndexError::Failed(format!("text rebuild reset: {e}")))?;
         for id in core.node_ids() {
@@ -362,10 +360,10 @@ impl SecondaryIndex for GraphTemporalIndex {
         true
     }
     fn manifest(&self) -> IndexManifest {
-        *self.manifest.lock().unwrap_or_else(|e| e.into_inner())
+        *self.manifest.lock_recovering("temporal index manifest")
     }
     fn publish_manifest(&self, manifest: IndexManifest) {
-        *self.manifest.lock().unwrap_or_else(|e| e.into_inner()) = manifest;
+        *self.manifest.lock_recovering("temporal index manifest") = manifest;
     }
     fn maintains_manifest(&self) -> bool {
         true
@@ -471,10 +469,10 @@ impl SecondaryIndex for DerivedOwlIndex {
         false
     }
     fn manifest(&self) -> IndexManifest {
-        *self.manifest.lock().unwrap_or_else(|e| e.into_inner())
+        *self.manifest.lock_recovering("derived-OWL index manifest")
     }
     fn publish_manifest(&self, manifest: IndexManifest) {
-        *self.manifest.lock().unwrap_or_else(|e| e.into_inner()) = manifest;
+        *self.manifest.lock_recovering("derived-OWL index manifest") = manifest;
     }
     fn maintains_manifest(&self) -> bool {
         true
@@ -634,8 +632,7 @@ impl GraphSpatialIndex {
     /// committed batch.
     pub fn query_bbox(&self, layer: &str, bbox: [f64; 4]) -> Vec<String> {
         self.state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .lock_recovering("spatial index")
             .query(layer, bbox)
     }
 
@@ -643,7 +640,7 @@ impl GraphSpatialIndex {
     /// was registered. Planner pushdown is legal only in this state; otherwise
     /// the served path keeps its snapshot-derived fallback.
     pub fn is_complete(&self, source_snapshot_version: u64, nodes: u64, edges: u64) -> bool {
-        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let state = self.state.lock_recovering("spatial index");
         state
             .manifest
             .covers_source(source_snapshot_version, nodes, edges)
@@ -676,14 +673,12 @@ impl SecondaryIndex for GraphSpatialIndex {
     }
     fn manifest(&self) -> IndexManifest {
         self.state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .lock_recovering("spatial index manifest")
             .manifest
     }
     fn publish_manifest(&self, manifest: IndexManifest) {
         self.state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .lock_recovering("spatial index manifest")
             .manifest = manifest;
     }
     fn maintains_manifest(&self) -> bool {
@@ -700,7 +695,7 @@ impl SecondaryIndex for GraphSpatialIndex {
     /// is a no-op, leaving the prior entry (if any) untouched — mirroring the text
     /// index's "no text field touched" no-op.
     fn apply_delta(&self, _core: &GraphCore, change: &ChangeSet) -> Result<(), IndexError> {
-        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let mut st = self.state.lock_recovering("spatial index");
         for id in &change.removed_nodes {
             st.remove(id);
         }
@@ -735,8 +730,7 @@ impl SecondaryIndex for GraphSpatialIndex {
         for _ in 0..MAX_STABLE_REBUILD_ATTEMPTS {
             let revision = self
                 .state
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
+                .lock_recovering("spatial index")
                 .maintenance_revision;
             let mut rebuilt = SpatialState::default();
             for id in core.node_ids() {
@@ -752,7 +746,7 @@ impl SecondaryIndex for GraphSpatialIndex {
                 }
             }
 
-            let mut current = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let mut current = self.state.lock_recovering("spatial index");
             if current.maintenance_revision != revision {
                 continue;
             }

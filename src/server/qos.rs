@@ -638,6 +638,7 @@ fn deadline_key(r: &QosRequest) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_rendezvous::join_bounded;
     use std::sync::atomic::{AtomicBool, AtomicU64 as StdAtomicU64};
     use std::time::Duration;
 
@@ -1061,11 +1062,12 @@ mod tests {
             })
         };
 
-        let (interactive_lat, interactive_shed) = interactive.join().unwrap();
-        let (ingest_lat, ingest_shed_out) = ingest_client.join().unwrap();
+        let (interactive_lat, interactive_shed) =
+            join_bounded(interactive, "the interactive QoS client");
+        let (ingest_lat, ingest_shed_out) = join_bounded(ingest_client, "the ingest QoS client");
         stop.store(true, Ordering::Relaxed);
-        for h in flood {
-            let _ = h.join();
+        for (i, h) in flood.into_iter().enumerate() {
+            join_bounded(h, &format!("QoS flood thread {i}"));
         }
 
         let interactive_p99 = p99(interactive_lat.clone());

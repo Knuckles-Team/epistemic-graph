@@ -134,7 +134,7 @@ async fn admit_request(
         }
     };
     let retained = if requested_is_graph {
-        RetainedTarget::Graph(
+        RetainedTarget::Graph(Box::new(
             retained_graph(
                 store.as_ref(),
                 ctx.verified_context.tenant(),
@@ -142,9 +142,9 @@ async fn admit_request(
                 requested_revision,
             )
             .map_err(AdmissionError::Message)?,
-        )
+        ))
     } else {
-        RetainedTarget::Agent(
+        RetainedTarget::Agent(Box::new(
             retained_agent(
                 store.as_ref(),
                 ctx.verified_context.tenant(),
@@ -152,7 +152,7 @@ async fn admit_request(
                 requested_revision,
             )
             .map_err(AdmissionError::Message)?,
-        )
+        ))
     };
     let bound = bind_request(request, ctx.verified_context, &retained, ctx.graph_name)
         .map_err(AdmissionError::Message)?;
@@ -249,6 +249,11 @@ async fn replay_before_library(
 }
 
 #[cfg(feature = "redb")]
+// `clustered` is read only by the `raft` clustered-dispatch branch below. In a
+// build without that feature it is genuinely unused rather than dead: it is part
+// of this handler's shared signature, and renaming it to `_clustered` would
+// break the clustered build, which reads it by name.
+#[cfg_attr(not(feature = "raft"), allow(unused_variables))]
 async fn submit_native(
     ctx: &HandleContext<'_>,
     placement_epoch: u64,
@@ -300,8 +305,19 @@ async fn submit_native(
 /// branch lives here and nowhere else.
 #[cfg(feature = "redb")]
 pub(crate) enum RetainedTarget {
-    Agent(AgentLibraryEntry),
-    Graph(eg_types::agent_graph::AgentGraphEntry),
+    /// Boxed because `AgentLibraryEntry` is ~900 bytes while the graph entry is
+    /// a fraction of that, so an unboxed enum made every `RetainedTarget` --
+    /// including every `Graph` one -- pay the agent's size. The indirection is
+    /// free of consequence here: this type is a resolution result that lives
+    /// only in process. It derives no `Serialize`, never reaches the wire, and
+    /// never crosses a durable boundary, so boxing cannot change a stored or
+    /// transmitted representation.
+    Agent(Box<AgentLibraryEntry>),
+    /// Boxed for the same reason and with the same safety argument as `Agent`
+    /// above: ~370 bytes against a boxed sibling, and no wire or durable
+    /// representation to disturb. Boxing only one arm just moves the cost to
+    /// the other, so both are indirect and the enum is now two words.
+    Graph(Box<eg_types::agent_graph::AgentGraphEntry>),
 }
 
 #[cfg(feature = "redb")]
@@ -336,7 +352,7 @@ impl RetainedTarget {
 
     pub(crate) fn as_agent(&self) -> Option<&AgentLibraryEntry> {
         match self {
-            Self::Agent(entry) => Some(entry),
+            Self::Agent(entry) => Some(entry.as_ref()),
             Self::Graph(_) => None,
         }
     }
@@ -396,6 +412,9 @@ fn retained_agent(
 }
 
 #[cfg(feature = "redb")]
+// Same as `submit_native` above: `ctx` is read only by the `raft` block, so it
+// is unused -- not dead -- in a build without it.
+#[cfg_attr(not(feature = "raft"), allow(unused_variables))]
 async fn placement_authority(
     ctx: &HandleContext<'_>,
 ) -> Result<(u64, Option<u64>, bool), Response> {
@@ -648,7 +667,7 @@ fn validate_retained_target(
         _ => {
             return Err(
                 "kg-delegate resolved a different target kind than the request named".to_string(),
-            )
+            );
         }
     }
     Ok(())
@@ -667,7 +686,7 @@ fn validate_execution_bindings(
 ) -> Result<(), String> {
     let expected_model = unprefixed_digest(
         "model_profile_digest",
-        &retained_agent.model_profile_digest(),
+        retained_agent.model_profile_digest(),
     )?;
     if request.model_digest.as_deref() != Some(expected_model.as_str()) {
         return Err(
@@ -711,7 +730,7 @@ fn delegation_metadata(
 ) -> BTreeMap<String, serde_json::Value> {
     let mut metadata = delegation_wire_metadata(request);
     let retained_agent = match retained {
-        RetainedTarget::Agent(entry) => entry,
+        RetainedTarget::Agent(entry) => entry.as_ref(),
         RetainedTarget::Graph(graph) => {
             metadata.extend(BTreeMap::from([
                 ("target_kind".to_string(), json!("agent_graph")),
@@ -1091,7 +1110,7 @@ mod tests {
             catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
             policy_digest: entry.policy_digest.clone(),
             model_digest: Some(
-                unprefixed_digest("model_profile_digest", &entry.model_profile_digest()).unwrap(),
+                unprefixed_digest("model_profile_digest", entry.model_profile_digest()).unwrap(),
             ),
             idempotency_key: "delegate-idempotency:1".into(),
             kind: "agent.execute".into(),
@@ -1119,7 +1138,7 @@ mod tests {
         let bound = bind_request(
             request("tenant:1", &entry),
             &verified(),
-            &RetainedTarget::Agent(entry.clone()),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
             "tenant:1",
         )
         .unwrap();
@@ -1163,7 +1182,7 @@ mod tests {
             let error = bind_request(
                 request,
                 &verified(),
-                &RetainedTarget::Agent(entry.clone()),
+                &RetainedTarget::Agent(Box::new(entry.clone())),
                 "tenant:1",
             )
             .unwrap_err();
@@ -1177,7 +1196,7 @@ mod tests {
         let bound = bind_request(
             request("tenant:1", &entry),
             &verified(),
-            &RetainedTarget::Agent(entry.clone()),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
             "tenant:1",
         )
         .unwrap();
@@ -1197,7 +1216,7 @@ mod tests {
         let error = bind_request(
             request,
             &caller,
-            &RetainedTarget::Agent(entry.clone()),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
             "tenant:1",
         )
         .unwrap_err();
@@ -1210,7 +1229,7 @@ mod tests {
         let error = bind_request(
             request("tenant:other", &entry),
             &verified(),
-            &RetainedTarget::Agent(entry.clone()),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
             "tenant:other",
         )
         .unwrap_err();
@@ -1225,7 +1244,7 @@ mod tests {
         let error = bind_request(
             request("tenant:1", &entry),
             &verified(),
-            &RetainedTarget::Agent(retained.clone()),
+            &RetainedTarget::Agent(Box::new(retained.clone())),
             "tenant:1",
         )
         .unwrap_err();
@@ -1240,7 +1259,7 @@ mod tests {
         let error = bind_request(
             request,
             &verified(),
-            &RetainedTarget::Agent(entry.clone()),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
             "tenant:1",
         )
         .unwrap_err();
@@ -1255,7 +1274,7 @@ mod tests {
         let error = bind_request(
             request,
             &verified(),
-            &RetainedTarget::Agent(retired.clone()),
+            &RetainedTarget::Agent(Box::new(retired.clone())),
             "tenant:1",
         )
         .unwrap_err();
@@ -1268,7 +1287,7 @@ mod tests {
         let bound = bind_request(
             request("tenant:1", &entry),
             &verified(),
-            &RetainedTarget::Agent(entry.clone()),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
             "tenant:1",
         )
         .unwrap();
@@ -1299,7 +1318,7 @@ mod tests {
         let bound = bind_request(
             request("tenant:1", &entry),
             &verified(),
-            &RetainedTarget::Agent(entry.clone()),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
             "tenant:1",
         )
         .unwrap();
@@ -1568,7 +1587,7 @@ mod tests {
         let bound = bind_request(
             graph_request(&graph),
             &graph_verified(),
-            &RetainedTarget::Graph(graph.clone()),
+            &RetainedTarget::Graph(Box::new(graph.clone())),
             "tenant-a",
         )
         .expect("a retained nested graph is admissible");
@@ -1614,7 +1633,7 @@ mod tests {
         let error = bind_request(
             request,
             &graph_verified(),
-            &RetainedTarget::Graph(graph.clone()),
+            &RetainedTarget::Graph(Box::new(graph.clone())),
             "tenant-a",
         )
         .expect_err("a self-raised ceiling must be refused");
@@ -1642,7 +1661,7 @@ mod tests {
         let error = bind_request(
             wrong_digest,
             &graph_verified(),
-            &RetainedTarget::Graph(graph.clone()),
+            &RetainedTarget::Graph(Box::new(graph.clone())),
             "tenant-a",
         )
         .expect_err("a mispinned record must be refused");
@@ -1656,7 +1675,7 @@ mod tests {
         let error = bind_request(
             wrong_capability,
             &graph_verified(),
-            &RetainedTarget::Graph(graph.clone()),
+            &RetainedTarget::Graph(Box::new(graph.clone())),
             "tenant-a",
         )
         .expect_err("a capability digest that is not the shape must be refused");
@@ -1670,7 +1689,7 @@ mod tests {
         let error = bind_request(
             graph_request(&graph),
             &graph_verified(),
-            &RetainedTarget::Agent(entry),
+            &RetainedTarget::Agent(Box::new(entry)),
             "tenant-a",
         )
         .expect_err("a target-kind mismatch must be refused");
@@ -1715,7 +1734,7 @@ mod tests {
         let bound = bind_request(
             request("tenant:1", &entry),
             &verified(),
-            &RetainedTarget::Agent(entry.clone()),
+            &RetainedTarget::Agent(Box::new(entry.clone())),
             "tenant:1",
         )
         .unwrap();

@@ -64,6 +64,10 @@ pub(crate) trait LockRecovery<'a, T> {
 
 impl<'a, T> LockRecovery<'a, MutexGuard<'a, T>> for Mutex<T> {
     fn lock_recovering(&'a self, what: &str) -> MutexGuard<'a, T> {
+        // The one sanctioned call site: `into_inner` is disallowed so that
+        // recovery is never silent, and this function IS the reporting
+        // recovery the rule points every other caller at.
+        #[allow(clippy::disallowed_methods)]
         self.lock().unwrap_or_else(|poison| {
             note_recovered(what);
             poison.into_inner()
@@ -79,6 +83,9 @@ impl<'a, T> LockRecovery<'a, MutexGuard<'a, T>> for Mutex<T> {
 
 impl<'a, T> LockRecovery<'a, RwLockReadGuard<'a, T>> for RwLock<T> {
     fn lock_recovering(&'a self, what: &str) -> RwLockReadGuard<'a, T> {
+        // See the `Mutex` impl above: this is the reporting recovery the
+        // `disallowed_methods` entry exists to route callers to.
+        #[allow(clippy::disallowed_methods)]
         self.read().unwrap_or_else(|poison| {
             note_recovered(what);
             poison.into_inner()
@@ -101,6 +108,9 @@ pub(crate) trait WriteRecovery<'a, T> {
 
 impl<'a, T> WriteRecovery<'a, T> for RwLock<T> {
     fn write_recovering(&'a self, what: &str) -> RwLockWriteGuard<'a, T> {
+        // See the `Mutex` impl above: this is the reporting recovery the
+        // `disallowed_methods` entry exists to route callers to.
+        #[allow(clippy::disallowed_methods)]
         self.write().unwrap_or_else(|poison| {
             note_recovered(what);
             poison.into_inner()
@@ -123,6 +133,13 @@ mod tests {
     fn a_recovering_lock_still_serves_after_a_holder_panics() {
         let cache = Arc::new(Mutex::new(vec![1_u8, 2, 3]));
         let poisoner = Arc::clone(&cache);
+        // `JoinHandle::join` is a `disallowed_methods` entry and
+        // `test_rendezvous::join_bounded` cannot stand in for it here: that
+        // helper re-raises the worker's panic payload, and the panic IS this
+        // fixture -- it is how the mutex gets poisoned. The wait also cannot
+        // hang: the closure panics unconditionally, with nothing between spawn
+        // and `panic!` that could block.
+        #[allow(clippy::disallowed_methods)]
         let _ = std::thread::spawn(move || {
             let _guard = poisoner.lock().unwrap();
             panic!("holder panics while holding the guard");
@@ -139,6 +156,13 @@ mod tests {
     fn an_authority_lock_refuses_after_a_holder_panics() {
         let authority = Arc::new(Mutex::new(7_u32));
         let poisoner = Arc::clone(&authority);
+        // `JoinHandle::join` is a `disallowed_methods` entry and
+        // `test_rendezvous::join_bounded` cannot stand in for it here: that
+        // helper re-raises the worker's panic payload, and the panic IS this
+        // fixture -- it is how the mutex gets poisoned. The wait also cannot
+        // hang: the closure panics unconditionally, with nothing between spawn
+        // and `panic!` that could block.
+        #[allow(clippy::disallowed_methods)]
         let _ = std::thread::spawn(move || {
             let _guard = poisoner.lock().unwrap();
             panic!("holder panics while holding the guard");

@@ -13,6 +13,8 @@
 //! answer different questions over different identities, so they are not two
 //! authorities over one decision (RF-RULING-004).
 
+use crate::lock_recovery::LockRecovery;
+
 /// Replay ledger used after a request MAC, time window, and policy claims have
 /// verified. The production adapter is durable and commits before dispatch.
 pub(crate) trait ReplayLedger: Send + Sync {
@@ -37,7 +39,7 @@ impl ReplayCache {
     /// older than `2 * window` first (anything older could never pass the
     /// timestamp-skew check anyway, so retaining it further gains nothing).
     fn check_and_record_memory(&self, nonce: &str, now: u64, window: u64) -> bool {
-        let mut seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
+        let mut seen = self.seen.lock_recovering("replay nonce cache");
         let cutoff = now.saturating_sub(window.saturating_mul(2));
         seen.retain(|_, ts| *ts >= cutoff);
         if seen.contains_key(nonce) {
@@ -142,7 +144,7 @@ impl ReplayLedger for RedbReplayLedger {
         use redb::ReadableTable;
 
         let should_prune = {
-            let mut last = self.last_prune.lock().unwrap_or_else(|e| e.into_inner());
+            let mut last = self.last_prune.lock_recovering("replay ledger prune clock");
             if now.saturating_sub(*last) >= window {
                 *last = now;
                 true

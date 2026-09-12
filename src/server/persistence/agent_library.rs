@@ -183,7 +183,7 @@ impl AgentLibraryStore {
         &self,
         request: AgentLibraryStatusRequest,
     ) -> Result<Option<AgentLibraryWriteResult>, String> {
-        validate_context(&self, &request.context)?;
+        validate_context(self, &request.context)?;
         eg_types::agent_library::validate_key(&request.context.tenant_id, &request.agent_id)?;
         let owner = self.scope_handle(&request.context.tenant_id)?;
         let batch_id = batch_id(&request.context.idempotency_key)?;
@@ -201,7 +201,7 @@ impl AgentLibraryStore {
                 return Err(
                     "CORRUPT_MUTATION_LEDGER: Agent Library status has no typed replay receipt"
                         .to_string(),
-                )
+                );
             }
             (Some(record), Some(replay_row)) => (record, replay_row),
         };
@@ -1098,10 +1098,10 @@ fn read_history(
         (None, None) => return Ok((None, entries)),
         (None, Some(_)) => return Err("agent library revisions exist without a head".to_string()),
         (Some(_), None) => {
-            return Err("agent library head points to an empty revision chain".to_string())
+            return Err("agent library head points to an empty revision chain".to_string());
         }
         (Some(head), Some(last)) if head != last.entry_revision => {
-            return Err("agent library head does not match the final revision".to_string())
+            return Err("agent library head does not match the final revision".to_string());
         }
         (Some(_), Some(_)) => {}
     }

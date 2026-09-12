@@ -66,6 +66,7 @@ use eg_modality::{Classification, OpaqueRef, PolicyEnvelope};
 use eg_program::{NativeCompiler, OptimizationRequest, ProgramModality, ProgramRevisionIdentity};
 
 use crate::isolation::AccessLevel;
+use crate::lock_recovery::{LockRecovery, WriteRecovery};
 use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::{check_graph_access, CarrierAuthority};
@@ -1366,8 +1367,7 @@ fn resolve_opaque_graph_ref(
     let index = opaque_graph_ref_index();
 
     let cached_name = index
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
+        .lock_recovering("opaque graph-ref cache")
         .get(graph_ref)
         .cloned();
     if let Some(name) = cached_name {
@@ -1392,7 +1392,7 @@ fn resolve_opaque_graph_ref(
         }
         fresh.insert(opaque, entry.name.clone());
     }
-    *index.write().unwrap_or_else(|e| e.into_inner()) = fresh;
+    *index.write_recovering("opaque graph-ref cache") = fresh;
     found
 }
 
@@ -1471,8 +1471,7 @@ mod resolve_core_ref_tests {
         // e.g. left over from a deleted graph whose name got reused for a
         // digest collision class this test forces by hand.
         opaque_graph_ref_index()
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
+            .write_recovering("opaque graph-ref cache")
             .insert(real_ref.clone(), "not-the-real-graph-name".to_string());
 
         // The live registry has no graph by that poisoned name, so the digest
@@ -1695,7 +1694,7 @@ fn submit_job_program_optimize(
             return Err(Response::err(
                 req_id,
                 "program optimization request failed bounded decoding",
-            ))
+            ));
         }
     };
     let verified_policy = match verified_program_policy(authority, policy_fingerprint, purpose) {
@@ -1708,7 +1707,7 @@ fn submit_job_program_optimize(
             return Err(Response::err(
                 req_id,
                 format!("program optimization request is invalid: {error}"),
-            ))
+            ));
         }
     };
     let optimizer = request.optimizer.as_str().to_string();
@@ -1719,7 +1718,7 @@ fn submit_job_program_optimize(
             return Err(Response::err(
                 req_id,
                 format!("program optimization encoding failed: {error}"),
-            ))
+            ));
         }
     };
     ensure_program_optimization_capability(req_id, required_capabilities)?;

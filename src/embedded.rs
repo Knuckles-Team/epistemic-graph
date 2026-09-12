@@ -857,6 +857,7 @@ mod tests;
 #[cfg(all(test, feature = "redb"))]
 mod lifecycle_failure_tests {
     use super::*;
+    use crate::test_rendezvous::{join_bounded, recv_within};
     use std::path::PathBuf;
     use std::sync::mpsc::{self, TryRecvError};
     use std::thread;
@@ -939,7 +940,10 @@ mod lifecycle_failure_tests {
             .block_next_register_failure();
         let creator_engine = engine.clone();
         let creator = thread::spawn(move || creator_engine.create_graph("g", GraphType::Global));
-        registration_entered.recv().unwrap();
+        recv_within(
+            &registration_entered,
+            "the blocked graph registration reaching its injected failure hook",
+        );
 
         let (reader_started_tx, reader_started_rx) = mpsc::sync_channel(1);
         let (reader_done_tx, reader_done_rx) = mpsc::sync_channel(1);
@@ -948,7 +952,7 @@ mod lifecycle_failure_tests {
             reader_started_tx.send(()).unwrap();
             reader_done_tx.send(has_graph(&reader_engine, "g")).unwrap();
         });
-        reader_started_rx.recv().unwrap();
+        recv_within(&reader_started_rx, "the concurrent reader thread starting");
 
         // The registration hook is blocked while create_graph_inner holds the
         // registry write guard. A reader cannot observe the uncommitted graph.
@@ -959,11 +963,14 @@ mod lifecycle_failure_tests {
         ));
 
         registration_release.send(()).unwrap();
-        let error = creator.join().unwrap().unwrap_err();
+        let error = join_bounded(creator, "the graph-creating thread").unwrap_err();
         assert!(error.contains("injected embedded graph registration failure"));
         assert!(!has_graph(&engine, "g"));
-        assert!(!reader_done_rx.recv().unwrap());
-        reader.join().unwrap();
+        assert!(!recv_within(
+            &reader_done_rx,
+            "the reader's graph-visibility answer",
+        ));
+        join_bounded(reader, "the concurrent reader thread");
 
         // The failed admission left no live projection, so the exact same
         // lifecycle request is still valid and can complete.

@@ -38,6 +38,9 @@ use eg_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
 
 pub mod read_through;
 
+/// Bounded waits on the shard-owner writer thread's command replies.
+pub(crate) mod writer_reply;
+
 // The canonical registry of every durable redb store the engine opens under a persist
 // dir, plus each store's backup scope (bundled / deliberately excluded, with a reason).
 // Consumed by `backup` so a bundle is self-describing about what a restore restores.

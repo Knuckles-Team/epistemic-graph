@@ -150,7 +150,10 @@ impl EmbeddedRedbStore {
         #[cfg(test)]
         if let Some(block) = self.register_failure_block.lock().unwrap().take() {
             let _ = block.entered.send(());
-            let _ = block.release.recv();
+            crate::test_rendezvous::recv_within(
+                &block.release,
+                "the injected registration-failure release",
+            );
             return Err("injected embedded graph registration failure".to_string());
         }
         redb_store::write_graph_meta_with_incarnation(
