@@ -18,6 +18,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use eg_core::compute::semantic_ann_codes::OperationAttribution;
 use eg_core::compute::semantic_index_service::SemanticIndexService;
 use eg_transaction::OutboxClaimBudget;
 use eg_types::semantic_index::{
@@ -30,6 +31,7 @@ use crate::protocol::{Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::semantic_index::{
     open_semantic_service, semantic_cursor_secret, SemanticIndexServerAdapter,
+    SqlSourceStageCompletion,
 };
 use crate::server::state::ServerState;
 
@@ -180,9 +182,11 @@ pub(crate) async fn handle_semantic_index(
                         &replacement,
                         &manifest,
                         now_ms,
-                        &actor,
-                        &idempotency_key,
-                        nonce,
+                        OperationAttribution {
+                            actor: &actor,
+                            idempotency_key: &idempotency_key,
+                            nonce,
+                        },
                     )
                 })
                 .await,
@@ -479,9 +483,7 @@ pub(crate) async fn handle_semantic_index(
             let claim = match adapter
                 .claim_sql_source(
                     req_id,
-                    persist_dir.clone(),
-                    authority.clone(),
-                    semantic_cursor_secret(),
+                    read_port(&persist_dir, &authority),
                     binding.clone(),
                     transition.intent.clone(),
                     page_cursor.clone(),
@@ -494,14 +496,14 @@ pub(crate) async fn handle_semantic_index(
             match adapter
                 .complete_sql_source_stage(
                     req_id,
-                    persist_dir,
-                    authority,
-                    semantic_cursor_secret(),
+                    read_port(&persist_dir, &authority),
                     binding,
-                    *lease,
-                    *transition,
-                    claim,
-                    successor.map(|successor| *successor),
+                    SqlSourceStageCompletion {
+                        lease: *lease,
+                        transition: *transition,
+                        claim,
+                        successor: successor.map(|successor| *successor),
+                    },
                     now_ms,
                 )
                 .await

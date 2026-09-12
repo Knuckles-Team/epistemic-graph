@@ -768,9 +768,11 @@ async fn dispatch_op_tsdb_ops(
         req_id,
         &carrier,
         verified_context.attempt_nonce(),
-        graph_name,
-        ts_placement_epoch,
-        ts_fencing_token,
+        handlers::timeseries::SeriesPlacement {
+            graph: graph_name,
+            placement_epoch: ts_placement_epoch,
+            fencing_token: ts_fencing_token,
+        },
         method,
     )
     .await

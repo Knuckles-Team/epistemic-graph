@@ -869,6 +869,34 @@ pub struct MutationCtx<'a> {
         Option<&'a Arc<crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry>>,
 }
 
+/// Which graph-lifecycle request this is — the `CreateGraph`/`DeleteGraph`
+/// sibling of [`MutationCtx`]'s retry identity.
+///
+/// `action` + `graph` + `principal` + `idempotency_key` are exactly what
+/// `mutation_batch::lifecycle_batch_id` hashes into the durable batch id, and
+/// `request_id` + `attempt_nonce` are the per-attempt halves the kernel's replay
+/// ledger consumes. Neither half addresses a lifecycle commit on its own: the
+/// durable commit and the replay probe that asks whether that same commit
+/// already landed must be told about the identical request, so they are handed
+/// one statement of it rather than six positional arguments that can drift
+/// apart between the two calls.
+///
+/// It lives beside [`MutationCtx`] rather than in `mutation_batch::commit`
+/// because the lifecycle dispatcher constructs it and the commit lane consumes
+/// it, and `mutation_batch`'s submodules are private to that namespace.
+pub(crate) struct LifecycleAttempt<'a> {
+    /// The lifecycle verb (`"create"` / `"delete"`) the batch id is keyed on.
+    pub(crate) action: &'a str,
+    /// The durable graph name, NOT the sanitized on-disk file name.
+    pub(crate) graph: &'a str,
+    pub(crate) request_id: u64,
+    /// Authenticated per-attempt transport nonce; see [`MutationCtx`].
+    pub(crate) attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub(crate) principal: Option<&'a str>,
+    /// Stable across attempts, unlike `request_id`/`attempt_nonce`.
+    pub(crate) idempotency_key: &'a str,
+}
+
 /// Publish the resident freshness watermark only after an authoritative gateway
 /// success. The manifest owns monotonic/out-of-order and lifecycle-phase fencing;
 /// this gateway owns the exact durable-commit boundary that makes the version
@@ -1944,6 +1972,25 @@ where
     .await
 }
 
+/// Where one attempt's durable batch lands.
+///
+/// [`commit_mutation_body`] resolves all three once, before it knows which
+/// commit shape the method takes: the backend that owns the write, the
+/// sanitized graph file name the batch is keyed under, and the opaque batch id
+/// that makes a retry idempotent. Every phase of the durable path — the replay
+/// probe, the staged commit, the prepublish fast path — has to address the
+/// SAME three, and a phase that addressed a different file name or batch id
+/// than the probe that cleared it would silently commit a second batch, so
+/// they travel as one address rather than three parallel arguments.
+struct DurableBatchTarget<'a> {
+    persistence: &'a Arc<dyn PersistenceBackend>,
+    /// `persist::sanitize`d graph name — the durable key, not `ctx.graph_name`.
+    fname: &'a str,
+    /// Opaque per-attempt-identity batch id from
+    /// `mutation_batch::opaque_idempotency_key_for_context`.
+    batch_id: &'a str,
+}
+
 /// The replay-repair check at the top of [`commit_mutation_body`]'s durable path:
 /// a retry after `fsync` but before RAM publication repairs the serving projection
 /// from authority and returns the exact stored result — no handler is re-executed
@@ -1956,11 +2003,14 @@ async fn commit_staged_replay_probe(
     plan: &MutationPlan,
     methods: Vec<Method>,
     default_surface: crate::mutation_batch::MutationSurface,
-    persistence: &Arc<dyn PersistenceBackend>,
-    fname: &str,
-    batch_id: &str,
+    target: DurableBatchTarget<'_>,
     prep: &CommitPrep,
 ) -> Option<Response> {
+    let DurableBatchTarget {
+        persistence,
+        fname,
+        batch_id,
+    } = target;
     match persistence.read_mutation_batch(fname, batch_id).await {
         Ok(Some(record)) => {
             let mut descriptor = match record.batch.authoritative_state.clone() {
@@ -2352,9 +2402,11 @@ where
         plan,
         vec![durable_receipt_method(method)],
         crate::mutation_batch::MutationSurface::Graph,
-        persistence,
-        fname,
-        batch_id,
+        DurableBatchTarget {
+            persistence,
+            fname,
+            batch_id,
+        },
         &prep,
     )
     .await
@@ -2980,9 +3032,11 @@ async fn commit_conditional_replay_check(
         plan,
         vec![method.clone()],
         default_surface,
-        persistence,
-        fname,
-        batch_id,
+        DurableBatchTarget {
+            persistence,
+            fname,
+            batch_id,
+        },
         prep,
     )
     .await

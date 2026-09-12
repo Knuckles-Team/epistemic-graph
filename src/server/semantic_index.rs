@@ -347,6 +347,23 @@ pub(crate) struct AuthorizedSqlSourceReadPort {
     cursor_auth_secret: [u8; 32],
 }
 
+/// The leased completion of one S1 SQL-source stage.
+///
+/// These four arrive together from ONE
+/// `SemanticIndexOp::CompleteSqlSourceStage` wire op and mean nothing apart:
+/// `lease` is what entitles this worker to complete at all, `transition` is
+/// what it claims happened, `claim` is the authorized read that must still hold
+/// for that claim to be true, and `successor` is the next stage intent admitted
+/// in the same mutation. Passed flattened, a caller could pair a lease for one
+/// stage with a transition for another and the arity alone would not say so.
+#[cfg(feature = "query")]
+pub(crate) struct SqlSourceStageCompletion {
+    pub(crate) lease: MutationOutboxLease,
+    pub(crate) transition: SemanticStageTransition,
+    pub(crate) claim: AuthorizedSqlSourceClaim,
+    pub(crate) successor: Option<SemanticStageIntent>,
+}
+
 #[cfg(feature = "query")]
 impl AuthorizedSqlSourceReadPort {
     pub(crate) fn new(
@@ -359,6 +376,13 @@ impl AuthorizedSqlSourceReadPort {
             authority,
             cursor_auth_secret,
         }
+    }
+
+    /// The carrier whose entitlement this port was minted for. The S1
+    /// completion path needs it for the durable replay probe, which runs
+    /// BEFORE any authorized read and so cannot go through the port itself.
+    pub(crate) fn authority(&self) -> &CarrierAuthority {
+        &self.authority
     }
 
     fn read_snapshot(
@@ -710,17 +734,14 @@ impl SemanticIndexServerAdapter {
     pub(crate) async fn read_sql_source_page(
         &self,
         req_id: u64,
-        persist_dir: PathBuf,
-        authority: CarrierAuthority,
-        cursor_auth_secret: [u8; 32],
+        port: AuthorizedSqlSourceReadPort,
         binding: SemanticBinding,
         wakeup: SemanticSourceDirtyIntent,
         record: MutationOutboxRecord,
         cursor: Option<Vec<u8>>,
     ) -> Result<SemanticSqlSourceReadPage, Response> {
         let result = compute_off_lock(req_id, move || {
-            AuthorizedSqlSourceReadPort::new(persist_dir, authority, cursor_auth_secret)
-                .read_current_sql_source_page(&binding, &wakeup, &record, cursor.as_deref())
+            port.read_current_sql_source_page(&binding, &wakeup, &record, cursor.as_deref())
         })
         .await?;
         // The RESPONSE stays opaque on purpose -- the cause names ACL and
@@ -740,9 +761,7 @@ impl SemanticIndexServerAdapter {
     pub(crate) async fn claim_sql_source(
         &self,
         req_id: u64,
-        persist_dir: PathBuf,
-        authority: CarrierAuthority,
-        cursor_auth_secret: [u8; 32],
+        port: AuthorizedSqlSourceReadPort,
         binding: SemanticBinding,
         intent: SemanticStageIntent,
         page_cursor: Option<Vec<u8>>,
@@ -753,9 +772,7 @@ impl SemanticIndexServerAdapter {
                 .scope
                 .source_entity_id()
                 .ok_or(SemanticIndexError::SourceManifestMismatch)?;
-            let snapshot =
-                AuthorizedSqlSourceReadPort::new(persist_dir, authority, cursor_auth_secret)
-                    .read_snapshot_with_decision(&binding, read_cursor.as_deref())?;
+            let snapshot = port.read_snapshot_with_decision(&binding, read_cursor.as_deref())?;
             let source = snapshot
                 .page
                 .sources
@@ -784,9 +801,7 @@ impl SemanticIndexServerAdapter {
     pub(crate) async fn claim_sql_tombstone(
         &self,
         req_id: u64,
-        persist_dir: PathBuf,
-        authority: CarrierAuthority,
-        cursor_auth_secret: [u8; 32],
+        port: AuthorizedSqlSourceReadPort,
         binding: SemanticBinding,
         intent: SemanticStageIntent,
         page_cursor: Option<Vec<u8>>,
@@ -818,15 +833,14 @@ impl SemanticIndexServerAdapter {
                         "no retained prior SQL source manifest for this source entity".to_string(),
                     )
                 })?;
-            let snapshot =
-                AuthorizedSqlSourceReadPort::new(persist_dir, authority, cursor_auth_secret)
-                    .read_snapshot_with_decision(&binding, page_cursor.as_deref())
-                    .map_err(|error| {
-                        (
-                            error.clone(),
-                            format!("authorized complete-snapshot read refused: {error:?}"),
-                        )
-                    })?;
+            let snapshot = port
+                .read_snapshot_with_decision(&binding, page_cursor.as_deref())
+                .map_err(|error| {
+                    (
+                        error.clone(),
+                        format!("authorized complete-snapshot read refused: {error:?}"),
+                    )
+                })?;
             tombstone_claim_from_complete_page(&binding, &intent, &prior, page_cursor, snapshot)
         })
         .await?;
@@ -847,20 +861,21 @@ impl SemanticIndexServerAdapter {
     pub(crate) async fn complete_sql_source_stage(
         &self,
         req_id: u64,
-        persist_dir: PathBuf,
-        authority: CarrierAuthority,
-        cursor_auth_secret: [u8; 32],
+        port: AuthorizedSqlSourceReadPort,
         binding: SemanticBinding,
-        lease: MutationOutboxLease,
-        transition: SemanticStageTransition,
-        claim: AuthorizedSqlSourceClaim,
-        successor: Option<SemanticStageIntent>,
+        completion: SqlSourceStageCompletion,
         now_ms: u64,
     ) -> Result<eg_core::compute::semantic_ann_codes::SemanticMutationReceipt, Response> {
+        let SqlSourceStageCompletion {
+            lease,
+            transition,
+            claim,
+            successor,
+        } = completion;
         let replay = self
             .replay_sql_source_stage(
                 req_id,
-                authority.clone(),
+                port.authority().clone(),
                 lease.clone(),
                 transition.intent.clone(),
                 now_ms,
@@ -881,9 +896,7 @@ impl SemanticIndexServerAdapter {
         let source_transition = transition.clone();
         let source_service = Arc::clone(&self.service);
         let result = compute_off_lock(req_id, move || {
-            let snapshot =
-                AuthorizedSqlSourceReadPort::new(persist_dir, authority, cursor_auth_secret)
-                    .read_snapshot_with_decision(&binding, page_cursor.as_deref())?;
+            let snapshot = port.read_snapshot_with_decision(&binding, page_cursor.as_deref())?;
             let current = match &claimed_source.value {
                 SemanticSqlSourceValue::Present { .. } => snapshot
                     .page
@@ -1434,9 +1447,11 @@ mod sql_source_read_tests {
         let claim = adapter
             .claim_sql_source(
                 52,
-                persist_dir.clone(),
-                worker.clone(),
-                CURSOR_SECRET,
+                AuthorizedSqlSourceReadPort::new(
+                    persist_dir.clone(),
+                    worker.clone(),
+                    CURSOR_SECRET,
+                ),
                 binding.clone(),
                 intent.clone(),
                 None,
@@ -1464,14 +1479,18 @@ mod sql_source_read_tests {
         let committed = adapter
             .complete_sql_source_stage(
                 53,
-                persist_dir.clone(),
-                worker.clone(),
-                CURSOR_SECRET,
+                AuthorizedSqlSourceReadPort::new(
+                    persist_dir.clone(),
+                    worker.clone(),
+                    CURSOR_SECRET,
+                ),
                 binding.clone(),
-                lease.clone(),
-                transition.clone(),
-                claim.clone(),
-                None,
+                SqlSourceStageCompletion {
+                    lease: lease.clone(),
+                    transition: transition.clone(),
+                    claim: claim.clone(),
+                    successor: None,
+                },
                 6,
             )
             .await
@@ -1627,9 +1646,11 @@ mod sql_source_read_tests {
         let tombstone_claim = adapter
             .claim_sql_tombstone(
                 56,
-                persist_dir.clone(),
-                worker.clone(),
-                CURSOR_SECRET,
+                AuthorizedSqlSourceReadPort::new(
+                    persist_dir.clone(),
+                    worker.clone(),
+                    CURSOR_SECRET,
+                ),
                 binding.clone(),
                 tombstone_intent.clone(),
                 None,
@@ -1657,14 +1678,18 @@ mod sql_source_read_tests {
         let tombstone_committed = adapter
             .complete_sql_source_stage(
                 57,
-                persist_dir.clone(),
-                worker.clone(),
-                CURSOR_SECRET,
+                AuthorizedSqlSourceReadPort::new(
+                    persist_dir.clone(),
+                    worker.clone(),
+                    CURSOR_SECRET,
+                ),
                 binding.clone(),
-                tombstone_lease.clone(),
-                tombstone_transition.clone(),
-                tombstone_claim.clone(),
-                None,
+                SqlSourceStageCompletion {
+                    lease: tombstone_lease.clone(),
+                    transition: tombstone_transition.clone(),
+                    claim: tombstone_claim.clone(),
+                    successor: None,
+                },
                 10,
             )
             .await

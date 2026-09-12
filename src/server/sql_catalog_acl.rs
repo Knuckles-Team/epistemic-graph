@@ -1315,6 +1315,22 @@ fn semantic_record_identity_digest(
     Ok(digest.finalize().into())
 }
 
+/// Everything a semantic-cursor MAC is keyed and bound to, apart from the
+/// domain label: the server authentication secret, the carrier whose scopes and
+/// privileges the cursor is valid for, the canonical column the page came from,
+/// and the ACL snapshot the page was sampled under.  [`semantic_cursor_base_mac`]
+/// authenticates exactly these four for every cursor, tag and receipt in this
+/// seam -- and `semantic_text_snapshot` already resolves them once and hands
+/// the same four to each of those helpers -- so they are one binding, not four
+/// arguments.  Rebinding any single one must change every derived MAC, which is
+/// only guaranteed while they travel together.
+struct SemanticCursorBinding<'a> {
+    cursor_auth_secret: &'a [u8; 32],
+    authority: &'a CarrierAuthority,
+    selector: &'a eg_types::semantic_index::SqlColumnRef,
+    acl: &'a SqlSourceAclSnapshot,
+}
+
 fn semantic_cursor_base_mac(
     cursor_auth_secret: &[u8; 32],
     domain: &[u8],
@@ -1414,16 +1430,19 @@ fn semantic_cursor_tag(
 }
 
 fn semantic_complete_snapshot_receipt_digest(
-    cursor_auth_secret: &[u8; 32],
-    authority: &CarrierAuthority,
-    selector: &eg_types::semantic_index::SqlColumnRef,
-    acl: &SqlSourceAclSnapshot,
+    binding: SemanticCursorBinding<'_>,
     page: &eg_query::tables::store::TableRowSnapshot,
     input_cursor: Option<&SemanticTextCursor>,
     records: &[SemanticTextRecord],
     visible_null_count: usize,
     skipped_count: usize,
 ) -> Result<[u8; 32], String> {
+    let SemanticCursorBinding {
+        cursor_auth_secret,
+        authority,
+        selector,
+        acl,
+    } = binding;
     let mut mac = semantic_cursor_base_mac(
         cursor_auth_secret,
         b"epistemic-graph/sql-semantic-complete-snapshot-v1",
@@ -1726,10 +1745,12 @@ impl AuthorizedTable {
             .is_none()
             .then(|| {
                 semantic_complete_snapshot_receipt_digest(
-                    cursor_auth_secret,
-                    &self.authority,
-                    selector,
-                    &acl,
+                    SemanticCursorBinding {
+                        cursor_auth_secret,
+                        authority: &self.authority,
+                        selector,
+                        acl: &acl,
+                    },
                     &page,
                     cursor,
                     &records,

@@ -378,9 +378,11 @@ impl AgentLibraryStore {
             replay,
             &operation,
             &replay_context,
-            AgentLibraryMutationKind::Publish,
-            &request.entry.agent_id,
-            Some(&request.entry),
+            ExpectedAgentLibraryMutation {
+                kind: AgentLibraryMutationKind::Publish,
+                agent_id: request.entry.agent_id.as_str(),
+                draft: Some(&request.entry),
+            },
         ) {
             Ok(replayed) => replayed,
             Err(error) => {
@@ -466,11 +468,15 @@ impl AgentLibraryStore {
             txn,
             &owner,
             &write_context,
-            expected_revision,
-            AgentLibraryMutationKind::Publish,
-            entry,
-            &operation,
-            &nonce,
+            AgentLibraryRevisionCommit {
+                expected_revision,
+                kind: AgentLibraryMutationKind::Publish,
+                entry,
+            },
+            ReplayIdentity {
+                operation: &operation,
+                nonce: &nonce,
+            },
         )
     }
 
@@ -522,9 +528,11 @@ impl AgentLibraryStore {
             replay,
             &operation,
             &replay_context,
-            AgentLibraryMutationKind::Retire,
-            &request.agent_id,
-            None,
+            ExpectedAgentLibraryMutation {
+                kind: AgentLibraryMutationKind::Retire,
+                agent_id: request.agent_id.as_str(),
+                draft: None,
+            },
         ) {
             Ok(replayed) => replayed,
             Err(error) => {
@@ -575,11 +583,15 @@ impl AgentLibraryStore {
             txn,
             &owner,
             &write_context,
-            expected_revision,
-            AgentLibraryMutationKind::Retire,
-            entry,
-            &operation,
-            &nonce,
+            AgentLibraryRevisionCommit {
+                expected_revision,
+                kind: AgentLibraryMutationKind::Retire,
+                entry,
+            },
+            ReplayIdentity {
+                operation: &operation,
+                nonce: &nonce,
+            },
         )
     }
 
@@ -588,12 +600,15 @@ impl AgentLibraryStore {
         txn: eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
         owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
         context: &AgentLibraryMutationContext,
-        expected_revision: u64,
-        kind: AgentLibraryMutationKind,
-        entry: AgentLibraryEntry,
-        operation: &eg_types::authority::OperationReplayIdentity,
-        nonce: &eg_types::authority::NonceReplayKey,
+        commit: AgentLibraryRevisionCommit,
+        replay: ReplayIdentity<'_>,
     ) -> Result<AgentLibraryWriteResult, String> {
+        let AgentLibraryRevisionCommit {
+            expected_revision,
+            kind,
+            entry,
+        } = commit;
+        let ReplayIdentity { operation, nonce } = replay;
         let operations = agent_library_operations(kind, &entry);
         let policy_digest = effective_agent_library_policy_digest(&operations)?;
         let mut admitted_context = context.clone();
@@ -720,16 +735,54 @@ impl AgentLibraryStore {
     }
 }
 
+/// The pair the mutation kernel treats as one replay identity: an attempt is
+/// the same attempt only when BOTH the operation class and the attempt nonce
+/// match.  The kernel's own API says so -- `begin_with_replay_identity`,
+/// `resolve_replay` and `finish_with_replay` all take the two together (the
+/// last one already as an inline tuple) -- so they are threaded as one value
+/// rather than as two positional arguments that could drift apart.
+struct ReplayIdentity<'a> {
+    operation: &'a eg_types::authority::OperationReplayIdentity,
+    nonce: &'a eg_types::authority::NonceReplayKey,
+}
+
+/// One append-only revision transition to commit: the entry as it will be
+/// retained, the `kind` of lifecycle change that produced it, and the revision
+/// the caller observed before it.  All three are needed together to stay
+/// consistent -- `expected_revision` is what the head row is compact-and-swapped
+/// against, and `kind` + `entry` decide the operation, outbox event and
+/// retained row -- so a caller cannot supply one without the others.
+struct AgentLibraryRevisionCommit {
+    expected_revision: u64,
+    kind: AgentLibraryMutationKind,
+    entry: AgentLibraryEntry,
+}
+
+/// What the caller believes its idempotency key committed.  A replayed receipt
+/// is only safe to return when the recorded entry matches this expectation, so
+/// these three travel as the single "expected mutation" the comparison is made
+/// against: the agent it addressed, the lifecycle change it made, and -- for a
+/// publish -- the exact draft it published.
+struct ExpectedAgentLibraryMutation<'a> {
+    kind: AgentLibraryMutationKind,
+    agent_id: &'a str,
+    /// `None` for a retire, which has no submitted draft to compare.
+    draft: Option<&'a AgentLibraryEntryDraft>,
+}
+
 fn replayed_receipt(
     mutations: &MutationKernel,
     txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
     replay: ReplayResolution,
     operation: &eg_types::authority::OperationReplayIdentity,
     context: &AgentLibraryMutationContext,
-    kind: AgentLibraryMutationKind,
-    agent_id: &str,
-    draft: Option<&AgentLibraryEntryDraft>,
+    expected: ExpectedAgentLibraryMutation<'_>,
 ) -> Result<Option<(AgentLibraryWriteResult, MutationReceipt)>, String> {
+    let ExpectedAgentLibraryMutation {
+        kind,
+        agent_id,
+        draft,
+    } = expected;
     let recorded = match replay {
         ReplayResolution::Fresh => return Ok(None),
         ReplayResolution::NonceRejected { idempotency_key } => {
@@ -2006,17 +2059,46 @@ mod tests {
         }
     }
 
+    /// One write attempt's replay coordinates.  These three are what the store
+    /// admits an attempt on: the idempotency key it is filed under, the attempt
+    /// nonce that distinguishes a retry from a fresh attempt under that key, and
+    /// the revision the attempt claims to have observed.  A test that varies one
+    /// of them is varying the attempt, not the caller, so they move together.
+    struct WriteAttempt<'a> {
+        key: &'a str,
+        /// Also the fixture's `request_id`, so an attempt is traceable by nonce.
+        nonce: u8,
+        expected_revision: u64,
+    }
+
+    /// Who the attempt is made by and under what authority.  `caller_byte`
+    /// expands into both the caller principal and its action scope, and the
+    /// policy revision expands into the decision id, so these are one identity
+    /// rather than three knobs: the replay tests assert that changing any part
+    /// of it makes the SAME idempotency key an IDEMPOTENCY_CONFLICT.
+    struct AdmissionAuthority<'a> {
+        caller_byte: char,
+        policy_revision: &'a str,
+        purpose_id: &'a str,
+    }
+
     fn context(
         store: &AgentLibraryStore,
         tenant_id: &str,
-        key: &str,
-        nonce: u8,
-        expected_revision: u64,
-        caller_byte: char,
-        policy_revision: &str,
-        purpose_id: &str,
+        attempt: WriteAttempt<'_>,
+        authority: AdmissionAuthority<'_>,
         created_at_ms: u64,
     ) -> AgentLibraryMutationContext {
+        let WriteAttempt {
+            key,
+            nonce,
+            expected_revision,
+        } = attempt;
+        let AdmissionAuthority {
+            caller_byte,
+            policy_revision,
+            purpose_id,
+        } = authority;
         AgentLibraryMutationContext {
             request_id: u64::from(nonce),
             principal: store.owner_principal().to_string(),
@@ -2043,12 +2125,16 @@ mod tests {
         let publish_context = context(
             &store,
             "tenant-a",
-            "shared-key",
-            1,
-            0,
-            'a',
-            "policy-v1",
-            "agent-library:publish",
+            WriteAttempt {
+                key: "shared-key",
+                nonce: 1,
+                expected_revision: 0,
+            },
+            AdmissionAuthority {
+                caller_byte: 'a',
+                policy_revision: "policy-v1",
+                purpose_id: "agent-library:publish",
+            },
             10,
         );
         let published = store
@@ -2154,12 +2240,16 @@ mod tests {
         let consumed_nonce_before_target = context(
             &store,
             "tenant-a",
-            "nonce-before-target",
-            1,
-            MAX_AGENT_LIBRARY_REVISIONS as u64,
-            'a',
-            "policy-v1",
-            "agent-library:publish",
+            WriteAttempt {
+                key: "nonce-before-target",
+                nonce: 1,
+                expected_revision: MAX_AGENT_LIBRARY_REVISIONS as u64,
+            },
+            AdmissionAuthority {
+                caller_byte: 'a',
+                policy_revision: "policy-v1",
+                purpose_id: "agent-library:publish",
+            },
             999,
         );
         assert!(store
@@ -2174,12 +2264,16 @@ mod tests {
         let over_limit = context(
             &store,
             "tenant-a",
-            "over-limit",
-            11,
-            MAX_AGENT_LIBRARY_REVISIONS as u64,
-            'a',
-            "policy-v1",
-            "agent-library:publish",
+            WriteAttempt {
+                key: "over-limit",
+                nonce: 11,
+                expected_revision: MAX_AGENT_LIBRARY_REVISIONS as u64,
+            },
+            AdmissionAuthority {
+                caller_byte: 'a',
+                policy_revision: "policy-v1",
+                purpose_id: "agent-library:publish",
+            },
             1_000,
         );
         assert!(store
@@ -2194,12 +2288,16 @@ mod tests {
         let replay_context = context(
             &store,
             "tenant-a",
-            "shared-key",
-            2,
-            0,
-            'a',
-            "policy-v1",
-            "agent-library:publish",
+            WriteAttempt {
+                key: "shared-key",
+                nonce: 2,
+                expected_revision: 0,
+            },
+            AdmissionAuthority {
+                caller_byte: 'a',
+                policy_revision: "policy-v1",
+                purpose_id: "agent-library:publish",
+            },
             999,
         );
         let replayed = store
@@ -2214,12 +2312,16 @@ mod tests {
             context: context(
                 &store,
                 "tenant-a",
-                "shared-key",
-                2,
-                0,
-                'a',
-                "policy-v1",
-                "agent-library:publish",
+                WriteAttempt {
+                    key: "shared-key",
+                    nonce: 2,
+                    expected_revision: 0,
+                },
+                AdmissionAuthority {
+                    caller_byte: 'a',
+                    policy_revision: "policy-v1",
+                    purpose_id: "agent-library:publish",
+                },
                 1_001,
             ),
             entry: definition.clone(),
@@ -2247,12 +2349,16 @@ mod tests {
         let changed_actor = context(
             &store,
             "tenant-a",
-            "shared-key",
-            3,
-            0,
-            'b',
-            "policy-v1",
-            "agent-library:publish",
+            WriteAttempt {
+                key: "shared-key",
+                nonce: 3,
+                expected_revision: 0,
+            },
+            AdmissionAuthority {
+                caller_byte: 'b',
+                policy_revision: "policy-v1",
+                purpose_id: "agent-library:publish",
+            },
             10,
         );
         assert!(store
@@ -2266,12 +2372,16 @@ mod tests {
         let changed_policy = context(
             &store,
             "tenant-a",
-            "shared-key",
-            4,
-            0,
-            'a',
-            "policy-v2",
-            "agent-library:publish",
+            WriteAttempt {
+                key: "shared-key",
+                nonce: 4,
+                expected_revision: 0,
+            },
+            AdmissionAuthority {
+                caller_byte: 'a',
+                policy_revision: "policy-v2",
+                purpose_id: "agent-library:publish",
+            },
             10,
         );
         assert!(store
@@ -2285,12 +2395,16 @@ mod tests {
         let stale_context = context(
             &store,
             "tenant-a",
-            "new-key",
-            5,
-            0,
-            'a',
-            "policy-v1",
-            "agent-library:publish",
+            WriteAttempt {
+                key: "new-key",
+                nonce: 5,
+                expected_revision: 0,
+            },
+            AdmissionAuthority {
+                caller_byte: 'a',
+                policy_revision: "policy-v1",
+                purpose_id: "agent-library:publish",
+            },
             10,
         );
         assert!(store
@@ -2304,12 +2418,16 @@ mod tests {
         let retire_context = context(
             &store,
             "tenant-a",
-            "retire-key",
-            6,
-            1,
-            'b',
-            "policy-v2",
-            "agent-library:retire",
+            WriteAttempt {
+                key: "retire-key",
+                nonce: 6,
+                expected_revision: 1,
+            },
+            AdmissionAuthority {
+                caller_byte: 'b',
+                policy_revision: "policy-v2",
+                purpose_id: "agent-library:retire",
+            },
             20,
         );
         let retired = store
@@ -2329,12 +2447,16 @@ mod tests {
                 context: context(
                     &store,
                     "tenant-a",
-                    "retire-key",
-                    7,
-                    1,
-                    'b',
-                    "policy-v2",
-                    "agent-library:retire",
+                    WriteAttempt {
+                        key: "retire-key",
+                        nonce: 7,
+                        expected_revision: 1,
+                    },
+                    AdmissionAuthority {
+                        caller_byte: 'b',
+                        policy_revision: "policy-v2",
+                        purpose_id: "agent-library:retire",
+                    },
                     2_000,
                 ),
                 agent_id: "agent-a".to_string(),
@@ -2381,12 +2503,16 @@ mod tests {
                 context: context(
                     &store,
                     "tenant-a",
-                    "shared-key",
-                    12,
-                    0,
-                    'a',
-                    "policy-v1",
-                    "agent-library:publish",
+                    WriteAttempt {
+                        key: "shared-key",
+                        nonce: 12,
+                        expected_revision: 0,
+                    },
+                    AdmissionAuthority {
+                        caller_byte: 'a',
+                        policy_revision: "policy-v1",
+                        purpose_id: "agent-library:publish",
+                    },
                     4_000,
                 ),
                 entry: definition.clone(),
@@ -2422,12 +2548,16 @@ mod tests {
         let resurrection = context(
             &store,
             "tenant-a",
-            "resurrection-key",
-            8,
-            2,
-            'a',
-            "policy-v1",
-            "agent-library:publish",
+            WriteAttempt {
+                key: "resurrection-key",
+                nonce: 8,
+                expected_revision: 2,
+            },
+            AdmissionAuthority {
+                caller_byte: 'a',
+                policy_revision: "policy-v1",
+                purpose_id: "agent-library:publish",
+            },
             30,
         );
         assert!(store
@@ -2444,12 +2574,16 @@ mod tests {
                 context: context(
                     &store,
                     "tenant-b",
-                    "shared-key",
-                    9,
-                    0,
-                    'c',
-                    "policy-v1",
-                    "agent-library:publish",
+                    WriteAttempt {
+                        key: "shared-key",
+                        nonce: 9,
+                        expected_revision: 0,
+                    },
+                    AdmissionAuthority {
+                        caller_byte: 'c',
+                        policy_revision: "policy-v1",
+                        purpose_id: "agent-library:publish",
+                    },
                     40,
                 ),
                 entry: tenant_b_definition.clone(),
@@ -2501,12 +2635,16 @@ mod tests {
                 context: context(
                     &reopened,
                     "tenant-a",
-                    "shared-key",
-                    13,
-                    0,
-                    'a',
-                    "policy-v1",
-                    "agent-library:publish",
+                    WriteAttempt {
+                        key: "shared-key",
+                        nonce: 13,
+                        expected_revision: 0,
+                    },
+                    AdmissionAuthority {
+                        caller_byte: 'a',
+                        policy_revision: "policy-v1",
+                        purpose_id: "agent-library:publish",
+                    },
                     5_000,
                 ),
                 entry: definition.clone(),
@@ -2519,12 +2657,16 @@ mod tests {
                 context: context(
                     &reopened,
                     "tenant-a",
-                    "shared-key",
-                    14,
-                    0,
-                    'a',
-                    "policy-v1",
-                    "agent-library:publish",
+                    WriteAttempt {
+                        key: "shared-key",
+                        nonce: 14,
+                        expected_revision: 0,
+                    },
+                    AdmissionAuthority {
+                        caller_byte: 'a',
+                        policy_revision: "policy-v1",
+                        purpose_id: "agent-library:publish",
+                    },
                     6_000,
                 ),
                 agent_id: "agent-a".to_string(),
@@ -2584,12 +2726,16 @@ mod tests {
         let context = context(
             store,
             &entry.tenant_id.clone(),
-            key,
-            nonce,
-            0,
-            'a',
-            "policy-v1",
-            "agent-library:publish",
+            WriteAttempt {
+                key,
+                nonce,
+                expected_revision: 0,
+            },
+            AdmissionAuthority {
+                caller_byte: 'a',
+                policy_revision: "policy-v1",
+                purpose_id: "agent-library:publish",
+            },
             10,
         );
         store.publish(AgentLibraryPublishRequest { context, entry })
@@ -2788,12 +2934,16 @@ mod tests {
         let publish_context = context(
             &store,
             "tenant-a",
-            "persisted-status-tamper",
-            1,
-            0,
-            'a',
-            "policy-v1",
-            "agent-library:publish",
+            WriteAttempt {
+                key: "persisted-status-tamper",
+                nonce: 1,
+                expected_revision: 0,
+            },
+            AdmissionAuthority {
+                caller_byte: 'a',
+                policy_revision: "policy-v1",
+                purpose_id: "agent-library:publish",
+            },
             10,
         );
         store
@@ -2854,12 +3004,16 @@ mod tests {
                 context: context(
                     &store,
                     "tenant-a",
-                    "redirected-status-link",
-                    1,
-                    0,
-                    'a',
-                    "policy-v1",
-                    "agent-library:publish",
+                    WriteAttempt {
+                        key: "redirected-status-link",
+                        nonce: 1,
+                        expected_revision: 0,
+                    },
+                    AdmissionAuthority {
+                        caller_byte: 'a',
+                        policy_revision: "policy-v1",
+                        purpose_id: "agent-library:publish",
+                    },
                     10,
                 ),
                 entry: definition,

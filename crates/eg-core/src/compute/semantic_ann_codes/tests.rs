@@ -2,17 +2,22 @@
 //!
 //! Layer (b) of RF-RULING-007's replacement for the deleted domain guard: the
 //! guard said semantic mutations "remain unserved"; what actually protects the
-//! semantic owner tables is that a handle bound to one `(tenant, binding,
-//! generation)` cannot admit, write or retire another's rows -- and that a read
-//! creates no authority at all.
+//! semantic owner tables is that a write bound to one
+//! `(tenant, binding, generation)` cannot address another's rows -- and that a
+//! read creates no authority at all.
+//!
+//! Owner rows are seeded here through [`seed_batch`] on the store's SERVING
+//! scope, which is the same scope `commit_metadata_fenced` admits every live
+//! write against. The retired per-generation write scope is a recorded
+//! non-goal; see the parent module's doc.
 
 use std::sync::Arc;
 
-use super::rows::{BoundBindingRows, BoundCodeRows};
+use super::rows::BoundCodeRows;
 use super::{
-    compare_source_revision, current_checkpoint_from_tables, generation_identity,
-    persist_stage_artifact, stage_intent_outbox, store_file_name, validate_sql_source_revision,
-    GenerationRetirement, SemanticCodeStore,
+    compare_source_revision, current_checkpoint_from_tables, persist_stage_artifact_with_lease,
+    stage_intent_outbox, store_file_name, validate_sql_source_revision, GenerationCoordinates,
+    MetadataMutation, OperationAttribution, SemanticCodeStore,
 };
 use crate::compute::semantic::SemanticStore;
 use crate::test_scope_grant::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
@@ -337,6 +342,51 @@ fn open_store(dir: &std::path::Path) -> SemanticCodeStore {
     open_store_for(dir, TENANT, BINDING)
 }
 
+/// A maintenance batch on the store's serving scope, for seeding owner rows a
+/// test needs to already be durable.
+///
+/// This is test scaffolding and lives here rather than on `SemanticCodeStore`
+/// so the production type carries no publication door of its own -- `activate`
+/// is closed precisely so that "which generation is live" has one writer. The
+/// batch is content-addressed from `digest`, so two seeds with the same tag
+/// replay instead of applying twice, exactly as a real generation activation
+/// does.
+fn seed_batch(
+    owner: &eg_storage::OwnedStoreHandle<eg_storage::SemanticIndexOwner>,
+    generation: u64,
+    digest: &str,
+    expected: u64,
+) -> eg_types::MutationBatch {
+    let batch_id = format!("semantic-ann:{BINDING}:{generation}:{digest}");
+    eg_types::MutationBatch {
+        schema_version: eg_types::MUTATION_BATCH_VERSION,
+        batch_id: batch_id.clone(),
+        envelope: eg_types::mutation_batch::MutationEnvelope::maintenance(
+            owner.principal(),
+            "semantic_index_generation_activated",
+            &format!("{BINDING}:{generation}"),
+            &batch_id,
+        )
+        .expect("a semantic binding and generation are canonical resource ids"),
+        identity: owner.identity().clone(),
+        placement_epoch: 0,
+        version_expectation: eg_types::VersionExpectation::Native(expected),
+        fencing_token: None,
+        authoritative_state: None,
+        operations: vec![eg_types::MutationOperation {
+            ordinal: 0,
+            surface: eg_types::MutationSurface::Other,
+            domain: eg_types::mutation_batch::DurabilityDomain::SemanticIndex,
+            method: eg_types::protocol::Method::ApplyMutation {
+                event_type: "semantic_index_generation_activated".to_string(),
+                query: format!("sha256:{digest}"),
+            },
+        }],
+        outbox: Vec::new(),
+        created_at_ms: 0,
+    }
+}
+
 fn pending_binding(source_revision: &str) -> SemanticBinding {
     binding_for_generation(source_revision, 1)
 }
@@ -430,11 +480,11 @@ fn binding_for_image(
 }
 
 fn seed_binding_head(codes: &SemanticCodeStore, binding: &SemanticBinding) {
-    let owner = codes.bind_for_write(binding.generation).unwrap();
+    let owner = &codes.serving;
     let read = codes.kernel.read_scope(&owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = codes.generation_batch(&owner, binding.generation, "reconciliation-seed", version);
+    let batch = seed_batch(&owner, binding.generation, "reconciliation-seed", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -657,9 +707,9 @@ fn dead_letter_registry_key_retains_intent_identity_at_one_attempt() {
     // `SEMANTIC_DEAD_LETTERS`, so only the acquisition changes.
     let dir = tmp_dir("dead-letter-key");
     let codes = open_store(&dir);
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let version = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
-    let batch = codes.generation_batch(&owner, 1, "dead-letter-key", version);
+    let batch = seed_batch(&owner, 1, "dead-letter-key", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -715,7 +765,7 @@ fn dead_letter_registry_key_retains_intent_identity_at_one_attempt() {
 fn persisted_dead_letter_transitions_keep_distinct_intents_at_one_attempt() {
     let dir = tmp_dir("dead-letter-production-key");
     let codes = open_store(&dir);
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let make = |entity: &str, seed: u8| {
         let intent = SemanticStageIntent::create(SemanticStageIntentDraft {
             binding_id: BINDING.to_string(),
@@ -764,7 +814,7 @@ fn persisted_dead_letter_transitions_keep_distinct_intents_at_one_attempt() {
         let read = codes.kernel.read_scope(&owner).unwrap();
         let version = eg_transaction::version(&read).unwrap();
         drop(read);
-        let batch = codes.generation_batch(&owner, 1, &format!("dead-letter-{ordinal}"), version);
+        let batch = seed_batch(&owner, 1, &format!("dead-letter-{ordinal}"), version);
         let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
         let eg_transaction::Begin::Apply {
             source_version: source_version_write,
@@ -773,7 +823,8 @@ fn persisted_dead_letter_transitions_keep_distinct_intents_at_one_attempt() {
             panic!("expected a fresh Begin::Apply, got a replay");
         };
         let rows = write.owner_rows(&owner, &batch).unwrap();
-        persist_stage_artifact(&rows, TENANT, BINDING, &transition, &artifact).unwrap();
+        persist_stage_artifact_with_lease(&rows, TENANT, BINDING, &transition, None, &artifact)
+            .unwrap();
         rows.finish_owner().unwrap();
         // A write only reaches the kernel's `Finished` admission state
         // through `finish`; `finish_owner` above closes only the owner-row
@@ -1274,11 +1325,11 @@ fn reconciliation_entity_pages_are_bounded_and_revision_fenced() {
     seed_binding_head(&codes, &binding);
     let first = reconciliation_source_entity(1);
     let second = reconciliation_source_entity(2);
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let read = codes.kernel.read_scope(&owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = codes.generation_batch(&owner, 1, "reconciliation-progress-seed", version);
+    let batch = seed_batch(&owner, 1, "reconciliation-progress-seed", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -1387,11 +1438,11 @@ fn complete_reconciliation_tombstone_replaces_completed_prior_revision() {
     };
     old_progress.validate().unwrap();
 
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let read = codes.kernel.read_scope(&owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = codes.generation_batch(&owner, 1, "reconciliation-tombstone-seed", version);
+    let batch = seed_batch(&owner, 1, "reconciliation-tombstone-seed", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -1591,10 +1642,12 @@ fn completed_sql_source_replay_reads_retained_transition_and_manifest() {
                 codes.metadata_batch(
                     &codes.serving,
                     version,
-                    &batch_id,
-                    "semantic_source_stage_committed",
-                    &source_entity_id,
-                    mutation_digest,
+                    MetadataMutation {
+                        batch_id: &batch_id,
+                        event_type: "semantic_source_stage_committed",
+                        subject: &source_entity_id,
+                        mutation_digest,
+                    },
                     outbox,
                     4,
                 )
@@ -1616,7 +1669,14 @@ fn completed_sql_source_replay_reads_retained_transition_and_manifest() {
                     )
                     .unwrap();
                 drop(stages);
-                super::persist_stage_artifact(rows, TENANT, BINDING, &transition, &artifact)
+                super::persist_stage_artifact_with_lease(
+                    rows,
+                    TENANT,
+                    BINDING,
+                    &transition,
+                    None,
+                    &artifact,
+                )
             },
         )
         .unwrap();
@@ -1627,10 +1687,12 @@ fn completed_sql_source_replay_reads_retained_transition_and_manifest() {
                 codes.metadata_batch(
                     &codes.serving,
                     version,
-                    "semantic-index:remove-replay-index",
-                    "semantic_source_stage_replay_test",
-                    &source_entity_id,
-                    remove_index_digest,
+                    MetadataMutation {
+                        batch_id: "semantic-index:remove-replay-index",
+                        event_type: "semantic_source_stage_replay_test",
+                        subject: &source_entity_id,
+                        mutation_digest: remove_index_digest,
+                    },
                     Vec::new(),
                     5,
                 )
@@ -1681,10 +1743,12 @@ fn completed_sql_source_replay_reads_retained_transition_and_manifest() {
                 codes.metadata_batch(
                     &codes.serving,
                     version,
-                    "semantic-index:restore-replay-index",
-                    "semantic_source_stage_replay_test",
-                    &source_entity_id,
-                    restore_index_digest,
+                    MetadataMutation {
+                        batch_id: "semantic-index:restore-replay-index",
+                        event_type: "semantic_source_stage_replay_test",
+                        subject: &source_entity_id,
+                        mutation_digest: restore_index_digest,
+                    },
                     Vec::new(),
                     6,
                 )
@@ -1773,10 +1837,12 @@ fn retained_sql_manifest_rejects_a_foreign_source_authority() {
                 codes.metadata_batch(
                     &codes.serving,
                     version,
-                    "semantic-index:foreign-source-manifest",
-                    "semantic_source_manifest_seed",
-                    &source_identity.source_entity_id(),
-                    write_digest,
+                    MetadataMutation {
+                        batch_id: "semantic-index:foreign-source-manifest",
+                        event_type: "semantic_source_manifest_seed",
+                        subject: &source_identity.source_entity_id(),
+                        mutation_digest: write_digest,
+                    },
                     Vec::new(),
                     4,
                 )
@@ -1887,10 +1953,12 @@ fn completed_sql_tombstone_replaces_retained_manifest_through_real_completion() 
                 codes.metadata_batch(
                     &codes.serving,
                     version,
-                    "semantic-index:seed-completed-sql",
-                    "semantic_source_stage_seed",
-                    &source_entity_id,
-                    old_mutation_digest,
+                    MetadataMutation {
+                        batch_id: "semantic-index:seed-completed-sql",
+                        event_type: "semantic_source_stage_seed",
+                        subject: &source_entity_id,
+                        mutation_digest: old_mutation_digest,
+                    },
                     Vec::new(),
                     4,
                 )
@@ -1925,7 +1993,14 @@ fn completed_sql_tombstone_replaces_retained_manifest_through_real_completion() 
                         old_mutation_bytes.as_slice(),
                     )
                     .unwrap();
-                super::persist_stage_artifact(rows, TENANT, BINDING, &old_transition, &old_artifact)
+                super::persist_stage_artifact_with_lease(
+                    rows,
+                    TENANT,
+                    BINDING,
+                    &old_transition,
+                    None,
+                    &old_artifact,
+                )
             },
         )
         .unwrap();
@@ -2108,11 +2183,11 @@ fn refresh_with_s1_moves_head_and_replays_after_the_head_changed() {
     };
     old_progress.validate().unwrap();
 
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let read = codes.kernel.read_scope(&owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = codes.generation_batch(&owner, 1, "refresh-seed", version);
+    let batch = seed_batch(&owner, 1, "refresh-seed", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -2204,17 +2279,19 @@ fn refresh_with_s1_moves_head_and_replays_after_the_head_changed() {
             &source_manifest,
             &replacement_intent,
             8,
-            "actor-refresh",
-            "refresh-source-missing-index",
-            Nonce::from_bytes([106; 32]),
+            OperationAttribution {
+                actor: "actor-refresh",
+                idempotency_key: "refresh-source-missing-index",
+                nonce: Nonce::from_bytes([106; 32]),
+            },
         )
         .expect_err("refresh must refuse when the retained receipt index is absent");
     assert!(missing_index.to_string().contains("indexed stage row"));
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let read = codes.kernel.read_scope(&owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = codes.generation_batch(&owner, 1, "refresh-index-repair", version);
+    let batch = seed_batch(&owner, 1, "refresh-index-repair", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -2247,9 +2324,11 @@ fn refresh_with_s1_moves_head_and_replays_after_the_head_changed() {
             &source_manifest,
             &replacement_intent,
             8,
-            "actor-refresh",
-            "refresh-source",
-            Nonce::from_bytes([107; 32]),
+            OperationAttribution {
+                actor: "actor-refresh",
+                idempotency_key: "refresh-source",
+                nonce: Nonce::from_bytes([107; 32]),
+            },
         )
         .unwrap();
     assert!(!first.replayed);
@@ -2290,9 +2369,11 @@ fn refresh_with_s1_moves_head_and_replays_after_the_head_changed() {
             &source_manifest,
             &replacement_intent,
             9,
-            "actor-refresh",
-            "refresh-source",
-            Nonce::from_bytes([108; 32]),
+            OperationAttribution {
+                actor: "actor-refresh",
+                idempotency_key: "refresh-source",
+                nonce: Nonce::from_bytes([108; 32]),
+            },
         )
         .unwrap();
     assert!(replay.replayed);
@@ -2335,9 +2416,11 @@ fn refresh_with_s1_moves_head_and_replays_after_the_head_changed() {
             &changed_manifest,
             &changed_intent,
             10,
-            "actor-refresh",
-            "refresh-source",
-            Nonce::from_bytes([110; 32]),
+            OperationAttribution {
+                actor: "actor-refresh",
+                idempotency_key: "refresh-source",
+                nonce: Nonce::from_bytes([110; 32]),
+            },
         )
         .expect_err("the same stable key must reject changed replacement S1 content");
     assert!(changed.to_string().contains("different content"));
@@ -2401,33 +2484,6 @@ fn direct_publication_cannot_create_two_generations() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The fail-closed admission proof that replaces the deleted domain guard: a
-/// batch naming one generation's scope cannot be admitted against another
-/// generation's bound handle, even though both live in the same physical file
-/// and the same owner layout.
-#[test]
-fn a_batch_for_another_generation_is_refused_at_admission() {
-    let dir = tmp_dir("cross-binding");
-    let codes = open_store(&dir);
-
-    let one = codes.bind_for_write(1).unwrap();
-    let two = codes.bind_for_write(2).unwrap();
-    let foreign = codes.generation_batch(&two, 2, "deadbeef", 0);
-    let error = codes
-        .mutations
-        .admit(&one, &foreign)
-        .map(|_| ())
-        .expect_err("a batch for generation 2 must not be admitted against generation 1");
-    assert!(
-        error.contains("does not serve this scope"),
-        "admission must fail closed on the scope, not incidentally: {error}"
-    );
-
-    // Generation 1's rows are untouched by the refused attempt.
-    assert!(codes.read_generation(1).unwrap().is_none());
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
 /// P1-1. `AdmittedOwnerWrite::open_table` returns a RAW `redb::Table` -- the
 /// kernel bounds an owner write to its layout, not to its row keys, because
 /// owner tables in general carry no scope component. For the semantic tables
@@ -2438,9 +2494,9 @@ fn a_bound_accessor_refuses_another_tenants_or_generations_rows() {
     let dir = tmp_dir("row-acl");
     let codes = open_store(&dir);
 
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let expected = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
-    let batch = codes.generation_batch(&owner, 1, "acl-probe", expected);
+    let batch = seed_batch(&owner, 1, "acl-probe", expected);
     let write = codes.mutations.open_write(&owner).unwrap();
     assert!(matches!(
         write.begin(&batch).unwrap(),
@@ -2465,47 +2521,9 @@ fn a_bound_accessor_refuses_another_tenants_or_generations_rows() {
         }
         // Its own key is accepted, so the refusal is an ACL and not a stub.
         bound.insert((TENANT, BINDING, 1, "meta"), b"own").unwrap();
-
-        let mut binding_rows =
-            BoundBindingRows::new(rows.open_table(SEMANTIC_POINTERS).unwrap(), TENANT, BINDING);
-        let refused = binding_rows
-            .insert(("tenant-b", BINDING), b"forged")
-            .expect_err("a foreign binding key must be refused");
-        assert!(
-            refused.to_string().contains("another binding's rows"),
-            "{refused}"
-        );
     }
     rows.finish_owner().unwrap();
     write.abort().unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// The retirement carries the generation it sweeps, so pairing it with another
-/// generation's purge is refused rather than silently sweeping the wrong rows.
-#[test]
-fn a_retirement_describing_another_generation_is_refused() {
-    let dir = tmp_dir("retirement");
-    let codes = open_store(&dir);
-
-    let one = codes.bind_for_write(1).unwrap();
-    let identity = generation_identity(TENANT, BINDING, 1).unwrap();
-    let mismatched = GenerationRetirement {
-        tenant: TENANT.to_string(),
-        binding: BINDING.to_string(),
-        generation: 2,
-    };
-    let error = codes
-        .mutations
-        .purge_scope_with(&one, &identity, &mismatched)
-        .expect_err("a retirement for generation 2 must not purge generation 1");
-    assert!(
-        error.contains("does not describe the scope being purged"),
-        "{error}"
-    );
-
-    assert!(codes.read_generation(1).unwrap().is_none());
-    assert!(codes.read_generation(2).unwrap().is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -2564,11 +2582,11 @@ fn s6_generation_two_demotes_the_previous_live_binding_in_one_write() {
         activated_at: "2026-09-08T00:08:00Z".to_string(),
     };
     pointer.validate().unwrap();
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let read = codes.kernel.read_scope(&owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = codes.generation_batch(&owner, 1, "s6-demotion", version);
+    let batch = seed_batch(&owner, 1, "s6-demotion", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -2624,11 +2642,11 @@ fn s6_generation_two_demotes_the_previous_live_binding_in_one_write() {
     // `SEMANTIC_HEADS` first -- correctly returned `None`, not `pending`: the
     // rollback assertion was measuring an uncommitted write, not a rollback.
     refusal_codes.store_binding(&pending, 1).unwrap();
-    let owner = refusal_codes.bind_for_write(1).unwrap();
+    let owner = &refusal_codes.serving;
     let read = refusal_codes.kernel.read_scope(&owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = refusal_codes.generation_batch(&owner, 1, "s6-demotion-refusal", version);
+    let batch = seed_batch(&owner, 1, "s6-demotion-refusal", version);
     let (write, begin) = refusal_codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -3004,10 +3022,12 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
                 codes.metadata_batch(
                     &codes.serving,
                     version,
-                    "semantic-index:s6-real-seed",
-                    "semantic_s6_real_seed",
-                    "generation:2",
-                    seed_digest,
+                    MetadataMutation {
+                        batch_id: "semantic-index:s6-real-seed",
+                        event_type: "semantic_s6_real_seed",
+                        subject: "generation:2",
+                        mutation_digest: seed_digest,
+                    },
                     vec![s6_outbox.clone()],
                     10,
                 )
@@ -3095,10 +3115,12 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
                 codes.metadata_batch(
                     &codes.serving,
                     version,
-                    "semantic-index:s6-remove-prior",
-                    "semantic_s6_remove_prior",
-                    "generation:1",
-                    remove_digest,
+                    MetadataMutation {
+                        batch_id: "semantic-index:s6-remove-prior",
+                        event_type: "semantic_s6_remove_prior",
+                        subject: "generation:1",
+                        mutation_digest: remove_digest,
+                    },
                     Vec::new(),
                     12,
                 )
@@ -3176,10 +3198,12 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
                 codes.metadata_batch(
                     &codes.serving,
                     version,
-                    "semantic-index:s6-restore-prior",
-                    "semantic_s6_restore_prior",
-                    "generation:1",
-                    restore_digest,
+                    MetadataMutation {
+                        batch_id: "semantic-index:s6-restore-prior",
+                        event_type: "semantic_s6_restore_prior",
+                        subject: "generation:1",
+                        mutation_digest: restore_digest,
+                    },
                     Vec::new(),
                     14,
                 )
@@ -3265,10 +3289,10 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
 fn a_second_admitted_write_racing_the_same_version_fails_closed() {
     let dir = tmp_dir("race");
     let codes = open_store(&dir);
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let stale_version = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
-    let winner = codes.generation_batch(&owner, 1, "winner-digest", stale_version);
-    let loser = codes.generation_batch(&owner, 1, "loser-digest", stale_version);
+    let winner = seed_batch(&owner, 1, "winner-digest", stale_version);
+    let loser = seed_batch(&owner, 1, "loser-digest", stale_version);
 
     // The winner is an ordinary admitted owner mutation. The legacy ANN
     // publication helper is not used to advance the ledger or scope version.
@@ -3307,9 +3331,9 @@ fn production_generation_checkpoint_heads_refuse_stale_s3_and_s5_cas() {
         let dir = tmp_dir(&format!("checkpoint-cas-{}", stage.as_str()));
         let codes = open_store(&dir);
         let fixture = generation_checkpoint_fixture(stage);
-        let owner = codes.bind_for_write(1).unwrap();
+        let owner = &codes.serving;
         let version = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
-        let winner = codes.generation_batch(&owner, 1, "checkpoint-cas-winner", version);
+        let winner = seed_batch(&owner, 1, "checkpoint-cas-winner", version);
         let (winner_write, begin) = codes.mutations.admit(&owner, &winner).unwrap();
         let eg_transaction::Begin::Apply {
             source_version: source_version_winner_write,
@@ -3353,7 +3377,7 @@ fn production_generation_checkpoint_heads_refuse_stale_s3_and_s5_cas() {
 
         let before = store_fingerprint(&dir);
         let version = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
-        let loser = codes.generation_batch(&owner, 1, "checkpoint-cas-loser", version);
+        let loser = seed_batch(&owner, 1, "checkpoint-cas-loser", version);
         let (loser_write, begin) = codes.mutations.admit(&owner, &loser).unwrap();
         let eg_transaction::Begin::Apply {
             source_version: source_version_loser_write,
@@ -3436,9 +3460,9 @@ fn production_six_rejects_complete_nonhead_checkpoint_dependencies() {
     let forged = make_six(orphan_lexical.checkpoint_digest);
     let exact = make_six(lexical.checkpoint_digest);
 
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let version = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
-    let batch = codes.generation_batch(&owner, 1, "checkpoint-s6-head", version);
+    let batch = seed_batch(&owner, 1, "checkpoint-s6-head", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -3545,9 +3569,9 @@ fn checkpoint_head_resolves_only_the_durable_pointer() {
     let partial = checkpoint_head_fixture(1, 1);
     let complete = checkpoint_head_fixture(2, 9);
 
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let version = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
-    let batch = codes.generation_batch(&owner, 1, "checkpoint-head", version);
+    let batch = seed_batch(&owner, 1, "checkpoint-head", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -3592,11 +3616,13 @@ fn checkpoint_head_resolves_only_the_durable_pointer() {
     let head = current_checkpoint_from_tables(
         &rows.open_table(SEMANTIC_CHECKPOINTS).unwrap(),
         &rows.open_table(SEMANTIC_CHECKPOINT_HEADS).unwrap(),
-        "native",
-        "binding-a",
-        1,
-        SemanticDigest::from_bytes([8; 32]),
-        "r1",
+        GenerationCoordinates {
+            tenant: "native",
+            binding: "binding-a",
+            generation: 1,
+            binding_digest: SemanticDigest::from_bytes([8; 32]),
+            source_revision: "r1",
+        },
         SemanticStage::LexicalIndex,
     )
     .unwrap()
@@ -3627,9 +3653,9 @@ fn checkpoint_head_does_not_promote_orphan_higher_count_rows() {
     let partial = checkpoint_head_fixture(1, 1);
     let complete = checkpoint_head_fixture(2, 9);
 
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let version = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
-    let batch = codes.generation_batch(&owner, 1, "checkpoint-orphan", version);
+    let batch = seed_batch(&owner, 1, "checkpoint-orphan", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -3652,11 +3678,13 @@ fn checkpoint_head_does_not_promote_orphan_higher_count_rows() {
         current_checkpoint_from_tables(
             &rows.open_table(SEMANTIC_CHECKPOINTS).unwrap(),
             &rows.open_table(SEMANTIC_CHECKPOINT_HEADS).unwrap(),
-            "native",
-            "binding-a",
-            1,
-            SemanticDigest::from_bytes([8; 32]),
-            "r1",
+            GenerationCoordinates {
+                tenant: "native",
+                binding: "binding-a",
+                generation: 1,
+                binding_digest: SemanticDigest::from_bytes([8; 32]),
+                source_revision: "r1",
+            },
             SemanticStage::LexicalIndex,
         )
         .unwrap()
@@ -3681,9 +3709,9 @@ fn checkpoint_head_rejects_pointer_row_bytes_mismatch() {
     let left = checkpoint_head_fixture(1, 1);
     let right = checkpoint_head_fixture(1, 9);
 
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let version = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
-    let batch = codes.generation_batch(&owner, 1, "checkpoint-ambiguity", version);
+    let batch = seed_batch(&owner, 1, "checkpoint-ambiguity", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -3728,11 +3756,13 @@ fn checkpoint_head_rejects_pointer_row_bytes_mismatch() {
     let error = current_checkpoint_from_tables(
         &rows.open_table(SEMANTIC_CHECKPOINTS).unwrap(),
         &rows.open_table(SEMANTIC_CHECKPOINT_HEADS).unwrap(),
-        "native",
-        "binding-a",
-        1,
-        SemanticDigest::from_bytes([8; 32]),
-        "r1",
+        GenerationCoordinates {
+            tenant: "native",
+            binding: "binding-a",
+            generation: 1,
+            binding_digest: SemanticDigest::from_bytes([8; 32]),
+            source_revision: "r1",
+        },
         SemanticStage::LexicalIndex,
     )
     .expect_err("a pointer whose checkpoint row bytes differ must fail closed");
@@ -3771,9 +3801,9 @@ fn authoritative_state_rejects_completed_progress_without_stage_receipt() {
     };
     progress.validate().unwrap();
 
-    let owner = codes.bind_for_write(1).unwrap();
+    let owner = &codes.serving;
     let version = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
-    let batch = codes.generation_batch(&owner, 1, "checkpoint-progress", version);
+    let batch = seed_batch(&owner, 1, "checkpoint-progress", version);
     let (write, begin) = codes.mutations.admit(&owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
@@ -3792,11 +3822,13 @@ fn authoritative_state_rejects_completed_progress_without_stage_receipt() {
     let error = super::authoritative_generation_state(
         &rows.open_table(SEMANTIC_SOURCE_PROGRESS).unwrap(),
         &rows.open_table(SEMANTIC_STAGES).unwrap(),
-        "native",
-        "binding-a",
-        1,
-        SemanticDigest::from_bytes([8; 32]),
-        "r1",
+        GenerationCoordinates {
+            tenant: "native",
+            binding: "binding-a",
+            generation: 1,
+            binding_digest: SemanticDigest::from_bytes([8; 32]),
+            source_revision: "r1",
+        },
         SemanticStage::LexicalIndex,
         SemanticStage::LexicalIndex,
         None,

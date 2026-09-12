@@ -9,11 +9,38 @@
 //! Retiring a generation is `purge_scope_with`, so its ledger authority and its
 //! payload retire together or not at all.
 //!
-//! **Reads write nothing.** The serving scope is bound once at `open`; every
-//! read is a [`eg_storage::ScopedRead`] on it. Binding a generation's own scope
-//! — two committed write transactions — happens only on admitted lifecycle
-//! paths, so probing an unactivated generation creates no authority and a read
-//! after retirement cannot resurrect one.
+//! **One scope, bound once.** The serving scope is bound at `open` and is this
+//! module's ONLY scope: every read is a [`eg_storage::ScopedRead`] on it and
+//! every write is admitted against it through `commit_metadata_fenced`. So
+//! probing an unactivated generation creates no authority, and a read after
+//! retirement cannot resurrect one, because no read or write path can mint a
+//! scope at all.
+//!
+//! **Deliberate non-goal: a per-generation write scope.** This module once also
+//! bound a SEPARATE authenticated `MutationScopeIdentity` per generation
+//! (`{binding}:generation:{n}`), cached per generation, so a generation being
+//! BUILT held a different ledger scope from the one being SERVED, and retiring
+//! it was `purge_scope_with` against that scope plus an
+//! `OwnerPayloadRetirement` sweep of its rows. That is not how a generation is
+//! isolated or retired here, and reintroducing it would put two authorities on
+//! one fact:
+//!
+//!   * **Isolation** of one generation's payload is a ROW-KEY property, and
+//!     [`rows::BoundCodeRows`] holds it: an `eg_ann` write is bound to exactly
+//!     one `(tenant, binding, generation)` and refuses every other key. The
+//!     generation number is the only part of that key that comes from request
+//!     data, so bounding it is the whole of the property. A second ledger scope
+//!     per generation cost two extra committed transactions and bought nothing
+//!     the row bound does not already give.
+//!   * **Retirement** is the admitted binding lifecycle: `semantic_tombstones`
+//!     keyed `(tenant, binding, generation)`, the `SemanticBindingState`
+//!     machine, and the active-pointer removal in
+//!     `transition_binding_operation` / `drop_binding_operation` — all in ONE
+//!     caller-attributed mutation on the serving scope. `activate` and `retire`
+//!     are therefore closed (`Refused`) rather than plumbed.
+//!
+//! `generation_identity` and its per-generation scope binding were removed for
+//! that reason and not for want of a caller.
 //!
 //! Two properties this replaces, both defects rather than plumbing:
 //!   * `eg_ann::redb_store` opened its own `redb::Database` — a leaf crate as a
@@ -59,7 +86,6 @@ use eg_types::semantic_index::{
     SemanticTombstone, SemanticTombstoneDraft,
 };
 use eg_types::{MutationBatch, MutationOperation, MUTATION_BATCH_VERSION};
-use parking_lot::RwLock;
 use redb::ReadableTable;
 use sha2::{Digest, Sha256};
 
@@ -68,9 +94,7 @@ use crate::compute::semantic::SemanticGenerationImage;
 #[path = "semantic_ann_codes/rows.rs"]
 mod rows;
 
-use rows::{
-    decode_live_pointer, read_part, BoundCodeRows, GenerationRetirement, DIGEST_PART, PARTS,
-};
+use rows::{read_part, BoundCodeRows, DIGEST_PART, PARTS};
 
 /// Operator-facing identity of the one physical semantic-index owner file.
 const SEMANTIC_PHYSICAL_STORE_PREFIX: &str = "eg-core:semantic-index:v2";
@@ -202,33 +226,6 @@ fn mutation_digest_from_batch(batch: &MutationBatch) -> Result<SemanticDigest, S
         .ok_or_else(|| "semantic replay has no durable mutation digest".to_string())
 }
 
-/// The mutation scope of ONE generation of one binding.
-///
-/// The generation is part of the scope's **logical name**, and that is forced
-/// rather than chosen. A scope binding is keyed by `binding_digest`, computed
-/// from the tenant and the scope only -- deliberately NOT from the incarnation,
-/// because that is what rejects silent same-name rebinding
-/// (`physical::binding::bind_scope_in`). So two generations distinguished only
-/// by their incarnation are not two scopes; they are one scope being rebound,
-/// and the kernel refuses it. Making the generation part of the name is what
-/// makes generation `N` an authority `purge_scope_with` can retire while `N+1`
-/// keeps serving.
-///
-/// The owner rows keep `binding` and `generation` as SEPARATE key components
-/// regardless, so retiring one generation is a bounded prefix range and a sweep
-/// across a binding's generations stays one too.
-pub(crate) fn generation_identity(
-    tenant: &str,
-    binding: &str,
-    generation: u64,
-) -> Result<eg_types::MutationScopeIdentity, SemanticCodeError> {
-    scope_identity(
-        tenant,
-        &format!("{binding}:generation:{generation}"),
-        &format!("semantic-ann-generation:{generation}"),
-    )
-}
-
 /// The read-only serving scope of one binding. Bound once at `open` so that
 /// every later read is a pure snapshot; it owns no generation and is never
 /// purged with one.
@@ -257,22 +254,47 @@ fn scope_identity(
     .map_err(SemanticCodeError::Kernel)
 }
 
+/// What one semantic metadata mutation records.
+///
+/// The four are used together and only together: `batch_id`, `event_type` and
+/// `subject` form the ledger envelope, and `mutation_digest` is the content the
+/// recorded operation is addressed by (`sha256:{digest}`). Every caller that
+/// has one has all four. Flattened, it put three bare `&str` adjacent in an
+/// argument list of up to twelve, where transposing two of them still compiles
+/// and the ledger silently records the wrong subject.
+pub(crate) struct MetadataMutation<'a> {
+    pub(crate) batch_id: &'a str,
+    pub(crate) event_type: &'a str,
+    pub(crate) subject: &'a str,
+    pub(crate) mutation_digest: SemanticDigest,
+}
+
+/// Who asked for a caller-attributed (operation-surface) mutation, and under
+/// what replay identity.
+///
+/// RF-RULING-005 requires every `Operation` mutation to carry all three: the
+/// verified actor, the idempotency key that makes a retry REPLAY rather than
+/// reapply, and the nonce the kernel's replay seal consumes. That is why the
+/// triple recurs across eleven eg-core signatures. Two of the three are bare
+/// `&str`, so naming the group is also what stops an actor being passed where
+/// an idempotency key belongs.
+#[derive(Clone, Copy)]
+pub struct OperationAttribution<'a> {
+    pub actor: &'a str,
+    pub idempotency_key: &'a str,
+    pub nonce: Nonce,
+}
+
 /// Durable, kernel-backed ANN code tier for one `(tenant, binding)` semantic
 /// index, holding any number of generations of which exactly one is live.
 pub struct SemanticCodeStore {
     kernel: StorageKernel,
     mutations: MutationKernel,
-    verifier: Arc<dyn ScopeGrantVerifier>,
-    principal: String,
-    proof: Vec<u8>,
     tenant: String,
     binding: String,
-    /// The read-only serving scope, bound once at `open`.
+    /// The read-only serving scope, bound once at `open` — and the only scope
+    /// this store ever holds. See the module's per-generation-scope non-goal.
     serving: OwnedStoreHandle<SemanticIndexOwner>,
-    /// Generation scopes bound by a WRITER. `OwnedStoreHandle` is a capability
-    /// and is not `Clone`, so the cache owns the one handle per generation and
-    /// hands out `Arc` clones of it.
-    bound: RwLock<BTreeMap<u64, Arc<OwnedStoreHandle<SemanticIndexOwner>>>>,
 }
 
 impl std::fmt::Debug for SemanticCodeStore {
@@ -293,9 +315,9 @@ impl SemanticCodeStore {
     /// would otherwise collide on redb's file lock.
     ///
     /// `verifier` is the composition root's proof authority: only it may decide
-    /// that `principal` is entitled to serve this binding's scopes. It is held
-    /// rather than borrowed because a new generation's scope is authenticated
-    /// lazily, long after `open` returned.
+    /// that `principal` is entitled to serve this binding's scope. It is used
+    /// here and not retained: the serving scope is the only scope this store
+    /// binds, so there is no later authentication to hold it for.
     pub fn open(
         dir: &Path,
         verifier: Arc<dyn ScopeGrantVerifier>,
@@ -339,13 +361,9 @@ impl SemanticCodeStore {
         Ok(Self {
             kernel,
             mutations,
-            verifier,
-            principal: principal.to_string(),
-            proof: proof.to_vec(),
             tenant: tenant.to_string(),
             binding: binding.to_string(),
             serving,
-            bound: RwLock::new(BTreeMap::new()),
         })
     }
 
@@ -488,10 +506,12 @@ impl SemanticCodeStore {
                 self.metadata_batch(
                     owner,
                     version,
-                    &batch_id,
-                    "semantic_source_reconciliation_checkpoint",
-                    &format!("{}:{generation}", self.binding),
-                    digest,
+                    MetadataMutation {
+                        batch_id: &batch_id,
+                        event_type: "semantic_source_reconciliation_checkpoint",
+                        subject: &format!("{}:{generation}", self.binding),
+                        mutation_digest: digest,
+                    },
                     Vec::new(),
                     0,
                 )
@@ -595,10 +615,12 @@ impl SemanticCodeStore {
                 self.metadata_batch(
                     owner,
                     version,
-                    &batch_id,
-                    "semantic_source_reconciliation_checkpoint_clear",
-                    &format!("{}:{generation}", self.binding),
-                    digest,
+                    MetadataMutation {
+                        batch_id: &batch_id,
+                        event_type: "semantic_source_reconciliation_checkpoint_clear",
+                        subject: &format!("{}:{generation}", self.binding),
+                        mutation_digest: digest,
+                    },
                     Vec::new(),
                     0,
                 )
@@ -995,10 +1017,12 @@ impl SemanticCodeStore {
                 self.metadata_batch(
                     owner,
                     version,
-                    &batch_id,
-                    "semantic_index_binding_stored",
-                    &format!("binding:{}", binding.binding_digest),
-                    payload_digest,
+                    MetadataMutation {
+                        batch_id: &batch_id,
+                        event_type: "semantic_index_binding_stored",
+                        subject: &format!("binding:{}", binding.binding_digest),
+                        mutation_digest: payload_digest,
+                    },
                     vec![outbox],
                     now_ms,
                 )
@@ -1142,15 +1166,19 @@ impl SemanticCodeStore {
                 self.metadata_operation_batch(
                     owner,
                     version,
-                    &batch_id,
-                    "semantic_binding_stored",
-                    &format!("binding:{}", binding.binding_digest),
-                    mutation_digest,
+                    MetadataMutation {
+                        batch_id: &batch_id,
+                        event_type: "semantic_binding_stored",
+                        subject: &format!("binding:{}", binding.binding_digest),
+                        mutation_digest,
+                    },
                     outbox.clone(),
                     now_ms,
-                    actor,
-                    idempotency_key,
-                    nonce,
+                    OperationAttribution {
+                        actor,
+                        idempotency_key,
+                        nonce,
+                    },
                 )
             },
             mutation_digest,
@@ -1203,19 +1231,24 @@ impl SemanticCodeStore {
         source_manifest: &SemanticSqlSourceManifest,
         replacement_intent: &SemanticStageIntent,
         now_ms: u64,
-        actor: &str,
-        idempotency_key: &str,
-        nonce: Nonce,
+        attribution: OperationAttribution<'_>,
     ) -> Result<SemanticMutationReceipt, SemanticCodeError> {
+        let OperationAttribution {
+            actor,
+            idempotency_key,
+            nonce,
+        } = attribution;
         self.refresh_binding_operation_inner(
             expected_generation,
             replacement,
             source_manifest,
             replacement_intent,
             now_ms,
-            actor,
-            idempotency_key,
-            nonce,
+            OperationAttribution {
+                actor,
+                idempotency_key,
+                nonce,
+            },
         )
     }
 
@@ -1226,10 +1259,13 @@ impl SemanticCodeStore {
         source_manifest: &SemanticSqlSourceManifest,
         replacement_intent: &SemanticStageIntent,
         now_ms: u64,
-        actor: &str,
-        idempotency_key: &str,
-        nonce: Nonce,
+        attribution: OperationAttribution<'_>,
     ) -> Result<SemanticMutationReceipt, SemanticCodeError> {
+        let OperationAttribution {
+            actor,
+            idempotency_key,
+            nonce,
+        } = attribution;
         if actor.trim().is_empty() || idempotency_key.trim().is_empty() {
             return Err(SemanticCodeError::Refused(
                 "semantic refresh requires verified actor and idempotency key".to_string(),
@@ -1536,15 +1572,19 @@ impl SemanticCodeStore {
                 self.metadata_operation_batch(
                     &self.serving,
                     version,
-                    &batch_id,
-                    "semantic_binding_refreshed",
-                    &format!("binding:{}", replacement.binding_digest),
-                    mutation_digest,
+                    MetadataMutation {
+                        batch_id: &batch_id,
+                        event_type: "semantic_binding_refreshed",
+                        subject: &format!("binding:{}", replacement.binding_digest),
+                        mutation_digest,
+                    },
                     outbox,
                     now_ms,
-                    actor,
-                    idempotency_key,
-                    nonce,
+                    OperationAttribution {
+                        actor,
+                        idempotency_key,
+                        nonce,
+                    },
                 )
             },
             mutation_digest,
@@ -1776,15 +1816,19 @@ impl SemanticCodeStore {
                 self.metadata_operation_batch(
                     &self.serving,
                     version,
-                    &batch_id,
-                    "semantic_binding_state_transition",
-                    &format!("binding:{}", binding.binding_digest),
-                    mutation_digest,
+                    MetadataMutation {
+                        batch_id: &batch_id,
+                        event_type: "semantic_binding_state_transition",
+                        subject: &format!("binding:{}", binding.binding_digest),
+                        mutation_digest,
+                    },
                     outbox,
                     now_ms,
-                    actor,
-                    idempotency_key,
-                    nonce,
+                    OperationAttribution {
+                        actor,
+                        idempotency_key,
+                        nonce,
+                    },
                 )
             },
             mutation_digest,
@@ -1937,15 +1981,19 @@ impl SemanticCodeStore {
                 self.metadata_operation_batch(
                     &self.serving,
                     version,
-                    &batch_id,
-                    "semantic_binding_dropped",
-                    &format!("binding:{}", binding.binding_digest),
-                    mutation_digest,
+                    MetadataMutation {
+                        batch_id: &batch_id,
+                        event_type: "semantic_binding_dropped",
+                        subject: &format!("binding:{}", binding.binding_digest),
+                        mutation_digest,
+                    },
                     outbox,
                     now_ms,
-                    actor,
-                    idempotency_key,
-                    nonce,
+                    OperationAttribution {
+                        actor,
+                        idempotency_key,
+                        nonce,
+                    },
                 )
             },
             mutation_digest,
@@ -2075,15 +2123,17 @@ impl SemanticCodeStore {
         self.commit_metadata(
             |version| {
                 self.metadata_batch(
-                    owner,
-                    version,
-                    &batch_id,
-                    "semantic_stage_intent_enqueued",
-                    &format!("intent:{}", intent.intent_digest),
-                    intent_digest,
-                    vec![outbox],
-                    now_ms,
-                )
+                         owner,
+                         version,
+                         MetadataMutation {
+                             batch_id: &batch_id,
+                             event_type: "semantic_stage_intent_enqueued",
+                             subject: &format!("intent:{}", intent.intent_digest),
+                             mutation_digest: intent_digest,
+                         },
+                         vec![outbox],
+                         now_ms,
+                     )
             },
             intent_digest,
             now_ms,
@@ -2270,15 +2320,17 @@ impl SemanticCodeStore {
         self.commit_metadata(
             |version| {
                 self.metadata_batch(
-                    owner,
-                    version,
-                    &batch_id,
-                    "semantic_source_tombstone_enqueued",
-                    &format!("source:{source_entity_id}"),
-                    intent_digest,
-                    vec![outbox],
-                    now_ms,
-                )
+                         owner,
+                         version,
+                         MetadataMutation {
+                             batch_id: &batch_id,
+                             event_type: "semantic_source_tombstone_enqueued",
+                             subject: &format!("source:{source_entity_id}"),
+                             mutation_digest: intent_digest,
+                         },
+                         vec![outbox],
+                         now_ms,
+                     )
             },
             intent_digest,
             now_ms,
@@ -2765,11 +2817,13 @@ impl SemanticCodeStore {
         let current = current_checkpoint_from_tables(
             &checkpoints,
             &heads,
-            self.tenant.as_str(),
-            self.binding.as_str(),
-            intent.generation,
-            intent.binding_digest,
-            &intent.source_revision,
+            GenerationCoordinates {
+                tenant: self.tenant.as_str(),
+                binding: self.binding.as_str(),
+                generation: intent.generation,
+                binding_digest: intent.binding_digest,
+                source_revision: &intent.source_revision,
+            },
             stage,
         )?;
         Ok(current.is_some_and(|checkpoint| {
@@ -3101,10 +3155,12 @@ impl SemanticCodeStore {
                 self.metadata_batch(
                     &self.serving,
                     version,
-                    &batch_id,
-                    "semantic_stage_transition_recorded",
-                    &format!("stage:{}", transition.intent.intent_digest),
-                    mutation_digest,
+                    MetadataMutation {
+                        batch_id: &batch_id,
+                        event_type: "semantic_stage_transition_recorded",
+                        subject: &format!("stage:{}", transition.intent.intent_digest),
+                        mutation_digest,
+                    },
                     outbox,
                     now,
                 )
@@ -3344,15 +3400,17 @@ impl SemanticCodeStore {
         let receipt = self.commit_metadata_fenced(
             |version| {
                 self.metadata_batch(
-                    &self.serving,
-                    version,
-                    &batch_id,
-                    "semantic_generation_finalized",
-                    &format!("generation:{}", intent.generation),
-                    mutation_digest,
-                    outbox,
-                    now_ms,
-                )
+                         &self.serving,
+                         version,
+                         MetadataMutation {
+                             batch_id: &batch_id,
+                             event_type: "semantic_generation_finalized",
+                             subject: &format!("generation:{}", intent.generation),
+                             mutation_digest,
+                         },
+                         outbox,
+                         now_ms,
+                     )
             },
             mutation_digest,
             now_ms,
@@ -3803,15 +3861,11 @@ impl SemanticCodeStore {
     /// Persist one generation's image and make it live, as ONE admitted
     /// maintenance mutation.
     ///
-    /// `Maintenance` and not `Operation`: an index build carries no caller
-    /// identity, and RF-RULING-004 requires an owner write with none to be
-    /// labelled as such rather than to look like an unattributed operation.
-    ///
-    /// Everything that decides the outcome is read INSIDE the admitted write
-    /// through `open_read_table` -- the "is this already durable?" check and
-    /// the binding-authority comparison -- so there is no window between the
-    /// decision and the write. `admit_current` also mints the maintenance claim
-    /// from the version held by that same write.
+    /// Deliberately closed. Publication is the admitted S6 activation
+    /// transition (`finalize_generation`), which writes the generation's code
+    /// rows, its `semantic_bindings` authority and its active pointer in ONE
+    /// mutation on the serving scope. A direct publication door would be a
+    /// second writer of "which generation is live".
     pub fn activate(
         &self,
         _generation: u64,
@@ -4180,13 +4234,16 @@ impl SemanticCodeStore {
         &self,
         owner: &OwnedStoreHandle<SemanticIndexOwner>,
         version: u64,
-        batch_id: &str,
-        event_type: &str,
-        subject: &str,
-        mutation_digest: SemanticDigest,
+        mutation: MetadataMutation<'_>,
         outbox: Vec<MutationOutboxIntent>,
         created_at_ms: u64,
     ) -> Result<MutationBatch, String> {
+        let MetadataMutation {
+            batch_id,
+            event_type,
+            subject,
+            mutation_digest,
+        } = mutation;
         Ok(MutationBatch {
             schema_version: MUTATION_BATCH_VERSION,
             batch_id: batch_id.to_string(),
@@ -4219,16 +4276,29 @@ impl SemanticCodeStore {
         &self,
         owner: &OwnedStoreHandle<SemanticIndexOwner>,
         version: u64,
-        batch_id: &str,
-        event_type: &str,
-        subject: &str,
-        mutation_digest: SemanticDigest,
+        mutation: MetadataMutation<'_>,
         mut outbox: Vec<MutationOutboxIntent>,
         created_at_ms: u64,
-        actor: &str,
-        idempotency_key: &str,
-        nonce: Nonce,
+        attribution: OperationAttribution<'_>,
     ) -> Result<MutationBatch, String> {
+        let MetadataMutation {
+            batch_id,
+            event_type,
+            // The OPERATION surface derives the mutation's resource from the
+            // compiled scope (`MutationEnvelope::for_scope` takes no subject),
+            // so the caller's `subject` is discarded here -- unlike the
+            // maintenance surface, where `MutationEnvelope::maintenance`
+            // records it. That asymmetry predates this grouping; it was an
+            // unused parameter before and is named here rather than left as a
+            // bare `unused_variables` warning.
+            subject: _,
+            mutation_digest,
+        } = mutation;
+        let OperationAttribution {
+            actor,
+            idempotency_key,
+            nonce,
+        } = attribution;
         for intent in &mut outbox {
             intent
                 .headers
@@ -4370,152 +4440,6 @@ impl SemanticCodeStore {
             },
             manifest: take("manifest"),
         }))
-    }
-
-    /// The bound serving handle for one generation, authenticated and bound on
-    /// first WRITE. This commits two transactions (the scope binding and the
-    /// ledger bootstrap) and is therefore never on a read path.
-    fn bind_for_write(
-        &self,
-        generation: u64,
-    ) -> Result<Arc<OwnedStoreHandle<SemanticIndexOwner>>, SemanticCodeError> {
-        if let Some(handle) = self.bound.read().get(&generation) {
-            return Ok(Arc::clone(handle));
-        }
-        let identity = generation_identity(&self.tenant, &self.binding, generation)?;
-        let owner = Arc::new(bind_scope(
-            &self.kernel,
-            &self.mutations,
-            self.verifier.as_ref(),
-            &self.principal,
-            &self.proof,
-            identity,
-        )?);
-        self.bound.write().insert(generation, Arc::clone(&owner));
-        Ok(owner)
-    }
-
-    /// Decide, inside the admitted write, whether this activation is a no-op
-    /// and whether it is admissible at all. `true` means "already durable".
-    fn decide(
-        &self,
-        write: &AdmittedMutation<'_, SemanticIndexOwner>,
-        generation: u64,
-        digest: &str,
-        dimensions: usize,
-        model_digest: &Option<String>,
-    ) -> Result<bool, SemanticCodeError> {
-        let codes = write.open_read_table(ANN_CODES).map_err(kernel_error)?;
-        let current = codes
-            .get((
-                self.tenant.as_str(),
-                self.binding.as_str(),
-                generation,
-                DIGEST_PART,
-            ))
-            .map_err(kernel_error)?
-            .map(|value| value.value().to_vec());
-        drop(codes);
-        if current.as_deref() == Some(digest.as_bytes()) {
-            return Ok(true);
-        }
-        let binding = self.read_binding_in_write(write)?.ok_or_else(|| {
-            SemanticCodeError::Refused(
-                "ANN publication requires a durable semantic binding".to_string(),
-            )
-        })?;
-        if binding.dimension as usize != dimensions
-            || Some(binding.model_digest.as_str()) != model_digest.as_deref()
-        {
-            return Err(SemanticCodeError::Refused(format!(
-                "generation {generation} declares {dimensions} dimensions / model {model_digest:?}; \
-                 binding `{}` is bound to {} dimensions / model {:?}",
-                self.binding, binding.dimension, binding.model_digest
-            )));
-        }
-        Ok(false)
-    }
-
-    /// Write the generation's parts, its binding authority (first activation
-    /// only) and the live pointer, all through the bound accessors so no key
-    /// outside this binding's prefix is reachable.
-    fn stage(
-        &self,
-        rows: &eg_transaction::AdmittedOwnerWrite<'_, SemanticIndexOwner>,
-        generation: u64,
-        image: &SemanticGenerationImage,
-        digest: &str,
-        dimensions: usize,
-        model_digest: &Option<String>,
-    ) -> Result<(), SemanticCodeError> {
-        let mut codes = BoundCodeRows::new(
-            rows.open_table(ANN_CODES).map_err(kernel_error)?,
-            &self.tenant,
-            &self.binding,
-            generation,
-        );
-        for (part, bytes) in [
-            ("meta", image.index.codes.meta.as_slice()),
-            ("codes", image.index.codes.codes.as_slice()),
-            ("refine", image.index.codes.refine.as_slice()),
-            ("ids", image.index.ids.as_slice()),
-            ("manifest", image.manifest.as_slice()),
-        ] {
-            codes.put_part(part, bytes)?;
-        }
-        codes.insert(
-            (&self.tenant, &self.binding, generation, DIGEST_PART),
-            digest.as_bytes(),
-        )?;
-        drop(codes);
-        let _ = (rows, generation, dimensions, model_digest);
-        Err(SemanticCodeError::Refused(
-            "direct ANN publication requires an admitted S6 activation transition".to_string(),
-        ))
-    }
-
-    /// The batch is content-addressed from the image, so a byte-identical
-    /// re-activation replays instead of applying twice.
-    fn generation_batch(
-        &self,
-        owner: &OwnedStoreHandle<SemanticIndexOwner>,
-        generation: u64,
-        digest: &str,
-        expected: u64,
-    ) -> eg_types::MutationBatch {
-        let batch_id = format!("semantic-ann:{}:{generation}:{digest}", self.binding);
-        eg_types::MutationBatch {
-            schema_version: eg_types::MUTATION_BATCH_VERSION,
-            batch_id: batch_id.clone(),
-            // Activating a semantic generation has no caller -- the index owns
-            // its own lifecycle -- so it is a MAINTENANCE mutation
-            // (RF-RULING-005). `subject` names the exact binding and generation
-            // it activated, so the ledger row says what was written rather than
-            // only that something was.
-            envelope: eg_types::mutation_batch::MutationEnvelope::maintenance(
-                owner.principal(),
-                "semantic_index_generation_activated",
-                &format!("{}:{generation}", self.binding),
-                &batch_id,
-            )
-            .expect("a semantic binding and generation are canonical resource ids"),
-            identity: owner.identity().clone(),
-            placement_epoch: 0,
-            version_expectation: eg_types::VersionExpectation::Native(expected),
-            fencing_token: None,
-            authoritative_state: None,
-            operations: vec![eg_types::MutationOperation {
-                ordinal: 0,
-                surface: eg_types::MutationSurface::Other,
-                domain: eg_types::mutation_batch::DurabilityDomain::SemanticIndex,
-                method: eg_types::protocol::Method::ApplyMutation {
-                    event_type: "semantic_index_generation_activated".to_string(),
-                    query: format!("sha256:{digest}"),
-                },
-            }],
-            outbox: Vec::new(),
-            created_at_ms: 0,
-        }
     }
 }
 
@@ -4761,14 +4685,31 @@ fn validate_successor_intent(
     Ok(Some(successor.clone()))
 }
 
+/// Where one generation's rows live, and the binding identity those rows must
+/// agree with.
+///
+/// Fifteen call sites plucked exactly these five off a
+/// `SemanticGenerationCheckpoint`, a `SemanticBinding` or a
+/// `SemanticStageTransition` and passed them one by one.
+/// `tenant`/`binding`/`generation` are the row-key prefix of every
+/// per-generation semantic table; `source_revision` selects the checkpoint head
+/// inside that prefix; and `binding_digest` is the identity the rows found
+/// there must carry, so a row written under a DIFFERENT binding of the same
+/// name is refused rather than read. The digest travelling with the key is the
+/// point of the grouping: a lookup given only the key could not tell those two
+/// apart, and every caller that has the key has the digest.
+struct GenerationCoordinates<'a> {
+    tenant: &'a str,
+    binding: &'a str,
+    generation: u64,
+    binding_digest: SemanticDigest,
+    source_revision: &'a str,
+}
+
 fn current_checkpoint_from_tables<TC, TH>(
     checkpoint_table: &TC,
     head_table: &TH,
-    tenant: &str,
-    binding: &str,
-    generation: u64,
-    binding_digest: SemanticDigest,
-    source_revision: &str,
+    at: GenerationCoordinates<'_>,
     stage: SemanticStage,
 ) -> Result<Option<SemanticGenerationCheckpoint>, SemanticCodeError>
 where
@@ -4778,6 +4719,13 @@ where
         &'static [u8],
     >,
 {
+    let GenerationCoordinates {
+        tenant,
+        binding,
+        generation,
+        binding_digest,
+        source_revision,
+    } = at;
     let Some(head_bytes) = head_table
         .get((tenant, binding, generation, source_revision, stage.as_str()))
         .map_err(kernel_error)?
@@ -4827,11 +4775,7 @@ where
 fn authoritative_generation_state<TP, TS>(
     source_progress_table: &TP,
     stage_table: &TS,
-    tenant: &str,
-    binding: &str,
-    generation: u64,
-    binding_digest: SemanticDigest,
-    source_revision: &str,
+    at: GenerationCoordinates<'_>,
     member_stage: SemanticStage,
     aggregate_stage: SemanticStage,
     current_entity: Option<&str>,
@@ -4846,6 +4790,13 @@ where
     TP: redb::ReadableTable<(&'static str, &'static str, u64, &'static str), &'static [u8]>,
     TS: redb::ReadableTable<(&'static str, &'static str, &'static str), &'static [u8]>,
 {
+    let GenerationCoordinates {
+        tenant,
+        binding,
+        generation,
+        binding_digest,
+        source_revision,
+    } = at;
     let mut progress_by_entity = BTreeMap::new();
     let progress_rows = source_progress_table
         .range((tenant, binding, generation, "")..)
@@ -5029,11 +4980,13 @@ where
     let lexical = current_checkpoint_from_tables(
         checkpoint_table,
         checkpoint_head_table,
-        tenant,
-        binding,
-        checkpoint.generation,
-        checkpoint.binding_digest,
-        &checkpoint.source_revision,
+        GenerationCoordinates {
+            tenant,
+            binding,
+            generation: checkpoint.generation,
+            binding_digest: checkpoint.binding_digest,
+            source_revision: &checkpoint.source_revision,
+        },
         SemanticStage::LexicalIndex,
     )?
     .ok_or_else(|| {
@@ -5047,11 +5000,13 @@ where
     let ann = current_checkpoint_from_tables(
         checkpoint_table,
         checkpoint_head_table,
-        tenant,
-        binding,
-        checkpoint.generation,
-        checkpoint.binding_digest,
-        &checkpoint.source_revision,
+        GenerationCoordinates {
+            tenant,
+            binding,
+            generation: checkpoint.generation,
+            binding_digest: checkpoint.binding_digest,
+            source_revision: &checkpoint.source_revision,
+        },
         SemanticStage::AnnIndex,
     )?
     .ok_or_else(|| {
@@ -5079,11 +5034,13 @@ where
     let (aggregate, _) = authoritative_generation_state(
         source_progress_table,
         stage_table,
-        tenant,
-        binding,
-        checkpoint.generation,
-        checkpoint.binding_digest,
-        &checkpoint.source_revision,
+        GenerationCoordinates {
+            tenant,
+            binding,
+            generation: checkpoint.generation,
+            binding_digest: checkpoint.binding_digest,
+            source_revision: &checkpoint.source_revision,
+        },
         SemanticStage::AnnIndex,
         SemanticStage::ReconcileAndActivate,
         None,
@@ -5190,11 +5147,13 @@ fn validate_stage_predecessor_write(
         Ok(current_checkpoint_from_tables(
             &checkpoint_table,
             &checkpoint_head_table,
-            tenant,
-            binding,
-            intent.generation,
-            intent.binding_digest,
-            &intent.source_revision,
+            GenerationCoordinates {
+                tenant,
+                binding,
+                generation: intent.generation,
+                binding_digest: intent.binding_digest,
+                source_revision: &intent.source_revision,
+            },
             stage,
         )?
         .is_some_and(|value| value.checkpoint_digest == digest && value.require_complete().is_ok()))
@@ -5285,11 +5244,13 @@ fn persist_transition_checkpoints(
             let current = current_checkpoint_from_tables(
                 &table,
                 &head_table,
-                tenant,
-                binding,
-                checkpoint.generation,
-                checkpoint.binding_digest,
-                &checkpoint.source_revision,
+                GenerationCoordinates {
+                    tenant,
+                    binding,
+                    generation: checkpoint.generation,
+                    binding_digest: checkpoint.binding_digest,
+                    source_revision: &checkpoint.source_revision,
+                },
                 stage,
             )?;
             if current.as_ref() != Some(checkpoint) || checkpoint.require_complete().is_err() {
@@ -5351,11 +5312,13 @@ fn persist_vector_checkpoint(
     let lexical = current_checkpoint_from_tables(
         &checkpoint_table,
         &checkpoint_head_table,
-        tenant,
-        binding,
-        transition.intent.generation,
-        transition.intent.binding_digest,
-        &transition.intent.source_revision,
+        GenerationCoordinates {
+            tenant,
+            binding,
+            generation: transition.intent.generation,
+            binding_digest: transition.intent.binding_digest,
+            source_revision: &transition.intent.source_revision,
+        },
         SemanticStage::LexicalIndex,
     )?
     .ok_or_else(|| {
@@ -5372,11 +5335,13 @@ fn persist_vector_checkpoint(
     let previous_vector = current_checkpoint_from_tables(
         &checkpoint_table,
         &checkpoint_head_table,
-        tenant,
-        binding,
-        transition.intent.generation,
-        transition.intent.binding_digest,
-        &transition.intent.source_revision,
+        GenerationCoordinates {
+            tenant,
+            binding,
+            generation: transition.intent.generation,
+            binding_digest: transition.intent.binding_digest,
+            source_revision: &transition.intent.source_revision,
+        },
         SemanticStage::Vector,
     )?;
     let previous_completed_count = previous_vector
@@ -5395,11 +5360,13 @@ fn persist_vector_checkpoint(
     let (aggregate, members) = authoritative_generation_state(
         &source_progress_table,
         &stage_table,
-        tenant,
-        binding,
-        transition.intent.generation,
-        transition.intent.binding_digest,
-        &transition.intent.source_revision,
+        GenerationCoordinates {
+            tenant,
+            binding,
+            generation: transition.intent.generation,
+            binding_digest: transition.intent.binding_digest,
+            source_revision: &transition.intent.source_revision,
+        },
         SemanticStage::Vector,
         SemanticStage::Vector,
         Some(current_entity),
@@ -5480,11 +5447,13 @@ fn persist_generation_checkpoint_update(
     let current = current_checkpoint_from_tables(
         &checkpoint_table,
         &checkpoint_head_table,
-        tenant,
-        binding,
-        transition.intent.generation,
-        transition.intent.binding_digest,
-        &transition.intent.source_revision,
+        GenerationCoordinates {
+            tenant,
+            binding,
+            generation: transition.intent.generation,
+            binding_digest: transition.intent.binding_digest,
+            source_revision: &transition.intent.source_revision,
+        },
         stage,
     )?;
     match current.as_ref() {
@@ -5519,11 +5488,13 @@ fn persist_generation_checkpoint_update(
     let (aggregate, members) = authoritative_generation_state(
         &source_progress_table,
         &stage_table,
-        tenant,
-        binding,
-        transition.intent.generation,
-        transition.intent.binding_digest,
-        &transition.intent.source_revision,
+        GenerationCoordinates {
+            tenant,
+            binding,
+            generation: transition.intent.generation,
+            binding_digest: transition.intent.binding_digest,
+            source_revision: &transition.intent.source_revision,
+        },
         stage,
         stage,
         current_entity,
@@ -5578,16 +5549,6 @@ fn persist_generation_checkpoint_update(
     )?;
     drop(table);
     advance_checkpoint_head(rows, tenant, binding, &update.successor, current.as_ref())
-}
-
-fn persist_stage_artifact(
-    rows: &AdmittedOwnerWrite<'_, SemanticIndexOwner>,
-    tenant: &str,
-    binding: &str,
-    transition: &SemanticStageTransition,
-    artifact: &SemanticStageArtifact,
-) -> Result<(), SemanticCodeError> {
-    persist_stage_artifact_with_lease(rows, tenant, binding, transition, None, artifact)
 }
 
 fn persist_stage_artifact_with_lease(

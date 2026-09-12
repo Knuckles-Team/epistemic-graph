@@ -34,22 +34,15 @@ use source_ingest::dispatch_source_ingest_methods;
 /// durably-committed create (idempotent success) or a genuine collision.
 async fn reconcile_existing_graph_create(
     backend: &Arc<dyn PersistenceBackend>,
-    graph_name: &str,
-    req_id: u64,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
-    principal: Option<&str>,
-    idempotency_key: &str,
+    attempt: crate::server::mutation::LifecycleAttempt<'_>,
     graph_type: crate::protocol::GraphType,
     created_result: ResultPayload,
 ) -> Response {
+    let req_id = attempt.request_id;
+    let graph_name = attempt.graph;
     match crate::server::mutation_batch::lifecycle_was_committed(
         backend,
-        "create",
-        graph_name,
-        req_id,
-        attempt_nonce,
-        principal,
-        idempotency_key,
+        attempt,
         Method::CreateGraph {
             graph_name: graph_name.to_string(),
             graph_type,
@@ -124,11 +117,14 @@ async fn create_graph(
     if already_exists {
         return reconcile_existing_graph_create(
             &backend,
-            &graph_name,
-            req_id,
-            attempt_nonce,
-            req_agent_id.as_deref(),
-            &idempotency_key,
+            crate::server::mutation::LifecycleAttempt {
+                action: "create",
+                graph: &graph_name,
+                request_id: req_id,
+                attempt_nonce,
+                principal: req_agent_id.as_deref(),
+                idempotency_key: &idempotency_key,
+            },
             graph_type,
             created_result,
         )
@@ -221,21 +217,14 @@ async fn create_graph(
 /// durably-committed delete (idempotent success) or a genuine miss.
 async fn reconcile_missing_graph_delete(
     backend: &Arc<dyn PersistenceBackend>,
-    graph_name: &str,
-    req_id: u64,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
-    principal: Option<&str>,
-    idempotency_key: &str,
+    attempt: crate::server::mutation::LifecycleAttempt<'_>,
     deleted_result: ResultPayload,
 ) -> Response {
+    let req_id = attempt.request_id;
+    let graph_name = attempt.graph;
     match crate::server::mutation_batch::lifecycle_was_committed(
         backend,
-        "delete",
-        graph_name,
-        req_id,
-        attempt_nonce,
-        principal,
-        idempotency_key,
+        attempt,
         Method::DeleteGraph {
             graph_name: graph_name.to_string(),
         },
@@ -299,11 +288,14 @@ async fn delete_graph(
     if !exists {
         return reconcile_missing_graph_delete(
             &backend,
-            graph_name,
-            req_id,
-            attempt_nonce,
-            req_agent_id.as_deref(),
-            &idempotency_key,
+            crate::server::mutation::LifecycleAttempt {
+                action: "delete",
+                graph: graph_name,
+                request_id: req_id,
+                attempt_nonce,
+                principal: req_agent_id.as_deref(),
+                idempotency_key: &idempotency_key,
+            },
             deleted_result,
         )
         .await;

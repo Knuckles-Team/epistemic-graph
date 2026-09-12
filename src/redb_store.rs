@@ -2272,14 +2272,15 @@ fn stage_rows_in(
     // are the ONLY checks that survived the cut -- the idempotency, OCC and
     // fence checks beside them are the kernel's now.
     let plan = prepare_and_validate_mutation_batch(
-        write,
-        graph_fname,
-        batch,
+        &MutationRowCtx {
+            write,
+            graph_fname,
+            batch,
+            crypto,
+        },
         change,
         authoritative_state_msgpack,
         crossmodal,
-        crossmodal.is_some(),
-        crypto,
     )?;
 
     run_mutation_batch_crashpoint(batch, crashpoint, MutationBatchCrashpoint::BeforeRows)?;
@@ -3304,11 +3305,14 @@ struct NativeSubmitScope<'a> {
     crypto: DurableCrypto<'a>,
 }
 
-/// The shared inputs for the native row phase of one admitted graph member.
+/// The shared inputs for the row phases of one admitted graph member.
 ///
 /// The table capability is already tied to the member's `ShardWrite`; keeping
 /// it here prevents the operation loop from manufacturing a second transaction
-/// or accidentally mixing a graph name with another member's tables.
+/// or accidentally mixing a graph name with another member's tables. The
+/// pre-row domain validation (`prepare_and_validate_mutation_batch`) is
+/// addressed by the same four, for the same reason, so it reads this context
+/// rather than restating its halves.
 #[derive(Clone, Copy)]
 struct MutationRowCtx<'a> {
     write: &'a ShardWrite<'a>,
@@ -3942,16 +3946,17 @@ struct MutationBatchPlan {
 /// operation, and whether the change envelope's preconditions -- not already
 /// committed, content version and cursor as expected -- hold.
 fn prepare_and_validate_mutation_batch(
-    write: &ShardWrite<'_>,
-    graph_fname: &str,
-    batch: &MutationBatch,
+    ctx: &MutationRowCtx<'_>,
     change: Option<&ChangeEnvelope>,
     authoritative_state_msgpack: Option<&[u8]>,
     crossmodal: Option<&CrossModalBatchRows<'_>>,
-    crossmodal_present: bool,
-    crypto: DurableCrypto<'_>,
 ) -> Result<MutationBatchPlan, String> {
-    let _ = crossmodal_present;
+    let MutationRowCtx {
+        write,
+        graph_fname,
+        batch,
+        crypto,
+    } = *ctx;
     batch.validate_write_budget()?;
     let staged_state = resolve_mutation_authoritative_state(batch, authoritative_state_msgpack)?;
     let integrity_policy_update = resolve_integrity_policy_update(staged_state.as_ref());
@@ -7378,17 +7383,34 @@ mod mutation_batch_tests {
         }
     }
 
+    /// The worker's claim on the work item a terminal fixture commits against.
+    ///
+    /// Every call site plucks `lease_epoch` and `fencing_token` off the same
+    /// `ClaimWorkItemResult` that already named the work item and the worker,
+    /// and the terminal commit is only admitted when all four still agree with
+    /// that claim -- so the fixture takes the hold as one value instead of four
+    /// positional halves two of which a caller can silently cross-wire.
+    struct TerminalLeaseHold<'a> {
+        work_item_id: &'a str,
+        worker_id: &'a str,
+        lease_epoch: u64,
+        fencing_token: u64,
+    }
+
     fn terminal_extension_batch(
         batch_id: &str,
         idempotency_key: &str,
         expected_graph_version: u64,
-        work_item_id: &str,
-        worker_id: &str,
-        lease_epoch: u64,
-        fencing_token: u64,
+        hold: TerminalLeaseHold<'_>,
         outcome: &str,
         retryable: bool,
     ) -> MutationBatch {
+        let TerminalLeaseHold {
+            work_item_id,
+            worker_id,
+            lease_epoch,
+            fencing_token,
+        } = hold;
         let mut terminal = batch(batch_id, idempotency_key);
         terminal.version_expectation = VersionExpectation::Graph(expected_graph_version);
         let extension =
@@ -12328,10 +12350,12 @@ mod mutation_batch_tests {
             "terminal-extension-success",
             "terminal-extension-success-key",
             5,
-            "work-extension-success",
-            "worker-a",
-            claimed.lease_epoch.unwrap(),
-            claimed.fencing_token.unwrap(),
+            TerminalLeaseHold {
+                work_item_id: "work-extension-success",
+                worker_id: "worker-a",
+                lease_epoch: claimed.lease_epoch.unwrap(),
+                fencing_token: claimed.fencing_token.unwrap(),
+            },
             "succeeded",
             false,
         );
@@ -12425,10 +12449,12 @@ mod mutation_batch_tests {
             batch_id,
             "terminal-extension-foreign-scope-key",
             5,
-            work_item_id,
-            "worker-a",
-            claimed.lease_epoch.unwrap(),
-            claimed.fencing_token.unwrap(),
+            TerminalLeaseHold {
+                work_item_id,
+                worker_id: "worker-a",
+                lease_epoch: claimed.lease_epoch.unwrap(),
+                fencing_token: claimed.fencing_token.unwrap(),
+            },
             "succeeded",
             false,
         );
@@ -12523,10 +12549,12 @@ mod mutation_batch_tests {
                 &batch_id,
                 &format!("{tag}-key"),
                 5,
-                &work_item_id,
-                "worker-a",
-                claimed.lease_epoch.unwrap(),
-                claimed.fencing_token.unwrap(),
+                TerminalLeaseHold {
+                    work_item_id: &work_item_id,
+                    worker_id: "worker-a",
+                    lease_epoch: claimed.lease_epoch.unwrap(),
+                    fencing_token: claimed.fencing_token.unwrap(),
+                },
                 outcome,
                 false,
             );
@@ -12562,10 +12590,12 @@ mod mutation_batch_tests {
             batch_id,
             "terminal-extension-degraded-key",
             5,
-            work_item_id,
-            "worker-a",
-            claimed.lease_epoch.unwrap(),
-            claimed.fencing_token.unwrap(),
+            TerminalLeaseHold {
+                work_item_id,
+                worker_id: "worker-a",
+                lease_epoch: claimed.lease_epoch.unwrap(),
+                fencing_token: claimed.fencing_token.unwrap(),
+            },
             "succeeded",
             false,
         );
@@ -12759,10 +12789,12 @@ mod mutation_batch_tests {
                 &format!("{tag}-batch"),
                 &format!("{tag}-key"),
                 expected_version,
-                work_item_id,
-                worker,
-                lease_epoch,
-                fencing_token,
+                TerminalLeaseHold {
+                    work_item_id,
+                    worker_id: worker,
+                    lease_epoch,
+                    fencing_token,
+                },
                 if outcome_case == "retry_scheduled" {
                     "failed"
                 } else {
@@ -12852,10 +12884,12 @@ mod mutation_batch_tests {
             "terminal-extension-preexisting-batch",
             "terminal-extension-preexisting-key",
             5,
-            "work-extension-preexisting",
-            "worker-a",
-            claimed.lease_epoch.unwrap(),
-            claimed.fencing_token.unwrap(),
+            TerminalLeaseHold {
+                work_item_id: "work-extension-preexisting",
+                worker_id: "worker-a",
+                lease_epoch: claimed.lease_epoch.unwrap(),
+                fencing_token: claimed.fencing_token.unwrap(),
+            },
             "succeeded",
             false,
         );

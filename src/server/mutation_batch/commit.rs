@@ -9,6 +9,7 @@ use crate::change_envelope::ChangeEnvelope;
 use crate::graph::GraphCore;
 use crate::mutation_batch::{MutationStateDescriptor, MutationSurface};
 use crate::protocol::{Method, ResultPayload};
+use crate::server::mutation::LifecycleAttempt;
 use crate::server::persistence::PersistenceBackend;
 use eg_types::contract::Nonce;
 
@@ -1336,15 +1337,18 @@ pub(crate) async fn commit_lifecycle(
 /// network retry returns the committed outcome instead of creating a second batch.
 pub(crate) async fn lifecycle_was_committed(
     persistence: &Arc<dyn PersistenceBackend>,
-    action: &str,
-    graph: &str,
-    request_id: u64,
-    attempt_nonce: Option<Nonce>,
-    principal: Option<&str>,
-    idempotency_key: &str,
+    attempt: LifecycleAttempt<'_>,
     method: Method,
     result: &ResultPayload,
 ) -> Result<bool, String> {
+    let LifecycleAttempt {
+        action,
+        graph,
+        request_id,
+        attempt_nonce,
+        principal,
+        idempotency_key,
+    } = attempt;
     let fname = crate::persist::sanitize(graph);
     let batch_id = lifecycle_batch_id(action, graph, principal, idempotency_key);
     if persistence
@@ -1585,16 +1589,20 @@ mod internal_replay_tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        // `ProgramResultInput` is the public constructor's OWN grouping of the
+        // job-result lineage (result/dataset/digest/version), so the fixture
+        // takes it whole rather than restating its four fields positionally.
         fn identity(
             revision: u64,
             parent_ref: Option<eg_modality::OpaqueRef>,
-            result_ref: eg_modality::OpaqueRef,
-            result_input_dataset_ref: eg_modality::OpaqueRef,
-            result_input_content_digest: &str,
-            result_input_snapshot_version: u64,
+            result_input: eg_program::ProgramResultInput,
             tool_policy_token: &str,
             model_profile_token: &str,
         ) -> eg_program::ProgramRevisionIdentity {
+            // The corpus is read at the SAME snapshot as the result input, and
+            // the candidate digest binds that version, so read it out before
+            // the input itself is moved into the constructor below.
+            let result_input_snapshot_version = result_input.snapshot_version;
             let program_ref = eg_modality::OpaqueRef::scoped("program", &"1".repeat(64)).unwrap();
             let policy = eg_modality::PolicyEnvelope {
                 tenant_ref: eg_modality::OpaqueRef::scoped("tenant", &"2".repeat(64)).unwrap(),
@@ -1724,12 +1732,7 @@ mod internal_replay_tests {
                 &program,
                 &candidate,
                 parent_ref,
-                eg_program::ProgramResultInput {
-                    result_ref,
-                    dataset_ref: result_input_dataset_ref,
-                    content_digest: result_input_content_digest.to_string(),
-                    snapshot_version: result_input_snapshot_version,
-                },
+                result_input,
                 eg_program::ProgramCorpusBinding {
                     corpus_ref,
                     snapshot_version: result_input_snapshot_version,
@@ -2030,10 +2033,12 @@ mod internal_replay_tests {
         let first_identity = identity(
             2,
             None,
-            actual_result_ref,
-            result_input_dataset_ref.clone(),
-            &"b".repeat(64),
-            7,
+            eg_program::ProgramResultInput {
+                result_ref: actual_result_ref,
+                dataset_ref: result_input_dataset_ref.clone(),
+                content_digest: "b".repeat(64),
+                snapshot_version: 7,
+            },
             &"7".repeat(64),
             &"8".repeat(64),
         );
@@ -2136,10 +2141,12 @@ mod internal_replay_tests {
         let second_identity_seed = identity(
             3,
             Some(first_identity.revision_ref.clone()),
-            second_result_ref,
-            second_input_dataset_ref,
-            &"c".repeat(64),
-            8,
+            eg_program::ProgramResultInput {
+                result_ref: second_result_ref,
+                dataset_ref: second_input_dataset_ref,
+                content_digest: "c".repeat(64),
+                snapshot_version: 8,
+            },
             &"7".repeat(64),
             &"8".repeat(64),
         );
@@ -2197,20 +2204,22 @@ mod internal_replay_tests {
         let missing_binding_identity = identity(
             3,
             Some(first_identity.revision_ref.clone()),
-            second_identity
-                .candidate_record
-                .as_ref()
-                .expect("second identity candidate record")
-                .result_ref
-                .clone(),
-            second_identity
-                .candidate_record
-                .as_ref()
-                .expect("second identity input binding")
-                .result_input_dataset_ref
-                .clone(),
-            &"c".repeat(64),
-            8,
+            eg_program::ProgramResultInput {
+                result_ref: second_identity
+                    .candidate_record
+                    .as_ref()
+                    .expect("second identity candidate record")
+                    .result_ref
+                    .clone(),
+                dataset_ref: second_identity
+                    .candidate_record
+                    .as_ref()
+                    .expect("second identity input binding")
+                    .result_input_dataset_ref
+                    .clone(),
+                content_digest: "c".repeat(64),
+                snapshot_version: 8,
+            },
             &"d".repeat(64),
             &"8".repeat(64),
         );
@@ -2284,20 +2293,22 @@ mod internal_replay_tests {
         let wrong_binding_identity = identity(
             3,
             Some(first_identity.revision_ref.clone()),
-            second_identity
-                .candidate_record
-                .as_ref()
-                .expect("second identity candidate record")
-                .result_ref
-                .clone(),
-            second_identity
-                .candidate_record
-                .as_ref()
-                .expect("second identity input binding")
-                .result_input_dataset_ref
-                .clone(),
-            &"c".repeat(64),
-            8,
+            eg_program::ProgramResultInput {
+                result_ref: second_identity
+                    .candidate_record
+                    .as_ref()
+                    .expect("second identity candidate record")
+                    .result_ref
+                    .clone(),
+                dataset_ref: second_identity
+                    .candidate_record
+                    .as_ref()
+                    .expect("second identity input binding")
+                    .result_input_dataset_ref
+                    .clone(),
+                content_digest: "c".repeat(64),
+                snapshot_version: 8,
+            },
             &"9".repeat(64),
             &"8".repeat(64),
         );
@@ -2377,10 +2388,16 @@ mod internal_replay_tests {
         let failed_identity = identity(
             3,
             Some(eg_modality::OpaqueRef::scoped("program_revision", &"4".repeat(64)).unwrap()),
-            eg_modality::OpaqueRef::scoped("job_result", &format!("{}3", "b".repeat(63))).unwrap(),
-            result_input_dataset_ref,
-            &"b".repeat(64),
-            7,
+            eg_program::ProgramResultInput {
+                result_ref: eg_modality::OpaqueRef::scoped(
+                    "job_result",
+                    &format!("{}3", "b".repeat(63)),
+                )
+                .unwrap(),
+                dataset_ref: result_input_dataset_ref,
+                content_digest: "b".repeat(64),
+                snapshot_version: 7,
+            },
             &"7".repeat(64),
             &"8".repeat(64),
         );
@@ -2686,15 +2703,17 @@ mod internal_replay_tests {
         let coordinated_tamper_identity = identity(
             3,
             Some(first_identity.revision_ref.clone()),
-            eg_modality::OpaqueRef::scoped("job_result", &"e".repeat(64)).unwrap(),
-            second_identity
-                .candidate_record
-                .as_ref()
-                .expect("second identity input binding")
-                .result_input_dataset_ref
-                .clone(),
-            &"c".repeat(64),
-            8,
+            eg_program::ProgramResultInput {
+                result_ref: eg_modality::OpaqueRef::scoped("job_result", &"e".repeat(64)).unwrap(),
+                dataset_ref: second_identity
+                    .candidate_record
+                    .as_ref()
+                    .expect("second identity input binding")
+                    .result_input_dataset_ref
+                    .clone(),
+                content_digest: "c".repeat(64),
+                snapshot_version: 8,
+            },
             &"7".repeat(64),
             &"8".repeat(64),
         );

@@ -1,16 +1,22 @@
-//! Bound row accessors, the chunked part codec, and generation retirement.
+//! The bound `eg_ann` row accessor and the chunked part codec.
 //!
 //! `AdmittedOwnerWrite::open_table` hands back a raw `redb::Table` — the mutation
 //! kernel bounds an owner write to its layout, not to its scope's row keys,
 //! because owner tables in general carry no scope component (the jobs scheduler
 //! indexes carry none at all). For the semantic tables the key DOES carry the
-//! scope, so the row-key ACL is this owner's obligation and it lives here: every
-//! write of `eg_ann` or a binding row in this crate goes through one of the two
-//! bound accessors below, each of which refuses any key outside the prefix it
-//! was minted for.
-
-use eg_storage::{ANN_CODES, SEMANTIC_POINTERS};
-use serde::{Deserialize, Serialize};
+//! scope, so the row-key ACL is this owner's obligation and it lives here:
+//! every write of `eg_ann` in this crate goes through [`BoundCodeRows`], which
+//! refuses any key outside the `(tenant, binding, generation)` prefix it was
+//! minted for.
+//!
+//! The BINDING-level tables (`semantic_bindings`, `semantic_active_pointers`,
+//! `semantic_tombstones`, …) need no such accessor, and deliberately do not
+//! have one. One `SemanticCodeStore` serves exactly one `(tenant, binding)`
+//! physical file, so every key those writes form is
+//! `(self.tenant, self.binding[, generation])` taken from the store's own
+//! identity — a foreign tenant or binding component is not constructible on
+//! that path. The generation component is the ONE part that comes from request
+//! data, and bounding it is exactly what `BoundCodeRows` is for.
 
 use super::{kernel_error, SemanticCodeError};
 
@@ -35,25 +41,6 @@ pub(super) const DIGEST_PART: &str = "digest";
 pub(super) type CodeKey = (&'static str, &'static str, u64, &'static str);
 pub(super) type CodeTable<'t> = redb::Table<'t, CodeKey, &'static [u8]>;
 pub(super) type CodeReadTable = redb::ReadOnlyTable<CodeKey, &'static [u8]>;
-pub(super) type BindingKey = (&'static str, &'static str);
-pub(super) type BindingTable<'t> = redb::Table<'t, BindingKey, &'static [u8]>;
-
-/// The binding's durable authority record: the model identity and width every
-/// generation of this binding must agree with. Written at first activation and
-/// compared, never replaced, thereafter.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct BindingAuthority {
-    pub(super) dimensions: usize,
-    pub(super) model_digest: Option<String>,
-}
-
-/// The binding's live-generation pointer. ONE row per `(tenant, binding)`, so
-/// two live generations are structurally impossible rather than merely unlikely.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct LivePointer {
-    pub(super) generation: u64,
-}
-
 /// `eg_ann` rows bound to exactly one `(tenant, binding, generation)`.
 pub(super) struct BoundCodeRows<'t> {
     table: CodeTable<'t>,
@@ -130,141 +117,6 @@ impl<'t> BoundCodeRows<'t> {
     }
 }
 
-/// The binding-level rows (`(tenant, binding)` keys) bound to one binding.
-pub(super) struct BoundBindingRows<'t> {
-    table: BindingTable<'t>,
-    tenant: String,
-    binding: String,
-}
-
-impl<'t> BoundBindingRows<'t> {
-    pub(super) fn new(table: BindingTable<'t>, tenant: &str, binding: &str) -> Self {
-        Self {
-            table,
-            tenant: tenant.to_string(),
-            binding: binding.to_string(),
-        }
-    }
-
-    fn permit(&self, key: (&str, &str)) -> Result<(), SemanticCodeError> {
-        if key.0 != self.tenant || key.1 != self.binding {
-            return Err(SemanticCodeError::Refused(format!(
-                "semantic binding write may not address another binding's rows \
-                 (bound to {}/{}, attempted {}/{})",
-                self.tenant, self.binding, key.0, key.1
-            )));
-        }
-        Ok(())
-    }
-
-    pub(super) fn insert(
-        &mut self,
-        key: (&str, &str),
-        value: &[u8],
-    ) -> Result<(), SemanticCodeError> {
-        self.permit(key)?;
-        self.table.insert(key, value).map_err(kernel_error)?;
-        Ok(())
-    }
-
-    pub(super) fn put(&mut self, value: &[u8]) -> Result<(), SemanticCodeError> {
-        let (tenant, binding) = (self.tenant.clone(), self.binding.clone());
-        self.insert((tenant.as_str(), binding.as_str()), value)
-    }
-}
-
-/// Sweep of one generation's owner payload, invoked by the mutation kernel
-/// inside the same write transaction as the ledger retirement.
-///
-/// The generation is carried explicitly rather than parsed back out of the
-/// scope's incarnation string, and the scope it is paired with is checked: a
-/// retirement built for one generation cannot be handed to another's purge.
-pub(super) struct GenerationRetirement {
-    pub(super) tenant: String,
-    pub(super) binding: String,
-    pub(super) generation: u64,
-}
-
-impl eg_storage::OwnerPayloadRetirement<eg_storage::SemanticIndexOwner> for GenerationRetirement {
-    fn retire_owner_payload(
-        &self,
-        write: &eg_storage::PhysicalWriteCapability<'_, eg_storage::SemanticIndexOwner>,
-        scope: &eg_types::MutationScopeIdentity,
-    ) -> Result<(), String> {
-        let expected = super::generation_identity(&self.tenant, &self.binding, self.generation)
-            .map_err(|error| error.to_string())?;
-        if scope != &expected {
-            return Err(
-                "owner-payload retirement does not describe the scope being purged".to_string(),
-            );
-        }
-        // A bounded range over exactly this generation's prefix, not a scan of
-        // every tenant's rows: retirement of one generation must not cost the
-        // whole table (plan R3's complexity family).
-        let mut codes = write.open_owner_write(ANN_CODES)?;
-        codes
-            .retain_in(
-                (
-                    self.tenant.as_str(),
-                    self.binding.as_str(),
-                    self.generation,
-                    "",
-                )
-                    ..=(
-                        self.tenant.as_str(),
-                        self.binding.as_str(),
-                        self.generation,
-                        PART_UPPER_BOUND,
-                    ),
-                |_, _| false,
-            )
-            .map_err(|error| error.to_string())?;
-        drop(codes);
-        // The live pointer may not outlive the generation it names.
-        let live = read_live_pointer_in(write, &self.tenant, &self.binding)
-            .map_err(|error| error.to_string())?;
-        if live == Some(self.generation) {
-            write
-                .open_owner_write(SEMANTIC_POINTERS)?
-                .remove((self.tenant.as_str(), self.binding.as_str()))
-                .map_err(|error| error.to_string())?;
-        }
-        Ok(())
-    }
-}
-
-fn read_live_pointer_in(
-    write: &eg_storage::PhysicalWriteCapability<'_, eg_storage::SemanticIndexOwner>,
-    tenant: &str,
-    binding: &str,
-) -> Result<Option<u64>, SemanticCodeError> {
-    let pointers = write
-        .open_owner_read(SEMANTIC_POINTERS)
-        .map_err(kernel_error)?;
-    let raw = pointers
-        .get((tenant, binding))
-        .map_err(kernel_error)?
-        .map(|value| value.value().to_vec());
-    decode_live_pointer(raw)
-}
-
-pub(super) fn decode_live_pointer(raw: Option<Vec<u8>>) -> Result<Option<u64>, SemanticCodeError> {
-    let Some(bytes) = raw else {
-        return Ok(None);
-    };
-    let pointer: LivePointer = rmp_serde::from_slice(&bytes)
-        .map_err(|error| SemanticCodeError::Corrupt(error.to_string()))?;
-    Ok(Some(pointer.generation))
-}
-
-pub(super) fn decode_authority(bytes: &[u8]) -> Result<BindingAuthority, SemanticCodeError> {
-    rmp_serde::from_slice(bytes).map_err(|error| SemanticCodeError::Corrupt(error.to_string()))
-}
-
-pub(super) fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, SemanticCodeError> {
-    rmp_serde::to_vec_named(value).map_err(|error| SemanticCodeError::Corrupt(error.to_string()))
-}
-
 /// Sorts above every `{part}:{ordinal:08}` and every bare part name, so a
 /// `..=` range over it covers one generation's whole key space.
 const PART_UPPER_BOUND: &str = "\u{10FFFF}";
@@ -328,17 +180,4 @@ pub(super) fn read_part(
         )));
     }
     Ok(Some(out))
-}
-
-/// The binding authority row, decoded from whatever snapshot read it. Takes the
-/// raw bytes rather than a table because the kernel's two read surfaces are
-/// distinct types (`ReadOnlyTable` outside a write, `OwnerReadTable` inside
-/// one) and this decode is the same either way.
-pub(super) fn decode_authority_row(
-    raw: Option<Vec<u8>>,
-) -> Result<Option<BindingAuthority>, SemanticCodeError> {
-    let Some(bytes) = raw else {
-        return Ok(None);
-    };
-    decode_authority(&bytes).map(Some)
 }

@@ -161,6 +161,19 @@ fn commit_receipt_id(
     }
 }
 
+/// The three values that together select ONE durable commit receipt, and the
+/// only three [`commit_receipt_id`] hashes.  They are never meaningful apart:
+/// the opaque parent id alone is not a receipt key once a request key is in
+/// play, and the request key alone would let one caller's key select another
+/// tenant's transaction (see [`commit_receipt_id`]).  Threaded as one value so
+/// a resume path cannot pass two of the three.
+struct CommitReceiptKey<'a> {
+    txn_id: &'a str,
+    idempotency_key: Option<&'a str>,
+    /// The tenant verified for this request, when the caller is tenant-scoped.
+    expected_tenant: Option<&'a str>,
+}
+
 #[cfg(feature = "raft")]
 fn cross_shard_transaction_id(parent_id: &str) -> String {
     // Use the digest-only parent id in the disjoint 2PC table as well.  This gives
@@ -2277,9 +2290,11 @@ async fn commit(
             state,
             req_id,
             caller,
-            txn_id,
-            idempotency_key,
-            tenant_scope,
+            CommitReceiptKey {
+                txn_id,
+                idempotency_key,
+                expected_tenant: tenant_scope,
+            },
             keyed,
             persistence,
             attempt_nonce,
@@ -2291,8 +2306,7 @@ async fn commit(
         },
     };
 
-    let response =
-        commit_prepared(state, req_id, caller, txn_id, txn, receipt, attempt_nonce).await;
+    let response = commit_prepared(state, req_id, caller, txn, receipt, attempt_nonce).await;
     tag_commit_response(response, false, keyed)
 }
 
@@ -2381,13 +2395,16 @@ async fn commit_resume_txn(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     caller: Option<&str>,
-    txn_id: &str,
-    idempotency_key: Option<&str>,
-    expected_tenant: Option<&str>,
+    receipt_key: CommitReceiptKey<'_>,
     keyed: bool,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     attempt_nonce: Option<Nonce>,
 ) -> Result<(GraphTxnState, TxnReceipt), Response> {
+    let CommitReceiptKey {
+        txn_id,
+        idempotency_key,
+        expected_tenant,
+    } = receipt_key;
     match reconcile_committed_txn(
         state,
         req_id,
@@ -3310,7 +3327,6 @@ async fn commit_prepared(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     caller: Option<&str>,
-    txn_id: &str,
     txn: GraphTxnState,
     receipt: TxnReceipt,
     attempt_nonce: Option<Nonce>,
@@ -3330,7 +3346,6 @@ async fn commit_prepared(
             state,
             req_id,
             caller,
-            txn_id,
             &coordinator_id,
             txn,
             receipt,
@@ -3401,7 +3416,6 @@ async fn commit_prepared_multi_graph(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     caller: Option<&str>,
-    _txn_id: &str,
     coordinator_id: &str,
     txn: GraphTxnState,
     receipt: TxnReceipt,

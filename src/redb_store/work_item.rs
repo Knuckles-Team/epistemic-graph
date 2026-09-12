@@ -1752,12 +1752,14 @@ pub(crate) fn apply_commit_work_item_result_row(
         validate_terminal_extension_binding(
             &props,
             extension,
-            worker_id,
-            work_item_id,
-            fencing_token,
-            outcome,
-            result_ref,
-            batch_id,
+            TerminalCommitClaim {
+                worker_id,
+                work_item_id,
+                fencing_token,
+                outcome,
+                result_ref,
+                batch_id,
+            },
         )?;
         ensure_receipt_rows_absent(graph, &extension.receipt_nodes, nodes)?;
     }
@@ -1843,16 +1845,41 @@ pub(crate) fn apply_commit_work_item_result_row(
     )))
 }
 
+/// The terminal commit an outcome bundle has to be bound to.
+///
+/// These are the admitted `Method::CommitWorkItemResult` facts plus the batch
+/// the commit rides in. A bundle is only trustworthy if it agrees with ALL of
+/// them at once -- a bundle that names the right work item but the wrong worker,
+/// fence or batch is exactly the forgery this check exists to refuse -- so they
+/// are carried as one claim rather than six positional facts a caller can
+/// transpose.
+struct TerminalCommitClaim<'a> {
+    /// The worker the lease is held by, and which the bundle's
+    /// `executor_lease_actor` must name.
+    worker_id: &'a str,
+    work_item_id: &'a str,
+    fencing_token: u64,
+    /// `succeeded` / `failed` / `cancelled`, already validated by the caller.
+    outcome: &'a str,
+    result_ref: &'a Option<String>,
+    /// The mutation batch this commit rides in; the bundle's outbox id must
+    /// match it, so a bundle cannot be replayed under a different batch.
+    batch_id: &'a str,
+}
+
 fn validate_terminal_extension_binding(
     props: &serde_json::Map<String, serde_json::Value>,
     extension: &eg_types::outcome_bundle::TerminalOutcomeExtension,
-    worker_id: &str,
-    work_item_id: &str,
-    fencing_token: u64,
-    outcome: &str,
-    result_ref: &Option<String>,
-    batch_id: &str,
+    claim: TerminalCommitClaim<'_>,
 ) -> Result<(), String> {
+    let TerminalCommitClaim {
+        worker_id,
+        work_item_id,
+        fencing_token,
+        outcome,
+        result_ref,
+        batch_id,
+    } = claim;
     extension.validate()?;
     let bundle = &extension.outcome_bundle;
     if bundle.outcome != outcome {

@@ -28,8 +28,9 @@ use sha2::{Digest, Sha256};
 
 use super::semantic::SemanticGenerationImage;
 use super::semantic_ann_codes::{
-    semantic_contract_error, SemanticCodeError, SemanticCodeStore, SemanticMutationReceipt,
-    SemanticSourceReconciliationCheckpoint, SemanticSourceReconciliationPhase,
+    semantic_contract_error, OperationAttribution, SemanticCodeError, SemanticCodeStore,
+    SemanticMutationReceipt, SemanticSourceReconciliationCheckpoint,
+    SemanticSourceReconciliationPhase,
 };
 
 /// Construct the canonical tenant-wide SQL source revision returned by E3.
@@ -873,6 +874,50 @@ fn checkpoint_for_scan(
     })
 }
 
+/// The page just read from the authoritative SQL source, together with the
+/// cursor it was requested with.
+///
+/// A page is only interpretable against the cursor that produced it: the
+/// non-advance check compares the page's own `next_cursor` against this
+/// `cursor`, so a page paired with the wrong request cursor would pass that
+/// check and loop forever. They are never useful apart.
+struct ScannedPage<'a> {
+    page: &'a SemanticSqlSourceReadPage,
+    cursor: Option<&'a [u8]>,
+}
+
+/// The part of a source-reconciliation checkpoint that carries forward from one
+/// bounded turn to the next.
+///
+/// These five are exactly the fields the next
+/// `SemanticSourceReconciliationCheckpoint` inherits unchanged: which wakeup
+/// digest and source revision the scan is reconciling, and how much of it has
+/// been consumed. The remaining checkpoint fields -- `phase`, the two cursors,
+/// the complete-read proof -- are derived per turn, which is why they are
+/// deliberately NOT here: a struct holding them too would invite a caller to
+/// supply a phase the turn has not reached.
+struct SourceScanProgress<'a> {
+    source_wakeup_digest: SemanticDigest,
+    source_revision: &'a str,
+    rows_seen: u64,
+    source_bytes_seen: u64,
+    pages_seen: u64,
+}
+
+/// The authenticated source wakeup one reconciliation turn runs under.
+///
+/// `binding` is the durable semantic binding, `scope_digest` is the binding
+/// digest the wakeup's mutation identity carried, and `record` is the committed
+/// outbox record that authorizes the turn. `validate_source_dirty_record`
+/// checks the three against each other ONCE, and every admission below it then
+/// needs all three; passing them separately let a checked triple be re-split
+/// and recombined with a different record.
+struct AdmittedSourceWakeup<'a> {
+    binding: &'a SemanticBinding,
+    scope_digest: SemanticDigest,
+    record: &'a MutationOutboxRecord,
+}
+
 #[derive(Debug, Default)]
 struct ReconciliationTurnBudget {
     pages: usize,
@@ -1080,10 +1125,13 @@ impl SemanticIndexService {
         replacement: &SemanticBinding,
         source_manifest: &SemanticSqlSourceManifest,
         now_ms: u64,
-        actor: &str,
-        idempotency_key: &str,
-        nonce: Nonce,
+        attribution: OperationAttribution<'_>,
     ) -> Result<SemanticMutationReceipt, SemanticCodeError> {
+        let OperationAttribution {
+            actor,
+            idempotency_key,
+            nonce,
+        } = attribution;
         if let Some(current) = self.store.read_binding()? {
             if current.generation == expected_generation {
                 validate_sql_revision_lineage(
@@ -1121,9 +1169,11 @@ impl SemanticIndexService {
             source_manifest,
             &replacement_intent,
             now_ms,
-            actor,
-            idempotency_key,
-            nonce,
+            OperationAttribution {
+                actor,
+                idempotency_key,
+                nonce,
+            },
         )
     }
 
@@ -1306,16 +1356,19 @@ impl SemanticIndexService {
         &self,
         binding: &SemanticBinding,
         checkpoint: Option<&SemanticSourceReconciliationCheckpoint>,
-        source_wakeup_digest: SemanticDigest,
-        source_revision: &str,
-        page: &SemanticSqlSourceReadPage,
-        cursor: Option<&[u8]>,
-        rows_seen: u64,
-        source_bytes_seen: u64,
-        pages_seen: u64,
+        scanned: ScannedPage<'_>,
+        progress: SourceScanProgress<'_>,
         budget: &ReconciliationTurnBudget,
         receipts: Vec<SemanticMutationReceipt>,
     ) -> Result<PartialReconciliationProgress, SemanticCodeError> {
+        let ScannedPage { page, cursor } = scanned;
+        let SourceScanProgress {
+            source_wakeup_digest,
+            source_revision,
+            rows_seen,
+            source_bytes_seen,
+            pages_seen,
+        } = progress;
         let next_cursor = page.next_cursor.clone().ok_or_else(|| {
             SemanticCodeError::Corrupt(
                 "validated partial source page lost its continuation cursor".to_string(),
@@ -1355,15 +1408,26 @@ impl SemanticIndexService {
 
     fn admit_missing_tombstones(
         &self,
-        binding: &SemanticBinding,
-        scope_digest: SemanticDigest,
-        record: &MutationOutboxRecord,
+        wakeup: AdmittedSourceWakeup<'_>,
         state: &SemanticSourceReconciliationCheckpoint,
         source_entities: &[String],
-        complete_receipt: SemanticDigest,
         mut receipts: Vec<SemanticMutationReceipt>,
         now_ms: u64,
     ) -> Result<Vec<SemanticMutationReceipt>, SemanticCodeError> {
+        let AdmittedSourceWakeup {
+            binding,
+            scope_digest,
+            record,
+        } = wakeup;
+        // The complete-read proof is READ OFF the checkpoint rather than passed
+        // beside it. It used to be both, and two authorities for one fact can
+        // disagree: a caller could hand a proof from one snapshot next to a
+        // checkpoint recording another.
+        let complete_receipt = state.complete_snapshot_receipt_digest.ok_or_else(|| {
+            SemanticCodeError::Corrupt(
+                "tombstone reconciliation checkpoint has no complete read proof".to_string(),
+            )
+        })?;
         for source_entity_id in source_entities {
             if self.store.source_entity_seen_at_revision(
                 binding.generation,
@@ -1543,13 +1607,17 @@ impl SemanticIndexService {
                 match self.persist_partial_reconciliation_page(
                     &binding,
                     checkpoint.as_ref(),
-                    wakeup_digest,
-                    revision,
-                    &page,
-                    cursor.as_deref(),
-                    rows_seen,
-                    source_bytes_seen,
-                    pages_seen,
+                    ScannedPage {
+                        page: &page,
+                        cursor: cursor.as_deref(),
+                    },
+                    SourceScanProgress {
+                        source_wakeup_digest: wakeup_digest,
+                        source_revision: revision,
+                        rows_seen,
+                        source_bytes_seen,
+                        pages_seen,
+                    },
                     &budget,
                     receipts,
                 )? {
@@ -1609,11 +1677,6 @@ impl SemanticIndexService {
         now_ms: u64,
     ) -> Result<SemanticSqlSourceReconciliationAdmission, SemanticCodeError> {
         validate_checkpoint_against_binding(binding, &state)?;
-        let complete_receipt = state.complete_snapshot_receipt_digest.ok_or_else(|| {
-            SemanticCodeError::Corrupt(
-                "tombstone reconciliation checkpoint has no complete read proof".to_string(),
-            )
-        })?;
         let (prior_entities, next_prior_cursor) = self.store.list_source_entities_page(
             binding.generation,
             state.prior_cursor.as_deref(),
@@ -1626,12 +1689,13 @@ impl SemanticIndexService {
             Self::MAX_SOURCE_RECONCILIATION_TOMBSTONES_PER_TURN,
         )?;
         receipts = self.admit_missing_tombstones(
-            binding,
-            scope_digest,
-            record,
+            AdmittedSourceWakeup {
+                binding,
+                scope_digest,
+                record,
+            },
             &state,
             &prior_entities,
-            complete_receipt,
             receipts,
             now_ms,
         )?;

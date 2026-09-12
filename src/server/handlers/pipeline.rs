@@ -145,9 +145,11 @@ fn handle_train_tabular(
     finish_train(
         req_id,
         core,
-        name,
-        family,
-        &spec.model.algorithm,
+        TrainedModelIdentity {
+            name,
+            family,
+            algorithm: spec.model.algorithm.as_str(),
+        },
         spec,
         artifact,
         writeback,
@@ -204,26 +206,44 @@ fn handle_train_graphlearn(
     finish_train(
         req_id,
         core,
-        name,
-        "graphlearn",
-        &spec.model.algorithm,
+        TrainedModelIdentity {
+            name,
+            family: "graphlearn",
+            algorithm: spec.model.algorithm.as_str(),
+        },
         spec,
         artifact,
         writeback,
     )
 }
 
+/// How a fitted model is named on the graph.  `name` is the series a `:Model`
+/// node is versioned under, and `family` + `algorithm` are what a later
+/// `predict`/`evaluate` resolves and dispatches on.  All three are written into
+/// the `:Model` node AND echoed in the response, always as a set: a version
+/// whose recorded family or algorithm disagreed with its name could not be
+/// served back, so they are decided at the one place the fit happens and
+/// travel from there as one identity.
+struct TrainedModelIdentity<'a> {
+    name: &'a str,
+    family: &'a str,
+    algorithm: &'a str,
+}
+
 /// Version + (optionally) persist the fitted model as a `:Model` node, then respond.
 fn finish_train(
     req_id: u64,
     core: &GraphCore,
-    name: &str,
-    family: &str,
-    algorithm: &str,
+    model: TrainedModelIdentity<'_>,
     spec: &PipelineSpec,
     artifact: pipeline_model::TrainArtifact,
     writeback: bool,
 ) -> Response {
+    let TrainedModelIdentity {
+        name,
+        family,
+        algorithm,
+    } = model;
     let version = if writeback {
         next_version(core, name)
     } else {

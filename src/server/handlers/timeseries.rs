@@ -168,12 +168,27 @@ pub(crate) async fn try_handle(
         req_id,
         authority,
         None,
-        graph,
-        placement_epoch,
-        fencing_token,
+        SeriesPlacement {
+            graph,
+            placement_epoch,
+            fencing_token,
+        },
         method,
     )
     .await
+}
+
+/// Where a time-series request lands, and the fencing it lands under.  The
+/// router resolves all three as one routing decision and they are only valid
+/// together: the graph name namespaces the series scope, while the placement
+/// epoch and fencing token are what a stale route is rejected by -- committing
+/// under the right graph but a stale epoch is exactly the split-brain write the
+/// pair exists to stop, so no caller gets to supply one without the other two.
+pub(crate) struct SeriesPlacement<'a> {
+    pub(crate) graph: &'a str,
+    pub(crate) placement_epoch: u64,
+    /// `None` when the route carries no fencing token (single-node / non-raft).
+    pub(crate) fencing_token: Option<u64>,
 }
 
 pub(crate) async fn try_handle_with_nonce(
@@ -181,11 +196,14 @@ pub(crate) async fn try_handle_with_nonce(
     req_id: u64,
     authority: &CarrierAuthority,
     attempt_nonce: Option<Nonce>,
-    graph: &str,
-    placement_epoch: u64,
-    fencing_token: Option<u64>,
+    placement: SeriesPlacement<'_>,
     method: Method,
 ) -> Result<Response, Method> {
+    let SeriesPlacement {
+        graph,
+        placement_epoch,
+        fencing_token,
+    } = placement;
     let original_method = method.clone();
     match method {
         Method::TsAppend {
