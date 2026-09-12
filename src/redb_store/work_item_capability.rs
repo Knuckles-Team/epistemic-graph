@@ -1491,8 +1491,10 @@ mod tests {
                 .expect("open private table")
                 .scope_rows()
                 .expect("scan private table")
-                .map(|row| row.expect("private row"))
-                .count()
+                .fold(0, |acc, row| {
+                    row.expect("private row");
+                    acc + 1
+                })
         };
         (
             count(CAPABILITIES),

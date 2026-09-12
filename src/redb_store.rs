@@ -5962,6 +5962,16 @@ fn collect_resource_tenant_index_clear_keys(
     Ok(keys)
 }
 
+/// Table-specific row validation + key extraction for one
+/// [`clear_resource_three_part_table`] pass: given the table, the owning
+/// graph, and the resume cursor, return up to `MAX_RESOURCE_CLEAR_SCAN`
+/// `(second, third)` key parts eligible for removal.
+type ResourceRowCollector<V> = fn(
+    &ScopedOwnerTableMut<'_, (&str, &str, &str), V>,
+    &str,
+    &Option<(String, String)>,
+) -> Result<Vec<(String, String)>, String>;
+
 /// One bounded scan-and-remove pass over a three-part-key owner table,
 /// generalized over the row value type `V`. `collect` supplies the
 /// table-specific row validation and key extraction — the tenant-index and
@@ -5976,11 +5986,7 @@ fn collect_resource_tenant_index_clear_keys(
 fn clear_resource_three_part_table<V: redb::Value + 'static>(
     table: &mut ScopedOwnerTableMut<'_, (&str, &str, &str), V>,
     graph: &str,
-    collect: fn(
-        &ScopedOwnerTableMut<'_, (&str, &str, &str), V>,
-        &str,
-        &Option<(String, String)>,
-    ) -> Result<Vec<(String, String)>, String>,
+    collect: ResourceRowCollector<V>,
 ) -> Result<(), String> {
     let mut cursor: Option<(String, String)> = None;
     loop {

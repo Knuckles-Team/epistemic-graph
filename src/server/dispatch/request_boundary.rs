@@ -3,7 +3,7 @@ use super::change_envelope::multi_graph_batch_update;
 #[cfg(feature = "raft")]
 use super::consensus::{is_replicated_apply, propose_native_mutation};
 use super::router::dispatch_request_method;
-#[cfg(feature = "sparql-http")]
+#[cfg(all(feature = "sparql-http", feature = "raft"))]
 use super::sparql_update::coordinated_sparql_http_update;
 use super::*;
 

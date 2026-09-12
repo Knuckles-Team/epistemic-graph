@@ -482,19 +482,16 @@ async fn process_lease(
     // transaction. A crash between the two is not representable, so there is no
     // second call to make and no watermark left to re-read -- the advanced
     // cursor is the return value.
-    match persistence
+    // Do not apply later leased rows after an ordering gap
+    // (`OUTBOX_ORDER_GAP`) or a lost lease (`STALE_OUTBOX_LEASE`). The lease
+    // is deliberately NOT released: its expiry is this worker's backoff,
+    // where `outbox_release` would re-offer the row on the next poll and
+    // turn a persistent failure into a hot retry loop. The sidecar is at
+    // most one event ahead; exact-position replay is harmless.
+    persistence
         .ack_mutation_outbox(graph_fname, lease, current_time_ms())
         .await
-    {
-        Ok(advanced) => Some(advanced),
-        // Do not apply later leased rows after an ordering gap
-        // (`OUTBOX_ORDER_GAP`) or a lost lease (`STALE_OUTBOX_LEASE`). The lease
-        // is deliberately NOT released: its expiry is this worker's backoff,
-        // where `outbox_release` would re-offer the row on the next poll and
-        // turn a persistent failure into a hot retry loop. The sidecar is at
-        // most one event ahead; exact-position replay is harmless.
-        Err(_) => None,
-    }
+        .ok()
 }
 
 #[cfg(feature = "redb")]
@@ -1710,8 +1707,9 @@ mod tests {
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
             },
         };
-        let payload = crate::redb_store::projection_payload_for_operations(&[operation.clone()])
-            .expect("projection wake-up payload");
+        let payload =
+            crate::redb_store::projection_payload_for_operations(std::slice::from_ref(&operation))
+                .expect("projection wake-up payload");
         let schema_digest = Digest256::from_bytes([1_u8; 32]);
         let scope_sha256 = identity.identity_digest().to_hex();
         let mut batch = MutationBatch {

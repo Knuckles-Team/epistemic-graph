@@ -134,6 +134,15 @@ fn change_envelope_batch_authority_error(
     None
 }
 
+/// Per-graph envelope groups, each entry carrying its graph name and the
+/// `(request_index, envelope)` pairs staged for that graph in request order,
+/// paired with the request indices of envelopes that had no graph to group by.
+#[cfg(feature = "redb")]
+type GroupedChangeEnvelopes = (
+    Vec<(String, Vec<(usize, crate::change_envelope::ChangeEnvelope)>)>,
+    Vec<usize>,
+);
+
 /// Group envelopes by graph, preserving first-seen graph order and the
 /// per-graph envelope order, and carrying each envelope's REQUEST index so the
 /// per-graph results can be scattered back into request order.
@@ -148,10 +157,7 @@ fn change_envelope_batch_authority_error(
 #[cfg(feature = "redb")]
 fn group_change_envelopes_by_graph(
     envelopes: Vec<crate::change_envelope::ChangeEnvelope>,
-) -> (
-    Vec<(String, Vec<(usize, crate::change_envelope::ChangeEnvelope)>)>,
-    Vec<usize>,
-) {
+) -> GroupedChangeEnvelopes {
     let mut graph_order: Vec<String> = Vec::new();
     let mut groups: std::collections::HashMap<
         String,

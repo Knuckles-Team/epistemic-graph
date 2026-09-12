@@ -135,11 +135,11 @@ pub(super) fn read_dollar_quoted(s: &str, start: usize) -> Option<(String, usize
 // EG-116 — textual recognition of CREATE INDEX … USING hnsw|ivfflat
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Recognize `CREATE INDEX [CONCURRENTLY] [IF NOT EXISTS] [name] ON table USING
-/// hnsw|ivfflat (col [opclass])` (CONCEPT:EG-KG.query.real-ann-top-k) textually — `sqlparser` 0.51 cannot
-/// parse the opclass inside the column list, nor `IF NOT EXISTS` on an index. Returns
-/// `None` for a non-ANN `CREATE INDEX` (so `classify` falls through to its ordinary —
-/// currently-unsupported — path) or any other statement.
+// Recognize `CREATE INDEX [CONCURRENTLY] [IF NOT EXISTS] [name] ON table USING
+// hnsw|ivfflat (col [opclass])` (CONCEPT:EG-KG.query.real-ann-top-k) textually — `sqlparser` 0.51 cannot
+// parse the opclass inside the column list, nor `IF NOT EXISTS` on an index. Returns
+// `None` for a non-ANN `CREATE INDEX` (so `classify` falls through to its ordinary —
+// currently-unsupported — path) or any other statement.
 // ─────────────────────────────────────────────────────────────────────────────
 // EG-117 — create_hypertable() + continuous aggregate
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1534,12 +1534,17 @@ fn classify_retention_bucket(
     Ok(Some(chunk.encode()?))
 }
 
+/// A retention sweep's outcome for one series: buckets to drop outright
+/// (`victims`, by bucket key) and buckets to rewrite in place with trimmed
+/// bytes (`rewrites`, as `(bucket, re-encoded chunk)` pairs).
+type RetentionPlan = (Vec<u64>, Vec<(u64, Vec<u8>)>);
+
 fn collect_retention_plan(
     chunks: &Table<'_, (&str, u64), &[u8]>,
     series_id: &str,
     bucket_ns: u64,
     cutoff: Ts,
-) -> Result<(Vec<u64>, Vec<(u64, Vec<u8>)>)> {
+) -> Result<RetentionPlan> {
     let mut victims = Vec::new();
     let mut rewrites = Vec::new();
     let mut rewrite_bytes = 0usize;

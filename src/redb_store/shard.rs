@@ -116,25 +116,26 @@ fn take_graft_catalog_cleanup_fault(graph_fname: &str) -> bool {
     false
 }
 
+/// A test-only rendezvous barrier armed for one named graph: `None` until a
+/// test arms it with `(graph_fname, barrier)`, taken (and cleared) the first
+/// time [`take_test_barrier`] sees that same graph name.
+#[cfg(all(test, feature = "server"))]
+type NamedBarrierSlot = OnceLock<Mutex<Option<(String, Arc<Barrier>)>>>;
+
 /// Test-only rendezvous after the staged owner transaction and before the
 /// separate catalog transaction.  The graft/import interleave regression holds
 /// the import at this boundary while it attempts the competing cleanup.
 #[cfg(all(test, feature = "server"))]
-static IMPORT_AFTER_RESERVED_STAGE: OnceLock<Mutex<Option<(String, Arc<Barrier>)>>> =
-    OnceLock::new();
+static IMPORT_AFTER_RESERVED_STAGE: NamedBarrierSlot = OnceLock::new();
 
 /// Test-only rendezvous before a graft takes the graph protocol guard.  It lets
 /// the interleave regression prove that the competing cleanup has entered the
 /// protocol before the staged import is released.
 #[cfg(all(test, feature = "server"))]
-static GRAFT_BEFORE_PROTOCOL_LOCK: OnceLock<Mutex<Option<(String, Arc<Barrier>)>>> =
-    OnceLock::new();
+static GRAFT_BEFORE_PROTOCOL_LOCK: NamedBarrierSlot = OnceLock::new();
 
 #[cfg(all(test, feature = "server"))]
-fn take_test_barrier(
-    slot: &OnceLock<Mutex<Option<(String, Arc<Barrier>)>>>,
-    graph_fname: &str,
-) -> Option<Arc<Barrier>> {
+fn take_test_barrier(slot: &NamedBarrierSlot, graph_fname: &str) -> Option<Arc<Barrier>> {
     let mut barrier = slot.get()?.lock().ok()?;
     if barrier
         .as_ref()
@@ -1950,7 +1951,7 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-        drop(winner_target);
+        let _ = winner_target;
         drop(loser_handle);
         drop(loser);
         let loser = Shard::open(&loser_path).unwrap();

@@ -52,9 +52,12 @@ enum MatchOpening {
     Write(Statement),
 }
 
+/// Function name → `Expr` constructor dispatch for a single-variable
+/// projection function: `name(v)`.
+type VarFunctionDispatch = [(&'static str, fn(String) -> Expr); 2];
+
 /// Projection functions over a single variable: `name(v)`.
-static VAR_FUNCTIONS: [(&str, fn(String) -> Expr); 2] =
-    [("type", Expr::RelType), ("labels", Expr::Labels)];
+static VAR_FUNCTIONS: VarFunctionDispatch = [("type", Expr::RelType), ("labels", Expr::Labels)];
 
 struct Parser {
     toks: Vec<Tok>,

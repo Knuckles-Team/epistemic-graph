@@ -4381,7 +4381,7 @@ mod tests {
         })
         .await;
         assert!(response.error.is_none(), "{:?}", response.error);
-        drop(first);
+        let _ = first;
         drop(persistence);
         drop(core);
 
@@ -4503,7 +4503,7 @@ mod tests {
         )
         .await;
         assert!(response.error.is_none(), "{:?}", response.error);
-        drop(first);
+        let _ = first;
         drop(persistence);
         drop(core);
 

@@ -10,6 +10,23 @@ use tokio::sync::RwLock;
 use crate::graph::GraphCore;
 use crate::server::ServerState;
 
+/// A snapshot of the caller-authorized graphs at plan time: each entry's
+/// `(type, core)` if the graph already exists live in the registry, or `None`
+/// for a graph the update may create.
+#[cfg(feature = "shacl")]
+type LiveGraphSnapshot = Vec<(String, Option<(crate::protocol::GraphType, Arc<GraphCore>)>)>;
+
+/// Detached staging state threaded through one update's plan: pre-image bytes,
+/// the staged (post-update) core, whether the graph existed before, and its
+/// type -- each keyed by graph name.
+#[cfg(feature = "shacl")]
+type StagedGraphState = (
+    HashMap<String, Vec<u8>>,
+    HashMap<String, Arc<GraphCore>>,
+    HashMap<String, bool>,
+    HashMap<String, crate::protocol::GraphType>,
+);
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct PlannedGraphUpdate {
@@ -68,7 +85,7 @@ pub(crate) async fn plan_update(
 async fn snapshot_authorized_graphs(
     state: &Arc<RwLock<ServerState>>,
     authorized_graphs: &[String],
-) -> Vec<(String, Option<(crate::protocol::GraphType, Arc<GraphCore>)>)> {
+) -> LiveGraphSnapshot {
     let s = state.read().await;
     authorized_graphs
         .iter()
@@ -86,7 +103,7 @@ async fn snapshot_authorized_graphs(
 #[cfg(feature = "shacl")]
 fn plan_detached_update(
     update_text: &str,
-    live: Vec<(String, Option<(crate::protocol::GraphType, Arc<GraphCore>)>)>,
+    live: LiveGraphSnapshot,
     default_graph: &str,
 ) -> Result<Vec<PlannedGraphUpdate>, String> {
     let parsed = eg_rdf::update::parse_update(update_text)?;
@@ -105,17 +122,7 @@ fn plan_detached_update(
 }
 
 #[cfg(feature = "shacl")]
-fn stage_graphs(
-    live: Vec<(String, Option<(crate::protocol::GraphType, Arc<GraphCore>)>)>,
-) -> Result<
-    (
-        HashMap<String, Vec<u8>>,
-        HashMap<String, Arc<GraphCore>>,
-        HashMap<String, bool>,
-        HashMap<String, crate::protocol::GraphType>,
-    ),
-    String,
-> {
+fn stage_graphs(live: LiveGraphSnapshot) -> Result<StagedGraphState, String> {
     let mut before = HashMap::new();
     let mut staged_by_name = HashMap::new();
     let mut existed = HashMap::new();

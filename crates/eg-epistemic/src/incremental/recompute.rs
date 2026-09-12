@@ -211,10 +211,14 @@ impl IncrementalReasoningIndex {
     }
 }
 
+/// A materialization's resolved provenance: the set of node/edge refs it
+/// depends on, plus the ref of the generator that produced it (if any).
+type MaterializationProvenance = (BTreeSet<String>, Option<String>);
+
 fn provenance_for_ref(
     view: &GraphView,
     materialization_ref: &str,
-) -> Result<Option<(BTreeSet<String>, Option<String>)>, String> {
+) -> Result<Option<MaterializationProvenance>, String> {
     let mut matching_ids = view
         .node_properties
         .keys()

@@ -45,6 +45,18 @@ macro_rules! lane_visit_scope_rows {
     }};
 }
 
+/// A row-scan visitor: called once per row of a scope, in key order, with
+/// that row's key/value views. Returning `Ok(false)` stops the scan early.
+///
+/// Carries its own `'v` bound (rather than defaulting to `'static`, as a bare
+/// `dyn` behind a type alias otherwise would) so a caller may still pass a
+/// closure that borrows locals for exactly the `&mut` call's own lifetime.
+type RowVisitor<'v, K, V> = dyn for<'r> FnMut(
+        <K as redb::Value>::SelfType<'r>,
+        <V as redb::Value>::SelfType<'r>,
+    ) -> Result<bool, String>
+    + 'v;
+
 /// Read access to one scope-prefixed lane table, over either the scoped read of
 /// it or the scoped write of it inside an admitted group.
 ///
@@ -75,10 +87,7 @@ where
     ) -> Result<Range<'_, K, V>, String>;
 
     /// Every row of THIS scope in key order, until `visit` answers `false`.
-    fn visit_scope_rows(
-        &self,
-        visit: &mut dyn for<'r> FnMut(K::SelfType<'r>, V::SelfType<'r>) -> Result<bool, String>,
-    ) -> Result<(), String>
+    fn visit_scope_rows(&self, visit: &mut RowVisitor<'_, K, V>) -> Result<(), String>
     where
         for<'k> K::SelfType<'k>: OwnerRowScopeStart<'k>;
 }
@@ -101,10 +110,7 @@ where
         lane_row_range!(self, start, end, read)
     }
 
-    fn visit_scope_rows(
-        &self,
-        visit: &mut dyn for<'r> FnMut(K::SelfType<'r>, V::SelfType<'r>) -> Result<bool, String>,
-    ) -> Result<(), String>
+    fn visit_scope_rows(&self, visit: &mut RowVisitor<'_, K, V>) -> Result<(), String>
     where
         for<'k> K::SelfType<'k>: OwnerRowScopeStart<'k>,
     {
@@ -130,10 +136,7 @@ where
         lane_row_range!(self, start, end, write)
     }
 
-    fn visit_scope_rows(
-        &self,
-        visit: &mut dyn for<'r> FnMut(K::SelfType<'r>, V::SelfType<'r>) -> Result<bool, String>,
-    ) -> Result<(), String>
+    fn visit_scope_rows(&self, visit: &mut RowVisitor<'_, K, V>) -> Result<(), String>
     where
         for<'k> K::SelfType<'k>: OwnerRowScopeStart<'k>,
     {

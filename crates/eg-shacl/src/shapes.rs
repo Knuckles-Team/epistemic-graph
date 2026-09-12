@@ -391,13 +391,20 @@ impl<'a> ShapesGraph<'a> {
     /// Logical, shape-based and other constraints (W3C SHACL Core §4.6, §4.7, §4.8, plus
     /// SHACL-SPARQL `sh:sparql`).
     fn collect_logical_and_shape_constraints(&self, id: &Term, out: &mut Vec<Constraint>) {
+        /// Predicate → list-constraint constructor dispatch (`sh:and`/`sh:or`/`sh:xone`,
+        /// each of which takes the predicate's whole `rdf:List` as one operand).
+        type ListConstraintDispatch = [(&'static str, fn(Vec<Term>) -> Constraint); 3];
+        /// Predicate → per-object constraint constructor dispatch (`sh:node`/
+        /// `sh:property`/`sh:sparql`, each applied once per matching object).
+        type RepeatedConstraintDispatch = [(&'static str, fn(Term) -> Constraint); 3];
+
         if let Some(head) = self.object(id, vocab::IN) {
             out.push(Constraint::In(self.rdf_list(&head)));
         }
         if let Some(v) = self.object(id, vocab::HAS_VALUE) {
             out.push(Constraint::HasValue(v));
         }
-        let lists: [(&str, fn(Vec<Term>) -> Constraint); 3] = [
+        let lists: ListConstraintDispatch = [
             (vocab::AND, Constraint::And),
             (vocab::OR, Constraint::Or),
             (vocab::XONE, Constraint::Xone),
@@ -410,7 +417,7 @@ impl<'a> ShapesGraph<'a> {
         if let Some(v) = self.object(id, vocab::NOT) {
             out.push(Constraint::Not(v));
         }
-        let repeated: [(&str, fn(Term) -> Constraint); 3] = [
+        let repeated: RepeatedConstraintDispatch = [
             (vocab::NODE, Constraint::Node),
             (vocab::PROPERTY, Constraint::Property),
             (vocab::SPARQL, Constraint::Sparql),

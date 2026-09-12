@@ -874,7 +874,6 @@ mod lifecycle_failure_tests {
     /// open, so any body that writes rows and then REOPENS the same directory
     /// needs that env to hold still across both opens. Taken by every durable
     /// test in this module, not only the ones observed to fail.
-    #[must_use]
     fn durable_env_guard() -> crate::crypto::TestEnvReadGuard {
         crate::crypto::acquire_test_env_read_lock_blocking()
     }

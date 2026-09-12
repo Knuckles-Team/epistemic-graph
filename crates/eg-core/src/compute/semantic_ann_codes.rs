@@ -3144,7 +3144,7 @@ impl SemanticCodeStore {
             self.ack_stage_lease(lease, now_ms)?;
             return self
                 .stage_receipt(transition, true)
-                .map_err(|error| SemanticCodeError::Corrupt(error));
+                .map_err(SemanticCodeError::Corrupt);
         }
         let read = self.serving_read()?;
         self.validate_stage_predecessor_in(&read, &intent, true)?;
@@ -3247,14 +3247,14 @@ impl SemanticCodeStore {
                 )?;
                 drop(stages);
                 persist_transition_checkpoints(
-                    &rows,
+                    rows,
                     &tenant,
                     &binding,
                     &transition_for_write,
                     successor.as_ref(),
                 )?;
                 persist_stage_artifact_with_lease(
-                    &rows,
+                    rows,
                     &tenant,
                     &binding,
                     &transition_for_write,
@@ -3263,7 +3263,7 @@ impl SemanticCodeStore {
                 )?;
                 if let Some(generation_artifact) = generation_artifact {
                     persist_generation_artifact(
-                        &rows,
+                        rows,
                         &tenant,
                         &binding,
                         &transition_for_write,
@@ -3272,7 +3272,7 @@ impl SemanticCodeStore {
                 }
                 if let Some(source_entity_id) = &source_entity_id {
                     update_source_progress(
-                        &rows,
+                        rows,
                         &tenant,
                         &binding,
                         &transition_for_write,

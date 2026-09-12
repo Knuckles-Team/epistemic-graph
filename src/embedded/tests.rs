@@ -29,7 +29,6 @@ fn tmp_dir(tag: &str) -> PathBuf {
 /// It is taken by EVERY test in this module that opens a durable store, not
 /// only the ones observed to fail: a lock held at some entrypoints and not
 /// others protects nothing.
-#[must_use]
 fn durable_env_guard() -> crate::crypto::TestEnvReadGuard {
     crate::crypto::acquire_test_env_read_lock_blocking()
 }

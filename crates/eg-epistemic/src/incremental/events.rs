@@ -152,7 +152,7 @@ fn validate_node_upserted(
 ) -> Result<(), String> {
     let refs_are_opaque = valid_ref(node_ref)
         && dependency_refs.iter().all(|value| valid_ref(value))
-        && generator_ref.as_deref().map_or(true, valid_ref);
+        && generator_ref.as_deref().is_none_or(valid_ref);
     if !refs_are_opaque
         || is_materialization != (!dependency_refs.is_empty() || generator_ref.is_some())
     {
@@ -174,9 +174,7 @@ fn validate_edge_upserted(
     target_ref: &str,
     relationship: Option<&str>,
 ) -> Result<(), String> {
-    if valid_ref(source_ref)
-        && valid_ref(target_ref)
-        && relationship.map_or(true, valid_relationship)
+    if valid_ref(source_ref) && valid_ref(target_ref) && relationship.is_none_or(valid_relationship)
     {
         Ok(())
     } else {

@@ -1143,7 +1143,7 @@ pub fn decode_search_cursor(tenant_id: &str, cursor: &str) -> Result<String, Str
     const TAG_HEX: usize = SEARCH_CURSOR_TAG_BYTES * 2;
     if cursor.len() <= TAG_HEX
         || cursor.len() > MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES
-        || cursor.len() % 2 != 0
+        || !cursor.len().is_multiple_of(2)
     {
         return Err("agent component search cursor is malformed".to_string());
     }

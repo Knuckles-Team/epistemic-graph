@@ -1656,8 +1656,7 @@ mod tests {
         let state = test_state();
 
         // Seed the sensor layer THROUGH dispatch as well — no back door into the store.
-        let mut id = 1u64;
-        for (t, v) in [(0i64, 0.0f64), (2, 20.0), (4, 40.0)] {
+        for (id, (t, v)) in (1u64..).zip([(0i64, 0.0f64), (2, 20.0), (4, 40.0)]) {
             let m = Method::AddNode {
                 node_id: format!("imu{t}"),
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -1666,7 +1665,6 @@ mod tests {
                 .unwrap(),
             };
             assert_ok(&dispatch_on_heap(&state, request(id, "__commons__", None, m)).await);
-            id += 1;
         }
 
         let align = |interp| Method::UnifiedQuery {
@@ -1766,8 +1764,7 @@ mod tests {
 
         const NS: i64 = 1_000_000_000;
         let state = test_state();
-        let mut id = 1u64;
-        for (t, v) in [(0i64, 0.0f64), (2, 20.0), (4, 40.0)] {
+        for (id, (t, v)) in (1u64..).zip([(0i64, 0.0f64), (2, 20.0), (4, 40.0)]) {
             let m = Method::AddNode {
                 node_id: format!("imu{t}"),
                 properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
@@ -1776,7 +1773,6 @@ mod tests {
                 .unwrap(),
             };
             assert_ok(&dispatch_on_heap(&state, request(id, "__commons__", None, m)).await);
-            id += 1;
         }
 
         let resp = dispatch_on_heap(

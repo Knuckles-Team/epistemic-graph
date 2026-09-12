@@ -697,14 +697,10 @@ fn valid_amz_date(value: &str, scope_date: &str) -> bool {
 }
 
 fn parse_sigv4_authorization(header: &str) -> Option<(&str, &str, &str)> {
-    let Some(fields) = header.strip_prefix("AWS4-HMAC-SHA256 ") else {
-        return None;
-    };
+    let fields = header.strip_prefix("AWS4-HMAC-SHA256 ")?;
     let mut parsed_fields = HashMap::with_capacity(3);
     for field in fields.split(',') {
-        let Some((name, value)) = field.trim().split_once('=') else {
-            return None;
-        };
+        let (name, value) = field.trim().split_once('=')?;
         if !matches!(name, "Credential" | "SignedHeaders" | "Signature")
             || value.is_empty()
             || parsed_fields.insert(name, value).is_some()
@@ -742,18 +738,22 @@ fn parse_sigv4_signed_headers(raw: &str) -> Option<Vec<&str>> {
     Some(signed_headers)
 }
 
+/// A structurally validated SigV4 request, as `(credential, signed_headers,
+/// signed_headers_raw, signature, amz_date, payload_hash)`.
+type Sigv4ValidatedRequest<'a> = (
+    Vec<&'a str>,
+    Vec<&'a str>,
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+);
+
 fn validate_sigv4_request<'a>(
     auth: &S3Auth,
     req: &'a S3Request,
     header: &'a str,
-) -> Option<(
-    Vec<&'a str>,
-    Vec<&'a str>,
-    &'a str,
-    &'a str,
-    &'a str,
-    &'a str,
-)> {
+) -> Option<Sigv4ValidatedRequest<'a>> {
     (req.query
         .split('&')
         .filter(|field| !field.is_empty())
@@ -786,9 +786,7 @@ fn validate_sigv4_request<'a>(
 fn canonical_sigv4_headers(req: &S3Request, signed_headers: &[&str]) -> Option<String> {
     let mut canonical_headers = Vec::with_capacity(signed_headers.len());
     for name in signed_headers {
-        let Some(value) = req.headers.get(*name) else {
-            return None;
-        };
+        let value = req.headers.get(*name)?;
         canonical_headers.push(format!(
             "{name}:{}",
             value.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -1018,8 +1016,8 @@ fn handle_authorized(store: &S3Store, req: &S3Request) -> S3Response {
     route::target(req).serve(store, req)
 }
 
-/// Route the multipart sub-resource verbs for a known `uploadId` (CONCEPT:EG-KG.txn.pubsub-transactions):
-/// `PUT …&partNumber=N` (UploadPart), `POST` (CompleteMultipartUpload),
+// Route the multipart sub-resource verbs for a known `uploadId` (CONCEPT:EG-KG.txn.pubsub-transactions):
+// `PUT …&partNumber=N` (UploadPart), `POST` (CompleteMultipartUpload),
 
 fn internal(msg: &str) -> S3Response {
     S3Response::error("500 Internal Server Error", "InternalError", msg)

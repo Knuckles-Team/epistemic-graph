@@ -4696,7 +4696,7 @@ mod keyed_recovery_window_tests {
     use crate::server::persistence::redb_backend::RedbBackend;
     use crate::server::persistence::PersistenceBackend;
     use crate::server::ServerState;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     const CALLER: &str = "txn-recovery-agent";
     const TENANT: &str = "tenant-recovery-scope";
@@ -4714,7 +4714,7 @@ mod keyed_recovery_window_tests {
 
     fn test_state(
         graph: &str,
-        dir: &PathBuf,
+        dir: &Path,
     ) -> (
         Arc<RwLock<ServerState>>,
         Arc<RedbBackend>,
@@ -4828,7 +4828,7 @@ mod keyed_recovery_window_tests {
     async fn restart_test_backend(
         state: &Arc<RwLock<ServerState>>,
         backend: Arc<RedbBackend>,
-        dir: &PathBuf,
+        dir: &Path,
     ) -> Arc<RedbBackend> {
         backend.shutdown();
         state.write().await.persistence = None;

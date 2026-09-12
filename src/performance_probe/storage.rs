@@ -617,11 +617,14 @@ fn probe_recovery_page(scale: usize) -> Result<Observation, ProbeError> {
     })
 }
 
+/// One fetched page of `(key, value)` rows plus the latency spent fetching it.
+type RecoveryPage = (Vec<((String, String, u32), u64)>, u64);
+
 fn recovery_page(
     rows: &BTreeMap<(String, String, u32), u64>,
     cursor: Option<&(String, String, u32)>,
     page_size: usize,
-) -> (Vec<((String, String, u32), u64)>, u64) {
+) -> RecoveryPage {
     timed(|| match cursor {
         Some(cursor) => rows
             .range((
