@@ -17,6 +17,11 @@ use super::run_gauntlet;
 /// Bounded + seeded ⇒ CI-able and reproducible.
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn gauntlet_partition_then_kill_leader_no_loss() {
+    // Brings up a durable redb-backed cluster and restarts members over the SAME
+    // directories, so the ambient encryption env must hold still for this whole
+    // body. READ guard: it excludes only a key MUTATOR, never another opener.
+    // See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let load = LoadConfig {
         writers: 4,
         rate_per_sec: 150,
@@ -58,6 +63,11 @@ async fn gauntlet_partition_then_kill_leader_no_loss() {
 /// then a leader. Stresses the group-commit + in-flight backpressure under churn.
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn gauntlet_saturate_and_kill_no_loss() {
+    // Brings up a durable redb-backed cluster and restarts members over the SAME
+    // directories, so the ambient encryption env must hold still for this whole
+    // body. READ guard: it excludes only a key MUTATOR, never another opener.
+    // See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let load = LoadConfig {
         writers: 8,
         rate_per_sec: 0, // saturate
@@ -87,6 +97,11 @@ async fn gauntlet_saturate_and_kill_no_loss() {
 /// happy-path no-loss bar hold before any fault is injected (a control).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gauntlet_no_fault_control() {
+    // Brings up a durable redb-backed cluster and restarts members over the SAME
+    // directories, so the ambient encryption env must hold still for this whole
+    // body. READ guard: it excludes only a key MUTATOR, never another opener.
+    // See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let load = LoadConfig {
         writers: 3,
         rate_per_sec: 100,

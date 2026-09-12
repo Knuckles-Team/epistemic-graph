@@ -52,41 +52,41 @@ fn harness_isolation() -> crate::isolation::IsolationLayer {
     super::harness_support::current_isolation(XSHARD_HARNESS_TEST_AGENT)
 }
 
-async fn fresh_dir(tag: &str) -> String {
-    // The user-facing `Commit` handler seals a durable transaction recovery plan
-    // (`begin_txn_receipt` → `seal_txn_recovery_plan`) through the value cipher, which the
-    // `security` feature resolves ONCE per process from this key at backend open. Provision
-    // it before any backend opens so the multi-graph Commit path can persist its recovery
-    // plan. Encryption is symmetric and transparent to every durable round-trip these tests
-    // make (2PC prepare slices seal+unseal; the decision is a raw state byte), so the
-    // coordinator-path tests behave identically with it set.
-    //
-    // UNDER THE WRITE GUARD, and that is the whole point of this being async.
-    // Setting `EPISTEMIC_GRAPH_ENCRYPTION_KEY` is a PROCESS-GLOBAL mutation, and
-    // this was the one provisioner in the crate that performed it holding
-    // nothing: `redb_backend`'s two `Once`s fire inside callers that already hold
-    // `crypto::acquire_test_env_lock()`, and every explicit env guard takes it.
-    // A lock-free mutation lands at an arbitrary instant, including between some
-    // OTHER test's write of plaintext rows and its reopen -- which is exactly how
-    // `embedded::lifecycle_failure_tests::checkpoint_reopen_checkpoint_adopts_commons_version`
-    // ("encrypted durable value is missing sealed framing"),
-    // `redb_backend::tests::parallel_load_recovers_all_shards_off_the_writer` and
-    // the cluster/gauntlet restart tests ("... does not match the key that
-    // previously encrypted this store") failed under parallelism while passing
-    // single-threaded. Taking the WRITE guard for the duration of the one-time
-    // provisioning excludes every reader for exactly as long as the ambient key
-    // is unstable, which is what the read/write split exists for; after the
-    // `OnceCell` is initialized this costs nothing on any later call.
-    static ENCRYPTION_KEY: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
-    ENCRYPTION_KEY
-        .get_or_init(|| async {
-            let _env_lock = crate::crypto::acquire_test_env_lock().await;
-            std::env::set_var(
-                crate::crypto::ENCRYPTION_KEY_ENV,
-                "xshard-harness-recovery-key",
-            );
-        })
-        .await;
+/// Provision the shared test at-rest key, then hold the ambient encryption env still
+/// for the caller's ENTIRE body.
+///
+/// The user-facing `Commit` handler seals a durable transaction recovery plan
+/// (`begin_txn_receipt` -> `seal_txn_recovery_plan`) through the value cipher, which
+/// the `security` feature resolves ONCE per backend open from that key, so it has to
+/// BE configured before any backend here opens. Encryption is symmetric and
+/// transparent to every durable round-trip these tests make (2PC prepare slices
+/// seal+unseal; the decision is a raw state byte), so the coordinator-path tests
+/// behave identically with it set.
+///
+/// Every test in this module opens a durable store -- several open the SAME directory
+/// twice across a simulated crash -- and a durable open resolves its at-rest cipher
+/// from the process-global `EPISTEMIC_GRAPH_ENCRYPTION_KEY`. A concurrent key mutation
+/// between two of those opens fails the canary check, so the env has to hold still for
+/// the whole body, not just the first open. That is the READ guard
+/// `crate::crypto::provisioned_test_env_read_lock` hands back, after taking (and
+/// releasing) the WRITE guard for the one-time provisioning -- the only safe order,
+/// since `tokio::sync::RwLock` is not reentrant.
+///
+/// This is also why the provisioning cannot live inside `fresh_dir`, where it used to:
+/// `fresh_dir` is called from inside a test body that already holds a guard, and that
+/// hazard was live -- the four tests here that held the WRITE guard called `fresh_dir`
+/// while holding it, so whichever ran FIRST would have hung the binary on the
+/// provisioning's own write acquisition.
+async fn env_read_guard() -> crate::crypto::TestEnvReadGuard {
+    crate::crypto::provisioned_test_env_read_lock().await
+}
+
+/// A unique, empty temporary directory for one scenario.
+///
+/// Provisioning the at-rest key does NOT happen here -- see [`env_read_guard`]'s doc
+/// for why it cannot. Callers reach this through [`env_read_guard`], which has already
+/// provisioned it.
+fn fresh_dir(tag: &str) -> String {
     // Keep directory lifecycle and UTF-8 validation in the shared harness fixture.
     fixture::fresh_dir("eg-xshard", tag)
 }
@@ -168,6 +168,9 @@ async fn stop_after_prepare_without_decision(
 #[cfg(target_os = "linux")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shutdown_releases_accepted_connection_and_backend_fds_before_reopen() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     const CHILD_ENV: &str = "EG_XSHARD_FD_LIFECYCLE_CHILD";
     if std::env::var_os(CHILD_ENV).is_none() {
         let executable = std::env::current_exe().expect("xshard test executable");
@@ -197,7 +200,7 @@ async fn shutdown_releases_accepted_connection_and_backend_fds_before_reopen() {
     let baseline = process_fd_count();
 
     for cycle in 0..CYCLES {
-        let dir = fresh_dir(&format!("eg-xshard-fd-lifecycle-cycle-{cycle}")).await;
+        let dir = fresh_dir(&format!("eg-xshard-fd-lifecycle-cycle-{cycle}"));
         let backend = fixture::open_backend(&dir).expect("open redb");
         let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
         let before_connection = process_fd_count();
@@ -308,7 +311,10 @@ fn writer_plus_readonly_txn(txn_id: &str, a_node: &str) -> CrossShardTxn {
 /// a txn spanning two groups IS. This is exactly the gate `Commit` checks.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn span_detection_routes_single_group_to_fast_path() {
-    let dir = fresh_dir("span").await;
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
+    let dir = fresh_dir("span");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
 
@@ -339,7 +345,10 @@ async fn span_detection_routes_single_group_to_fast_path() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cross_shard_commit_is_atomic_on_all_participants() {
-    let dir = fresh_dir("happy").await;
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
+    let dir = fresh_dir("happy");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
@@ -377,7 +386,10 @@ async fn cross_shard_commit_is_atomic_on_all_participants() {
 /// the participant is unreachable to the coordinator.)
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn killed_participant_during_prepare_aborts_with_no_partial_commit() {
-    let dir = fresh_dir("killprep").await;
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
+    let dir = fresh_dir("killprep");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
@@ -432,10 +444,12 @@ async fn killed_participant_during_prepare_aborts_with_no_partial_commit() {
 async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
     // Held for the whole test: opens the backend TWICE (initial + a restart reopen
     // of the SAME dir) and both opens must resolve the same encryption-at-rest
-    // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
-    #[cfg(feature = "security")]
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fresh_dir("recovercommit").await;
+    // cipher. A READ guard -- this body never MUTATES the env, it only needs it to
+    // hold still -- so it no longer serialises against every other opener, and no
+    // longer reaches the non-reentrant write acquisition `fresh_dir` used to perform
+    // from inside it. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
+    let dir = fresh_dir("recovercommit");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let txn_id = "t-recover-commit";
     {
@@ -489,10 +503,12 @@ async fn recovery_commits_in_doubt_txn_after_crash_post_decision() {
 async fn recovery_aborts_in_doubt_txn_with_no_decision_record() {
     // Held for the whole test: opens the backend TWICE (initial + a restart reopen
     // of the SAME dir) and both opens must resolve the same encryption-at-rest
-    // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
-    #[cfg(feature = "security")]
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fresh_dir("recoverabort").await;
+    // cipher. A READ guard -- this body never MUTATES the env, it only needs it to
+    // hold still -- so it no longer serialises against every other opener, and no
+    // longer reaches the non-reentrant write acquisition `fresh_dir` used to perform
+    // from inside it. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
+    let dir = fresh_dir("recoverabort");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let txn_id = "t-recover-abort";
     {
@@ -578,7 +594,7 @@ async fn wire_user_graphs(state: &Arc<RwLock<crate::server::ServerState>>, multi
 async fn bring_up_user_graphs(
     tag: &str,
 ) -> (String, fixture::Backend, Arc<MultiRaft>, HarnessState) {
-    let dir = fresh_dir(tag).await;
+    let dir = fresh_dir(tag);
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _coord, state) = bring_up(&dir, backend.clone()).await;
     wire_user_graphs(&state, &multi).await;
@@ -655,6 +671,9 @@ async fn begin_two_graph_txn(
 /// staged multi-graph write-set routed through the 2PC coordinator).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn user_multigraph_txn_commits_atomically_across_groups() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     let (dir, backend, multi, state) = bring_up_user_graphs("userhappy").await;
 
     let txn_id = begin_two_graph_txn(&state, "ua1", "ub1").await;
@@ -693,6 +712,9 @@ async fn user_multigraph_txn_commits_atomically_across_groups() {
 /// inherits the coordinator's atomicity under a participant kill (CONCEPT:EG-KG.txn.routes-cross-shard-txn).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn user_multigraph_txn_atomic_under_participant_kill() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     let (dir, backend, multi, state) = bring_up_user_graphs("userkill").await;
 
     // Stage the multi-graph txn first (both graphs resident), THEN kill participant B.
@@ -741,7 +763,10 @@ async fn user_multigraph_txn_atomic_under_participant_kill() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn read_only_participant_skips_prepare_and_phase2() {
-    let dir = fresh_dir("readonly").await;
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
+    let dir = fresh_dir("readonly");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
 
@@ -848,7 +873,10 @@ fn three_writer_txn(txn_id: &str, a: &str, b: &str, c: &str) -> CrossShardTxn {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn parallel_prepare_multi_writer_commits_atomically() {
-    let dir = fresh_dir("parcommit").await;
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
+    let dir = fresh_dir("parcommit");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, state) = bring_up(&dir, backend.clone()).await;
     add_third_group(&multi).await;
@@ -888,10 +916,12 @@ async fn parallel_prepare_multi_writer_commits_atomically() {
 async fn parallel_prepare_multi_writer_recovers_after_post_decision_crash() {
     // Held for the whole test: opens the backend TWICE (initial + a restart reopen
     // of the SAME dir) and both opens must resolve the same encryption-at-rest
-    // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
-    #[cfg(feature = "security")]
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fresh_dir("parrecover").await;
+    // cipher. A READ guard -- this body never MUTATES the env, it only needs it to
+    // hold still -- so it no longer serialises against every other opener, and no
+    // longer reaches the non-reentrant write acquisition `fresh_dir` used to perform
+    // from inside it. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
+    let dir = fresh_dir("parrecover");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let txn_id = "t-par-recover";
     {
@@ -969,7 +999,7 @@ async fn add_decision_group(multi: &Arc<MultiRaft>) {
 /// scenarios. The caller still owns the returned handles and therefore controls each test's
 /// crash, recovery, and cleanup boundary.
 async fn bring_up_nonblocking(tag: &str) -> (String, fixture::Backend, Harness) {
-    let dir = fresh_dir(tag).await;
+    let dir = fresh_dir(tag);
     let backend = fixture::open_backend(&dir).expect("open redb");
     let harness = bring_up(&dir, backend.clone()).await;
     add_decision_group(&harness.0).await;
@@ -997,6 +1027,9 @@ async fn bring_up_calvin_commit(
 /// the replicated decision node is GC'd after resolution.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn nonblocking_commit_is_atomic_via_replicated_decision() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     let (dir, backend, (multi, coord, state)) = bring_up_nonblocking("nbhappy").await;
 
     let txn = two_shard_txn("t-nb-happy", "na1", "nb1");
@@ -1041,6 +1074,9 @@ async fn nonblocking_commit_is_atomic_via_replicated_decision() {
 /// completion. Progress happens WITHOUT the original coordinator: no blocking window.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn nonblocking_coordinator_crash_between_decision_and_apply_does_not_block() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     let (dir, backend, (multi, coord, state)) = bring_up_nonblocking("nblive").await;
 
     let txn_id = "t-nb-live";
@@ -1104,6 +1140,9 @@ async fn nonblocking_coordinator_crash_between_decision_and_apply_does_not_block
 /// NO partial commit, exactly as the 2PC path does for the same inputs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn nonblocking_aborts_like_2pc_on_killed_participant() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     let (dir, backend, (multi, coord, state)) = bring_up_nonblocking("nbabort").await;
 
     // KILL participant B (close group 200) — it cannot prepare.
@@ -1149,6 +1188,9 @@ async fn nonblocking_aborts_like_2pc_on_killed_participant() {
 /// from an undecided crash, learned from the ABSENCE of a replicated decision).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     let (dir, backend, (multi, coord, state)) = bring_up_nonblocking("nbpresumed").await;
 
     let txn_id = "t-nb-presumed";
@@ -1190,6 +1232,9 @@ async fn nonblocking_recovery_presumed_abort_with_no_replicated_decision() {
 /// monotone global sequence, and the replicated sequence node is GC'd after resolution.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn calvin_deterministic_commit_is_atomic_and_vote_free() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     use super::cross_shard_txn::GlobalSeq;
     let (dir, backend, (multi, coord, state), seq) = bring_up_calvin_commit("calvinhappy").await;
 
@@ -1235,6 +1280,9 @@ async fn calvin_deterministic_commit_is_atomic_and_vote_free() {
 /// coordinator and WITHOUT any vote: agreement on the order was agreement on the outcome.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn calvin_crash_after_sequencing_is_resolved_by_replay() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     let (dir, backend, (multi, coord, state), seq) = bring_up_calvin_commit("calvinreplay").await;
 
     let txn_id = "t-calvin-replay";
@@ -1337,7 +1385,7 @@ async fn bring_up_calvin(
     Arc<MultiRaft>,
     Arc<CrossShardCoordinator>,
 ) {
-    let dir = fresh_dir(tag).await;
+    let dir = fresh_dir(tag);
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
     (dir, backend, multi, Arc::new(coord))
@@ -1389,6 +1437,9 @@ fn spawn_ordered_writer(
 /// equivalent to running T1 then T2 — the guarantee EG-324 deferred.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn calvin_ollp_ordered_readlock_serializes_conflicting_txns() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     use super::cross_shard_txn::{CalvinSequencer, OrderedLockManager, RecordKey, RwSet};
     use std::collections::BTreeSet;
 
@@ -1543,6 +1594,9 @@ async fn calvin_ollp_ordered_readlock_serializes_conflicting_txns() {
 /// post-writer committed state (`dir`→`k2`), equivalent to running T_writer then T_ollp.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn calvin_ollp_stale_recon_is_restarted_and_commits_serializably() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     use super::cross_shard_txn::{CalvinSequencer, OrderedLockManager, RecordKey, RwSet};
     use std::collections::BTreeSet;
 
@@ -1686,6 +1740,9 @@ async fn calvin_ollp_stale_recon_is_restarted_and_commits_serializably() {
 /// vote-free deterministic execution phase without disagreeing on the order.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn calvin_two_node_epoch_fan_in_derives_identical_order() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     use super::cross_shard_txn::{epoch_fan_in, GlobalSeq, NodeInput};
 
     // Node 1 and node 2 each locally sequenced two txns for epoch 9. Both nodes exchange
@@ -1738,6 +1795,9 @@ async fn calvin_two_node_epoch_fan_in_derives_identical_order() {
 ///      the restarted txn. That is "all nodes agree on the final serializable order."
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
     use super::cross_shard_txn::{
         epoch_fan_in, EpochFanInRegistry, OrderedLockManager, RecordKey, RwSet,
     };
@@ -1747,7 +1807,7 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
     const NODE_2: u64 = 2; // a peer node contributing an unrelated txn to the same epoch
     const BASE_EPOCH: u64 = 5;
 
-    let dir = fresh_dir("calvinepochrt").await;
+    let dir = fresh_dir("calvinepochrt");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, coord, _state) = bring_up(&dir, backend.clone()).await;
     let coord = Arc::new(coord);
@@ -1962,7 +2022,10 @@ async fn calvin_ollp_epoch_routing_restart_agrees_across_nodes() {
 /// A normal cross-group commit is atomic across the two groups' DISTINCT shards.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cross_group_2pc_commits_atomically_across_distinct_shards() {
-    let dir = fresh_dir("xshard-ksharded-commit").await;
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
+    let dir = fresh_dir("xshard-ksharded-commit");
     let backend = fixture::open_backend_with_shards(&dir, 4096, 3).expect("open K=3 redb");
     assert_eq!(
         backend.as_redb().unwrap().shard_count(),
@@ -1994,10 +2057,12 @@ async fn cross_group_2pc_commits_atomically_across_distinct_shards() {
 async fn cross_group_2pc_survives_crash_mid_prepare_across_distinct_shards() {
     // Held for the whole test: opens the backend TWICE (initial + a restart reopen
     // of the SAME dir) and both opens must resolve the same encryption-at-rest
-    // cipher. See `crate::crypto::acquire_test_env_lock`'s doc.
-    #[cfg(feature = "security")]
-    let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = fresh_dir("xshard-ksharded-crash").await;
+    // cipher. A READ guard -- this body never MUTATES the env, it only needs it to
+    // hold still -- so it no longer serialises against every other opener, and no
+    // longer reaches the non-reentrant write acquisition `fresh_dir` used to perform
+    // from inside it. See `env_read_guard`'s doc.
+    let _env_read_lock = env_read_guard().await;
+    let dir = fresh_dir("xshard-ksharded-crash");
     let backend = fixture::open_backend_with_shards(&dir, 4096, 3).expect("open K=3 redb");
     let txn_id = "t-ksharded-crash";
     {

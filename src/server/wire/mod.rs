@@ -5259,11 +5259,17 @@ mod ne_004_ne_005_tests {
             std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
             std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
             std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-            #[cfg(feature = "security")]
-            std::env::set_var(
-                crate::crypto::ENCRYPTION_KEY_ENV,
-                "eg-txn-atomicity-test-recovery-key",
-            );
+            // EPISTEMIC_GRAPH_ENCRYPTION_KEY is deliberately NOT set here. It used to
+            // be, through this `Once` and holding NOTHING, and to a value different
+            // from the six other modules' -- so this `Once` could change the ambient
+            // at-rest key in the middle of ANOTHER test's body no matter what guard
+            // that test held, and did: it is what failed
+            // `redb_backend::tests::online_reshard_moves_graph_live_no_loss` with
+            // "decryption failed (wrong key or tampered ciphertext)" under
+            // parallelism while it passed standalone. Every test below now takes
+            // `crate::crypto::provisioned_test_env_read_lock()`, which provisions the
+            // ONE shared key under the WRITE guard and then holds the READ guard for
+            // the test's whole body. See `crate::crypto::TEST_AT_REST_KEY`'s doc.
         });
     }
 
@@ -5390,6 +5396,11 @@ mod ne_004_ne_005_tests {
     /// atomically — both sides are visible after `COMMIT`.
     #[tokio::test]
     async fn mixed_txn_commits_atomically() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-atomic";
         create_test_graph(&state, graph, 1).await;
@@ -5426,6 +5437,11 @@ mod ne_004_ne_005_tests {
     /// (not just the crash-recovery path) actually undoes it.
     #[tokio::test]
     async fn mixed_txn_table_failure_leaves_zero_graph_writes() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-compensate";
         create_test_graph(&state, graph, 2).await;
@@ -5469,6 +5485,11 @@ mod ne_004_ne_005_tests {
     /// ordinary statement, which lazily triggers recovery.
     #[tokio::test]
     async fn mixed_txn_crash_between_commits_recovers_on_restart() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-crash-recovery";
         create_test_graph(&state, graph, 3).await;
@@ -5581,6 +5602,11 @@ mod ne_004_ne_005_tests {
     /// connection retries after the transient graph fault is removed.
     #[tokio::test]
     async fn recovery_graph_error_retains_intent_for_same_connection_retry() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-recovery-graph-error";
         let table = format!("ne004_recovery_table_{}", uuid::Uuid::new_v4().simple());
@@ -5660,6 +5686,11 @@ mod ne_004_ne_005_tests {
     /// label set) — no commit-intent is ever written for a rolled-back txn.
     #[tokio::test]
     async fn rollback_drops_mixed_transaction_entirely() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-rollback";
         create_test_graph(&state, graph, 4).await;
@@ -5694,6 +5725,11 @@ mod ne_004_ne_005_tests {
     /// the block ends, and COMMIT while aborted behaves as ROLLBACK.
     #[tokio::test]
     async fn aborted_transaction_block_still_rejects_with_25p02() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne004-aborted";
         create_test_graph(&state, graph, 5).await;
@@ -5720,6 +5756,11 @@ mod ne_004_ne_005_tests {
     /// typed error (SQLSTATE `0A000`) — never silently accepted.
     #[tokio::test]
     async fn unsupported_isolation_level_is_rejected_not_downgraded() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne005-reject";
         create_test_graph(&state, graph, 6).await;
@@ -5737,6 +5778,11 @@ mod ne_004_ne_005_tests {
     /// always provides AT LEAST that much).
     #[tokio::test]
     async fn weaker_standard_isolation_levels_are_accepted() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne005-weaker";
         create_test_graph(&state, graph, 7).await;
@@ -5769,6 +5815,11 @@ mod ne_004_ne_005_tests {
     /// difference in behaviour, not a coincidental failure.
     #[tokio::test]
     async fn serializable_genuinely_catches_a_write_skew_snapshot_misses() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne005-serializable";
         create_test_graph(&state, graph, 8).await;
@@ -5865,6 +5916,11 @@ mod ne_004_ne_005_tests {
     /// the exact commands run.
     #[tokio::test]
     async fn ne071_wire_commit_rejects_concurrent_phantom_via_begin_version() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let state = test_state();
         let graph = "ne071-begin-version";
         create_test_graph(&state, graph, 20).await;
@@ -5945,11 +6001,17 @@ mod wired_catalog_tests {
             std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
             std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-shared");
             std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
-            #[cfg(feature = "security")]
-            std::env::set_var(
-                crate::crypto::ENCRYPTION_KEY_ENV,
-                "eg-wired-catalog-test-recovery-key",
-            );
+            // EPISTEMIC_GRAPH_ENCRYPTION_KEY is deliberately NOT set here. It used to
+            // be, through this `Once` and holding NOTHING, and to a value different
+            // from the six other modules' -- so this `Once` could change the ambient
+            // at-rest key in the middle of ANOTHER test's body no matter what guard
+            // that test held, and did: it is what failed
+            // `redb_backend::tests::online_reshard_moves_graph_live_no_loss` with
+            // "decryption failed (wrong key or tampered ciphertext)" under
+            // parallelism while it passed standalone. Every test below now takes
+            // `crate::crypto::provisioned_test_env_read_lock()`, which provisions the
+            // ONE shared key under the WRITE guard and then holds the READ guard for
+            // the test's whole body. See `crate::crypto::TEST_AT_REST_KEY`'s doc.
         });
     }
 
@@ -6110,6 +6172,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn create_batch_capability_rejects_reorder_collision_drop_and_rename() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-provisional-negatives";
         let state = test_state(&[CREATOR, "alice-provisional", "bob-provisional"]);
         let graph = "wired-catalog-provisional-negatives-graph";
@@ -6202,6 +6269,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn ordinary_create_retains_intent_until_owner_repair_completes() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-ordinary-owner-repair";
         let state = test_state(&[CREATOR, "ordinary-owner"]);
         let graph = "wired-catalog-ordinary-owner-repair-graph";
@@ -6322,6 +6394,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn committed_create_replay_repairs_owner_only_for_exact_intent() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-owner-replay";
         let state = test_state(&[CREATOR, "owner-replay", "foreign-replay"]);
         let graph = "wired-catalog-owner-replay-graph";
@@ -6493,6 +6570,11 @@ mod wired_catalog_tests {
     /// different actor, because it reads the caller from the `actor` header.
     #[tokio::test]
     async fn sql_replay_receipt_matches_the_caller_on_the_outbox_actor_header() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-actor-header";
         let state = test_state(&[CREATOR, "actor-header-owner", "actor-header-foreign"]);
         let graph = "wired-catalog-actor-header-graph";
@@ -6605,6 +6687,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn wired_catalog_owner_can_use_own_table_through_wire_dml() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-owner";
         let state = test_state(&[CREATOR, "owner-1"]);
         let graph = "wired-catalog-owner-graph";
@@ -6627,6 +6714,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn wired_catalog_granted_same_tenant_actor_can_use_table() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-grant";
         let state = test_state(&[CREATOR, "owner-2", "grantee-2"]);
         let graph = "wired-catalog-grant-graph";
@@ -6681,6 +6773,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn wired_catalog_ungranted_actor_denied_indistinguishable_from_absence() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-deny";
         let state = test_state(&[CREATOR, "owner-3", "stranger-3"]);
         let graph = "wired-catalog-deny-graph";
@@ -6743,6 +6840,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn wired_catalog_second_tenant_reads_zero_rows() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant_a = "wired-catalog-tenant-a";
         let tenant_b = "wired-catalog-tenant-b";
         let state = test_state(&[CREATOR, "actor-a", "actor-b"]);
@@ -6795,6 +6897,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn wired_catalog_row_level_predicate_constrains_reads_and_writes() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-rls";
         let state = test_state(&[CREATOR, "rls-owner", "rls-grantee"]);
         let graph = "wired-catalog-rls-graph";
@@ -6896,6 +7003,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn wired_catalog_copy_authorizes_like_insert() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-copy";
         let state = test_state(&[CREATOR, "copy-owner", "copy-stranger"]);
         let graph = "wired-catalog-copy-graph";
@@ -6936,6 +7048,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn wired_catalog_alter_and_drop_require_alter_privilege() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-ddl";
         let state = test_state(&[CREATOR, "ddl-owner", "ddl-stranger"]);
         let graph = "wired-catalog-ddl-graph";
@@ -6990,6 +7107,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn property_graph_ddl_commits_and_rolls_back_with_its_base_table() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-pgq-txn";
         let graph = "wired-catalog-pgq-txn-graph";
         let state = test_state(&[CREATOR, "pgq-admin"]);
@@ -7053,6 +7175,11 @@ mod wired_catalog_tests {
 
     #[tokio::test]
     async fn graph_select_grant_and_revoke_gate_live_graph_table_reads() {
+        // Provisions the ONE shared test at-rest key (this module's `ensure_env` no
+        // longer does, and must not) and then holds the ambient encryption env still
+        // for this whole body, which opens a durable store. See
+        // `crate::crypto::provisioned_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::provisioned_test_env_read_lock().await;
         let tenant = "wired-catalog-tenant-pgq-grant";
         let graph = "wired-catalog-pgq-grant-graph";
         let state = test_state(&[CREATOR, "pgq-owner", "pgq-reader"]);

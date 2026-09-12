@@ -85,6 +85,10 @@ async fn has_node(state: &Arc<RwLock<crate::server::ServerState>>, node_id: &str
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn reshard_keeps_data_and_serves_after() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let (dir, backend) = fixture::fresh_backend("eg-reshard", "keep");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
@@ -218,6 +222,10 @@ async fn reshard_data_durable_across_restart() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hibernate_then_rehydrate_intact() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("eg-reshard", "hib");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, state) = bring_up(&dir, backend.clone()).await;

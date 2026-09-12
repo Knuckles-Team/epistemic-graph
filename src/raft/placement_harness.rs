@@ -141,6 +141,10 @@ fn bool_response(response: Result<super::RaftResponse, String>) -> bool {
 // consumed nonce must fail before the replay shortcut can answer it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn placement_state_machine_binds_plan_identity_and_replay_nonce() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("eg-placement", "cas-replay-integrity");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
@@ -231,6 +235,10 @@ async fn has_node(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn assign_then_route_returns_new_group_and_epoch() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("eg-placement", "assign");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -285,6 +293,10 @@ async fn assign_then_route_returns_new_group_and_epoch() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stale_epoch_request_gets_redirected() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("eg-placement", "stale");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -377,6 +389,10 @@ async fn catalog_persists_and_reloads_with_epoch() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn online_move_preserves_data_and_lands_new_epoch() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let (dir, backend) = fixture::fresh_backend("eg-placement", "move");
     let (multi, state) = bring_up(&dir, backend.clone()).await;
     let tenants = TenantManager::new(multi.clone(), backend.clone());
@@ -440,6 +456,10 @@ async fn online_move_preserves_data_and_lands_new_epoch() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pre_cutover_move_abort_restores_source_and_journals_terminal_state() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("eg-placement", "move-abort");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -487,6 +507,10 @@ async fn pre_cutover_move_abort_restores_source_and_journals_terminal_state() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn orphaned_moving_partition_fails_recovery_closed() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("eg-placement", "move-orphan");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -516,6 +540,10 @@ async fn orphaned_moving_partition_fails_recovery_closed() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn abort_intent_behind_committed_cutover_reconciles_forward() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("eg-placement", "move-abort-fence-race");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -570,6 +598,10 @@ async fn abort_intent_behind_committed_cutover_reconciles_forward() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn split_lets_one_tenant_span_two_groups() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let dir = fixture::fresh_dir("eg-placement", "split");
     let backend = fixture::open_backend(&dir).expect("open redb");
     let (multi, _state) = bring_up(&dir, backend.clone()).await;
@@ -641,6 +673,10 @@ async fn split_lets_one_tenant_span_two_groups() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_placement_route_resolves_through_dispatch() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     use crate::protocol::ResultPayload;
     use crate::server::dispatch;
 

@@ -2645,10 +2645,42 @@ mod tests {
             .unwrap();
         assert!(admission.complete);
         assert!(calls.lock().unwrap().is_empty());
-        assert!(service
-            .store
-            .clear_source_reconciliation_checkpoint(binding.generation, &checkpoint)
-            .is_err());
+        // The resumed finalization above already cleared this exact checkpoint, and a
+        // clear's batch id is a digest OF the expected predecessor -- so re-issuing the
+        // IDENTICAL clear is a replay of an already-committed batch, which the native
+        // ledger answers idempotently by contract (`commit_metadata_fenced`'s
+        // `Begin::Replay` arm) and must NOT be read as the staleness guard firing.
+        // Asserting `is_err()` here pinned the replay path while claiming to pin
+        // staleness, and pinned it to the opposite of the contract.
+        assert!(
+            service
+                .store
+                .clear_source_reconciliation_checkpoint(binding.generation, &checkpoint)
+                .is_ok(),
+            "re-issuing the identical committed clear must replay idempotently"
+        );
+        assert!(
+            service
+                .store
+                .read_source_reconciliation_checkpoint(binding.generation)
+                .unwrap()
+                .is_none(),
+            "an idempotent clear replay leaves the checkpoint cleared"
+        );
+        // The staleness guard itself: a clear naming a predecessor that is NOT what is
+        // durably present is refused. A different predecessor is a different batch id,
+        // so this genuinely reaches the compare-and-clear rather than the replay arm.
+        let stale = SemanticSourceReconciliationCheckpoint {
+            rows_seen: checkpoint.rows_seen + 1,
+            ..checkpoint.clone()
+        };
+        assert!(
+            service
+                .store
+                .clear_source_reconciliation_checkpoint(binding.generation, &stale)
+                .is_err(),
+            "a clear whose expected predecessor is stale must be refused"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

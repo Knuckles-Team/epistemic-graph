@@ -6272,6 +6272,10 @@ mod result_cache_dispatch_tests {
 
     #[tokio::test]
     async fn hit_on_unchanged_then_write_invalidates() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state();
         add_node(&state, 1, "p1", "Person").await;
         add_node(&state, 2, "p2", "Person").await;
@@ -6362,6 +6366,10 @@ mod result_cache_dispatch_tests {
 
     #[tokio::test]
     async fn cdc_drives_cross_instance_invalidation() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         // Two independent in-process instances A and B (separate registries/caches),
         // each holding the SAME logical graph + the SAME data.
         let a = state();
@@ -6686,6 +6694,10 @@ mod rls_aware_cache_no_cross_agent_leak {
     #[cfg(feature = "graphql")]
     #[tokio::test]
     async fn agent_a_graphql_cached_result_is_not_served_to_agent_b() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state();
         add_rls_node(&state, 10, "alice_secret", "Secret", "alice", "private").await;
         add_rls_node(&state, 11, "shared", "Secret", "alice", "public").await;
@@ -6887,6 +6899,10 @@ mod dispatch_write_tests {
     /// dispatched over the wire creates a node a subsequent GraphQL query SEES.
     #[tokio::test]
     async fn graphql_mutation_creates_node_via_dispatch() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state();
         let m = dispatch_on_heap(
             &state,
@@ -6927,6 +6943,10 @@ mod dispatch_write_tests {
     /// wire is then visible to a `MATCH` (which still runs the read path).
     #[tokio::test]
     async fn cypher_create_then_match_via_dispatch() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state();
         let c = dispatch_on_heap(
             &state,
@@ -6963,6 +6983,10 @@ mod dispatch_write_tests {
 
     #[tokio::test]
     async fn cypher_declared_mode_must_match_native_parser() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state();
         let disguised_write = dispatch_on_heap(
             &state,
@@ -7009,6 +7033,10 @@ mod dispatch_write_tests {
     /// `SELECT` that reads the user table back, all over `Method::Sql` through dispatch.
     #[tokio::test]
     async fn wire_sql_create_insert_select_round_trips() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state();
         // Unique table name + DROP-IF-EXISTS so the process-global store is clean even on
         // a re-run against a persisted temp store.
@@ -7071,6 +7099,10 @@ mod dispatch_write_tests {
     /// result as an unknown graph and cannot read the owner's row.
     #[tokio::test]
     async fn wire_sql_graph_table_uses_authorized_projection_scope() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let guest = "sql-pgq-guest";
         let state = persisted_state(SECRET, current_isolation_with_agents(&[guest]));
         let table = format!("eg_pgq_people_{}", std::process::id());
@@ -7164,6 +7196,10 @@ mod dispatch_write_tests {
     /// ownership before later DDL is admitted.
     #[tokio::test]
     async fn wire_sql_create_fresh_nonce_retry_repairs_owner() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let guest = "sql-owner-repair-guest";
         let state = persisted_state(SECRET, current_isolation_with_agents(&[guest]));
         let table = format!("eg_direct_owner_repair_{}", std::process::id());
@@ -7300,6 +7336,10 @@ mod dispatch_write_tests {
     /// the agent-utilities `graph_table`/`sql_exec` node-write path (CONCEPT:EG-KG.query.mirrors-pgwire).
     #[tokio::test]
     async fn wire_sql_insert_node_then_select_via_dispatch() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state();
         let sql = |q: &str| Method::Sql {
             query: q.into(),
@@ -7367,6 +7407,10 @@ mod dispatch_write_tests {
     /// discipline ("write one for a branch nothing covers before moving it").
     #[tokio::test]
     async fn wire_sql_update_then_delete_node_via_dispatch() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = state();
         let sql = |q: String| Method::Sql {
             query: q,
@@ -7470,13 +7514,7 @@ mod txn_ryow_dispatch_tests {
         // this `Once` always fires (or, after the first caller, is a no-op check)
         // inside that held lock. Do NOT also acquire the lock here: `std::sync::
         // Mutex` is not reentrant, and the caller already holds it.
-        static ENCRYPTION_KEY: std::sync::Once = std::sync::Once::new();
-        ENCRYPTION_KEY.call_once(|| {
-            std::env::set_var(
-                crate::crypto::ENCRYPTION_KEY_ENV,
-                "txn-ryow-test-recovery-key",
-            )
-        });
+        crate::crypto::provision_test_at_rest_key_under_write_guard();
         persisted_state(SECRET, current_isolation())
     }
 

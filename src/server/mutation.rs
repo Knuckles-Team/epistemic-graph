@@ -3270,6 +3270,10 @@ mod tests {
     #[cfg(all(feature = "redb", feature = "security", feature = "streaming"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn routed_mutation_produces_one_durable_record_one_audit_entry_and_one_cdc_event() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = temp_dir("durable-audit-cdc");
         let dir_s = dir.to_string_lossy().to_string();
         let backend = RedbBackend::open(dir_s, 64).expect("open redb backend");
@@ -3374,6 +3378,10 @@ mod tests {
     #[cfg(all(feature = "redb", feature = "security", feature = "streaming"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn commit_finalize_refreshes_the_graph_size_gauges() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = temp_dir("gauge-refresh");
         let dir_s = dir.to_string_lossy().to_string();
         let backend = RedbBackend::open(dir_s, 64).expect("open redb backend");
@@ -3468,6 +3476,10 @@ mod tests {
     #[cfg(all(feature = "redb", feature = "security", feature = "streaming"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn audited_mutation_writes_audit_but_cdc_stays_policy_gated() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = temp_dir("reinforce-audit-no-cdc");
         let dir_s = dir.to_string_lossy().to_string();
         let backend = RedbBackend::open(dir_s, 64).expect("open redb backend");
@@ -3616,6 +3628,10 @@ mod tests {
     #[cfg(all(feature = "redb", feature = "security", feature = "streaming"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn w1c_marker_admin_ledger_methods_now_audit_and_emit_cdc() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         assert_w1c_method_audits_and_emits_one_cdc_marker(
             "clear-ledger",
             Method::ClearLedger,
@@ -3719,6 +3735,10 @@ mod tests {
     #[cfg(all(feature = "redb", feature = "security", feature = "streaming"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn w1c_from_msgpack_and_reconcile_reset_the_cdc_feed_and_audit() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         for (tag, build_method) in [
             (
                 "from-msgpack",
@@ -3834,6 +3854,10 @@ mod tests {
     ))]
     #[tokio::test(flavor = "multi_thread")]
     async fn broker_family_routed_mutation_is_audited_with_no_cdc() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = temp_dir("broker-declare-exchange");
         let dir_s = dir.to_string_lossy().to_string();
         let backend = RedbBackend::open(dir_s, 64).expect("open redb backend");
@@ -3910,6 +3934,10 @@ mod tests {
     #[cfg(all(feature = "redb", feature = "security"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn touch_nodes_commits_authoritative_state_without_audit_or_cdc() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = temp_dir("touch-nodes-state-backed");
         let dir_s = dir.to_string_lossy().to_string();
         let backend = RedbBackend::open(dir_s, 64).expect("open redb backend");
@@ -4020,6 +4048,10 @@ mod tests {
     #[cfg(all(feature = "redb", feature = "mining", feature = "security"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn mining_family_writeback_gates_durability_and_authz() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = temp_dir("mine-associate-conditional");
         let dir_s = dir.to_string_lossy().to_string();
         let backend = RedbBackend::open(dir_s, 64).expect("open redb backend");
@@ -4254,6 +4286,10 @@ mod tests {
     #[cfg(feature = "redb")]
     #[tokio::test(flavor = "multi_thread")]
     async fn durable_facade_replay_uses_stable_key_and_kernel_nonce_authority() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = temp_dir("stable-kernel-replay");
         let dir_s = dir.to_string_lossy().to_string();
         let persistence: Arc<dyn PersistenceBackend> =
@@ -4365,6 +4401,10 @@ mod tests {
     #[cfg(all(feature = "redb", feature = "cypher"))]
     #[tokio::test(flavor = "multi_thread")]
     async fn staged_query_replay_probes_kernel_before_running_the_handler() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = temp_dir("staged-query-kernel-replay");
         let dir_s = dir.to_string_lossy().to_string();
         let persistence: Arc<dyn PersistenceBackend> =

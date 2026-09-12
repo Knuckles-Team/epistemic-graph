@@ -433,6 +433,10 @@ mod tests {
 
     #[tokio::test]
     async fn actor_only_session_cannot_execute_or_change_graph() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = test_state();
         let session = test_session(&state);
         session.resolve_startup(
@@ -454,6 +458,10 @@ mod tests {
 
     #[tokio::test]
     async fn served_catalog_is_actor_isolated_and_cross_protocol_for_same_actor() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = test_state();
         let creator = test_session(&state);
         creator
@@ -489,6 +497,10 @@ mod tests {
     /// translation + the served encoding end-to-end.
     #[tokio::test]
     async fn sqlite_dialect_statements_execute_through_wire_session() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = test_state();
         let session = test_session(&state);
         let table = unique_table();
@@ -1176,6 +1188,10 @@ mod tests {
     /// A malformed request and an engine error both surface as `{"error":{code,message}}`.
     #[tokio::test]
     async fn errors_are_reported_as_json() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = test_state();
         let session = test_session(&state);
 
@@ -1206,6 +1222,10 @@ mod tests {
     /// PRAGMA) over the wire — proving the whole surface, not just its core function.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn served_ndjson_round_trip_over_tcp() {
+        // Reads the ambient encryption env at its durable open, so the env must hold
+        // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+        // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = test_state();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

@@ -1107,6 +1107,10 @@ mod tests {
         /// read (durability-gated, no loss).
         #[tokio::test(flavor = "multi_thread")]
         async fn over_budget_evicts_and_rehydrates() {
+            // Reads the ambient encryption env at its durable open, so the env must hold
+            // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+            // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+            let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
             let dir = std::env::temp_dir().join(format!("eg-cost-budget-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
@@ -1240,6 +1244,10 @@ mod tests {
         /// with it.
         #[tokio::test(flavor = "multi_thread")]
         async fn budget_eviction_leaves_graph_catalog_only_so_cypher_and_point_read_agree() {
+            // Reads the ambient encryption env at its durable open, so the env must hold
+            // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+            // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+            let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
             let dir =
                 std::env::temp_dir().join(format!("eg-cost-cypher-evict-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
@@ -1342,6 +1350,10 @@ mod tests {
         /// alone.
         #[tokio::test(flavor = "multi_thread")]
         async fn fair_cap_protects_small_tenant() {
+            // Reads the ambient encryption env at its durable open, so the env must hold
+            // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+            // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+            let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
             let dir = std::env::temp_dir().join(format!("eg-cost-fair-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
@@ -1393,6 +1405,10 @@ mod tests {
         /// realistic fill (the autoscale-signal accuracy gate).
         #[tokio::test(flavor = "multi_thread")]
         async fn resource_stats_counts_are_accurate() {
+            // Reads the ambient encryption env at its durable open, so the env must hold
+            // still for this whole body. READ guard: it excludes only a key MUTATOR, never
+            // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+            let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
             let dir = std::env::temp_dir().join(format!("eg-cost-stats-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             let dir_s = dir.to_string_lossy().to_string();
