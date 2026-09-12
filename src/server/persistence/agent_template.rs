@@ -49,12 +49,13 @@ use super::agent_library::{
     effective_agent_library_policy_digest, next_revision, owner_receipt, require_expected_revision,
     resolve_nonce_first, validate_context, AgentLibraryStore,
 };
+use super::agent_row;
 
 const AGENT_TEMPLATE_OUTBOX_TOPIC: &str = "eg.agent-template.revision.v1";
 const AGENT_TEMPLATE_RESULT_SCHEMA_ID: &str = "agent-template-result.v1";
-const MAX_AGENT_TEMPLATE_ROW_BYTES: usize = 16 * 1024 * 1024;
-const MAX_AGENT_TEMPLATE_ROW_ITEMS: usize = 200_000;
-const MAX_AGENT_TEMPLATE_REVISIONS: usize = 16_384;
+/// `pub(super)` for [`super::agent_pin_resolution`]: the bound on how deep one
+/// pin lookup may scan this layer's history is this layer's own.
+pub(super) const MAX_AGENT_TEMPLATE_REVISIONS: usize = 16_384;
 const MAX_AGENT_TEMPLATE_HISTORY_BYTES: usize = 256 * 1024 * 1024;
 
 /// What a committed template write returns to the caller.
@@ -65,39 +66,6 @@ pub struct AgentTemplateWriteResult {
 }
 
 impl AgentLibraryStore {
-    /// Resolve pinned references to TEMPLATE records, inside an admitted
-    /// write. The mechanics, the bounds and the reasoning are
-    /// [`super::agent_pin_resolution::resolve_pins`]'s; this module is where
-    /// `decode_template` is in scope.
-    pub(super) fn resolve_template_pins_in_write(
-        &self,
-        write: &super::agent_pin_resolution::Write<'_>,
-        tenant_id: &str,
-        subject: &str,
-        pins: &[super::agent_pin_resolution::TemplatePin<'_>],
-    ) -> Result<(), String> {
-        let pins: Vec<(&str, &str, Option<u64>)> = pins
-            .iter()
-            .map(|pin| (pin.template_id, pin.definition_digest, pin.entry_revision))
-            .collect();
-        super::agent_pin_resolution::resolve_pins(
-            super::agent_pin_resolution::PinLayer {
-                record_kind: "template",
-                heads: eg_storage::AGENT_TEMPLATE_HEADS,
-                revisions: eg_storage::AGENT_TEMPLATE_REVISIONS,
-                max_pins: super::agent_pin_resolution::MAX_RESOLVED_TEMPLATE_PINS,
-                retained_revision_bound: MAX_AGENT_TEMPLATE_REVISIONS,
-                decode: |bytes: &[u8]| {
-                    decode_template(bytes).map(|e| (e.definition_digest, e.lifecycle))
-                },
-            },
-            write,
-            tenant_id,
-            subject,
-            &pins,
-        )
-    }
-
     /// Publish the next template revision.
     pub fn publish_template(
         &self,
@@ -178,6 +146,21 @@ impl AgentLibraryStore {
         } {
             self.mutations.commit_replay_receipt(txn)?;
             return Ok(result);
+        }
+        // A template resolved NOTHING. Its `base` is a complete agent draft, and
+        // the components that draft pins were resolved only when an INSTANCE was
+        // published, at L2 -- so a template pinning a component that does not
+        // exist became DURABLE, the one class of record this contract exists to
+        // refuse. Inside the transaction and after the replay check, for the
+        // reasons `publish` states.
+        if let Err(error) = self.admit_entry_references_in_write(
+            &txn,
+            &request.context.tenant_id,
+            "agent template base",
+            &request.template.base,
+        ) {
+            txn.abort()?;
+            return Err(error);
         }
 
         let entry = match AgentTemplateEntry::create(
@@ -838,42 +821,23 @@ fn read_template_history(
     Ok((head, entries))
 }
 
-fn decode_template(bytes: &[u8]) -> Result<AgentTemplateEntry, String> {
-    let entry = eg_types::msgpack::decode_bounded::<AgentTemplateEntry>(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AGENT_TEMPLATE_ROW_BYTES,
-            MAX_AGENT_TEMPLATE_ROW_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "agent template row is invalid or exceeds resource limits".to_string())?;
+/// `pub(super)` for [`super::agent_pin_resolution`], which resolves a pin
+/// against this layer and therefore has to read this layer's rows.
+pub(super) fn decode_template(bytes: &[u8]) -> Result<AgentTemplateEntry, String> {
+    let entry: AgentTemplateEntry = agent_row::decode(bytes, "agent template row")?;
     entry.validate()?;
     Ok(entry)
 }
 
 fn decode_committed_result(bytes: &[u8]) -> Result<AgentTemplateCommittedResult, String> {
-    let result = eg_types::msgpack::decode_bounded::<AgentTemplateCommittedResult>(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AGENT_TEMPLATE_ROW_BYTES,
-            MAX_AGENT_TEMPLATE_ROW_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "agent template result is invalid or exceeds resource limits".to_string())?;
+    let result: AgentTemplateCommittedResult =
+        agent_row::decode(bytes, "agent template result")?;
     result.template.validate()?;
     Ok(result)
 }
 
 fn template_domain_result(result: &AgentTemplateCommittedResult) -> Result<MutationResult, String> {
-    let payload = eg_storage::encode_bounded(result, "agent template domain result payload")?;
-    let payload = eg_types::contract::RecordBytes::new(payload)?;
-    Ok(MutationResult::DomainResult {
-        schema_id: eg_types::contract::SchemaId::new(AGENT_TEMPLATE_RESULT_SCHEMA_ID)?,
-        payload_digest: payload.digest()?,
-        payload,
-    })
+    agent_row::domain_result(result, AGENT_TEMPLATE_RESULT_SCHEMA_ID, "agent template")
 }
 
 fn encode_template_domain_result(result: &AgentTemplateCommittedResult) -> Result<Vec<u8>, String> {
@@ -929,7 +893,6 @@ fn replayed_template(
 /// The shared `Arc` type the server state holds. Re-exported so the handler does
 /// not have to name the library store to reach the template surface.
 pub type AgentTemplateStoreRef = Arc<AgentLibraryStore>;
-
 
 #[cfg(test)]
 mod tests {
@@ -1038,6 +1001,32 @@ mod tests {
         (dir, store)
     }
 
+    /// The seeding nonce the five components [`base`] pins are published
+    /// under. Fixed rather than per-call: the ids are fixed too, and
+    /// `seed_component_for_test` is idempotent per tenant, so a second
+    /// fixture in the same tenant finds them rather than republishing. The
+    /// five consecutive indices it consumes (30..=34) are why a test that
+    /// seeds a component of its own uses a clearly separated nonce.
+    const SEEDED_COMPONENT_NONCE: u8 = 30;
+
+    /// Publish every component `draft.base` pins and rewrite each pin to the
+    /// component's real digest.
+    ///
+    /// Publishing a template now RESOLVES its base's component pins, so a
+    /// fixture can no longer invent a digest -- it has to be the component's
+    /// real `definition_digest`, exactly as a real template's is. Separate
+    /// from [`try_publish`] so a refusal test can seed a publishable base and
+    /// then break exactly ONE pin, rather than having the fixture helpfully
+    /// seed the very ghost it is testing.
+    fn seeded(store: &AgentLibraryStore, mut draft: AgentTemplateDraft) -> AgentTemplateDraft {
+        super::super::agent_component::seed_draft_components_for_test(
+            store,
+            &mut draft.base,
+            SEEDED_COMPONENT_NONCE,
+        );
+        draft
+    }
+
     fn publish(
         store: &AgentLibraryStore,
         key: &str,
@@ -1045,19 +1034,30 @@ mod tests {
         expected_revision: u64,
         draft: AgentTemplateDraft,
     ) -> AgentTemplateWriteResult {
-        store
-            .publish_template(AgentTemplatePublishRequest {
-                context: context(
-                    store,
-                    &draft.tenant_id.clone(),
-                    key,
-                    nonce,
-                    expected_revision,
-                    "agent-template:publish",
-                ),
-                template: draft,
-            })
-            .unwrap()
+        let draft = seeded(store, draft);
+        try_publish(store, key, nonce, expected_revision, draft).unwrap()
+    }
+
+    /// [`publish`] without the seeding and without the unwrap: for the tests
+    /// that assert a refusal.
+    fn try_publish(
+        store: &AgentLibraryStore,
+        key: &str,
+        nonce: u8,
+        expected_revision: u64,
+        draft: AgentTemplateDraft,
+    ) -> Result<AgentTemplateWriteResult, String> {
+        store.publish_template(AgentTemplatePublishRequest {
+            context: context(
+                store,
+                &draft.tenant_id.clone(),
+                key,
+                nonce,
+                expected_revision,
+                "agent-template:publish",
+            ),
+            template: draft,
+        })
     }
 
     fn instantiate(
@@ -1099,7 +1099,10 @@ mod tests {
         let replayed = store
             .publish_template(AgentTemplatePublishRequest {
                 context: retry,
-                template: template("tenant-a", "template:a"),
+                // Byte-identical to what `publish` admitted, seeds included:
+                // the replay identity is minted from the DRAFT digest, so a
+                // retry carrying unseeded pins would be a different operation.
+                template: seeded(&store, template("tenant-a", "template:a")),
             })
             .unwrap();
         assert!(replayed.replayed);
@@ -1171,12 +1174,10 @@ mod tests {
         // instance is admitted, delegated and pinned with no template-aware
         // branch anywhere. The only thing it carries is its provenance.
         let (_dir, store) = open_store();
-        // The instance publishes through the ordinary library path, which now
+        // The instance publishes through the ordinary library path, which
         // RESOLVES every pinned component against the durable store -- so the
-        // template's base and the binding have to name components that really
-        // exist, exactly as a real template does.
-        let mut template = template("tenant-a", "template:researcher");
-        super::super::agent_component::seed_draft_components_for_test(&store, &mut template.base, 30);
+        // binding has to name a component that really exists, exactly as a
+        // real one does. `publish` seeds the base's own pins.
         let haiku = super::super::agent_component::seed_component_for_test(
             &store,
             "tenant-a",
@@ -1184,7 +1185,7 @@ mod tests {
             AgentComponentKind::ModelProfile,
             40,
         );
-        publish(&store, "key-1", 1, 0, template);
+        publish(&store, "key-1", 1, 0, template("tenant-a", "template:researcher"));
         let bindings = BTreeMap::from([("model".to_string(), haiku)]);
         let draft = store
             .instantiate_template(&instantiate(
@@ -1327,5 +1328,77 @@ mod tests {
             ))
             .expect_err("an undeclared parameter must be refused");
         assert!(error.contains("declares no parameter"), "got: {error}");
+    }
+
+    // ---- TEMPLATE -> L1: resolved at THIS layer's admission ----
+
+    #[test]
+    fn a_template_whose_base_pins_a_component_that_does_not_exist_is_refused() {
+        // `publish_template` resolved NOTHING. Its base is a complete agent
+        // draft, and the components that draft pins were resolved only when an
+        // INSTANCE of the template was published, at L2 -- so a template whose
+        // base named a component that does not exist was admitted and became
+        // DURABLE. Not an execution grant on its own, because nothing runs
+        // until an instance is published, but an unresolvable record is exactly
+        // what this contract exists to refuse, and every sibling layer resolves
+        // at its own admission.
+        //
+        // The ghost is added to `skills`, which no parameter `replaces`: a
+        // parameter whose target vanished is refused by `validate()` first, and
+        // this test has to reach the resolver.
+        let (_dir, store) = open_store();
+        let mut draft = seeded(&store, template("tenant-a", "template:researcher"));
+        draft
+            .base
+            .skills
+            .push(dep("skill:ghost", AgentComponentKind::Skill, 'c'));
+        let error = try_publish(&store, "key-1", 1, 0, draft)
+            .expect_err("a base pinning a component that does not exist is refused");
+        assert!(
+            error.contains("agent template base pins component 'skill:ghost'")
+                && error.contains("does not exist in this tenant"),
+            "got: {error}"
+        );
+        assert!(store
+            .current_template("tenant-a", "template:researcher")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn a_template_whose_base_pins_an_invented_digest_is_refused() {
+        // The other half of the pin: the component EXISTS, and the digest is
+        // 64 well-formed hex characters no revision of it ever carried. Local
+        // validation cannot tell the two apart; only a read of the component
+        // store can.
+        let (_dir, store) = open_store();
+        let mut draft = seeded(&store, template("tenant-a", "template:researcher"));
+        draft.base.system_prompt.definition_digest = digest('c');
+        let error = try_publish(&store, "key-1", 1, 0, draft)
+            .expect_err("a digest no component revision carries is refused");
+        assert!(error.contains("that was never published"), "got: {error}");
+        assert!(store
+            .current_template("tenant-a", "template:researcher")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn a_template_whose_base_pins_another_tenants_component_is_refused() {
+        // Resolution is per tenant. A component published in tenant-b is not
+        // reachable from a tenant-a template, however real its digest is.
+        let (_dir, store) = open_store();
+        let foreign = super::super::agent_component::seed_component_for_test(
+            &store,
+            "tenant-b",
+            "skill:other-tenant",
+            AgentComponentKind::Skill,
+            41,
+        );
+        let mut draft = seeded(&store, template("tenant-a", "template:researcher"));
+        draft.base.skills.push(foreign);
+        let error = try_publish(&store, "key-1", 1, 0, draft)
+            .expect_err("another tenant's component must not resolve");
+        assert!(error.contains("does not exist in this tenant"), "got: {error}");
     }
 }

@@ -44,17 +44,10 @@ const AGENT_LIBRARY_SCOPE_INCARNATION: &str = "agent-library:v1";
 const AGENT_LIBRARY_BOOTSTRAP_TENANT: &str = "agent-library-bootstrap";
 const AGENT_LIBRARY_BOOTSTRAP_RESOURCE: &str = "agent-library-bootstrap";
 const AGENT_LIBRARY_OUTBOX_TOPIC: &str = "eg.agent-library.entry.v1";
-const MAX_AGENT_LIBRARY_ROW_BYTES: usize = 16 * 1024 * 1024;
-const MAX_AGENT_LIBRARY_ROW_ITEMS: usize = 200_000;
-const MAX_AGENT_LIBRARY_REVISIONS: usize = 16_384;
+/// `pub(super)` for [`super::agent_pin_resolution`]: the bound on how deep one
+/// pin lookup may scan this layer's history is this layer's own.
+pub(super) const MAX_AGENT_LIBRARY_REVISIONS: usize = 16_384;
 const MAX_AGENT_LIBRARY_HISTORY_BYTES: usize = 256 * 1024 * 1024;
-/// Most DISTINCT Agent Library entries one publish may resolve.
-///
-/// The L3 -> L2 fan-out: a graph shape pins one agent per `Agent` node, and
-/// `MAX_NODES` is 256. Set above that largest legal count so it refuses abuse,
-/// never a shape that validates -- the same shape of bound
-/// `MAX_RESOLVED_COMPONENT_PINS` is for L1.
-const MAX_RESOLVED_AGENT_PINS: usize = 1_024;
 /// One durable Agent Library owner file. It binds one native ControlPlane
 /// serving scope per tenant while sharing the physical tables and mutation
 /// kernel, so replay, fencing, and outbox evidence stay tenant-scoped.
@@ -277,7 +270,7 @@ impl AgentLibraryStore {
         Ok(Some(entry))
     }
 
-    /// Resolve every cross-record reference one AGENT LIBRARY publish makes.
+    /// Resolve every cross-record reference ONE AGENT DRAFT makes.
     ///
     /// L2 -> L1: every component the agent is assembled from, plus the values a
     /// template instantiation bound into it. Both are pins, and a pin nothing
@@ -289,10 +282,27 @@ impl AgentLibraryStore {
     /// L2 -> TEMPLATE: `instantiated_from` is what makes "which agents came
     /// from this template?" a traversal rather than a guess. Unresolved it was
     /// a free-text provenance claim that `definition_digest` then attested to.
+    ///
+    /// # Why an agent DRAFT rather than an Agent Library publish
+    ///
+    /// Two admissions put an `AgentLibraryEntryDraft` on durable storage: this
+    /// layer's own publish, and a TEMPLATE publish, whose `base` is one. They
+    /// ask the identical question of it, so they ask it in one place -- `subject`
+    /// is the only thing that differs, and only so a refusal names the record
+    /// the caller was actually publishing.
+    ///
+    /// Sharing it also keeps the template side honest as the contract moves.
+    /// `AgentTemplateDraft::validate` refuses a `base` that is itself a
+    /// template instance, so today a base carries no `instantiated_from` and
+    /// the template and binding halves below are unreachable from that caller.
+    /// A resolver written to today's reachability -- just
+    /// `base.dependencies()` -- would silently stop covering the base the day
+    /// that rule relaxed. This one would not.
     pub(super) fn admit_entry_references_in_write(
         &self,
         write: &super::agent_pin_resolution::Write<'_>,
         tenant_id: &str,
+        subject: &str,
         entry: &AgentLibraryEntryDraft,
     ) -> Result<(), String> {
         let mut components = entry.dependencies();
@@ -302,7 +312,7 @@ impl AgentLibraryStore {
                 .iter()
                 .flat_map(|instance| instance.bindings.values()),
         );
-        self.resolve_component_pins_in_write(write, tenant_id, "agent library entry", &components)?;
+        self.resolve_component_pins_in_write(write, tenant_id, subject, &components)?;
         let templates: Vec<super::agent_pin_resolution::TemplatePin<'_>> = entry
             .instantiated_from
             .iter()
@@ -312,51 +322,11 @@ impl AgentLibraryStore {
                 entry_revision: Some(instance.entry_revision),
             })
             .collect();
-        self.resolve_template_pins_in_write(write, tenant_id, "agent library entry", &templates)
-    }
-
-    /// Resolve pinned references to L2 AGENT records, inside an admitted
-    /// write.
-    ///
-    /// A graph's `Agent` node names an entry by `(agent_id, definition_digest)`
-    /// and nothing checked that the entry existed. Local validation checks only
-    /// that the id is well-formed text and the digest a well-formed
-    /// `sha256:<hex>`, so 64 invented hex characters published a graph claiming
-    /// -- and, once admitted, executing -- an agent it was never composed
-    /// against, and the shape's own `shape_digest` attested to the claim.
-    ///
-    /// There is no kind to match here: the slot is "an agent", and the Agent
-    /// Library tables are what discriminate it from a component or a template.
-    /// The mechanics and the per-pin checks are
-    /// [`super::agent_pin_resolution::resolve_pins`]'s; this module is where
-    /// `decode_entry` is in scope.
-    pub(super) fn resolve_agent_pins_in_write(
-        &self,
-        write: &super::agent_pin_resolution::Write<'_>,
-        tenant_id: &str,
-        subject: &str,
-        pins: &[(&str, &str)],
-    ) -> Result<(), String> {
-        // An `Agent` node records no revision number, only the digest.
-        let pins: Vec<(&str, &str, Option<u64>)> = pins
-            .iter()
-            .map(|(agent_id, digest)| (*agent_id, *digest, None))
-            .collect();
-        super::agent_pin_resolution::resolve_pins(
-            super::agent_pin_resolution::PinLayer {
-                record_kind: "agent",
-                heads: eg_storage::AGENT_LIBRARY_HEADS,
-                revisions: eg_storage::AGENT_LIBRARY_REVISIONS,
-                max_pins: MAX_RESOLVED_AGENT_PINS,
-                retained_revision_bound: MAX_AGENT_LIBRARY_REVISIONS,
-                decode: |bytes: &[u8]| {
-                    decode_entry(bytes).map(|entry| (entry.definition_digest, entry.lifecycle))
-                },
-            },
+        super::agent_pin_resolution::resolve_template_pins_in_write(
             write,
             tenant_id,
             subject,
-            &pins,
+            &templates,
         )
     }
 
@@ -446,9 +416,12 @@ impl AgentLibraryStore {
         // L2 -> TEMPLATE travels with it: an instantiated agent records WHICH
         // template, at which revision, with which bindings. See
         // `admit_entry_references_in_write`.
-        if let Err(error) =
-            self.admit_entry_references_in_write(&txn, &request.context.tenant_id, &request.entry)
-        {
+        if let Err(error) = self.admit_entry_references_in_write(
+            &txn,
+            &request.context.tenant_id,
+            "agent library entry",
+            &request.entry,
+        ) {
             txn.abort()?;
             return Err(error);
         }
@@ -956,15 +929,10 @@ fn receipt_result(receipt: &MutationReceipt) -> Result<AgentLibraryCommittedResu
     if schema_id.as_str() != AGENT_LIBRARY_RESULT_SCHEMA_ID {
         return Err("Agent Library replay receipt has an unexpected result schema".to_string());
     }
-    let result = eg_types::msgpack::decode_bounded::<AgentLibraryCommittedResult>(
+    let result: AgentLibraryCommittedResult = super::agent_row::decode(
         payload.as_slice(),
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AGENT_LIBRARY_ROW_BYTES,
-            MAX_AGENT_LIBRARY_ROW_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "Agent Library replay result payload is invalid".to_string())?;
+        "Agent Library replay result payload",
+    )?;
     result.validate()?;
     Ok(result)
 }
@@ -1678,14 +1646,7 @@ fn record_result(
         .result_msgpack
         .as_deref()
         .ok_or_else(|| "Agent Library receipt has no typed domain result".to_string())?;
-    let decoded = eg_types::msgpack::decode_bounded::<MutationResult>(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AGENT_LIBRARY_ROW_BYTES,
-            MAX_AGENT_LIBRARY_ROW_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    );
+    let decoded = super::agent_row::try_decode::<MutationResult>(bytes);
     let mutation_result = match decoded {
         Ok(mutation_result) => mutation_result,
         // v6 Batch rows encoded the outbox event itself as result_msgpack.
@@ -1693,17 +1654,8 @@ fn record_result(
         // nonce-first operation path remains Receipt-only and therefore cannot
         // silently treat a legacy row as replay authority.
         Err(_) => {
-            let event: AgentLibraryOutboxEvent = eg_types::msgpack::decode_bounded(
-                bytes,
-                eg_types::msgpack::MsgpackLimits::new(
-                    MAX_AGENT_LIBRARY_ROW_BYTES,
-                    MAX_AGENT_LIBRARY_ROW_ITEMS,
-                    eg_types::msgpack::DEFAULT_MAX_DEPTH,
-                ),
-            )
-            .map_err(|_| {
-                "Agent Library domain result is invalid or exceeds resource limits".to_string()
-            })?;
+            let event: AgentLibraryOutboxEvent =
+                super::agent_row::decode(bytes, "Agent Library domain result")?;
             event.validate()?;
             let committed_version = record
                 .committed_version
@@ -1726,15 +1678,10 @@ fn record_result(
     if schema_id.as_str() != AGENT_LIBRARY_RESULT_SCHEMA_ID {
         return Err("Agent Library receipt has an unexpected result schema".to_string());
     }
-    let result = eg_types::msgpack::decode_bounded::<AgentLibraryCommittedResult>(
+    let result: AgentLibraryCommittedResult = super::agent_row::decode(
         payload.as_slice(),
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AGENT_LIBRARY_ROW_BYTES,
-            MAX_AGENT_LIBRARY_ROW_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "Agent Library domain result payload is invalid".to_string())?;
+        "Agent Library domain result payload",
+    )?;
     result.validate()?;
     Ok(result)
 }
@@ -1748,15 +1695,8 @@ fn record_event(record: &eg_types::MutationBatchRecord) -> Result<AgentLibraryOu
         .outbox
         .first()
         .ok_or_else(|| "Agent Library receipt has no outbox event".to_string())?;
-    let event = eg_types::msgpack::decode_bounded::<AgentLibraryOutboxEvent>(
-        intent.payload.as_slice(),
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AGENT_LIBRARY_ROW_BYTES,
-            MAX_AGENT_LIBRARY_ROW_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "Agent Library outbox event is invalid or exceeds resource limits".to_string())?;
+    let event: AgentLibraryOutboxEvent =
+        super::agent_row::decode(intent.payload.as_slice(), "Agent Library outbox event")?;
     event.validate()?;
     Ok(event)
 }
@@ -1817,16 +1757,10 @@ fn expected_headers(
     ])
 }
 
-fn decode_entry(bytes: &[u8]) -> Result<AgentLibraryEntry, String> {
-    let entry = eg_types::msgpack::decode_bounded::<AgentLibraryEntry>(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_AGENT_LIBRARY_ROW_BYTES,
-            MAX_AGENT_LIBRARY_ROW_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "Agent Library row is invalid or exceeds resource limits".to_string())?;
+/// `pub(super)` for [`super::agent_pin_resolution`], which resolves a pin
+/// against this layer and therefore has to read this layer's rows.
+pub(super) fn decode_entry(bytes: &[u8]) -> Result<AgentLibraryEntry, String> {
+    let entry: AgentLibraryEntry = super::agent_row::decode(bytes, "Agent Library row")?;
     entry.validate()?;
     Ok(entry)
 }
