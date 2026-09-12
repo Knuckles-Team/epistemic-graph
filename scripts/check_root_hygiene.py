@@ -28,8 +28,11 @@ fleet's Extend-Before-Invent convention (see MEMORY
 original from a hardcoded ``ALLOWED_DIRS``/``ALLOWED_FILES`` pair into a
 manifest-driven engine precisely so this port needs ZERO logic changes: the
 only thing that differs between repos is ``ALLOWED_DOTFILES`` immediately
-below (this repo's own tracked dot-files: ``.cargo-audit-allow.txt`` and
-``.vulture_ignore`` instead of agent-utilities' ``.security-audit-allow.txt``)
+below. This repo tracks ``.cargo-audit-allow.txt`` (Rust, cargo-deny),
+``.security-audit-allow.txt`` (Python, the ``dependency-audit`` OSV gate added
+2026-09-11) and ``.vulture_ignore``. An earlier version of this comment said EG
+had the cargo ledger *instead of* agent-utilities' Python one; EG now has both,
+because it ships a Python client and wheel whose dependencies need auditing too.
 and the contents of this repo's own ``.repo-layout.toml``. Two holes this
 engine closed relative to the pre-CX-HYG-01 original, both of which let a
 real tracked artifact sit unchallenged at a repo root:
@@ -96,6 +99,7 @@ ALLOWED_DOTFILES: frozenset[str] = frozenset(
         ".repo-layout.toml",
         ".bumpversion.cfg",  # release version bump config (bump2version)
         ".cargo-audit-allow.txt",  # risk-accepted RUSTSEC/OSV ledger (cargo-deny gate)
+        ".security-audit-allow.txt",  # risk-accepted PYTHON OSV ledger (dependency-audit gate)
         ".codespellignore",  # codespell false-positive word list
         ".dockerignore",  # Docker build-context exclusions
         ".env.example",  # non-secret catalog of explicit process-env keys
