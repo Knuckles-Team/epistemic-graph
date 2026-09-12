@@ -1,0 +1,56 @@
+{
+  "cargo_lock_sha256": "2d09df71aedddead47c01fb9f94721dc152de2e09c3235c7a27c7e2aecb6ed0f",
+  "commit": "d0bb0f070bbaad8c2336824d54a8b7e184a4edcf",
+  "commit_short": "d0bb0f07",
+  "contract_digest": "d12cb473ec820617ec64d9548db3487a8ef904a1fcbfa7fd8848734d867bcbca",
+  "contract_version": 1,
+  "feature_profile": [
+    "contract",
+    "canonical-ledger",
+    "contract-schema",
+    "jobs",
+    "statechart",
+    "knowledge-batch",
+    "modality-serving",
+    "quantum",
+    "asr-native",
+    "viz"
+  ],
+  "freeze": "epistemic-graph contract freeze",
+  "frozen_at_utc": "2026-09-12T06:30:55+00:00",
+  "method_count": 414,
+  "source_tree_oid": "2ad02001cef71f01d53a916e9061a89bb91928fe94af995dfe2d486ce1f796a5",
+  "verified": {
+    "compile_all_features": "LEG1_rc=0",
+    "compile_shipped_full": "LEG2_rc=0  (--no-default-features --features full)",
+    "contract_check_alone_no_regen": "contract is current: 30 artifacts match (CONTRACT_rc=0)",
+    "evidence_log": "R820:/mnt/data/cargo-targets/eg-freeze.log",
+    "wiring_gates": {
+      "contract_method_reachability": "GREEN 414/414 reach a dispatch arm",
+      "durable_table_registration": "GREEN 144 tables, 3 registries agree",
+      "orphan_modules": "GREEN 1336 files / 200 cargo targets",
+      "pinned_reference_resolution": "GREEN 8/8 edges, 34 pin sites"
+    },
+    "workspace_test": "226 binaries, 6343 passed, 0 failed, 18 ignored (TEST_rc=0)"
+  },
+  "what_to_pin": {
+    "NOT_for_compatibility": "contract_digest -- it folds source_tree_oid, so it moves on any generator-input change even when no wire byte changes",
+    "for_compatibility": "the wire_surface_digests entries above (per-artifact, exact)",
+    "known_limits": [
+      "contract/schemas/ schematises REQUESTS only; result shapes are not covered by any digest",
+      "eg-capabilities builds without `timeseries`, so SensorFuse/TsScan/SensorAlign wire variants are in no schema; identical methods.json means the contract PROFILE did not change, not that the wire did not"
+    ]
+  },
+  "wire_surface_digests": {
+    "contract/methods.json": "1ce5502cbb901002d4df3516205e82a034f8919942087fa4e3ae3758741125b7",
+    "contract/schemas/method.request.json": "05d15674802b75bdf52f217cfc70734caf111fcbb8717f40d858812ccd431c0d",
+    "contract/schemas/result.Bool.json": "f4bcf35f07ea1acd8a6067aa0279864f120fc1eb6e308afb0720e034b2d57744",
+    "contract/schemas/result.Count.json": "c139342b656a7d5b0bf598ad6a64f92992dc1071ab8f6568bcfa55422f1f326a",
+    "contract/schemas/result.EdgeList.json": "837e5e87b9131e55b1136b2fd5588b002ff9c26eeaad14892a3b3f2b83e1cbc2",
+    "contract/schemas/result.Float.json": "9d8d9890a0e39f6dddc45c7cf3533aef05ca6ec9709174618174f793bb6bf7e4",
+    "contract/schemas/result.Ids.json": "cef7480310b4300eebd51a58740a8d606713ab1fd6d043a7eda4b451a33595ae",
+    "contract/schemas/result.NodeList.json": "584c3712101c532f50581a956cf755b9e84b280bbe2d189ece85b9e577365e4b",
+    "contract/schemas/result.String.json": "a3e272c53a4f5de4d4d6d51ff824bf63bfb22b3aa59609d990cd53065148a4ab",
+    "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8"
+  }
+}
