@@ -728,33 +728,6 @@ impl SemanticIndexServerAdapter {
         .map_err(|error| Response::err(req_id, error.to_string()))
     }
 
-    /// Resolve one SQL source page without blocking a Tokio worker. The
-    /// synchronous redb snapshot and read-port validation both run inside the
-    /// existing server blocking boundary; no nested runtime is created.
-    pub(crate) async fn read_sql_source_page(
-        &self,
-        req_id: u64,
-        port: AuthorizedSqlSourceReadPort,
-        binding: SemanticBinding,
-        wakeup: SemanticSourceDirtyIntent,
-        record: MutationOutboxRecord,
-        cursor: Option<Vec<u8>>,
-    ) -> Result<SemanticSqlSourceReadPage, Response> {
-        let result = compute_off_lock(req_id, move || {
-            port.read_current_sql_source_page(&binding, &wakeup, &record, cursor.as_deref())
-        })
-        .await?;
-        // The RESPONSE stays opaque on purpose -- the cause names ACL and
-        // schema facts the caller is not entitled to. The cause is not
-        // DISCARDED, though: it goes to the operator's log, so a refusal is
-        // diagnosable by whoever owns the deployment without being disclosed to
-        // whoever triggered it.
-        result.map_err(|error| {
-            tracing::debug!(?error, "semantic SQL source read was refused");
-            Response::err(req_id, "semantic SQL source read was refused")
-        })
-    }
-
     /// Capture one raw row from a bounded authorized page. The opaque input
     /// cursor is retained so fresh completion can re-read the same page; an
     /// already committed retry resolves from the durable stage record first.

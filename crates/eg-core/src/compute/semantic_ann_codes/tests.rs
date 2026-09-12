@@ -3281,6 +3281,73 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The operation surface RECORDS the caller's finer-grained subject instead of
+/// discarding it.
+///
+/// `MutationEnvelope::for_scope` mints no structural subject -- an
+/// `OperationEnvelope` names the STORE -- so the subject travels in the
+/// operation, and the ledger row therefore names the binding generation it
+/// acted on rather than only the mutation content. The second half pins the
+/// durable back-compatibility this depends on: a row committed BEFORE the
+/// subject was recorded carries the bare `sha256:{digest}` query, and the one
+/// parser on the replay path must still read its digest, because
+/// `commit_metadata_inner` runs it over whatever the ledger already holds.
+#[test]
+fn an_operation_ledger_row_names_the_binding_it_wrote() {
+    let dir = tmp_dir("operation-subject");
+    let codes = open_store(&dir);
+    let binding = pending_binding(
+        "sql-source:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:epoch:1",
+    );
+    let receipt = codes
+        .store_binding_operation(
+            &binding,
+            1,
+            "actor-a",
+            "binding-create",
+            Nonce::from_bytes([21; 32]),
+        )
+        .unwrap();
+
+    let ledger = codes.kernel.read_scope(&codes.serving).unwrap();
+    let record = eg_transaction::read_ledger(&ledger, &receipt.batch_id)
+        .unwrap()
+        .expect("an operation-surface write must leave one durable ledger receipt");
+    drop(ledger);
+
+    let eg_types::protocol::Method::ApplyMutation { event_type, query } =
+        &record.batch.operations[0].method
+    else {
+        panic!("a semantic metadata batch records exactly one ApplyMutation");
+    };
+    assert_eq!(event_type, "semantic_binding_stored");
+    assert_eq!(
+        query,
+        &format!(
+            "binding:{}/{}",
+            binding.binding_digest, receipt.mutation_digest
+        ),
+        "the operation row must name the binding it acted on, not only the content digest"
+    );
+    assert_eq!(
+        super::mutation_digest_from_batch(&record.batch).unwrap(),
+        receipt.mutation_digest
+    );
+
+    let mut legacy = record.batch.clone();
+    let eg_types::protocol::Method::ApplyMutation { query, .. } = &mut legacy.operations[0].method
+    else {
+        panic!("a semantic metadata batch records exactly one ApplyMutation");
+    };
+    *query = receipt.mutation_digest.to_string();
+    assert_eq!(
+        super::mutation_digest_from_batch(&legacy).unwrap(),
+        receipt.mutation_digest,
+        "a row committed before the subject was recorded must still replay"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// P1-3. Two admitted writes for one generation that both decided against the
 /// same version: the first commits, the second is refused by the ledger rather
 /// than overwriting it. Deterministic rather than threaded -- the race is the

@@ -210,14 +210,36 @@ fn semantic_digest(bytes: &[u8]) -> SemanticDigest {
     SemanticDigest::from_bytes(hasher.finalize().into())
 }
 
+/// The operation-surface query that names BOTH the content written and the
+/// finer-grained target it was written FOR.
+///
+/// `MutationEnvelope::for_scope` mints no subject, and an `OperationEnvelope`
+/// has no subject field to mint one into: it names the STORE structurally, in
+/// `purpose_resource`, which is the compiled scope's own resource. Per
+/// `MutationEnvelope::maintenance_for_scope`'s own rule the finer-grained
+/// target therefore travels in the OPERATION, and this field is where the
+/// operation carries a free-form value -- the same thing
+/// `eg_transaction::graft` does with its `/`-delimited `GraftIntent::encode`.
+/// The digest stays the LAST `/` segment so one parser
+/// ([`mutation_digest_from_batch`]) reads both this shape and the maintenance
+/// surface's bare `sha256:{digest}`, including rows committed before the
+/// subject was recorded.
+fn metadata_operation_query(subject: &str, mutation_digest: SemanticDigest) -> String {
+    format!("{subject}/{mutation_digest}")
+}
+
 fn mutation_digest_from_batch(batch: &MutationBatch) -> Result<SemanticDigest, String> {
     batch
         .operations
         .first()
         .and_then(|operation| match &operation.method {
-            eg_types::protocol::Method::ApplyMutation { query, .. } => {
-                query.strip_prefix("sha256:")
-            }
+            // The digest is the trailing `/` segment on both surfaces: alone on
+            // the maintenance surface, behind the recorded subject on the
+            // operation surface (see [`metadata_operation_query`]).
+            eg_types::protocol::Method::ApplyMutation { query, .. } => query
+                .rsplit('/')
+                .next()
+                .and_then(|segment| segment.strip_prefix("sha256:")),
             _ => None,
         })
         .and_then(|hex_digest| hex::decode(hex_digest).ok())
@@ -257,9 +279,13 @@ fn scope_identity(
 /// What one semantic metadata mutation records.
 ///
 /// The four are used together and only together: `batch_id`, `event_type` and
-/// `subject` form the ledger envelope, and `mutation_digest` is the content the
-/// recorded operation is addressed by (`sha256:{digest}`). Every caller that
-/// has one has all four. Flattened, it put three bare `&str` adjacent in an
+/// `subject` name what the ledger row wrote and what it wrote it for, and
+/// `mutation_digest` is the content the recorded operation is addressed by.
+/// Where the subject LANDS differs by surface, and neither surface drops it:
+/// the maintenance envelope has a structural `subject` field, while the
+/// operation envelope names the store and carries the subject in the operation
+/// query instead (see `metadata_operation_query`). Every caller that has one
+/// has all four. Flattened, it put three bare `&str` adjacent in an
 /// argument list of up to twelve, where transposing two of them still compiles
 /// and the ledger silently records the wrong subject.
 pub(crate) struct MetadataMutation<'a> {
@@ -4284,14 +4310,7 @@ impl SemanticCodeStore {
         let MetadataMutation {
             batch_id,
             event_type,
-            // The OPERATION surface derives the mutation's resource from the
-            // compiled scope (`MutationEnvelope::for_scope` takes no subject),
-            // so the caller's `subject` is discarded here -- unlike the
-            // maintenance surface, where `MutationEnvelope::maintenance`
-            // records it. That asymmetry predates this grouping; it was an
-            // unused parameter before and is named here rather than left as a
-            // bare `unused_variables` warning.
-            subject: _,
+            subject,
             mutation_digest,
         } = mutation;
         let OperationAttribution {
@@ -4305,13 +4324,17 @@ impl SemanticCodeStore {
                 .entry("actor".to_string())
                 .or_insert_with(|| actor.to_string());
         }
+        // The OPERATION surface has no structural subject: `for_scope` names
+        // the store, so the caller's finer-grained subject is recorded HERE, in
+        // the operation, rather than discarded. See
+        // [`metadata_operation_query`].
         let operations = vec![MutationOperation {
             ordinal: 0,
             surface: MutationSurface::Other,
             domain: DurabilityDomain::SemanticIndex,
             method: eg_types::protocol::Method::ApplyMutation {
                 event_type: event_type.to_string(),
-                query: format!("sha256:{}", mutation_digest.to_hex()),
+                query: metadata_operation_query(subject, mutation_digest),
             },
         }];
         let operation = CompiledOperation::for_content(
