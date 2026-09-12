@@ -1,9 +1,10 @@
 {
   "cargo_lock_sha256": "2d09df71aedddead47c01fb9f94721dc152de2e09c3235c7a27c7e2aecb6ed0f",
-  "commit": "129d4a8d6fdaadbb7940d7c205cfb0981a56789c",
-  "commit_short": "129d4a8d",
-  "contract_digest": "54f0f352ba41c8b1eccfeaa279809b0a74e0d70a54f4073a55951b8a6da28be6",
+  "commit": "202193c1ec5592d5cc255fc138543a3735043c77",
+  "commit_short": "202193c1",
+  "contract_digest": "80661e0027c444b1a99d33709acf517bcad0e59e129a2ee2f603c1861db885ab",
   "contract_version": 1,
+  "digest_caveat_demonstrated": "Between commit d0bb0f07 and this one, contract_digest moved three times (d12cb473 -> 54f0f352 -> 80661e00) while contract/methods.json and every contract/schemas/*.json stayed BYTE-IDENTICAL. contract_digest folds source_tree_oid, so any byte under crates/eg-types/src or crates/eg-capabilities/src moves it. Pin wire_surface_digests, not contract_digest.",
   "feature_profile": [
     "contract",
     "canonical-ledger",
@@ -17,10 +18,10 @@
     "viz"
   ],
   "freeze": "epistemic-graph contract freeze",
-  "frozen_at_utc": "2026-09-12T17:44:53+00:00",
+  "frozen_at_utc": "2026-09-12T22:56:51+00:00",
   "method_count": 414,
   "note_binary_count": "220 test binaries, not 226: six `^test result:` lines are test NAMES containing `tests::`, a grep artifact I reported for most of the session.",
-  "source_tree_oid": "2cec9f18dd0474c1487300b0868d480ed12894046a4407253c798ca73f2c3b69",
+  "source_tree_oid": "7a8b46a575a346681349549cb4ddf0b2eb4c768fc00dea68f0973d4e5569f225",
   "verified": {
     "compile_all_features": "LEG1_rc=0",
     "compile_shipped_full": "LEG2_rc=0  (--no-default-features --features full)",
@@ -28,8 +29,12 @@
     "evidence_log": "R820:/mnt/data/cargo-targets/eg-freeze.log",
     "lint_gates": {
       "clippy_disallowed_methods": "0 (was 136) -- unbounded waits and lock poisoning cleared",
+      "clippy_shipped_leg": "cargo clippy --no-default-features --features full --all-targets -- -D warnings => 0",
       "clippy_too_many_arguments": "0 (was 28), zero #[allow]",
+      "clippy_type_complexity": "0 (was 16), named type aliases, zero #[allow]",
       "dead_code": "0 (was 16) -- duplicated binding-authority layer retired",
+      "deferred": "KISS 1,010 + cccc 347 -- operator-deferred to the AU phase, see docs/quality-gate-terms.md",
+      "root_hygiene": "clean (34 root files, 19 root dirs, 19 declared dirs, 20 declared files)",
       "rustfmt": "clean (326 diffs -> 0)"
     },
     "wiring_gates": {
