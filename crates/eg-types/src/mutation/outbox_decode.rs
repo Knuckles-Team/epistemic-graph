@@ -8,9 +8,7 @@ use super::budget::{
     MutationBudgetDeserialize, StructuralBudget,
 };
 use super::{OUTBOX_FIXED_BUDGET, OUTBOX_HEADER_FIXED_BUDGET, PROVENANCE_FIXED_BUDGET};
-use crate::contract::{
-    BoundedVec, Digest256, OpaqueId, RecordBytes, ResourceId, TenantId,
-};
+use crate::contract::{BoundedVec, Digest256, OpaqueId, RecordBytes, ResourceId, TenantId};
 use crate::outbox::{OutboxHeader, OutboxIntent, MAX_OUTBOX_HEADERS};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

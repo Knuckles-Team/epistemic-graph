@@ -330,12 +330,8 @@ mod redb_store {
             let (write, batch, begun) = self
                 .mutations
                 .admit_current(&self.owner, |version| {
-                    super::path_index_batch(
-                        self.owner.identity(),
-                        self.owner.principal(),
-                        version,
-                    )
-                    .map_err(|error| error.to_string())
+                    super::path_index_batch(self.owner.identity(), self.owner.principal(), version)
+                        .map_err(|error| error.to_string())
                 })
                 .map_err(PathPersistError::Redb)?;
             let source_version = match begun {

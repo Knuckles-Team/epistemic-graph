@@ -67,7 +67,10 @@ pub(crate) async fn handle_semantic_index(
         );
     }
     if !op.is_mutation() && !authority.can_read() {
-        return Response::err(req_id, "ACCESS_DENIED: semantic index read requires kg:read");
+        return Response::err(
+            req_id,
+            "ACCESS_DENIED: semantic index read requires kg:read",
+        );
     }
 
     let persist_dir: PathBuf = {
@@ -88,11 +91,11 @@ pub(crate) async fn handle_semantic_index(
     // about; the opaque scope is what every other durable owner in the engine
     // is namespaced by, and it is collision-proof across tenants whose visible
     // names differ only in characters a path or key would fold together.
-    let service = match open_semantic_service(&persist_dir, authority.tenant_scope(), op.binding_id())
-    {
-        Ok(service) => service,
-        Err(error) => return Response::err(req_id, error),
-    };
+    let service =
+        match open_semantic_service(&persist_dir, authority.tenant_scope(), op.binding_id()) {
+            Ok(service) => service,
+            Err(error) => return Response::err(req_id, error),
+        };
     let adapter = SemanticIndexServerAdapter::new(Arc::clone(&service));
     let now_ms = crate::server::dispatch::authoritative_now_ms();
 
@@ -334,7 +337,9 @@ pub(crate) async fn handle_semantic_index(
             reply(
                 req_id,
                 blocking(req_id, move || {
-                    service.subscribe_stage_consumer(&consumer).map(|()| consumer_ack())
+                    service
+                        .subscribe_stage_consumer(&consumer)
+                        .map(|()| consumer_ack())
                 })
                 .await,
             )

@@ -16,8 +16,8 @@ use crate::authority::{
     AuthorityScope, NonceReplayKey, OperationReplayIdentity, VerifiedAuthority,
 };
 use crate::contract::{
-    BoundedVec, Digest256, OpaqueId, RequestedMutationResult, ResourceId,
-    MAX_MUTATION_EFFECTS, MAX_OUTBOX_INTENTS,
+    BoundedVec, Digest256, OpaqueId, RequestedMutationResult, ResourceId, MAX_MUTATION_EFFECTS,
+    MAX_OUTBOX_INTENTS,
 };
 use crate::outbox::OutboxIntent;
 /// Compiler-produced mutation payload before authority evidence is attached.

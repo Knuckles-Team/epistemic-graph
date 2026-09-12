@@ -1737,11 +1737,7 @@ mod tests {
         assert_ok(&union);
         assert_eq!(
             unified_ids(&union),
-            vec![
-                "0".to_string(),
-                (2 * NS).to_string(),
-                (4 * NS).to_string()
-            ],
+            vec!["0".to_string(), (2 * NS).to_string(), (4 * NS).to_string()],
             "SensorFuse stays on the union clock — a different semantics, not a synonym"
         );
     }

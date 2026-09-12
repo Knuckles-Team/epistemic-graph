@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use super::context::{AuthorityContext, AUTHORITY_PROTOCOL_V1};
 use super::replay::{NonceReplayKey, OperationReplayIdentity, ReplayReceipt};
 use crate::contract::{
-    AdmissionOutcome, DecisionOutcome, Digest256, Ed25519Signature, MethodId, OpaqueId,
-    ResourceId, SchemaId, UtcUnixNanos, VerificationStatus,
+    AdmissionOutcome, DecisionOutcome, Digest256, Ed25519Signature, MethodId, OpaqueId, ResourceId,
+    SchemaId, UtcUnixNanos, VerificationStatus,
 };
 
 /// Immutable signed-envelope evidence. Validation proves only canonical field

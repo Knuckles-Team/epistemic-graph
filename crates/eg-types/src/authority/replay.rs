@@ -7,9 +7,9 @@ use super::context::{
     AUTHORITY_PROTOCOL_V1,
 };
 use crate::contract::{
-    ActorId, AudienceId, Digest256, EffectState, IdempotencyKey, MethodId, Nonce,
-    OpaqueId, Operation, PolicyRevision, ProtocolId, PurposeKind, ReplayStatus,
-    ResourceId, SchemaId, TenantId, UtcUnixNanos,
+    ActorId, AudienceId, Digest256, EffectState, IdempotencyKey, MethodId, Nonce, OpaqueId,
+    Operation, PolicyRevision, ProtocolId, PurposeKind, ReplayStatus, ResourceId, SchemaId,
+    TenantId, UtcUnixNanos,
 };
 
 /// Stable effect identity. The type cannot contain nonce, request/trace IDs, or

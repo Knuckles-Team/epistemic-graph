@@ -93,9 +93,7 @@ where
     }
 }
 
-fn finish_put<E>(
-    fields: BorrowedRecordMutationFields<'_>,
-) -> Result<BorrowedRecordMutation<'_>, E>
+fn finish_put<E>(fields: BorrowedRecordMutationFields<'_>) -> Result<BorrowedRecordMutation<'_>, E>
 where
     E: serde::de::Error,
 {

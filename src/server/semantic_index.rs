@@ -954,7 +954,6 @@ mod sql_source_read_tests {
     // `TxnOp::Update`'s selector is an `eg_types::RowPredicate`, so this is the
     // one that belongs here; importing eg_query's next to it is the mistake that
     // kept this module's tests from compiling.
-    use eg_types::CmpOp;
     use eg_storage::{OwnerLayout, PhysicalStoreIdentity, ScopeGrantVerifier};
     use eg_types::contract::Nonce;
     use eg_types::mutation_batch::{DurabilityDomain, MutationSurface};
@@ -965,6 +964,7 @@ mod sql_source_read_tests {
         SemanticStageOutcome, SemanticStagePredecessor, SemanticStageReceipt, SemanticVectorMetric,
         SqlColumnRef, SEMANTIC_SOURCE_DIRTY_TOPIC, SEMANTIC_SQL_CATALOG_ID, SEMANTIC_SQL_SCHEMA_ID,
     };
+    use eg_types::CmpOp;
     use eg_types::RowPredicate;
     use serde_json::{Map, Value};
     use sha2::{Digest, Sha256};
@@ -1019,7 +1019,10 @@ mod sql_source_read_tests {
         })
     }
 
-    pub(super) fn binding(authority: &CarrierAuthority, snapshot: &SemanticTextSnapshot) -> SemanticBinding {
+    pub(super) fn binding(
+        authority: &CarrierAuthority,
+        snapshot: &SemanticTextSnapshot,
+    ) -> SemanticBinding {
         SemanticBinding::create(binding_draft(authority, snapshot)).unwrap()
     }
 
@@ -1122,8 +1125,8 @@ mod sql_source_read_tests {
             uuid::Uuid::from_u128(97),
         )
         .unwrap();
-        let table = open_authorized_table(worker, &persist_dir, "documents", SqlPrivilege::Select)
-            .unwrap();
+        let table =
+            open_authorized_table(worker, &persist_dir, "documents", SqlPrivilege::Select).unwrap();
         let snapshot = table
             .semantic_text_snapshot(&selector(), &CURSOR_SECRET, None)
             .unwrap();
@@ -1765,17 +1768,18 @@ mod dispatch_pipeline_tests {
     use super::sql_source_read_tests::{
         binding_draft, commit_sql_change, dispatch_table_fixture, selector,
     };
+    use crate::acl::RequestContextClaims;
+    use crate::protocol::Request;
     use crate::protocol::{Method, Response, ResultPayload};
     use crate::server::access::CarrierAuthority;
-    use crate::acl::RequestContextClaims;
     use crate::server::auth::{
         compute_verified_envelope_token, VerifiedEnvelopeParams, VerifiedRequestContext,
     };
-    use crate::protocol::Request;
     use eg_types::semantic_index::{
         SemanticBindingState, SemanticIndexOp, SemanticQueueClass, SemanticStage,
         SemanticStageIntentDraft, SemanticStageLeasePage, SemanticStageOutcome,
-        SemanticStagePredecessor, SemanticStageReceipt, SemanticStageScope, SemanticStageTransition,
+        SemanticStagePredecessor, SemanticStageReceipt, SemanticStageScope,
+        SemanticStageTransition,
     };
 
     /// Synthetic HMAC fixture for `ServerState::new_for_test`: it authenticates
@@ -1888,8 +1892,10 @@ mod dispatch_pipeline_tests {
         let draft = binding_draft(&worker, &fixture.snapshot);
         let binding_id = draft.binding_id.clone();
 
-        let mut server_state =
-            crate::server::state::ServerState::new_for_test(SECRET, crate::isolation::IsolationLayer::new());
+        let mut server_state = crate::server::state::ServerState::new_for_test(
+            SECRET,
+            crate::isolation::IsolationLayer::new(),
+        );
         server_state.persist_dir = Some(fixture.persist_dir.to_string_lossy().into_owned());
         let state = Arc::new(RwLock::new(server_state));
 
@@ -2069,9 +2075,7 @@ mod dispatch_pipeline_tests {
                         binding_id: binding_id.clone(),
                         lease: Box::new(entry.lease.clone()),
                         transition: Box::new(premature),
-                        artifact: Box::new(
-                            eg_types::semantic_index::SemanticStageArtifact::None,
-                        ),
+                        artifact: Box::new(eg_types::semantic_index::SemanticStageArtifact::None),
                         successor: None,
                     },
                 ),
@@ -2159,8 +2163,10 @@ mod dispatch_pipeline_tests {
     async fn dispatch_refuses_a_cross_tenant_semantic_operation() {
         let worker = worker_authority();
         let fixture = dispatch_table_fixture(&worker, TENANT);
-        let mut server_state =
-            crate::server::state::ServerState::new_for_test(SECRET, crate::isolation::IsolationLayer::new());
+        let mut server_state = crate::server::state::ServerState::new_for_test(
+            SECRET,
+            crate::isolation::IsolationLayer::new(),
+        );
         server_state.persist_dir = Some(fixture.persist_dir.to_string_lossy().into_owned());
         let state = Arc::new(RwLock::new(server_state));
 
@@ -2191,8 +2197,10 @@ mod dispatch_pipeline_tests {
     async fn dispatch_refuses_an_unbounded_stage_claim_by_name() {
         let worker = worker_authority();
         let fixture = dispatch_table_fixture(&worker, TENANT);
-        let mut server_state =
-            crate::server::state::ServerState::new_for_test(SECRET, crate::isolation::IsolationLayer::new());
+        let mut server_state = crate::server::state::ServerState::new_for_test(
+            SECRET,
+            crate::isolation::IsolationLayer::new(),
+        );
         server_state.persist_dir = Some(fixture.persist_dir.to_string_lossy().into_owned());
         let state = Arc::new(RwLock::new(server_state));
 
@@ -2214,7 +2222,10 @@ mod dispatch_pipeline_tests {
             )
             .await,
         );
-        assert!(error.contains("limit"), "the refusal must name `limit`: {error}");
+        assert!(
+            error.contains("limit"),
+            "the refusal must name `limit`: {error}"
+        );
         let _ = commit_sql_change;
     }
 }

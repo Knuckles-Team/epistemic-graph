@@ -98,11 +98,7 @@ canonical_id_type!(ResourceId, MAX_RESOURCE_ID_BYTES, "resource id");
 canonical_id_type!(ProtocolId, MAX_RESOURCE_ID_BYTES, "protocol id");
 canonical_id_type!(MethodId, MAX_METHOD_ID_BYTES, "method id");
 canonical_id_type!(PolicyRevision, MAX_OPAQUE_ID_BYTES, "policy revision");
-canonical_id_type!(
-    IdempotencyKey,
-    MAX_IDEMPOTENCY_KEY_BYTES,
-    "idempotency key"
-);
+canonical_id_type!(IdempotencyKey, MAX_IDEMPOTENCY_KEY_BYTES, "idempotency key");
 canonical_id_type!(SchemaId, MAX_RESOURCE_ID_BYTES, "schema id");
 
 impl ResourceId {

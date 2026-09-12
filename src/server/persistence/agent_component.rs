@@ -110,13 +110,13 @@ impl AgentLibraryStore {
         request.component.validate()?;
         if request.context.tenant_id != request.component.tenant_id {
             return Err(
-                "agent component publish context tenant does not match the graph's tenant".to_string(),
+                "agent component publish context tenant does not match the graph's tenant"
+                    .to_string(),
             );
         }
-        let expected_revision = request
-            .context
-            .expected_revision
-            .ok_or_else(|| "agent component writes require an explicit expected_revision".to_string())?;
+        let expected_revision = request.context.expected_revision.ok_or_else(|| {
+            "agent component writes require an explicit expected_revision".to_string()
+        })?;
         let owner = self.scope_handle(&request.context.tenant_id)?;
         let txn = self.mutations.open_write(&owner)?;
 
@@ -137,14 +137,13 @@ impl AgentLibraryStore {
                 return Err(error);
             }
         };
-        let replay_context =
-            match admitted_context(&request.context, "agent-component:publish") {
-                Ok(context) => context,
-                Err(error) => {
-                    txn.abort()?;
-                    return Err(error);
-                }
-            };
+        let replay_context = match admitted_context(&request.context, "agent-component:publish") {
+            Ok(context) => context,
+            Err(error) => {
+                txn.abort()?;
+                return Err(error);
+            }
+        };
         let operation = match agent_library_operation_identity(
             &owner,
             &replay_context,
@@ -229,10 +228,9 @@ impl AgentLibraryStore {
         request: AgentComponentRetireRequest,
     ) -> Result<AgentComponentWriteResult, String> {
         validate_context(self, &request.context)?;
-        let expected_revision = request
-            .context
-            .expected_revision
-            .ok_or_else(|| "agent component writes require an explicit expected_revision".to_string())?;
+        let expected_revision = request.context.expected_revision.ok_or_else(|| {
+            "agent component writes require an explicit expected_revision".to_string()
+        })?;
         let owner = self.scope_handle(&request.context.tenant_id)?;
         let txn = self.mutations.open_write(&owner)?;
         let nonce = match resolve_nonce_first(&self.mutations, &txn, &request.context) {
@@ -249,14 +247,13 @@ impl AgentLibraryStore {
                 return Err(error);
             }
         };
-        let replay_context =
-            match admitted_context(&request.context, "agent-component:retire") {
-                Ok(context) => context,
-                Err(error) => {
-                    txn.abort()?;
-                    return Err(error);
-                }
-            };
+        let replay_context = match admitted_context(&request.context, "agent-component:retire") {
+            Ok(context) => context,
+            Err(error) => {
+                txn.abort()?;
+                return Err(error);
+            }
+        };
         let operation = match agent_library_operation_identity(
             &owner,
             &replay_context,
@@ -471,10 +468,7 @@ impl AgentLibraryStore {
         }
         let next_cursor = if truncated {
             last_consumed.map(|component_id| {
-                eg_types::agent_component::encode_search_cursor(
-                    &request.tenant_id,
-                    &component_id,
-                )
+                eg_types::agent_component::encode_search_cursor(&request.tenant_id, &component_id)
             })
         } else {
             None
@@ -817,7 +811,9 @@ impl AgentLibraryStore {
             .ok_or_else(|| "agent component commit has no target version".to_string())?;
         if recorded_version != committed_version {
             txn.abort()?;
-            return Err("agent component result version differs from the committed version".to_string());
+            return Err(
+                "agent component result version differs from the committed version".to_string(),
+            );
         }
         self.mutations.commit(txn, &batch)?;
         Ok(AgentComponentWriteResult {
@@ -921,9 +917,18 @@ fn component_outbox_headers(entry: &AgentComponentEntry) -> BTreeMap<String, Str
             "entry_revision".to_string(),
             entry.entry_revision.to_string(),
         ),
-        ("definition_digest".to_string(), entry.definition_digest.clone()),
-        ("definition_actor_scope".to_string(), entry.actor_scope.clone()),
-        ("definition_purpose_id".to_string(), entry.purpose_id.clone()),
+        (
+            "definition_digest".to_string(),
+            entry.definition_digest.clone(),
+        ),
+        (
+            "definition_actor_scope".to_string(),
+            entry.actor_scope.clone(),
+        ),
+        (
+            "definition_purpose_id".to_string(),
+            entry.purpose_id.clone(),
+        ),
         (
             "definition_policy_digest".to_string(),
             entry.policy_digest.clone(),
@@ -1056,12 +1061,19 @@ fn decode_committed_result(bytes: &[u8]) -> Result<AgentComponentCommittedResult
     Ok(result)
 }
 
-fn component_domain_result(result: &AgentComponentCommittedResult) -> Result<MutationResult, String> {
+fn component_domain_result(
+    result: &AgentComponentCommittedResult,
+) -> Result<MutationResult, String> {
     super::agent_row::domain_result(result, AGENT_COMPONENT_RESULT_SCHEMA_ID, "agent component")
 }
 
-fn encode_component_domain_result(result: &AgentComponentCommittedResult) -> Result<Vec<u8>, String> {
-    eg_storage::encode_bounded(&component_domain_result(result)?, "agent component domain result")
+fn encode_component_domain_result(
+    result: &AgentComponentCommittedResult,
+) -> Result<Vec<u8>, String> {
+    eg_storage::encode_bounded(
+        &component_domain_result(result)?,
+        "agent component domain result",
+    )
 }
 
 /// Turn a resolved replay into a caller result, or `None` when it is fresh.
@@ -1086,7 +1098,8 @@ fn replayed_component(
     };
     let RecordedOperation::Receipt(receipt) = recorded else {
         return Err(
-            "CORRUPT_MUTATION_LEDGER: agent component replay is missing its typed receipt".to_string(),
+            "CORRUPT_MUTATION_LEDGER: agent component replay is missing its typed receipt"
+                .to_string(),
         );
     };
     let receipt = *receipt;
@@ -1100,7 +1113,8 @@ fn replayed_component(
     let committed = decode_committed_result(payload.as_slice())?;
     if committed.component.component_id != component_id {
         return Err(
-            "CORRUPT_MUTATION_LEDGER: agent component replay resolved a different graph".to_string(),
+            "CORRUPT_MUTATION_LEDGER: agent component replay resolved a different graph"
+                .to_string(),
         );
     }
     Ok(Some(AgentComponentWriteResult {
@@ -1457,7 +1471,11 @@ mod tests {
         let first = store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 1, 0, "agent-component:publish"),
-                component: tool("tool:a", "eg:capability/retrieval/web-search", ToolEffect::Read),
+                component: tool(
+                    "tool:a",
+                    "eg:capability/retrieval/web-search",
+                    ToolEffect::Read,
+                ),
             })
             .unwrap();
         let mut retry = context(&store, "key-1", 2, 0, "agent-component:publish");
@@ -1465,13 +1483,20 @@ mod tests {
         let replayed = store
             .publish_component(AgentComponentPublishRequest {
                 context: retry,
-                component: tool("tool:a", "eg:capability/retrieval/web-search", ToolEffect::Read),
+                component: tool(
+                    "tool:a",
+                    "eg:capability/retrieval/web-search",
+                    ToolEffect::Read,
+                ),
             })
             .unwrap();
         assert!(replayed.replayed);
         assert_eq!(replayed.result, first.result);
         assert_eq!(
-            store.component_revisions("tenant-a", "tool:a").unwrap().len(),
+            store
+                .component_revisions("tenant-a", "tool:a")
+                .unwrap()
+                .len(),
             1
         );
     }
@@ -1484,12 +1509,22 @@ mod tests {
         store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 1, 0, "agent-component:publish"),
-                component: tool("same-id", "eg:capability/retrieval/web-search", ToolEffect::Read),
+                component: tool(
+                    "same-id",
+                    "eg:capability/retrieval/web-search",
+                    ToolEffect::Read,
+                ),
             })
             .unwrap();
-        assert!(store.current_component("tenant-a", "same-id").unwrap().is_some());
+        assert!(store
+            .current_component("tenant-a", "same-id")
+            .unwrap()
+            .is_some());
         assert!(store.current("tenant-a", "same-id").unwrap().is_none());
-        assert!(store.current_graph("tenant-a", "same-id").unwrap().is_none());
+        assert!(store
+            .current_graph("tenant-a", "same-id")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1525,7 +1560,11 @@ mod tests {
         // ingest that named the reviewed server from one that named anything
         // at all. It is a `ComponentDependency` now, resolved like every other.
         let (_dir, store) = open_store();
-        let mut orphan = tool("tool:web", "eg:capability/retrieval/web-search", ToolEffect::Read);
+        let mut orphan = tool(
+            "tool:web",
+            "eg:capability/retrieval/web-search",
+            ToolEffect::Read,
+        );
         orphan.provenance = ComponentProvenance::McpServer {
             server: ComponentDependency {
                 component_id: "mcp:ghost-server".to_string(),
@@ -1540,8 +1579,14 @@ mod tests {
                 component: orphan,
             })
             .expect_err("an unresolvable provenance pin must be refused");
-        assert!(error.contains("which does not exist in this tenant"), "got: {error}");
-        assert!(store.current_component("tenant-a", "tool:web").unwrap().is_none());
+        assert!(
+            error.contains("which does not exist in this tenant"),
+            "got: {error}"
+        );
+        assert!(store
+            .current_component("tenant-a", "tool:web")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1549,7 +1594,11 @@ mod tests {
         // The half an id alone could never carry: WHICH revision of the server
         // this tool's surface was read from.
         let (_dir, store) = open_store();
-        let mut stale = tool("tool:web", "eg:capability/retrieval/web-search", ToolEffect::Read);
+        let mut stale = tool(
+            "tool:web",
+            "eg:capability/retrieval/web-search",
+            ToolEffect::Read,
+        );
         stale.provenance = ComponentProvenance::McpServer {
             server: ComponentDependency {
                 component_id: MCP_SERVER_ID.to_string(),
@@ -1580,8 +1629,11 @@ mod tests {
             AgentComponentKind::Toolset,
             60,
         );
-        let mut mislabelled =
-            tool("tool:web", "eg:capability/retrieval/web-search", ToolEffect::Read);
+        let mut mislabelled = tool(
+            "tool:web",
+            "eg:capability/retrieval/web-search",
+            ToolEffect::Read,
+        );
         mislabelled.provenance = ComponentProvenance::McpServer {
             server: ComponentDependency {
                 component_id: toolset.component_id,
@@ -1605,10 +1657,26 @@ mod tests {
 
     fn seed_search_corpus(store: &AgentLibraryStore) {
         let corpus = [
-            ("tool:web", "eg:capability/retrieval/web-search", ToolEffect::Read),
-            ("tool:vector", "eg:capability/retrieval/vector-search", ToolEffect::Read),
-            ("tool:summarize", "eg:capability/analysis/summarize", ToolEffect::Read),
-            ("tool:deploy", "eg:capability/action/process-exec", ToolEffect::Write),
+            (
+                "tool:web",
+                "eg:capability/retrieval/web-search",
+                ToolEffect::Read,
+            ),
+            (
+                "tool:vector",
+                "eg:capability/retrieval/vector-search",
+                ToolEffect::Read,
+            ),
+            (
+                "tool:summarize",
+                "eg:capability/analysis/summarize",
+                ToolEffect::Read,
+            ),
+            (
+                "tool:deploy",
+                "eg:capability/action/process-exec",
+                ToolEffect::Write,
+            ),
         ];
         for (index, (id, capability, effect)) in corpus.iter().enumerate() {
             let nonce = u8::try_from(index + 1).unwrap();
@@ -1653,7 +1721,10 @@ mod tests {
         assert!(ids.contains(&"tool:web"), "{ids:?}");
         assert!(ids.contains(&"tool:vector"), "{ids:?}");
         assert!(ids.contains(&"tool:summarize"), "{ids:?}");
-        assert!(!ids.contains(&"tool:deploy"), "a deploy tool is not research: {ids:?}");
+        assert!(
+            !ids.contains(&"tool:deploy"),
+            "a deploy tool is not research: {ids:?}"
+        );
     }
 
     #[test]
@@ -1724,9 +1795,14 @@ mod tests {
             .search_components(&search("tenant-a", Some("eg:task/research"), false))
             .unwrap()
             .entries;
-        assert!(!found.is_empty(), "the searched tenant's own rows must match");
         assert!(
-            found.iter().all(|component| component.tenant_id == "tenant-a"),
+            !found.is_empty(),
+            "the searched tenant's own rows must match"
+        );
+        assert!(
+            found
+                .iter()
+                .all(|component| component.tenant_id == "tenant-a"),
             "another tenant's components must not leak: {:?}",
             found
                 .iter()
@@ -1741,7 +1817,9 @@ mod tests {
             .unwrap()
             .entries;
         assert!(!theirs.is_empty());
-        assert!(theirs.iter().all(|component| component.tenant_id == "tenant-b"));
+        assert!(theirs
+            .iter()
+            .all(|component| component.tenant_id == "tenant-b"));
     }
 
     #[test]
@@ -1753,7 +1831,11 @@ mod tests {
         store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 1, 0, "agent-component:publish"),
-                component: tool("tool:web", "eg:capability/retrieval/web-search", ToolEffect::Read),
+                component: tool(
+                    "tool:web",
+                    "eg:capability/retrieval/web-search",
+                    ToolEffect::Read,
+                ),
             })
             .unwrap();
         assert_eq!(
@@ -1780,7 +1862,10 @@ mod tests {
             .unwrap()
             .is_some());
         assert_eq!(
-            store.component_revisions("tenant-a", "tool:web").unwrap().len(),
+            store
+                .component_revisions("tenant-a", "tool:web")
+                .unwrap()
+                .len(),
             2,
             "both the publish and its tombstone are retained"
         );
@@ -1792,7 +1877,10 @@ mod tests {
         let error = store
             .search_components(&search("tenant-a", None, false))
             .expect_err("an unconstrained search must be refused");
-        assert!(error.contains("task or at least one capability"), "got: {error}");
+        assert!(
+            error.contains("task or at least one capability"),
+            "got: {error}"
+        );
     }
 
     // ---- pagination ----

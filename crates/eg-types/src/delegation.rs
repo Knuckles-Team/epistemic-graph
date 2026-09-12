@@ -411,7 +411,7 @@ impl KgDelegateRequest {
             (None, true) => {}
             (None, false) => {
                 return Err(
-                    "a single-agent delegation must pin the model it will run on".to_string()
+                    "a single-agent delegation must pin the model it will run on".to_string(),
                 )
             }
             (Some(_), true) => {
@@ -658,7 +658,10 @@ mod tests {
         request.target = graph_target();
         request.model_digest = Some(digest('0'));
         let error = request.validate().expect_err("must be refused");
-        assert!(error.contains("must not pin a model_digest"), "got: {error}");
+        assert!(
+            error.contains("must not pin a model_digest"),
+            "got: {error}"
+        );
     }
 
     #[test]

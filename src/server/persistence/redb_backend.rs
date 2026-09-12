@@ -533,7 +533,8 @@ pub(crate) enum Cmd {
     ReadGraphDumpPage {
         graph: String,
         query: Box<PageQuery>,
-        reply: std::sync::mpsc::SyncSender<Result<Option<crate::redb_store::GraphDumpPage>, String>>,
+        reply:
+            std::sync::mpsc::SyncSender<Result<Option<crate::redb_store::GraphDumpPage>, String>>,
     },
     /// Export ONE graph's rows VERBATIM for an online shard move (CONCEPT:EG-KG.backend.catalog-shard-resolve). Runs
     /// on the SOURCE shard's writer: flush pending first (so the snapshot is complete),
@@ -9304,7 +9305,11 @@ mod tests {
                 }
             }
             assert!(
-                backend.read_node(&graph_fname, "n1").await.unwrap().is_some(),
+                backend
+                    .read_node(&graph_fname, "n1")
+                    .await
+                    .unwrap()
+                    .is_some(),
                 "node readable pre-restart"
             );
             backend.shutdown();
@@ -9316,7 +9321,11 @@ mod tests {
             let backend = RedbBackend::open_with_shards(dir_s.clone(), 256, K).expect("reopen K=4");
             assert_eq!(backend.shard_count(), K, "K reconciled from disk");
             assert!(
-                backend.read_node(&graph_fname, "n1").await.unwrap().is_some(),
+                backend
+                    .read_node(&graph_fname, "n1")
+                    .await
+                    .unwrap()
+                    .is_some(),
                 "node survived restart, served from the same shard"
             );
             backend.shutdown();

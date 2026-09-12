@@ -260,10 +260,7 @@ fn eg104_range_literals_require_position_specific_delimiters() {
         );
     }
 
-    assert_eq!(
-        one("SELECT range_contains('[1,5)', 3) AS x"),
-        json!(true)
-    );
+    assert_eq!(one("SELECT range_contains('[1,5)', 3) AS x"), json!(true));
     assert_eq!(
         one("SELECT range_overlaps('[1,5)', int4range(4,9)) AS x"),
         json!(true)

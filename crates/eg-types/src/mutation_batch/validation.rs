@@ -158,11 +158,9 @@ fn validate_version_expectation(batch: &MutationBatch) -> Result<(), String> {
                 domain,
                 DurabilityDomain::ControlPlane | DurabilityDomain::Lifecycle
             );
-            let authorized_capability = batch
-                .verified_capabilities()
-                .is_some_and(|capabilities| {
-                    capabilities.contains(&MutationCapability::UnversionedSystemMutation)
-                });
+            let authorized_capability = batch.verified_capabilities().is_some_and(|capabilities| {
+                capabilities.contains(&MutationCapability::UnversionedSystemMutation)
+            });
             if batch.identity.tenant().is_system() && authorized_domain && authorized_capability {
                 Ok(())
             } else {

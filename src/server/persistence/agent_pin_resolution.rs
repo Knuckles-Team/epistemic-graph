@@ -225,7 +225,9 @@ where
     let revisions = write.open_read_table(layer.revisions)?;
     let mut rows = 0usize;
     for pin in distinct {
-        resolve_pin(&layer, &heads, &revisions, tenant_id, subject, pin, &mut rows)?;
+        resolve_pin(
+            &layer, &heads, &revisions, tenant_id, subject, pin, &mut rows,
+        )?;
     }
     Ok(())
 }
@@ -292,7 +294,10 @@ fn resolve_head(
     record_id: &str,
     decode: impl Fn(&[u8]) -> Result<(String, AgentLibraryLifecycle), String>,
 ) -> Result<Option<ResolvedHead>, String> {
-    let Some(revision) = heads.get((tenant_id, record_id))?.map(|value| value.value()) else {
+    let Some(revision) = heads
+        .get((tenant_id, record_id))?
+        .map(|value| value.value())
+    else {
         return Ok(None);
     };
     let row = revisions
@@ -521,7 +526,10 @@ mod tests {
         draft.instantiated_from.as_mut().unwrap().template_id = "template:ghost".to_string();
         let error =
             publish_instance(&store, draft).expect_err("an unresolvable template pin is refused");
-        assert!(error.contains("which does not exist in this tenant"), "got: {error}");
+        assert!(
+            error.contains("which does not exist in this tenant"),
+            "got: {error}"
+        );
         assert!(store.current("tenant-a", INSTANCE_ID).unwrap().is_none());
     }
 

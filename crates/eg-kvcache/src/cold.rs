@@ -252,13 +252,8 @@ impl RedbColdStore {
         let (write, batch, begun) = self
             .mutations
             .admit_current(&self.owner, |version| {
-                cold_batch(
-                    kind,
-                    self.owner.identity(),
-                    self.owner.principal(),
-                    version,
-                )
-                .map_err(|error| error.to_string())
+                cold_batch(kind, self.owner.identity(), self.owner.principal(), version)
+                    .map_err(|error| error.to_string())
             })
             .map_err(io::Error::other)?;
         let source_version = match begun {

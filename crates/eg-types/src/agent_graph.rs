@@ -142,11 +142,9 @@ impl AgentGraphNodeKind {
         match self {
             Self::Template { bindings, .. } => bindings.values().collect(),
             Self::Decision { decision } => vec![decision],
-            Self::Agent { .. }
-            | Self::Graph { .. }
-            | Self::Fanout
-            | Self::Join
-            | Self::End => Vec::new(),
+            Self::Agent { .. } | Self::Graph { .. } | Self::Fanout | Self::Join | Self::End => {
+                Vec::new()
+            }
         }
     }
 
@@ -260,7 +258,10 @@ impl AgentGraphShape {
 
     /// Every Agent Library entry this shape pins: `(agent_id, digest)`.
     pub fn pinned_agents(&self) -> Vec<(&str, &str)> {
-        self.nodes.iter().filter_map(|node| node.kind.agent_pin()).collect()
+        self.nodes
+            .iter()
+            .filter_map(|node| node.kind.agent_pin())
+            .collect()
     }
 
     /// Every template this shape pins: `(template_id, digest)`.
@@ -288,7 +289,10 @@ impl AgentGraphShape {
             validate_text("node_id", &node.node_id)?;
             node.validate()?;
             if by_id.insert(node.node_id.as_str(), node).is_some() {
-                return Err(format!("agent graph node '{}' is declared twice", node.node_id));
+                return Err(format!(
+                    "agent graph node '{}' is declared twice",
+                    node.node_id
+                ));
             }
         }
 
@@ -302,10 +306,16 @@ impl AgentGraphShape {
         let mut seen_edges = BTreeSet::new();
         for edge in &self.edges {
             let Some(from) = by_id.get(edge.from.as_str()) else {
-                return Err(format!("agent graph edge leaves undeclared node '{}'", edge.from));
+                return Err(format!(
+                    "agent graph edge leaves undeclared node '{}'",
+                    edge.from
+                ));
             };
             if !by_id.contains_key(edge.to.as_str()) {
-                return Err(format!("agent graph edge enters undeclared node '{}'", edge.to));
+                return Err(format!(
+                    "agent graph edge enters undeclared node '{}'",
+                    edge.to
+                ));
             }
             if !seen_edges.insert((edge.from.as_str(), edge.to.as_str())) {
                 return Err(format!(
@@ -394,10 +404,9 @@ impl AgentGraphShape {
     /// A producer's output must be what its consumer declares it takes.
     fn validate_data_flow(&self, by_id: &BTreeMap<&str, &AgentGraphNode>) -> Result<(), String> {
         for edge in &self.edges {
-            let (Some(from), Some(to)) = (
-                by_id.get(edge.from.as_str()),
-                by_id.get(edge.to.as_str()),
-            ) else {
+            let (Some(from), Some(to)) =
+                (by_id.get(edge.from.as_str()), by_id.get(edge.to.as_str()))
+            else {
                 continue; // already rejected above
             };
             // Only executable nodes bind data. Control nodes (decision, fanout,
@@ -450,11 +459,7 @@ impl AgentGraphShape {
 
         let mut edges: Vec<&AgentGraphEdge> = self.edges.iter().collect();
         edges.sort_by(|left, right| {
-            (&left.from, &left.to, &left.condition).cmp(&(
-                &right.from,
-                &right.to,
-                &right.condition,
-            ))
+            (&left.from, &left.to, &left.condition).cmp(&(&right.from, &right.to, &right.condition))
         });
         hasher.update((edges.len() as u64).to_be_bytes());
         for edge in edges {
@@ -1090,7 +1095,10 @@ where
                 ));
             }
             let child = (self.resolve)(graph_id, shape_digest).map_err(|error| {
-                format!("agent graph node '{}' -> '{graph_id}': {error}", node.node_id)
+                format!(
+                    "agent graph node '{}' -> '{graph_id}': {error}",
+                    node.node_id
+                )
             })?;
 
             // A graph must not compose another tenant's graph. Resolution is by
@@ -1114,7 +1122,10 @@ where
             // The child was valid when published, but it arrives here through a
             // resolver this crate does not control.
             child.shape.validate().map_err(|error| {
-                format!("agent graph node '{}' composes an invalid graph: {error}", node.node_id)
+                format!(
+                    "agent graph node '{}' composes an invalid graph: {error}",
+                    node.node_id
+                )
             })?;
             self.check_boundary_contracts(node, &child.shape, graph_id)?;
 
@@ -1169,7 +1180,10 @@ where
             ));
         }
         let produced = terminal_output_contract(child).map_err(|error| {
-            format!("agent graph node '{}' composes '{graph_id}': {error}", node.node_id)
+            format!(
+                "agent graph node '{}' composes '{graph_id}': {error}",
+                node.node_id
+            )
         })?;
         if node.output_contract != produced {
             return Err(format!(
@@ -1201,7 +1215,9 @@ where
 /// terminals is still legal -- it may simply have alternative endings that no
 /// one composes -- so this is checked at the composition boundary, where a
 /// single answer is actually required, rather than at the child's own publish.
-pub fn terminal_output_contract(shape: &AgentGraphShape) -> Result<Option<ComponentDependency>, String> {
+pub fn terminal_output_contract(
+    shape: &AgentGraphShape,
+) -> Result<Option<ComponentDependency>, String> {
     let ends: BTreeSet<&str> = shape
         .nodes
         .iter()
@@ -1213,11 +1229,7 @@ pub fn terminal_output_contract(shape: &AgentGraphShape) -> Result<Option<Compon
         if !ends.contains(edge.to.as_str()) {
             continue;
         }
-        let Some(producer) = shape
-            .nodes
-            .iter()
-            .find(|node| node.node_id == edge.from)
-        else {
+        let Some(producer) = shape.nodes.iter().find(|node| node.node_id == edge.from) else {
             continue;
         };
         let candidate = producer.output_contract.clone();
@@ -1408,9 +1420,7 @@ impl AgentGraphOutboxEvent {
             AgentLibraryLifecycle::Retired => AgentGraphMutationKind::Retire,
         };
         if self.kind != expected {
-            return Err(
-                "agent graph outbox kind does not match the entry's lifecycle".to_string()
-            );
+            return Err("agent graph outbox kind does not match the entry's lifecycle".to_string());
         }
         validate_text("performing_actor", &self.performing_actor)?;
         validate_text("action_actor_scope", &self.action_actor_scope)
@@ -1433,7 +1443,11 @@ mod tests {
         }
     }
 
-    fn agent_node(id: &str, deps: Option<ComponentDependency>, output: Option<ComponentDependency>) -> AgentGraphNode {
+    fn agent_node(
+        id: &str,
+        deps: Option<ComponentDependency>,
+        output: Option<ComponentDependency>,
+    ) -> AgentGraphNode {
         AgentGraphNode {
             node_id: id.into(),
             kind: AgentGraphNodeKind::Agent {
@@ -1477,7 +1491,11 @@ mod tests {
             entry_node: "research".into(),
             nodes: vec![
                 agent_node("research", None, Some(findings.clone())),
-                agent_node("write", Some(findings), Some(component("contract:report", 'b'))),
+                agent_node(
+                    "write",
+                    Some(findings),
+                    Some(component("contract:report", 'b')),
+                ),
                 plain("done", AgentGraphNodeKind::End),
             ],
             edges: vec![edge("research", "write"), edge("write", "done")],
@@ -1522,8 +1540,13 @@ mod tests {
 
         let mut tampered = admitted.clone();
         tampered.composed_work_ceiling = 1_000;
-        let error = tampered.validate().expect_err("a raised ceiling must be refused");
-        assert!(error.contains("definition digest does not match"), "got: {error}");
+        let error = tampered
+            .validate()
+            .expect_err("a raised ceiling must be refused");
+        assert!(
+            error.contains("definition digest does not match"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1617,7 +1640,9 @@ mod tests {
             ],
             max_iterations: 5,
         };
-        loop_shape.validate().expect("a bounded review loop is legitimate");
+        loop_shape
+            .validate()
+            .expect("a bounded review loop is legitimate");
 
         loop_shape.max_iterations = 0;
         let error = loop_shape
@@ -1643,7 +1668,10 @@ mod tests {
         let mut broken = shape();
         broken.nodes[0].output_contract = None;
         let error = broken.validate().expect_err("must be refused");
-        assert!(error.contains("declares no output contract"), "got: {error}");
+        assert!(
+            error.contains("declares no output contract"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1651,7 +1679,10 @@ mod tests {
         let mut broken = shape();
         broken.nodes[2].deps_contract = Some(component("contract:findings", 'a'));
         let error = broken.validate().expect_err("must be refused");
-        assert!(error.contains("only agent and template nodes bind data"), "got: {error}");
+        assert!(
+            error.contains("only agent and template nodes bind data"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1667,7 +1698,10 @@ mod tests {
         let mut broken = shape();
         broken.edges.push(edge("done", "research"));
         let error = broken.validate().expect_err("must be refused");
-        assert!(error.contains("cannot have an outgoing edge"), "got: {error}");
+        assert!(
+            error.contains("cannot have an outgoing edge"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1736,7 +1770,12 @@ mod tests {
 
     // ---- composition: graphs of graphs (RF-ADR-008) ----
 
-    fn graph_node(id: &str, child: &str, deps: Option<ComponentDependency>, out: Option<ComponentDependency>) -> AgentGraphNode {
+    fn graph_node(
+        id: &str,
+        child: &str,
+        deps: Option<ComponentDependency>,
+        out: Option<ComponentDependency>,
+    ) -> AgentGraphNode {
         AgentGraphNode {
             node_id: id.into(),
             kind: AgentGraphNodeKind::Graph {
@@ -1793,7 +1832,12 @@ mod tests {
             entry_node: "left".into(),
             nodes: vec![
                 graph_node("left", child, None, Some(component("contract:report", 'b'))),
-                graph_node("right", child, None, Some(component("contract:report", 'b'))),
+                graph_node(
+                    "right",
+                    child,
+                    None,
+                    Some(component("contract:report", 'b')),
+                ),
                 plain("done", AgentGraphNodeKind::End),
             ],
             edges: vec![edge("left", "right"), edge("right", "done")],
@@ -1900,11 +1944,13 @@ mod tests {
         // independent cost -- a wide composition can stay shallow and cheap to
         // run while making admission do unbounded work.
         let error = validate_composition("tenant-a", &wide_root(200, "graph:c-"), |graph_id, _| {
-            Ok(resolved(if let Some(suffix) = graph_id.strip_prefix("graph:c-") {
-                wide_root(2, &format!("graph:d-{suffix}-"))
-            } else {
-                one_iteration_leaf()
-            }))
+            Ok(resolved(
+                if let Some(suffix) = graph_id.strip_prefix("graph:c-") {
+                    wide_root(2, &format!("graph:d-{suffix}-"))
+                } else {
+                    one_iteration_leaf()
+                },
+            ))
         })
         .expect_err("600 resolutions must be refused");
         assert!(
@@ -1915,10 +1961,9 @@ mod tests {
 
     #[test]
     fn a_composed_graph_validates_and_reports_its_composed_cost() {
-        let facts = validate_composition("tenant-a", &parent_of_leaf(3), |_, _| {
-            Ok(resolved(leaf()))
-        })
-        .expect("a well-formed composition");
+        let facts =
+            validate_composition("tenant-a", &parent_of_leaf(3), |_, _| Ok(resolved(leaf())))
+                .expect("a well-formed composition");
         // THE point of the bound: 3 x 4, not 3 and not 4.
         assert_eq!(facts.total_work, 12);
         assert_eq!(facts.depth, 1);
@@ -1963,7 +2008,10 @@ mod tests {
             Ok(resolved(huge.clone()))
         })
         .expect_err("a child above the per-shape ceiling is refused");
-        assert!(error.contains("max_iterations is out of range"), "got: {error}");
+        assert!(
+            error.contains("max_iterations is out of range"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1979,7 +2027,10 @@ mod tests {
         })
         .expect_err("a cycle must be refused");
         assert!(error.contains("cyclic"), "got: {error}");
-        assert!(error.contains("graph:leaf"), "the path must be named: {error}");
+        assert!(
+            error.contains("graph:leaf"),
+            "the path must be named: {error}"
+        );
     }
 
     #[test]
@@ -1990,8 +2041,18 @@ mod tests {
         let diamond = AgentGraphShape {
             entry_node: "left".into(),
             nodes: vec![
-                graph_node("left", "graph:leaf", None, Some(component("contract:report", 'b'))),
-                graph_node("right", "graph:leaf", None, Some(component("contract:report", 'b'))),
+                graph_node(
+                    "left",
+                    "graph:leaf",
+                    None,
+                    Some(component("contract:report", 'b')),
+                ),
+                graph_node(
+                    "right",
+                    "graph:leaf",
+                    None,
+                    Some(component("contract:report", 'b')),
+                ),
                 plain("done", AgentGraphNodeKind::End),
             ],
             edges: vec![edge("left", "right"), edge("right", "done")],
@@ -2072,14 +2133,21 @@ mod tests {
         ));
         divergent.edges.push(edge("work", "other"));
         divergent.edges.push(edge("other", "done"));
-        divergent.validate().expect("still a valid standalone shape");
+        divergent
+            .validate()
+            .expect("still a valid standalone shape");
 
         let error = validate_composition("tenant-a", &parent_of_leaf(2), |_, _| {
             Ok(resolved(divergent.clone()))
         })
         .expect_err("must be refused");
-        assert!(error.contains("no single \
-                     result") || error.contains("no single"), "got: {error}");
+        assert!(
+            error.contains(
+                "no single \
+                     result"
+            ) || error.contains("no single"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -2157,7 +2225,10 @@ mod tests {
         assert_eq!(tombstone.shape_digest, entry.shape_digest);
         assert_eq!(tombstone.definition_digest, entry.definition_digest);
         assert_eq!(tombstone.composed_work_ceiling, entry.composed_work_ceiling);
-        assert!(tombstone.retire(3, 3_000).is_err(), "retiring twice must fail");
+        assert!(
+            tombstone.retire(3, 3_000).is_err(),
+            "retiring twice must fail"
+        );
     }
 
     #[test]
@@ -2261,7 +2332,9 @@ mod tests {
         //
         // The destructuring is the tripwire: a field added to the shape, a node
         // or an edge stops this test compiling until it is covered below.
-        rich_shape().validate().expect("the fixture must be a legal shape");
+        rich_shape()
+            .validate()
+            .expect("the fixture must be a legal shape");
         let AgentGraphShape {
             entry_node: _,
             nodes: _,
@@ -2309,7 +2382,9 @@ mod tests {
             ("entry_node", |s| s.entry_node = "revise".into()),
             ("max_iterations", |s| s.max_iterations = 6),
             ("node.node_id", |s| s.nodes[0].node_id = "drafting".into()),
-            ("node.kind (variant)", |s| s.nodes[5].kind = AgentGraphNodeKind::Join),
+            ("node.kind (variant)", |s| {
+                s.nodes[5].kind = AgentGraphNodeKind::Join
+            }),
             ("node.kind agent_id", |s| {
                 s.nodes[0].kind = AgentGraphNodeKind::Agent {
                     agent_id: "agent:other".into(),
@@ -2366,7 +2441,9 @@ mod tests {
             ("node.deps_contract", |s| {
                 s.nodes[2].deps_contract = Some(component("contract:other", 'c'))
             }),
-            ("node.output_contract", |s| s.nodes[2].output_contract = None),
+            ("node.output_contract", |s| {
+                s.nodes[2].output_contract = None
+            }),
             ("edge.from", |s| s.edges[4].from = "expand".into()),
             ("edge.to", |s| s.edges[0].to = "done".into()),
             ("edge.condition", |s| {

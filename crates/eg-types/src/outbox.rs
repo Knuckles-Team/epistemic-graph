@@ -7,7 +7,7 @@ use crate::authority::AuthorityScope;
 use crate::contract::{
     BoundedVec, Digest256, OpaqueId, RecordBytes, ResourceId, TenantId, UtcUnixNanos,
 };
-use crate::mutation::{MutationRequestEnvelope, MutationReceipt};
+use crate::mutation::{MutationReceipt, MutationRequestEnvelope};
 
 pub const MAX_OUTBOX_HEADERS: usize = 64;
 

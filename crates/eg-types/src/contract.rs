@@ -13,8 +13,8 @@ pub use crypto::{Digest256, Ed25519Signature, Nonce};
 pub use identifiers::{
     ActorId, AdmissionOutcome, AudienceId, DecisionOutcome, EffectState, IdempotencyKey,
     IngressSurface, MethodId, MutationDisposition, MutationDomain, OpaqueId, Operation,
-    PolicyRevision, ProtocolId, PurposeKind, ReplayStatus, RequestedMutationResult,
-    ResourceId, SchemaId, ScopeKind, TenantId, UtcUnixNanos, VerificationStatus,
+    PolicyRevision, ProtocolId, PurposeKind, ReplayStatus, RequestedMutationResult, ResourceId,
+    SchemaId, ScopeKind, TenantId, UtcUnixNanos, VerificationStatus,
 };
 
 pub const SHA256_BYTES: usize = 32;

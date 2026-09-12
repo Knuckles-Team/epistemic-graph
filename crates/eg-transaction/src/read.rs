@@ -94,9 +94,7 @@ pub fn read_batches<D: OwnerDomain>(
     let table = read.scoped_table(BATCHES)?;
     let mut records = Vec::new();
     let mut budget = CollectionBudget::default();
-    for row in
-        table.range_inclusive((key.as_str(), ""), (key.as_str(), MAX_BATCH_ID_SENTINEL))?
-    {
+    for row in table.range_inclusive((key.as_str(), ""), (key.as_str(), MAX_BATCH_ID_SENTINEL))? {
         let (_, value) = row.map_err(|error| error.to_string())?;
         budget.account(value.value().len())?;
         records.push(decode_batch_record(value.value())?);
@@ -105,9 +103,7 @@ pub fn read_batches<D: OwnerDomain>(
 }
 
 /// The durable route fence of the read's bound scope, if one was ever written.
-pub fn read_fences<D: OwnerDomain>(
-    read: &ScopedRead<'_, D>,
-) -> Result<Option<ScopeFence>, String> {
+pub fn read_fences<D: OwnerDomain>(read: &ScopedRead<'_, D>) -> Result<Option<ScopeFence>, String> {
     let key = ledger_scope_key(read.scope());
     let fence = read
         .scoped_table(FENCES)?

@@ -21,7 +21,8 @@ pub(crate) mod tests {
     use crate::protocol::Method;
     use std::collections::BTreeMap;
 
-    const TEST_ACTOR: &str = "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const TEST_ACTOR: &str =
+        "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     /// An operation envelope for a test batch on `identity`.
     ///

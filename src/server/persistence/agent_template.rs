@@ -30,12 +30,12 @@ use redb::ReadableTable;
 use eg_storage::{OwnedStoreHandle, RecordedOperation, ScopedRead};
 use eg_transaction::{AdmittedOwnerWrite, Begin, ReplayResolution};
 
+use eg_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
 use eg_types::agent_template::{
     AgentTemplateCommittedResult, AgentTemplateEntry, AgentTemplateMutationKind,
     AgentTemplateOutboxEvent, AgentTemplatePublishRequest, AgentTemplateRetireRequest,
     AgentTemplateStatusRequest, AGENT_TEMPLATE_SCHEMA_VERSION,
 };
-use eg_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
 use eg_types::mutation::MutationResult;
 use eg_types::mutation_batch::{
     BatchContent, CompiledEnvelope, CompiledOperation, CompiledScope, DurabilityDomain,
@@ -79,10 +79,9 @@ impl AgentLibraryStore {
                     .to_string(),
             );
         }
-        let expected_revision = request
-            .context
-            .expected_revision
-            .ok_or_else(|| "agent template writes require an explicit expected_revision".to_string())?;
+        let expected_revision = request.context.expected_revision.ok_or_else(|| {
+            "agent template writes require an explicit expected_revision".to_string()
+        })?;
         let owner = self.scope_handle(&request.context.tenant_id)?;
         let txn = self.mutations.open_write(&owner)?;
 
@@ -107,15 +106,15 @@ impl AgentLibraryStore {
         // for, so a byte-identical retry resolves to the same operation rather
         // than becoming a second revision. Computed before the entry exists,
         // exactly as `agent_graph` mints its identity from its draft digest.
-        let definition_digest = eg_types::agent_template::draft_definition_digest(&request.template);
-        let replay_context =
-            match admitted_context(&request.context, "agent-template:publish") {
-                Ok(context) => context,
-                Err(error) => {
-                    txn.abort()?;
-                    return Err(error);
-                }
-            };
+        let definition_digest =
+            eg_types::agent_template::draft_definition_digest(&request.template);
+        let replay_context = match admitted_context(&request.context, "agent-template:publish") {
+            Ok(context) => context,
+            Err(error) => {
+                txn.abort()?;
+                return Err(error);
+            }
+        };
         let operation = match agent_library_operation_identity(
             &owner,
             &replay_context,
@@ -194,10 +193,9 @@ impl AgentLibraryStore {
         request: AgentTemplateRetireRequest,
     ) -> Result<AgentTemplateWriteResult, String> {
         validate_context(self, &request.context)?;
-        let expected_revision = request
-            .context
-            .expected_revision
-            .ok_or_else(|| "agent template writes require an explicit expected_revision".to_string())?;
+        let expected_revision = request.context.expected_revision.ok_or_else(|| {
+            "agent template writes require an explicit expected_revision".to_string()
+        })?;
         let owner = self.scope_handle(&request.context.tenant_id)?;
         let txn = self.mutations.open_write(&owner)?;
         let nonce = match resolve_nonce_first(&self.mutations, &txn, &request.context) {
@@ -214,14 +212,13 @@ impl AgentLibraryStore {
                 return Err(error);
             }
         };
-        let replay_context =
-            match admitted_context(&request.context, "agent-template:retire") {
-                Ok(context) => context,
-                Err(error) => {
-                    txn.abort()?;
-                    return Err(error);
-                }
-            };
+        let replay_context = match admitted_context(&request.context, "agent-template:retire") {
+            Ok(context) => context,
+            Err(error) => {
+                txn.abort()?;
+                return Err(error);
+            }
+        };
         let operation = match agent_library_operation_identity(
             &owner,
             &replay_context,
@@ -595,7 +592,9 @@ impl AgentLibraryStore {
             .ok_or_else(|| "agent template commit has no target version".to_string())?;
         if recorded_version != committed_version {
             txn.abort()?;
-            return Err("agent template result version differs from the committed version".to_string());
+            return Err(
+                "agent template result version differs from the committed version".to_string(),
+            );
         }
         self.mutations.commit(txn, &batch)?;
         Ok(AgentTemplateWriteResult {
@@ -699,9 +698,18 @@ fn template_outbox_headers(entry: &AgentTemplateEntry) -> BTreeMap<String, Strin
             "entry_revision".to_string(),
             entry.entry_revision.to_string(),
         ),
-        ("definition_digest".to_string(), entry.definition_digest.clone()),
-        ("definition_actor_scope".to_string(), entry.actor_scope.clone()),
-        ("definition_purpose_id".to_string(), entry.purpose_id.clone()),
+        (
+            "definition_digest".to_string(),
+            entry.definition_digest.clone(),
+        ),
+        (
+            "definition_actor_scope".to_string(),
+            entry.actor_scope.clone(),
+        ),
+        (
+            "definition_purpose_id".to_string(),
+            entry.purpose_id.clone(),
+        ),
         (
             "definition_policy_digest".to_string(),
             entry.policy_digest.clone(),
@@ -830,8 +838,7 @@ pub(super) fn decode_template(bytes: &[u8]) -> Result<AgentTemplateEntry, String
 }
 
 fn decode_committed_result(bytes: &[u8]) -> Result<AgentTemplateCommittedResult, String> {
-    let result: AgentTemplateCommittedResult =
-        agent_row::decode(bytes, "agent template result")?;
+    let result: AgentTemplateCommittedResult = agent_row::decode(bytes, "agent template result")?;
     result.template.validate()?;
     Ok(result)
 }
@@ -841,7 +848,10 @@ fn template_domain_result(result: &AgentTemplateCommittedResult) -> Result<Mutat
 }
 
 fn encode_template_domain_result(result: &AgentTemplateCommittedResult) -> Result<Vec<u8>, String> {
-    eg_storage::encode_bounded(&template_domain_result(result)?, "agent template domain result")
+    eg_storage::encode_bounded(
+        &template_domain_result(result)?,
+        "agent template domain result",
+    )
 }
 
 /// Turn a resolved replay into a caller result, or `None` when it is fresh.
@@ -866,7 +876,8 @@ fn replayed_template(
     };
     let RecordedOperation::Receipt(receipt) = recorded else {
         return Err(
-            "CORRUPT_MUTATION_LEDGER: agent template replay is missing its typed receipt".to_string(),
+            "CORRUPT_MUTATION_LEDGER: agent template replay is missing its typed receipt"
+                .to_string(),
         );
     };
     let receipt = *receipt;
@@ -1079,7 +1090,13 @@ mod tests {
     #[test]
     fn a_published_template_is_durable_and_reads_back() {
         let (_dir, store) = open_store();
-        let published = publish(&store, "key-1", 1, 0, template("tenant-a", "template:researcher"));
+        let published = publish(
+            &store,
+            "key-1",
+            1,
+            0,
+            template("tenant-a", "template:researcher"),
+        );
         assert!(!published.replayed);
         assert_eq!(published.result.template.entry_revision, 1);
 
@@ -1108,7 +1125,10 @@ mod tests {
         assert!(replayed.replayed);
         assert_eq!(replayed.result, first.result);
         assert_eq!(
-            store.template_revisions("tenant-a", "template:a").unwrap().len(),
+            store
+                .template_revisions("tenant-a", "template:a")
+                .unwrap()
+                .len(),
             1
         );
     }
@@ -1121,9 +1141,15 @@ mod tests {
         // agent draft, so a collision here would be easy to miss.
         let (_dir, store) = open_store();
         publish(&store, "key-1", 1, 0, template("tenant-a", "same-id"));
-        assert!(store.current_template("tenant-a", "same-id").unwrap().is_some());
+        assert!(store
+            .current_template("tenant-a", "same-id")
+            .unwrap()
+            .is_some());
         assert!(store.current("tenant-a", "same-id").unwrap().is_none());
-        assert!(store.current_graph("tenant-a", "same-id").unwrap().is_none());
+        assert!(store
+            .current_graph("tenant-a", "same-id")
+            .unwrap()
+            .is_none());
         assert!(store
             .current_component("tenant-a", "same-id")
             .unwrap()
@@ -1185,7 +1211,13 @@ mod tests {
             AgentComponentKind::ModelProfile,
             40,
         );
-        publish(&store, "key-1", 1, 0, template("tenant-a", "template:researcher"));
+        publish(
+            &store,
+            "key-1",
+            1,
+            0,
+            template("tenant-a", "template:researcher"),
+        );
         let bindings = BTreeMap::from([("model".to_string(), haiku)]);
         let draft = store
             .instantiate_template(&instantiate(
@@ -1235,7 +1267,13 @@ mod tests {
         // forever -- resolving the pinned revision's lifecycle instead would
         // let a withdrawn template keep minting agents indefinitely.
         let (_dir, store) = open_store();
-        publish(&store, "key-1", 1, 0, template("tenant-a", "template:researcher"));
+        publish(
+            &store,
+            "key-1",
+            1,
+            0,
+            template("tenant-a", "template:researcher"),
+        );
         assert!(store
             .instantiate_template(&instantiate(
                 "tenant-a",
@@ -1279,7 +1317,13 @@ mod tests {
     #[test]
     fn an_instantiate_cannot_reach_another_tenants_template() {
         let (_dir, store) = open_store();
-        publish(&store, "key-1", 1, 0, template("tenant-a", "template:researcher"));
+        publish(
+            &store,
+            "key-1",
+            1,
+            0,
+            template("tenant-a", "template:researcher"),
+        );
         let error = store
             .instantiate_template(&instantiate(
                 "tenant-b",
@@ -1295,7 +1339,13 @@ mod tests {
     #[test]
     fn an_instantiate_of_a_revision_that_was_never_retained_is_refused() {
         let (_dir, store) = open_store();
-        publish(&store, "key-1", 1, 0, template("tenant-a", "template:researcher"));
+        publish(
+            &store,
+            "key-1",
+            1,
+            0,
+            template("tenant-a", "template:researcher"),
+        );
         let error = store
             .instantiate_template(&instantiate(
                 "tenant-a",
@@ -1313,7 +1363,13 @@ mod tests {
         // The type layer refuses it; this proves the store path does not
         // bypass that check on its way through.
         let (_dir, store) = open_store();
-        publish(&store, "key-1", 1, 0, template("tenant-a", "template:researcher"));
+        publish(
+            &store,
+            "key-1",
+            1,
+            0,
+            template("tenant-a", "template:researcher"),
+        );
         let bindings = BTreeMap::from([(
             "temperature".to_string(),
             dep("model-profile:haiku", AgentComponentKind::ModelProfile, 'b'),
@@ -1399,6 +1455,9 @@ mod tests {
         draft.base.skills.push(foreign);
         let error = try_publish(&store, "key-1", 1, 0, draft)
             .expect_err("another tenant's component must not resolve");
-        assert!(error.contains("does not exist in this tenant"), "got: {error}");
+        assert!(
+            error.contains("does not exist in this tenant"),
+            "got: {error}"
+        );
     }
 }

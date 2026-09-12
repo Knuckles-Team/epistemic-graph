@@ -480,8 +480,7 @@ fn finish_batch(
     // it is what still refused a legitimate `ReserveWorkItemResources` retry
     // after `digest_operations` alone was normalized. One rule, one helper --
     // `eg_types::mutation_batch::identity_normalized_operations`.
-    let identity_operations =
-        eg_types::mutation_batch::identity_normalized_operations(&operations);
+    let identity_operations = eg_types::mutation_batch::identity_normalized_operations(&operations);
     #[cfg(feature = "redb")]
     let summary = crate::redb_store::projection_payload_for_operations(&identity_operations)?;
     #[cfg(not(feature = "redb"))]

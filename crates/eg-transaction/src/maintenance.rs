@@ -19,8 +19,8 @@
 
 use eg_storage::{OwnedStoreHandle, OwnerDomain};
 use eg_types::mutation_batch::DurabilityDomain;
-use eg_types::protocol::Method;
 use eg_types::mutation_batch::MutationEnvelope;
+use eg_types::protocol::Method;
 use eg_types::{
     MutationBatch, MutationOperation, MutationScope, MutationSurface, VersionExpectation,
     MUTATION_BATCH_VERSION,

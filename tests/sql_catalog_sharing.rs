@@ -120,11 +120,18 @@ fn item_body<'a>(source: &'a str, signature: &str, path: &Path) -> &'a str {
     let start = definition_offset(source, signature)
         .unwrap_or_else(|| panic!("`{signature}` must be defined in {}", path.display()));
     let after = &source[start + signature.len()..];
-    let end = ["\nfn ", "\nasync fn ", "\npub fn ", "\npub async fn ", "\npub(crate) fn ", "\npub(crate) async fn "]
-        .iter()
-        .filter_map(|marker| after.find(marker))
-        .min()
-        .unwrap_or(after.len());
+    let end = [
+        "\nfn ",
+        "\nasync fn ",
+        "\npub fn ",
+        "\npub async fn ",
+        "\npub(crate) fn ",
+        "\npub(crate) async fn ",
+    ]
+    .iter()
+    .filter_map(|marker| after.find(marker))
+    .min()
+    .unwrap_or(after.len());
     &after[..end]
 }
 
@@ -198,7 +205,10 @@ fn check_graph_access_precedes_query_and_rdf_try_handle_in_dispatch() {
 
     // (4) the two handlers have no dispatch call site outside the routed gateways.
     for (callee, gateway) in [
-        ("handlers::query::try_handle(", "async fn route_query_gateway"),
+        (
+            "handlers::query::try_handle(",
+            "async fn route_query_gateway",
+        ),
         ("handlers::rdf::try_handle(", "async fn route_rdf_gateway"),
     ] {
         let (gateway_path, gateway_source) = defining_source(gateway);

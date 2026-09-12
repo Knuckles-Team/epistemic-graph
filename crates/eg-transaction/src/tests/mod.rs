@@ -15,21 +15,20 @@ use crate::tables::{FENCES, OUTBOX, PRIVATE_PAYLOADS};
 use crate::{Begin, MutationKernel};
 use eg_storage::{
     strict_recovery_evidence, BlobOwner, LedgerOnlyOwner, OwnedStoreHandle, OwnerDomain,
-    OwnerLayout, PhysicalStoreIdentity, PrivatePayloadIntegrity, ScopeGrantVerifier,
-    StorageKernel,
+    OwnerLayout, PhysicalStoreIdentity, PrivatePayloadIntegrity, ScopeGrantVerifier, StorageKernel,
 };
 use eg_types::authority::{
     AuthorityContext, AuthorityScope, NonceReplayKey, OperationReplayIdentity,
     AUTHORITY_CONTEXT_SCHEMA_V1, AUTHORITY_PROTOCOL_V1,
 };
 use eg_types::contract::{
-    ActorId, AudienceId, BoundedVec, Digest256, IdempotencyKey, IngressSurface,
-    MethodId, MutationDisposition, Nonce, OpaqueId, Operation, PolicyRevision,
-    ProtocolId, PurposeKind, ResourceId, SchemaId, ScopeKind, TenantId, UtcUnixNanos,
+    ActorId, AudienceId, BoundedVec, Digest256, IdempotencyKey, IngressSurface, MethodId,
+    MutationDisposition, Nonce, OpaqueId, Operation, PolicyRevision, ProtocolId, PurposeKind,
+    ResourceId, SchemaId, ScopeKind, TenantId, UtcUnixNanos,
 };
 use eg_types::mutation::{MutationReceipt, MutationResult};
 use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, DurabilityDomain, MutationSurface, ScopeTenantId,
+    DurabilityDomain, IncarnationId, LogicalName, MutationSurface, ScopeTenantId,
     VersionExpectation,
 };
 use eg_types::protocol::Method;
@@ -341,8 +340,7 @@ fn context(nonce: u8, request: &str, idempotency: &str) -> AuthorityContext {
             kind: ScopeKind::new("graph").unwrap(),
             scope_id: scope_id.clone(),
             tenant: Some(TenantId::new("tenant:a").unwrap()),
-            parent_scope_ids: BoundedVec::new(vec![ResourceId::new("tenant:a").unwrap()])
-                .unwrap(),
+            parent_scope_ids: BoundedVec::new(vec![ResourceId::new("tenant:a").unwrap()]).unwrap(),
             graph_incarnation: None,
         },
         purpose_kind: PurposeKind::new("graph_write").unwrap(),

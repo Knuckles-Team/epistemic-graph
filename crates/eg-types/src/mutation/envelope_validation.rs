@@ -1,4 +1,4 @@
-use super::envelope::{MutationRequestEnvelopeParts, MutationRequestEnvelope, MutationPayload};
+use super::envelope::{MutationPayload, MutationRequestEnvelope, MutationRequestEnvelopeParts};
 use super::payload::{validate_payload_byte_budget, validate_payload_shape_and_scope};
 use super::MUTATION_ENVELOPE_SCHEMA_V1;
 use crate::contract::{Digest256, ResourceId, MAX_MUTATION_ENVELOPE_BYTES};

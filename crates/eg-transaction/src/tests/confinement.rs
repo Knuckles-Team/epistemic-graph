@@ -264,7 +264,10 @@ fn a_shared_chunk_and_its_refcount_commit_with_the_batch_or_not_at_all() {
     }
     write.abort().unwrap();
 
-    let read = fixture.kernel.read_blob_shared(&service, "blob-service").unwrap();
+    let read = fixture
+        .kernel
+        .read_blob_shared(&service, "blob-service")
+        .unwrap();
     assert!(!read.chunk_present(DIGEST).unwrap());
     assert_eq!(read.refcount(DIGEST).unwrap(), 0);
     drop(read);
@@ -301,8 +304,14 @@ fn a_shared_chunk_and_its_refcount_commit_with_the_batch_or_not_at_all() {
         .unwrap();
     fixture.mutations.commit(write, &applied).unwrap();
 
-    let read = fixture.kernel.read_blob_shared(&service, "blob-service").unwrap();
+    let read = fixture
+        .kernel
+        .read_blob_shared(&service, "blob-service")
+        .unwrap();
     assert!(read.chunk_present(DIGEST).unwrap());
     assert_eq!(read.refcount(DIGEST).unwrap(), 1);
-    assert_eq!(read.chunk_bytes(DIGEST).unwrap().as_deref(), Some(&b"chunk"[..]));
+    assert_eq!(
+        read.chunk_bytes(DIGEST).unwrap().as_deref(),
+        Some(&b"chunk"[..])
+    );
 }

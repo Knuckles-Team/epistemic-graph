@@ -182,7 +182,9 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
         // One arm, not four: every RF-ADR-008 layer's head table is keyed the
         // same `(tenant, id)` way, and four identical arms were four branches
         // saying one thing.
-        "agent_library_heads" | "agent_graph_heads" | "agent_component_heads"
+        "agent_library_heads"
+        | "agent_graph_heads"
+        | "agent_component_heads"
         | "agent_template_heads" => Some("(&str,&str)"),
         "eg_kvcache_cold" => Some("&[u8]"),
         "cas_chunks" | "cas_refcount" | "cas_blobs" => Some("&str"),
@@ -254,7 +256,9 @@ fn value_type_id(name: &str) -> &'static str {
         | "cas_refcount"
         | "verified_request_replay"
         | "semantic_binding_heads" => "u64",
-        "agent_library_heads" | "agent_graph_heads" | "agent_component_heads"
+        "agent_library_heads"
+        | "agent_graph_heads"
+        | "agent_component_heads"
         | "agent_template_heads" => "u64",
         "analytics_job_active_totals_by_tenant" => "(u64,u64)",
         "mutation_outbox_topic_index"
@@ -319,7 +323,10 @@ fn value_type_id(name: &str) -> &'static str {
         | "node_info"
         | "node_info_meta"
         | "cluster_hierarchy"
-        | "agent_library" | "agent_graph" | "agent_component" | "agent_template" => "&[u8]",
+        | "agent_library"
+        | "agent_graph"
+        | "agent_component"
+        | "agent_template" => "&[u8]",
         name => graph_shard::value_type(name)
             .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),
     }
@@ -373,8 +380,11 @@ fn logical_codec_id(name: &str) -> &'static str {
         | "analytics_job_cancellation_reconcile"
         | "cas_refcount"
         | "verified_request_replay"
-        | "semantic_binding_heads" | "agent_library_heads" | "agent_graph_heads"
-        | "agent_component_heads" | "agent_template_heads" => "redb-scalar-v1",
+        | "semantic_binding_heads"
+        | "agent_library_heads"
+        | "agent_graph_heads"
+        | "agent_component_heads"
+        | "agent_template_heads" => "redb-scalar-v1",
         "semantic_bindings"
         | "semantic_stage_transitions"
         | "semantic_binding_state_transitions"
@@ -421,9 +431,7 @@ fn table_capabilities(name: &str) -> u16 {
         return CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE;
     }
     match name {
-        "mutation_store_root" | "mutation_owner_manifest" => {
-            CAP_READ | CAP_INSERT | CAP_UPDATE
-        }
+        "mutation_store_root" | "mutation_owner_manifest" => CAP_READ | CAP_INSERT | CAP_UPDATE,
         "ledger_maintenance"
         | "ledger_outbox"
         | "analytics_job_committed_results"
@@ -493,7 +501,9 @@ fn table_capabilities(name: &str) -> u16 {
         "agent_library" | "agent_graph" | "agent_component" | "agent_template" => {
             CAP_READ | CAP_INSERT
         }
-        "agent_library_heads" | "agent_graph_heads" | "agent_component_heads"
+        "agent_library_heads"
+        | "agent_graph_heads"
+        | "agent_component_heads"
         | "agent_template_heads" => CAP_READ | CAP_INSERT | CAP_UPDATE,
         name => graph_shard::capabilities(name)
             .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),

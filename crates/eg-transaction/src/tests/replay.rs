@@ -115,10 +115,18 @@ fn nonce_only_resolution_precedes_operation_lookup_and_is_abort_safe() {
     // A fresh attempt is a read-only `None`; aborting that probe leaves the
     // nonce available for the full replay resolver and later finalization.
     let retry = retry_of(&first);
-    let retry_nonce = retry.envelope.operation().unwrap().nonce_replay_key().unwrap();
+    let retry_nonce = retry
+        .envelope
+        .operation()
+        .unwrap()
+        .nonce_replay_key()
+        .unwrap();
     let write = fixture.mutations.open_write(&owner).unwrap();
     assert_eq!(
-        fixture.mutations.resolve_nonce(&write, &retry_nonce).unwrap(),
+        fixture
+            .mutations
+            .resolve_nonce(&write, &retry_nonce)
+            .unwrap(),
         None
     );
     write.abort().unwrap();
@@ -154,9 +162,7 @@ fn a_fresh_nonce_over_the_same_stable_identity_replays_the_recorded_result() {
     assert_eq!(operation.digest().unwrap(), retried.digest().unwrap());
     assert_eq!(
         resolve(&fixture, &owner, &retried, &fresh_nonce),
-        ReplayResolution::ReplayedResult(Box::new(RecordedOperation::Receipt(Box::new(
-            recorded
-        ))))
+        ReplayResolution::ReplayedResult(Box::new(RecordedOperation::Receipt(Box::new(recorded))))
     );
 }
 
@@ -291,9 +297,11 @@ fn a_changed_operation_identity_conflicts() {
     let mut changed_method = operation.clone();
     changed_method.method = MethodId::new("mutation.replace").unwrap();
     let mut changed_scope = operation.clone();
-    changed_scope.authority_scope.parent_scope_ids =
-        BoundedVec::new(vec![ResourceId::new("tenant:a").unwrap(), ResourceId::new("zone:a").unwrap()])
-            .unwrap();
+    changed_scope.authority_scope.parent_scope_ids = BoundedVec::new(vec![
+        ResourceId::new("tenant:a").unwrap(),
+        ResourceId::new("zone:a").unwrap(),
+    ])
+    .unwrap();
     let mut changed_policy = operation.clone();
     changed_policy.policy_digest = digest_of(32);
 
@@ -335,10 +343,7 @@ fn the_context_digest_is_never_the_operation_replay_key() {
 
     let evidence = receipt("receipt-1", &one, &first_nonce);
     assert_eq!(evidence.operation_replay_digest, one.digest().unwrap());
-    assert_eq!(
-        evidence.nonce_replay_digest,
-        first_nonce.digest().unwrap()
-    );
+    assert_eq!(evidence.nonce_replay_digest, first_nonce.digest().unwrap());
     assert_ne!(
         evidence.operation_replay_digest,
         evidence.nonce_replay_digest
@@ -410,9 +415,7 @@ fn a_second_recording_of_the_same_operation_fails_closed() {
     // The originally recorded receipt is intact.
     assert_eq!(
         resolve(&fixture, &owner, &retried, &fresh_nonce),
-        ReplayResolution::ReplayedResult(Box::new(RecordedOperation::Receipt(Box::new(
-            recorded
-        ))))
+        ReplayResolution::ReplayedResult(Box::new(RecordedOperation::Receipt(Box::new(recorded))))
     );
 }
 

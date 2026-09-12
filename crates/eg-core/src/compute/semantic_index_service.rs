@@ -2478,9 +2478,7 @@ mod tests {
         );
         let service = SemanticIndexService::open(
             &dir,
-            Arc::new(SemanticTenantScopeVerifier {
-                tenant: "native",
-            }),
+            Arc::new(SemanticTenantScopeVerifier { tenant: "native" }),
             TEST_PRINCIPAL,
             TEST_PROOF,
             "native",
@@ -2520,9 +2518,7 @@ mod tests {
         let binding = binding(&revision_r1);
         let service = SemanticIndexService::open(
             &dir,
-            Arc::new(SemanticTenantScopeVerifier {
-                tenant: "tenant-a",
-            }),
+            Arc::new(SemanticTenantScopeVerifier { tenant: "tenant-a" }),
             TEST_PRINCIPAL,
             TEST_PROOF,
             "tenant-a",
@@ -2608,9 +2604,7 @@ mod tests {
         let binding = binding(&revision);
         let service = SemanticIndexService::open(
             &dir,
-            Arc::new(SemanticTenantScopeVerifier {
-                tenant: "tenant-a",
-            }),
+            Arc::new(SemanticTenantScopeVerifier { tenant: "tenant-a" }),
             TEST_PRINCIPAL,
             TEST_PROOF,
             "tenant-a",
@@ -2710,9 +2704,7 @@ mod tests {
 
         let service = SemanticIndexService::open(
             &dir,
-            Arc::new(SemanticTenantScopeVerifier {
-                tenant: "tenant-a",
-            }),
+            Arc::new(SemanticTenantScopeVerifier { tenant: "tenant-a" }),
             TEST_PRINCIPAL,
             TEST_PROOF,
             "tenant-a",
@@ -2787,9 +2779,7 @@ mod tests {
         drop(service);
         let service = SemanticIndexService::open(
             &dir,
-            Arc::new(SemanticTenantScopeVerifier {
-                tenant: "tenant-a",
-            }),
+            Arc::new(SemanticTenantScopeVerifier { tenant: "tenant-a" }),
             TEST_PRINCIPAL,
             TEST_PROOF,
             "tenant-a",

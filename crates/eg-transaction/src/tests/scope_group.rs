@@ -1040,7 +1040,11 @@ fn a_retried_member_of_a_current_group_replays_while_fresh_members_commit() {
                 Ok(current_graph_batch(CONTROL_GRAPH, "raft-1", version))
             }),
             [CurrentIntent::operation(&shard.graphs[0], |version| {
-                Ok(current_graph_batch_with_stable_outbox("graph-a", "graph-a-1", version))
+                Ok(current_graph_batch_with_stable_outbox(
+                    "graph-a",
+                    "graph-a-1",
+                    version,
+                ))
             })],
         )
         .unwrap();
@@ -1083,7 +1087,11 @@ fn a_retried_member_of_a_current_group_replays_while_fresh_members_commit() {
             }),
             [
                 CurrentIntent::operation(&shard.graphs[0], |version| {
-                    Ok(current_graph_batch_with_stable_outbox("graph-a", "graph-a-1", version))
+                    Ok(current_graph_batch_with_stable_outbox(
+                        "graph-a",
+                        "graph-a-1",
+                        version,
+                    ))
                 }),
                 CurrentIntent::operation(&shard.graphs[1], |version| {
                     Ok(current_graph_batch("graph-b", "graph-b-2", version))

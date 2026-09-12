@@ -48,9 +48,7 @@ pub(super) fn validate_parent_state(state: &ConsensusTransactionParentState) -> 
     match state {
         ConsensusTransactionParentState::Prepared {
             sealed_parent_authority,
-        } => {
-            validate_sealed(sealed_parent_authority, "parent authority")
-        }
+        } => validate_sealed(sealed_parent_authority, "parent authority"),
         ConsensusTransactionParentState::Decided {
             sealed_parent_authority,
             parent_authority_sha256,
@@ -102,7 +100,9 @@ pub(super) fn validate_parent_state(state: &ConsensusTransactionParentState) -> 
     }
 }
 
-pub(super) fn validate_participant_state(state: &ConsensusTransactionParticipantState) -> Result<(), String> {
+pub(super) fn validate_participant_state(
+    state: &ConsensusTransactionParticipantState,
+) -> Result<(), String> {
     match state {
         ConsensusTransactionParticipantState::Prepared { sealed_plan } => {
             validate_sealed(sealed_plan, "participant plan")

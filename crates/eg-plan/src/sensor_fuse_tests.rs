@@ -127,7 +127,6 @@ fn sensor_fuse_composes_with_limit() {
 // `eg_tsdb::fusion` and `eg_tensor::fusion`; what is proved HERE is that a plan can
 // actually get at it, and that the DECLARED-clock semantics survive the trip.
 
-
 /// A SPARSE ramp, deliberately sampled only every 2s: `imu` @ 0s=0, 2s=20, 4s=40, and a
 /// single `gps` reading @ 0s=100. The 2s spacing is the whole point — a 1s grid then has
 /// instants (1s, 3s) at which NO sample exists, so a row there can only come from a
@@ -205,11 +204,7 @@ fn sensor_align_emits_rows_at_grid_instants_not_source_instants() {
     );
     assert_eq!(
         union.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(),
-        vec![
-            "0".to_string(),
-            (2 * NS).to_string(),
-            (4 * NS).to_string()
-        ],
+        vec!["0".to_string(), (2 * NS).to_string(), (4 * NS).to_string()],
         "SensorFuse must stay on the union clock — SensorAlign's grid is a different semantics"
     );
 }
@@ -362,7 +357,7 @@ fn sensor_align_tolerance_bounds_staleness() {
         rows,
         vec![
             ("0".to_string(), Some(0.0)),
-            (NS.to_string(), None),          // gps still fresh; imu cannot interpolate
+            (NS.to_string(), None), // gps still fresh; imu cannot interpolate
             ((2 * NS).to_string(), Some(20.0)), // exact imu sample
             ((4 * NS).to_string(), Some(40.0)), // exact imu sample; 3s is all-gap → no row
         ]
@@ -417,10 +412,7 @@ fn sensor_align_composes_with_limit() {
     );
     assert_eq!(
         rows,
-        vec![
-            ("0".to_string(), Some(0.0)),
-            (NS.to_string(), Some(10.0)),
-        ]
+        vec![("0".to_string(), Some(0.0)), (NS.to_string(), Some(10.0)),]
     );
 }
 

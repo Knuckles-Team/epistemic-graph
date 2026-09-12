@@ -237,9 +237,7 @@ where
     /// This is the accessor a per-graph prefix scan needs. `range_inclusive`
     /// cannot express one for a key whose non-leading components include a
     /// `&str`, because `&str` has no maximum -- see [`OwnerRowScopeStart`].
-    pub fn scope_rows(
-        &self,
-    ) -> Result<impl Iterator<Item = ScopeRow<'static, K, V>>, String>
+    pub fn scope_rows(&self) -> Result<impl Iterator<Item = ScopeRow<'static, K, V>>, String>
     where
         for<'k> K::SelfType<'k>: OwnerRowScopeStart<'k>,
     {
@@ -319,9 +317,7 @@ where
     /// This is the accessor a per-graph prefix scan needs. `range_inclusive`
     /// cannot express one for a key whose non-leading components include a
     /// `&str`, because `&str` has no maximum -- see [`OwnerRowScopeStart`].
-    pub fn scope_rows<'s>(
-        &'s self,
-    ) -> Result<impl Iterator<Item = ScopeRow<'s, K, V>> + 's, String>
+    pub fn scope_rows<'s>(&'s self) -> Result<impl Iterator<Item = ScopeRow<'s, K, V>> + 's, String>
     where
         for<'k> K::SelfType<'k>: OwnerRowScopeStart<'k>,
     {

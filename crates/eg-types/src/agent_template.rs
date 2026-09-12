@@ -807,7 +807,12 @@ mod tests {
         }
     }
 
-    fn param(name: &str, replaces: &str, kind: AgentComponentKind, required: bool) -> TemplateParam {
+    fn param(
+        name: &str,
+        replaces: &str,
+        kind: AgentComponentKind,
+        required: bool,
+    ) -> TemplateParam {
         TemplateParam {
             name: name.into(),
             replaces: replaces.into(),
@@ -823,7 +828,12 @@ mod tests {
             version: "1.0.0".into(),
             base: base(),
             params: vec![
-                param("model", "model:opus", AgentComponentKind::ModelProfile, false),
+                param(
+                    "model",
+                    "model:opus",
+                    AgentComponentKind::ModelProfile,
+                    false,
+                ),
                 param("search", "tool:web-search", AgentComponentKind::Tool, false),
             ],
             tenant_id: "tenant-a".into(),
@@ -904,8 +914,12 @@ mod tests {
             )
             .unwrap();
         assert_ne!(
-            AgentLibraryEntry::publish(cheap, 1, 1).unwrap().definition_digest,
-            AgentLibraryEntry::publish(big, 1, 1).unwrap().definition_digest
+            AgentLibraryEntry::publish(cheap, 1, 1)
+                .unwrap()
+                .definition_digest,
+            AgentLibraryEntry::publish(big, 1, 1)
+                .unwrap()
+                .definition_digest
         );
     }
 
@@ -922,7 +936,10 @@ mod tests {
                 )]),
             )
             .expect_err("must be refused");
-        assert!(error.contains("declares no parameter 'nonexistent'"), "got: {error}");
+        assert!(
+            error.contains("declares no parameter 'nonexistent'"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -947,7 +964,10 @@ mod tests {
                 )]),
             )
             .expect_err("must be refused");
-        assert!(error.contains("takes a model_profile component"), "got: {error}");
+        assert!(
+            error.contains("takes a model_profile component"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1070,13 +1090,17 @@ mod tests {
         let mut changed = draft();
         changed.base.model_identity = "claude-haiku-4-5".into();
         assert_ne!(
-            AgentTemplateEntry::publish(changed, 1, 1_000).unwrap().definition_digest,
+            AgentTemplateEntry::publish(changed, 1, 1_000)
+                .unwrap()
+                .definition_digest,
             baseline
         );
         let mut reworded = draft();
         reworded.params[0].summary = "something else".into();
         assert_ne!(
-            AgentTemplateEntry::publish(reworded, 1, 1_000).unwrap().definition_digest,
+            AgentTemplateEntry::publish(reworded, 1, 1_000)
+                .unwrap()
+                .definition_digest,
             baseline
         );
     }
@@ -1086,7 +1110,9 @@ mod tests {
         let mut reordered = draft();
         reordered.params.reverse();
         assert_eq!(
-            AgentTemplateEntry::publish(reordered, 1, 1_000).unwrap().definition_digest,
+            AgentTemplateEntry::publish(reordered, 1, 1_000)
+                .unwrap()
+                .definition_digest,
             template().definition_digest
         );
     }
@@ -1223,8 +1249,7 @@ mod tests {
         // would set the size of every `Method` in the protocol.
         use std::mem::size_of;
         assert!(
-            size_of::<AgentTemplateOp>()
-                <= size_of::<crate::agent_component::AgentComponentOp>(),
+            size_of::<AgentTemplateOp>() <= size_of::<crate::agent_component::AgentComponentOp>(),
             "AgentTemplateOp is {} bytes, larger than the AgentComponentOp it mirrors ({})",
             size_of::<AgentTemplateOp>(),
             size_of::<crate::agent_component::AgentComponentOp>()

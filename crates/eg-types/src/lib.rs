@@ -169,9 +169,8 @@ pub use embedding::{
 };
 #[cfg(feature = "knowledge-batch")]
 pub use knowledge_stream::{
-    KnowledgeResultFamily, KnowledgeStreamBatch, KnowledgeStreamCursor,
-    KnowledgeStreamProjection, KnowledgeStreamQuery, KnowledgeStreamRequest,
-    KNOWLEDGE_STREAM_SCHEMA_VERSION,
+    KnowledgeResultFamily, KnowledgeStreamBatch, KnowledgeStreamCursor, KnowledgeStreamProjection,
+    KnowledgeStreamQuery, KnowledgeStreamRequest, KNOWLEDGE_STREAM_SCHEMA_VERSION,
 };
 #[cfg(feature = "modality-serving")]
 pub use modality::{
@@ -185,8 +184,8 @@ pub use modality::{
 // compatibility seam RF-ADR-001 forbids.
 pub use mutation_batch::{
     CommittedVersion, IncarnationId, LogicalName, MutationBatch, MutationBatchCommit,
-    MutationBatchRecord, MutationBatchStatus, MutationOperation, MutationOutboxIntent,
-    MutationEnvelope, MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor,
+    MutationBatchRecord, MutationBatchStatus, MutationEnvelope, MutationOperation,
+    MutationOutboxIntent, MutationOutboxLease, MutationOutboxRecord, MutationProjectionCursor,
     MutationScope, MutationScopeIdentity, MutationStateDescriptor, MutationSurface, ScopeTenantId,
     VersionExpectation, MUTATION_BATCH_VERSION,
 };

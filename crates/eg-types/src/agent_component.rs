@@ -648,7 +648,10 @@ impl AgentComponentDraft {
         for (field, value) in [
             ("content_digest", self.content_digest.as_str()),
             ("policy_digest", self.policy_digest.as_str()),
-            ("source_revision_digest", self.source_revision_digest.as_str()),
+            (
+                "source_revision_digest",
+                self.source_revision_digest.as_str(),
+            ),
         ] {
             validate_digest(field, value)?;
         }
@@ -681,7 +684,9 @@ impl AgentComponentDraft {
             AgentComponentKind::McpPrompt | AgentComponentKind::McpResource
         );
         match (&self.provenance, mcp_served) {
-            (ComponentProvenance::McpServer { .. }, _) if self.kind == AgentComponentKind::McpServer => {
+            (ComponentProvenance::McpServer { .. }, _)
+                if self.kind == AgentComponentKind::McpServer =>
+            {
                 return Err(
                     "an mcp_server component cannot itself be provenanced to an mcp server"
                         .to_string(),
@@ -706,7 +711,10 @@ impl AgentComponentDraft {
         let mut seen = BTreeSet::new();
         for dependency in &self.requires {
             validate_text("dependency component_id", &dependency.component_id)?;
-            validate_digest("dependency definition_digest", &dependency.definition_digest)?;
+            validate_digest(
+                "dependency definition_digest",
+                &dependency.definition_digest,
+            )?;
             // Self-reference is the one cycle a single record CAN express, and
             // it is unrepresentable in a valid one: a dependency pins a digest,
             // and a component's own digest covers its dependencies, so pinning
@@ -1441,7 +1449,11 @@ mod tests {
             variables: vec!["topic".into()],
         };
         let error = broken.validate().expect_err("must be refused");
-        assert!(error.contains("nothing \\\n                         resolves them") || error.contains("resolves them"), "got: {error}");
+        assert!(
+            error.contains("nothing \\\n                         resolves them")
+                || error.contains("resolves them"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1491,8 +1503,12 @@ mod tests {
         let mut b = a.clone();
         b.requires.reverse();
         assert_eq!(
-            AgentComponentEntry::publish(a, 1, 1).unwrap().definition_digest,
-            AgentComponentEntry::publish(b, 1, 1).unwrap().definition_digest
+            AgentComponentEntry::publish(a, 1, 1)
+                .unwrap()
+                .definition_digest,
+            AgentComponentEntry::publish(b, 1, 1)
+                .unwrap()
+                .definition_digest
         );
     }
 
@@ -1615,7 +1631,10 @@ mod tests {
             upstream_name: "summarize".into(),
         };
         let error = mis_kinded.validate().expect_err("must be refused");
-        assert!(error.contains("must pin an mcp_server component"), "got: {error}");
+        assert!(
+            error.contains("must pin an mcp_server component"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1626,7 +1645,10 @@ mod tests {
             upstream_name: "self".into(),
         };
         let error = recursive.validate().expect_err("must be refused");
-        assert!(error.contains("cannot itself be provenanced"), "got: {error}");
+        assert!(
+            error.contains("cannot itself be provenanced"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1651,19 +1673,31 @@ mod tests {
         // traversal: task -> required capabilities -> components, with
         // subsumption doing the generalizing.
         let web = AgentComponentEntry::publish(
-            mcp_tool("tool:web-search", "eg:capability/retrieval/web-search", ToolEffect::Read),
+            mcp_tool(
+                "tool:web-search",
+                "eg:capability/retrieval/web-search",
+                ToolEffect::Read,
+            ),
             1,
             1_000,
         )
         .unwrap();
         let summarize = AgentComponentEntry::publish(
-            mcp_tool("tool:summarize", "eg:capability/analysis/summarize", ToolEffect::Read),
+            mcp_tool(
+                "tool:summarize",
+                "eg:capability/analysis/summarize",
+                ToolEffect::Read,
+            ),
             1,
             1_000,
         )
         .unwrap();
         let deployer = AgentComponentEntry::publish(
-            mcp_tool("tool:deploy", "eg:capability/action/process-exec", ToolEffect::Write),
+            mcp_tool(
+                "tool:deploy",
+                "eg:capability/action/process-exec",
+                ToolEffect::Write,
+            ),
             1,
             1_000,
         )
@@ -1696,15 +1730,26 @@ mod tests {
         assert!(declared_only.is_side_effecting(), "declared write");
 
         let classified_only = AgentComponentEntry::publish(
-            mcp_tool("tool:b", "eg:capability/action/message-send", ToolEffect::Read),
+            mcp_tool(
+                "tool:b",
+                "eg:capability/action/message-send",
+                ToolEffect::Read,
+            ),
             1,
             1_000,
         )
         .unwrap();
-        assert!(classified_only.is_side_effecting(), "classified under action");
+        assert!(
+            classified_only.is_side_effecting(),
+            "classified under action"
+        );
 
         let neither = AgentComponentEntry::publish(
-            mcp_tool("tool:c", "eg:capability/retrieval/web-search", ToolEffect::Read),
+            mcp_tool(
+                "tool:c",
+                "eg:capability/retrieval/web-search",
+                ToolEffect::Read,
+            ),
             1,
             1_000,
         )
@@ -1719,7 +1764,10 @@ mod tests {
         assert_eq!(tombstone.lifecycle, AgentLibraryLifecycle::Retired);
         assert_eq!(tombstone.definition_digest, entry.definition_digest);
         assert_eq!(tombstone.facts, entry.facts);
-        assert!(tombstone.retire(3, 3_000).is_err(), "retiring twice must fail");
+        assert!(
+            tombstone.retire(3, 3_000).is_err(),
+            "retiring twice must fail"
+        );
     }
 
     // ---- digest coverage ----

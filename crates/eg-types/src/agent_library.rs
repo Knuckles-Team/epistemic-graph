@@ -40,8 +40,7 @@ pub const AGENT_LIBRARY_DEFINITION_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-library-
 /// digest is "is this the same agent?", the tool-surface digest is "does this
 /// agent hold exactly these tools?". Also a format-identity constant
 /// (RF-ADR-006).
-pub const AGENT_LIBRARY_TOOL_SURFACE_DIGEST_DOMAIN: &[u8] =
-    b"au-eg/agent-library-tool-surface/v1";
+pub const AGENT_LIBRARY_TOOL_SURFACE_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-library-tool-surface/v1";
 
 const MAX_TEXT_BYTES: usize = 4 * 1024;
 const MAX_REFERENCE_COUNT: usize = 1_024;
@@ -952,11 +951,24 @@ fn validate_draft(draft: &AgentLibraryEntryDraft) -> Result<(), String> {
     // Each slot accepts exactly one component kind. Without this a tool could
     // be wired where a model profile belongs, and every query that reads an
     // agent's parts by kind would be wrong in a way nothing else detects.
-    validate_dependency("system_prompt", &draft.system_prompt, AgentComponentKind::SystemPrompt)?;
-    validate_dependency("model_profile", &draft.model_profile, AgentComponentKind::ModelProfile)?;
+    validate_dependency(
+        "system_prompt",
+        &draft.system_prompt,
+        AgentComponentKind::SystemPrompt,
+    )?;
+    validate_dependency(
+        "model_profile",
+        &draft.model_profile,
+        AgentComponentKind::ModelProfile,
+    )?;
     validate_dependencies("tools", &draft.tools, AgentComponentKind::Tool, false)?;
     validate_dependencies("skills", &draft.skills, AgentComponentKind::Skill, false)?;
-    validate_dependencies("ontologies", &draft.ontologies, AgentComponentKind::Ontology, false)?;
+    validate_dependencies(
+        "ontologies",
+        &draft.ontologies,
+        AgentComponentKind::Ontology,
+        false,
+    )?;
     draft.runtime.validate()?;
     if let Some(instance) = &draft.instantiated_from {
         instance.validate()?;
@@ -1181,7 +1193,9 @@ fn validate_dependencies(
         if may_be_empty {
             return Ok(());
         }
-        return Err(format!("agent library {field} must name at least one component"));
+        return Err(format!(
+            "agent library {field} must name at least one component"
+        ));
     }
     if dependencies.len() > MAX_REFERENCE_COUNT {
         return Err(format!("{field} has an invalid item count"));
@@ -1261,11 +1275,7 @@ mod tests {
         format!("sha256:{}", seed.to_string().repeat(64))
     }
 
-    fn dependency(
-        component_id: &str,
-        kind: AgentComponentKind,
-        seed: char,
-    ) -> ComponentDependency {
+    fn dependency(component_id: &str, kind: AgentComponentKind, seed: char) -> ComponentDependency {
         ComponentDependency {
             component_id: component_id.into(),
             kind,
@@ -1289,7 +1299,11 @@ mod tests {
                 '5',
             ),
             model_identity: "model:example".into(),
-            ontologies: vec![dependency("ontology:core", AgentComponentKind::Ontology, '6')],
+            ontologies: vec![dependency(
+                "ontology:core",
+                AgentComponentKind::Ontology,
+                '6',
+            )],
             tenant_id: "tenant-a".into(),
             actor_scope: "agent-builder".into(),
             purpose_id: "agent-construction".into(),
@@ -1405,8 +1419,16 @@ mod tests {
                 definition_digest: digest('b'),
             }),
             output_mode: Some(AgentOutputMode::Tool),
-            output_validator_refs: vec![dependency("validator:cites-sources", AgentComponentKind::OutputValidator, 'd')],
-            toolset_refs: vec![dependency("toolset:mcp:search", AgentComponentKind::Toolset, 'e')],
+            output_validator_refs: vec![dependency(
+                "validator:cites-sources",
+                AgentComponentKind::OutputValidator,
+                'd',
+            )],
+            toolset_refs: vec![dependency(
+                "toolset:mcp:search",
+                AgentComponentKind::Toolset,
+                'e',
+            )],
             model_settings: AgentModelSettings {
                 temperature_milli: Some(700),
                 top_p_milli: Some(950),
@@ -1491,19 +1513,27 @@ mod tests {
             ("deps_contract", |r| r.deps_contract = None),
             ("output_contract", |r| {
                 r.output_contract = Some(ComponentDependency {
-                component_id: "contract:output:other".into(),
-                kind: AgentComponentKind::Schema,
-                definition_digest: digest('c'),
-            })
+                    component_id: "contract:output:other".into(),
+                    kind: AgentComponentKind::Schema,
+                    definition_digest: digest('c'),
+                })
             }),
             ("output_mode", |r| {
                 r.output_mode = Some(AgentOutputMode::Native)
             }),
             ("output_validator_refs", |r| {
-                r.output_validator_refs = vec![dependency("validator:other", AgentComponentKind::OutputValidator, 'f')]
+                r.output_validator_refs = vec![dependency(
+                    "validator:other",
+                    AgentComponentKind::OutputValidator,
+                    'f',
+                )]
             }),
             ("toolset_refs", |r| {
-                r.toolset_refs = vec![dependency("toolset:other", AgentComponentKind::Toolset, '0')]
+                r.toolset_refs = vec![dependency(
+                    "toolset:other",
+                    AgentComponentKind::Toolset,
+                    '0',
+                )]
             }),
             ("temperature_milli", |r| {
                 r.model_settings.temperature_milli = Some(701)
@@ -1569,10 +1599,10 @@ mod tests {
 
         let mut empty = draft();
         empty.runtime.deps_contract = Some(ComponentDependency {
-                component_id: "contract:deps:none".into(),
-                kind: AgentComponentKind::Schema,
-                definition_digest: digest('a'),
-            });
+            component_id: "contract:deps:none".into(),
+            kind: AgentComponentKind::Schema,
+            definition_digest: digest('a'),
+        });
         let empty_digest = AgentLibraryEntry::publish(empty, 1, 1_000)
             .expect("present publishes")
             .definition_digest;
@@ -1666,7 +1696,10 @@ mod tests {
         let mut wrong = draft();
         wrong.model_profile = dependency("tool:search", AgentComponentKind::Tool, '3');
         let error = AgentLibraryEntry::publish(wrong, 1, 1_000).expect_err("must be refused");
-        assert!(error.contains("must reference a model_profile component"), "got: {error}");
+        assert!(
+            error.contains("must reference a model_profile component"),
+            "got: {error}"
+        );
 
         let mut wrong_tool = draft();
         wrong_tool.tools = vec![dependency(
@@ -1675,7 +1708,10 @@ mod tests {
             '5',
         )];
         let error = AgentLibraryEntry::publish(wrong_tool, 1, 1_000).expect_err("must be refused");
-        assert!(error.contains("must reference a tool component"), "got: {error}");
+        assert!(
+            error.contains("must reference a tool component"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1688,8 +1724,12 @@ mod tests {
         let mut b = a.clone();
         b.tools.reverse();
         assert_eq!(
-            AgentLibraryEntry::publish(a, 1, 1).unwrap().definition_digest,
-            AgentLibraryEntry::publish(b, 1, 1).unwrap().definition_digest
+            AgentLibraryEntry::publish(a, 1, 1)
+                .unwrap()
+                .definition_digest,
+            AgentLibraryEntry::publish(b, 1, 1)
+                .unwrap()
+                .definition_digest
         );
     }
 
@@ -1701,7 +1741,10 @@ mod tests {
         let mut toolless = draft();
         toolless.tools.clear();
         let error = AgentLibraryEntry::publish(toolless, 1, 1_000).expect_err("must be refused");
-        assert!(error.contains("tools must name at least one"), "got: {error}");
+        assert!(
+            error.contains("tools must name at least one"),
+            "got: {error}"
+        );
 
         let mut no_validators = draft();
         no_validators.runtime = contract();
@@ -1758,8 +1801,7 @@ mod tests {
             ("role", |d| d.role = "role:reviewer".into()),
             ("role_digest", |d| d.role_digest = digest('c')),
             ("system_prompt", |d| {
-                d.system_prompt =
-                    dependency("prompt:other", AgentComponentKind::SystemPrompt, 'c')
+                d.system_prompt = dependency("prompt:other", AgentComponentKind::SystemPrompt, 'c')
             }),
             ("tools", |d| {
                 d.tools = vec![dependency("tool:other", AgentComponentKind::Tool, 'c')]
@@ -1775,7 +1817,11 @@ mod tests {
                 d.model_identity = "model:other".into()
             }),
             ("ontologies", |d| {
-                d.ontologies = vec![dependency("ontology:other", AgentComponentKind::Ontology, 'c')]
+                d.ontologies = vec![dependency(
+                    "ontology:other",
+                    AgentComponentKind::Ontology,
+                    'c',
+                )]
             }),
             ("tenant_id", |d| d.tenant_id = "tenant-b".into()),
             ("actor_scope", |d| d.actor_scope = "operator".into()),
@@ -1842,8 +1888,11 @@ mod tests {
         // nothing about the second.
         let base = AgentLibraryEntry::publish(draft(), 1, 1_000).expect("publishes");
         let mut with_toolset = draft();
-        with_toolset.runtime.toolset_refs =
-            vec![dependency("toolset:mcp:admin", AgentComponentKind::Toolset, 'e')];
+        with_toolset.runtime.toolset_refs = vec![dependency(
+            "toolset:mcp:admin",
+            AgentComponentKind::Toolset,
+            'e',
+        )];
         let widened = AgentLibraryEntry::publish(with_toolset, 1, 1_000).expect("publishes");
 
         assert_eq!(base.tools, widened.tools, "the flat tool list is untouched");
@@ -1859,6 +1908,5 @@ mod tests {
         other_tool.tools = vec![dependency("tool:other", AgentComponentKind::Tool, '3')];
         let other_tool = AgentLibraryEntry::publish(other_tool, 1, 1_000).expect("publishes");
         assert_ne!(base.tool_surface_digest(), other_tool.tool_surface_digest());
-
     }
 }

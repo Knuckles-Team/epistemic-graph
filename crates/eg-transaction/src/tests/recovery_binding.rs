@@ -7,8 +7,8 @@
 use super::*;
 use crate::admitted::AdmittedMutation;
 use crate::tables::BATCHES;
-use redb::TableDefinition;
 use eg_storage::{encode_bounded, ledger_scope_key, ScopeFence};
+use redb::TableDefinition;
 
 /// Reopening must run the recovery-content check, so a corrupted row is
 /// rejected at open rather than served.
@@ -33,10 +33,8 @@ fn a_committed_store_reopens_and_revalidates_every_ledger_row() {
         apply_batch(&fixture, &owner, &batch(identity.clone(), "bound-batch"));
     }
     let fixture = Fixture::open::<LedgerOnlyOwner>(&path, "physical:test:ledger-only", None);
-    let owner = fixture.bind::<LedgerOnlyOwner>(
-        &verifier("tenant-a", OwnerLayout::LedgerOnly),
-        identity,
-    );
+    let owner =
+        fixture.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
     let read = fixture.kernel.read_scope(&owner).unwrap();
     assert!(read_ledger(&read, "bound-batch").unwrap().is_some());
     assert!(crate::read::read_fences(&read).unwrap().is_some());
@@ -109,10 +107,8 @@ fn a_batch_row_under_an_unbound_scope_key_fails_to_reopen() {
 #[test]
 fn a_capability_cannot_open_an_identity_or_undeclared_table() {
     const ROOT: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root");
-    const MANIFEST: TableDefinition<&str, &[u8]> =
-        TableDefinition::new("mutation_owner_manifest");
-    const BINDINGS: TableDefinition<&str, &[u8]> =
-        TableDefinition::new("mutation_scope_bindings");
+    const MANIFEST: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_owner_manifest");
+    const BINDINGS: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_scope_bindings");
     const FOREIGN: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac");
     const INVENTED: TableDefinition<&str, &[u8]> = TableDefinition::new("not_declared");
 

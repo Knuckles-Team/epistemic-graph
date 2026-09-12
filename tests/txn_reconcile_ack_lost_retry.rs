@@ -111,7 +111,10 @@ fn inspect_admin_recovery_counts(
         .expect("fault proof requires the concrete redb backend")
         .backup(&destination, env!("CARGO_PKG_VERSION"), 0, label, &[])
         .expect("read the durable admin coordinator census");
-    let counts = (report.admin_mutations.prepared, report.admin_mutations.committed);
+    let counts = (
+        report.admin_mutations.prepared,
+        report.admin_mutations.committed,
+    );
     std::fs::remove_dir_all(destination).expect("remove the temporary proof bundle");
     counts
 }
@@ -127,7 +130,10 @@ fn assert_fault_abort(status: std::process::ExitStatus, label: &str) {
         );
     }
     #[cfg(not(unix))]
-    assert!(!status.success(), "{label} fault child must fail at the armed boundary");
+    assert!(
+        !status.success(),
+        "{label} fault child must fail at the armed boundary"
+    );
 }
 
 fn signed_fixed_request(
@@ -428,7 +434,11 @@ async fn signed_dispatch_commit_fault_child() {
         ),
     ))
     .await;
-    assert!(created.error.is_none(), "CreateGraph failed: {:?}", created.error);
+    assert!(
+        created.error.is_none(),
+        "CreateGraph failed: {:?}",
+        created.error
+    );
 
     let begin = Method::BeginTxn {
         graph: Some(FAULT_GRAPH.to_string()),
@@ -447,7 +457,10 @@ async fn signed_dispatch_commit_fault_child() {
     .await;
     let txn_id = match begun.result {
         Some(ResultPayload::String(txn_id)) => txn_id,
-        other => panic!("unexpected fault BeginTxn result: {:?} / {other:?}", begun.error),
+        other => panic!(
+            "unexpected fault BeginTxn result: {:?} / {other:?}",
+            begun.error
+        ),
     };
     let staged_node: Response = Box::pin(dispatch(
         &state,
@@ -532,7 +545,11 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
     let _env_lock = TEST_ENV_LOCK.lock().await;
     for (label, phase, replayed_on_recovery) in [
         ("before-child", "before_commit", false),
-        ("child-before-parent-finish", "after_commit_before_ack", true),
+        (
+            "child-before-parent-finish",
+            "after_commit_before_ack",
+            true,
+        ),
     ] {
         let dir = test_support::fresh_dir(&format!("eg-txn-signed-fault-{label}"));
         let dir_s = dir.to_string_lossy().into_owned();
@@ -639,7 +656,10 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
             ),
         ))
         .await;
-        assert_eq!(recovered.error, None, "{phase} recovery failed: {recovered:?}");
+        assert_eq!(
+            recovered.error, None,
+            "{phase} recovery failed: {recovered:?}"
+        );
         let Some(ResultPayload::Json(value)) = recovered.result.as_ref() else {
             panic!("expected keyed recovery result for {phase}: {recovered:?}");
         };
@@ -688,7 +708,10 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
             ),
         ))
         .await;
-        assert_eq!(terminal_retry.error, None, "terminal retry failed: {terminal_retry:?}");
+        assert_eq!(
+            terminal_retry.error, None,
+            "terminal retry failed: {terminal_retry:?}"
+        );
         assert!(
             matches!(
                 terminal_retry.result.as_ref(),
@@ -766,13 +789,14 @@ async fn signed_dispatch_lifecycle_fault_child() {
         ),
     ))
     .await;
-    assert!(created.error.is_none(), "CreateGraph failed: {:?}", created.error);
+    assert!(
+        created.error.is_none(),
+        "CreateGraph failed: {:?}",
+        created.error
+    );
 
     if mode == "begin" {
-        std::env::set_var(
-            "EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID",
-            "501",
-        );
+        std::env::set_var("EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID", "501");
         std::fs::write(
             std::path::Path::new(&dir_s).join(LIFECYCLE_ARMED_MARKER_FILE),
             "armed:begin:501\n",
@@ -809,17 +833,17 @@ async fn signed_dispatch_lifecycle_fault_child() {
         .await;
         let txn_id = match begun.result {
             Some(ResultPayload::String(txn_id)) => txn_id,
-            other => panic!("unexpected lifecycle Stage Begin: {:?} / {other:?}", begun.error),
+            other => panic!(
+                "unexpected lifecycle Stage Begin: {:?} / {other:?}",
+                begun.error
+            ),
         };
         std::fs::write(
             std::path::Path::new(&dir_s).join(LIFECYCLE_TXN_ID_FILE),
             &txn_id,
         )
         .expect("persist lifecycle stage handle for restart harness");
-        std::env::set_var(
-            "EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID",
-            "503",
-        );
+        std::env::set_var("EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID", "503");
         std::fs::write(
             std::path::Path::new(&dir_s).join(LIFECYCLE_ARMED_MARKER_FILE),
             "armed:stage:503\n",
@@ -871,10 +895,8 @@ async fn signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay() {
             "armed:stage:503\n"
         };
         assert_eq!(
-            std::fs::read_to_string(
-                std::path::Path::new(&dir_s).join(LIFECYCLE_ARMED_MARKER_FILE)
-            )
-            .expect("signed lifecycle fault child must leave its armed marker"),
+            std::fs::read_to_string(std::path::Path::new(&dir_s).join(LIFECYCLE_ARMED_MARKER_FILE))
+                .expect("signed lifecycle fault child must leave its armed marker"),
             expected_marker,
             "lifecycle child must arm the requested effect boundary before aborting"
         );
@@ -919,12 +941,11 @@ async fn signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay() {
                 505,
             )
         } else {
-            let txn_id = std::fs::read_to_string(
-                std::path::Path::new(&dir_s).join(LIFECYCLE_TXN_ID_FILE),
-            )
-            .expect("signed Stage child must leave its transaction handle")
-            .trim()
-            .to_string();
+            let txn_id =
+                std::fs::read_to_string(std::path::Path::new(&dir_s).join(LIFECYCLE_TXN_ID_FILE))
+                    .expect("signed Stage child must leave its transaction handle")
+                    .trim()
+                    .to_string();
             (
                 Method::TxnAddNode {
                     txn_id,
@@ -940,7 +961,13 @@ async fn signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay() {
         };
         let fresh: Response = Box::pin(dispatch(
             &state,
-            signed_fixed_request(fresh_id, LIFECYCLE_GRAPH, method.clone(), "fresh-lifecycle-nonce", key),
+            signed_fixed_request(
+                fresh_id,
+                LIFECYCLE_GRAPH,
+                method.clone(),
+                "fresh-lifecycle-nonce",
+                key,
+            ),
         ))
         .await;
         assert!(
@@ -1009,7 +1036,11 @@ async fn native_lifecycle_reopen_refuses_stale_begin_and_stage_success() {
         ),
     ))
     .await;
-    assert!(created.error.is_none(), "CreateGraph failed: {:?}", created.error);
+    assert!(
+        created.error.is_none(),
+        "CreateGraph failed: {:?}",
+        created.error
+    );
 
     let begin = Method::BeginTxn {
         graph: Some(target.to_string()),
@@ -1028,7 +1059,10 @@ async fn native_lifecycle_reopen_refuses_stale_begin_and_stage_success() {
     .await;
     let _first_txn = match first_begin.result {
         Some(ResultPayload::String(txn_id)) => txn_id,
-        other => panic!("unexpected BeginTxn result: {:?} / {other:?}", first_begin.error),
+        other => panic!(
+            "unexpected BeginTxn result: {:?} / {other:?}",
+            first_begin.error
+        ),
     };
 
     // Reopen the durable tier and discard the in-process handle, exactly as a
@@ -1110,7 +1144,10 @@ async fn native_lifecycle_reopen_refuses_stale_begin_and_stage_success() {
     .await;
     let second_txn = match second_begin.result {
         Some(ResultPayload::String(txn_id)) => txn_id,
-        other => panic!("unexpected second BeginTxn result: {:?} / {other:?}", second_begin.error),
+        other => panic!(
+            "unexpected second BeginTxn result: {:?} / {other:?}",
+            second_begin.error
+        ),
     };
     let stage = Method::TxnAddNode {
         txn_id: second_txn.clone(),
@@ -1129,7 +1166,11 @@ async fn native_lifecycle_reopen_refuses_stale_begin_and_stage_success() {
         ),
     ))
     .await;
-    assert!(first_stage.error.is_none(), "TxnAddNode failed: {:?}", first_stage.error);
+    assert!(
+        first_stage.error.is_none(),
+        "TxnAddNode failed: {:?}",
+        first_stage.error
+    );
     state.write().await.open_txns.clear();
 
     let stale_stage: Response = Box::pin(dispatch(

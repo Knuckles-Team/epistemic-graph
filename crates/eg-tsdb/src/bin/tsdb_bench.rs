@@ -6,8 +6,8 @@
 
 use std::time::Instant;
 
-use eg_tsdb::query::{asof_join_backward, decay_weighted_mean, gap_fill_locf, time_bucket, Agg};
 use eg_tsdb::dev_scope_grant::open_dev_store;
+use eg_tsdb::query::{asof_join_backward, decay_weighted_mean, gap_fill_locf, time_bucket, Agg};
 use eg_tsdb::store::Point;
 
 const NS: i64 = 1_000_000_000;

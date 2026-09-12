@@ -1,7 +1,7 @@
 //! Durable ledger row primitives, written through a storage-kernel capability.
 
-use crate::tables::{BATCHES, MAINTENANCE, PRIVATE_PAYLOADS, VERSIONS};
 use crate::admitted::AdmittedMutation;
+use crate::tables::{BATCHES, MAINTENANCE, PRIVATE_PAYLOADS, VERSIONS};
 use eg_storage::{
     decode_batch_record, encode_bounded, ledger_scope_key, private_payload_digest, OwnerDomain,
 };

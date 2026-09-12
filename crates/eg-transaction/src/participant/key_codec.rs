@@ -4,7 +4,6 @@ use super::model::ConsensusTransactionRecordKey;
 use super::validate::validate_coordinator_id;
 use super::MAX_ENCODED_RECORD_KEY_BYTES;
 
-
 /// Storage key order is coordinator, record kind, then participant id when the
 /// kind has one. Hex encoding keeps arbitrary coordinator bytes unambiguous and
 /// leaves the parent shape free of a sentinel participant id.

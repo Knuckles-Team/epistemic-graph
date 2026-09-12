@@ -68,47 +68,163 @@ pub const MODALITY_ROOT: &str = "eg:modality";
 pub const AGENT_ONTOLOGY: &[OntologyTerm] = &[
     // ── Capabilities: what a component can DO ───────────────────────────────
     t(CAPABILITY_ROOT, "capability", None),
-    t("eg:capability/retrieval", "retrieval", Some(CAPABILITY_ROOT)),
-    t("eg:capability/retrieval/web-search", "web search", Some("eg:capability/retrieval")),
-    t("eg:capability/retrieval/vector-search", "vector search", Some("eg:capability/retrieval")),
-    t("eg:capability/retrieval/graph-query", "graph query", Some("eg:capability/retrieval")),
-    t("eg:capability/retrieval/sql-query", "sql query", Some("eg:capability/retrieval")),
-    t("eg:capability/retrieval/document-read", "document read", Some("eg:capability/retrieval")),
-    t("eg:capability/generation", "generation", Some(CAPABILITY_ROOT)),
-    t("eg:capability/generation/text", "text generation", Some("eg:capability/generation")),
-    t("eg:capability/generation/code", "code generation", Some("eg:capability/generation")),
-    t("eg:capability/generation/image", "image generation", Some("eg:capability/generation")),
-    t("eg:capability/generation/speech", "speech synthesis", Some("eg:capability/generation")),
+    t(
+        "eg:capability/retrieval",
+        "retrieval",
+        Some(CAPABILITY_ROOT),
+    ),
+    t(
+        "eg:capability/retrieval/web-search",
+        "web search",
+        Some("eg:capability/retrieval"),
+    ),
+    t(
+        "eg:capability/retrieval/vector-search",
+        "vector search",
+        Some("eg:capability/retrieval"),
+    ),
+    t(
+        "eg:capability/retrieval/graph-query",
+        "graph query",
+        Some("eg:capability/retrieval"),
+    ),
+    t(
+        "eg:capability/retrieval/sql-query",
+        "sql query",
+        Some("eg:capability/retrieval"),
+    ),
+    t(
+        "eg:capability/retrieval/document-read",
+        "document read",
+        Some("eg:capability/retrieval"),
+    ),
+    t(
+        "eg:capability/generation",
+        "generation",
+        Some(CAPABILITY_ROOT),
+    ),
+    t(
+        "eg:capability/generation/text",
+        "text generation",
+        Some("eg:capability/generation"),
+    ),
+    t(
+        "eg:capability/generation/code",
+        "code generation",
+        Some("eg:capability/generation"),
+    ),
+    t(
+        "eg:capability/generation/image",
+        "image generation",
+        Some("eg:capability/generation"),
+    ),
+    t(
+        "eg:capability/generation/speech",
+        "speech synthesis",
+        Some("eg:capability/generation"),
+    ),
     t("eg:capability/analysis", "analysis", Some(CAPABILITY_ROOT)),
-    t("eg:capability/analysis/summarize", "summarize", Some("eg:capability/analysis")),
-    t("eg:capability/analysis/classify", "classify", Some("eg:capability/analysis")),
-    t("eg:capability/analysis/extract", "extract", Some("eg:capability/analysis")),
-    t("eg:capability/analysis/compare", "compare", Some("eg:capability/analysis")),
-    t("eg:capability/analysis/evaluate", "evaluate", Some("eg:capability/analysis")),
-    t("eg:capability/reasoning", "reasoning", Some(CAPABILITY_ROOT)),
-    t("eg:capability/reasoning/plan", "plan", Some("eg:capability/reasoning")),
-    t("eg:capability/reasoning/decompose", "decompose", Some("eg:capability/reasoning")),
-    t("eg:capability/reasoning/verify", "verify", Some("eg:capability/reasoning")),
-    t("eg:capability/reasoning/critique", "critique", Some("eg:capability/reasoning")),
+    t(
+        "eg:capability/analysis/summarize",
+        "summarize",
+        Some("eg:capability/analysis"),
+    ),
+    t(
+        "eg:capability/analysis/classify",
+        "classify",
+        Some("eg:capability/analysis"),
+    ),
+    t(
+        "eg:capability/analysis/extract",
+        "extract",
+        Some("eg:capability/analysis"),
+    ),
+    t(
+        "eg:capability/analysis/compare",
+        "compare",
+        Some("eg:capability/analysis"),
+    ),
+    t(
+        "eg:capability/analysis/evaluate",
+        "evaluate",
+        Some("eg:capability/analysis"),
+    ),
+    t(
+        "eg:capability/reasoning",
+        "reasoning",
+        Some(CAPABILITY_ROOT),
+    ),
+    t(
+        "eg:capability/reasoning/plan",
+        "plan",
+        Some("eg:capability/reasoning"),
+    ),
+    t(
+        "eg:capability/reasoning/decompose",
+        "decompose",
+        Some("eg:capability/reasoning"),
+    ),
+    t(
+        "eg:capability/reasoning/verify",
+        "verify",
+        Some("eg:capability/reasoning"),
+    ),
+    t(
+        "eg:capability/reasoning/critique",
+        "critique",
+        Some("eg:capability/reasoning"),
+    ),
     t("eg:capability/memory", "memory", Some(CAPABILITY_ROOT)),
-    t("eg:capability/memory/store", "store", Some("eg:capability/memory")),
-    t("eg:capability/memory/recall", "recall", Some("eg:capability/memory")),
+    t(
+        "eg:capability/memory/store",
+        "store",
+        Some("eg:capability/memory"),
+    ),
+    t(
+        "eg:capability/memory/recall",
+        "recall",
+        Some("eg:capability/memory"),
+    ),
     // `action` is the side-effecting branch. Keeping it a distinct subtree is
     // what makes "is this graph read-only?" a subsumption query rather than an
     // audit: nothing under `action` is safe to run speculatively.
     t("eg:capability/action", "action", Some(CAPABILITY_ROOT)),
-    t("eg:capability/action/file-write", "file write", Some("eg:capability/action")),
-    t("eg:capability/action/http-request", "http request", Some("eg:capability/action")),
-    t("eg:capability/action/process-exec", "process execution", Some("eg:capability/action")),
-    t("eg:capability/action/message-send", "message send", Some("eg:capability/action")),
-    t("eg:capability/action/schedule", "schedule", Some("eg:capability/action")),
+    t(
+        "eg:capability/action/file-write",
+        "file write",
+        Some("eg:capability/action"),
+    ),
+    t(
+        "eg:capability/action/http-request",
+        "http request",
+        Some("eg:capability/action"),
+    ),
+    t(
+        "eg:capability/action/process-exec",
+        "process execution",
+        Some("eg:capability/action"),
+    ),
+    t(
+        "eg:capability/action/message-send",
+        "message send",
+        Some("eg:capability/action"),
+    ),
+    t(
+        "eg:capability/action/schedule",
+        "schedule",
+        Some("eg:capability/action"),
+    ),
     // ── Modalities: what a component can handle ─────────────────────────────
     t(MODALITY_ROOT, "modality", None),
     t("eg:modality/text", "text", Some(MODALITY_ROOT)),
     t("eg:modality/image", "image", Some(MODALITY_ROOT)),
     t("eg:modality/audio", "audio", Some(MODALITY_ROOT)),
     t("eg:modality/video", "video", Some(MODALITY_ROOT)),
-    t("eg:modality/structured", "structured data", Some(MODALITY_ROOT)),
+    t(
+        "eg:modality/structured",
+        "structured data",
+        Some(MODALITY_ROOT),
+    ),
     // ── Tasks: what an agent is FOR, and what that needs ────────────────────
     t(TASK_ROOT, "task", None),
     task(
@@ -276,7 +392,11 @@ mod tests {
             assert!(seen.insert(entry.iri), "duplicate term {}", entry.iri);
             assert!(!entry.iri.is_empty() && !entry.label.is_empty());
             if let Some(broader) = entry.broader {
-                assert!(is_native(broader), "{} has unresolvable broader {broader}", entry.iri);
+                assert!(
+                    is_native(broader),
+                    "{} has unresolvable broader {broader}",
+                    entry.iri
+                );
             }
             for required in entry.requires {
                 assert!(
@@ -318,14 +438,29 @@ mod tests {
 
     #[test]
     fn subsumption_generalizes_but_does_not_specialize() {
-        assert!(satisfies("eg:capability/retrieval/web-search", "eg:capability/retrieval"));
-        assert!(satisfies("eg:capability/retrieval/web-search", CAPABILITY_ROOT));
-        assert!(satisfies("eg:capability/retrieval", "eg:capability/retrieval"));
+        assert!(satisfies(
+            "eg:capability/retrieval/web-search",
+            "eg:capability/retrieval"
+        ));
+        assert!(satisfies(
+            "eg:capability/retrieval/web-search",
+            CAPABILITY_ROOT
+        ));
+        assert!(satisfies(
+            "eg:capability/retrieval",
+            "eg:capability/retrieval"
+        ));
         // The direction that must NOT hold: claiming the parent is not
         // evidence of any particular child.
-        assert!(!satisfies("eg:capability/retrieval", "eg:capability/retrieval/web-search"));
+        assert!(!satisfies(
+            "eg:capability/retrieval",
+            "eg:capability/retrieval/web-search"
+        ));
         // Nor across sibling branches.
-        assert!(!satisfies("eg:capability/generation/code", "eg:capability/retrieval"));
+        assert!(!satisfies(
+            "eg:capability/generation/code",
+            "eg:capability/retrieval"
+        ));
     }
 
     #[test]
@@ -333,7 +468,10 @@ mod tests {
         // A tenant vocabulary extends the native one by declaring a native
         // `broader`. Until it does, EG must not infer a relationship it was
         // never told about.
-        assert!(satisfies("acme:capability/proprietary", "acme:capability/proprietary"));
+        assert!(satisfies(
+            "acme:capability/proprietary",
+            "acme:capability/proprietary"
+        ));
         assert!(!satisfies("acme:capability/proprietary", CAPABILITY_ROOT));
         assert!(ancestors("acme:capability/proprietary").is_empty());
     }

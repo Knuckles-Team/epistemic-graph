@@ -2,11 +2,11 @@
 //! sketch. Run: `cargo test -p eg-tsdb --features dev-scope-grant`.
 #![cfg(feature = "dev-scope-grant")]
 
+use eg_tsdb::dev_scope_grant::open_dev_store;
 use eg_tsdb::query::{
     asof_join_backward, decay_weighted_mean, downsample, gap_fill_locf, ohlc_bars, series_ewma,
     time_bucket, Agg,
 };
-use eg_tsdb::dev_scope_grant::open_dev_store;
 use eg_tsdb::store::{Point, SeriesStore};
 use eg_tsdb::time_op::{composed_example, Row, RowSet, TimeOp};
 use tempfile::tempdir;

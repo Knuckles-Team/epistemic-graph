@@ -67,8 +67,7 @@ pub use participant::{
 };
 pub use read::{
     read_batches, read_class, read_fences, read_ledger, read_outbox, read_private_payload,
-    read_replay_operation, version,
-    OutboxCursor,
+    read_replay_operation, version, OutboxCursor,
 };
 pub use replay::ReplayResolution;
 

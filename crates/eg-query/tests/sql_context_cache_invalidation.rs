@@ -35,8 +35,8 @@ use eg_query::{
     TxnOp, TypedQueryResult,
 };
 use eg_types::mutation_batch::{
-    IncarnationId, LogicalName, MutationBatch, DurabilityDomain, MutationOperation,
-    MutationEnvelope, MutationOutboxIntent, MutationScopeIdentity, MutationSurface, ScopeTenantId,
+    DurabilityDomain, IncarnationId, LogicalName, MutationBatch, MutationEnvelope,
+    MutationOperation, MutationOutboxIntent, MutationScopeIdentity, MutationSurface, ScopeTenantId,
     VersionExpectation, COMPILED_BATCH_INCARNATION, MUTATION_BATCH_VERSION,
 };
 use serde_json::json;

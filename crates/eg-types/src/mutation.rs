@@ -16,7 +16,7 @@ mod targets;
 
 pub use crate::contract::{MutationDisposition, MutationDomain, RequestedMutationResult};
 pub use effects::{MutationEffect, RecordMutation};
-pub use envelope::{MutationRequestEnvelopeParts, MutationRequestEnvelope, MutationPayload};
+pub use envelope::{MutationPayload, MutationRequestEnvelope, MutationRequestEnvelopeParts};
 pub use outbox_decode::ProvenanceBinding;
 pub use receipt::{MutationReceipt, MutationResult};
 pub use targets::{MutationPrecondition, RecordTarget};

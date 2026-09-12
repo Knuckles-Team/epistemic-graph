@@ -6,8 +6,8 @@
 
 use super::sealed::SealedPayloadOpener;
 use super::validate::{
-    exact_encoded_record_len, validate_blob, validate_coordinator_id, validate_participant_state,
-    validate_parent_state,
+    exact_encoded_record_len, validate_blob, validate_coordinator_id, validate_parent_state,
+    validate_participant_state,
 };
 use super::{
     CONSENSUS_TRANSACTION_SCHEMA_VERSION, MAX_CONSENSUS_RECORD_BYTES, MAX_COORDINATOR_ID_BYTES,
@@ -285,9 +285,7 @@ impl ConsensusTransactionRecord {
                 ..
             } => {
                 if *group_id == 0 || *participant_id == 0 {
-                    return Err(
-                        "consensus participant group and id must be positive".to_string(),
-                    );
+                    return Err("consensus participant group and id must be positive".to_string());
                 }
                 validate_participant_state(state)?;
                 (*schema_version, coordinator_id, *retention_key)
@@ -319,9 +317,7 @@ impl ConsensusTransactionRecord {
             Self::Parent { state, .. } => match state {
                 ConsensusTransactionParentState::Prepared {
                     sealed_parent_authority,
-                } => {
-                    authenticate(sealed_parent_authority, "parent authority")
-                }
+                } => authenticate(sealed_parent_authority, "parent authority"),
                 ConsensusTransactionParentState::Decided {
                     sealed_parent_authority,
                     sealed_decision_certificate,

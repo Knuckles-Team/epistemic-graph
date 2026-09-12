@@ -4,8 +4,8 @@ use super::envelope::MutationRequestEnvelope;
 use super::payload::digest_sequence;
 use crate::authority::{AuthorityScope, ReplayReceipt};
 use crate::contract::{
-    BoundedVec, Digest256, MutationDisposition, OpaqueId, RecordBytes,
-    RequestedMutationResult, ResourceId, SchemaId, UtcUnixNanos, MAX_MUTATION_EFFECTS,
+    BoundedVec, Digest256, MutationDisposition, OpaqueId, RecordBytes, RequestedMutationResult,
+    ResourceId, SchemaId, UtcUnixNanos, MAX_MUTATION_EFFECTS,
 };
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]

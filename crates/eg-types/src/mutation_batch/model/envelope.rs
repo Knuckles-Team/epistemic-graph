@@ -747,15 +747,14 @@ impl MutationEnvelope {
     /// Capabilities verified at admission. A maintenance write has no caller and
     /// therefore no verified capability set.
     pub fn verified_capabilities(&self) -> Option<&BTreeSet<MutationCapability>> {
-        self.operation().map(|envelope| &envelope.verified_capabilities)
+        self.operation()
+            .map(|envelope| &envelope.verified_capabilities)
     }
 
     pub fn validate(&self) -> Result<(), String> {
         match self {
             Self::Operation(envelope) => envelope.validate(),
-            Self::Maintenance(envelope) => {
-                validate_serving_principal(&envelope.serving_principal)
-            }
+            Self::Maintenance(envelope) => validate_serving_principal(&envelope.serving_principal),
         }
     }
 }

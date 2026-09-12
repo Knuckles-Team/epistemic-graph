@@ -3,9 +3,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::contract::{
-    ActorId, AudienceId, BoundedVec, Digest256, IdempotencyKey, IngressSurface,
-    Nonce, OpaqueId, Operation, PolicyRevision, ProtocolId, PurposeKind, ResourceId,
-    ScopeKind, TenantId, UtcUnixNanos, MAX_SCOPE_COMPONENTS,
+    ActorId, AudienceId, BoundedVec, Digest256, IdempotencyKey, IngressSurface, Nonce, OpaqueId,
+    Operation, PolicyRevision, ProtocolId, PurposeKind, ResourceId, ScopeKind, TenantId,
+    UtcUnixNanos, MAX_SCOPE_COMPONENTS,
 };
 
 pub const AUTHORITY_CONTEXT_SCHEMA_V1: &str = "authority-context.v1";

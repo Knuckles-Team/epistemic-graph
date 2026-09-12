@@ -977,7 +977,11 @@ mod tests {
         let operation = envelope.mutation.envelope.operation().unwrap();
         assert_eq!(operation.authority.purpose_kind.as_str(), "graph_write");
         assert_eq!(
-            operation.authority.purpose_resource.as_ref().map(|r| r.as_str()),
+            operation
+                .authority
+                .purpose_resource
+                .as_ref()
+                .map(|r| r.as_str()),
             Some(operation.authority.authority_scope.scope_id.as_str())
         );
 

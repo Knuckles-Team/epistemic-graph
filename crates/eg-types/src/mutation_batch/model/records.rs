@@ -105,9 +105,7 @@ impl MutationBatchRecord {
             .find_map(|intent| intent.headers.get(MUTATION_ACTOR_HEADER))
             .map(String::as_str)
             .filter(|actor| !actor.is_empty())
-            .ok_or_else(|| {
-                "committed MutationBatch carries no actor attribution".to_string()
-            })
+            .ok_or_else(|| "committed MutationBatch carries no actor attribution".to_string())
     }
 
     /// The TENANT whose authority committed this record.

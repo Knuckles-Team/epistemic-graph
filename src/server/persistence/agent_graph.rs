@@ -39,9 +39,9 @@ use eg_storage::{OwnedStoreHandle, RecordedOperation, ScopedRead};
 use eg_transaction::{AdmittedOwnerWrite, Begin, ReplayResolution};
 
 use eg_types::agent_graph::{
-    AgentGraphCommittedResult, AgentGraphEntry, AgentGraphMutationKind,
-    AgentGraphOutboxEvent, AgentGraphPublishRequest, AgentGraphRetireRequest,
-    AgentGraphStatusRequest, AGENT_GRAPH_ENTRY_SCHEMA_VERSION,
+    AgentGraphCommittedResult, AgentGraphEntry, AgentGraphMutationKind, AgentGraphOutboxEvent,
+    AgentGraphPublishRequest, AgentGraphRetireRequest, AgentGraphStatusRequest,
+    AGENT_GRAPH_ENTRY_SCHEMA_VERSION,
 };
 use eg_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
 use eg_types::mutation::MutationResult;
@@ -83,10 +83,9 @@ impl AgentLibraryStore {
                 "agent graph publish context tenant does not match the graph's tenant".to_string(),
             );
         }
-        let expected_revision = request
-            .context
-            .expected_revision
-            .ok_or_else(|| "agent graph writes require an explicit expected_revision".to_string())?;
+        let expected_revision = request.context.expected_revision.ok_or_else(|| {
+            "agent graph writes require an explicit expected_revision".to_string()
+        })?;
         let owner = self.scope_handle(&request.context.tenant_id)?;
         let txn = self.mutations.open_write(&owner)?;
 
@@ -107,14 +106,13 @@ impl AgentLibraryStore {
                 return Err(error);
             }
         };
-        let replay_context =
-            match admitted_context(&request.context, "agent-graph:publish") {
-                Ok(context) => context,
-                Err(error) => {
-                    txn.abort()?;
-                    return Err(error);
-                }
-            };
+        let replay_context = match admitted_context(&request.context, "agent-graph:publish") {
+            Ok(context) => context,
+            Err(error) => {
+                txn.abort()?;
+                return Err(error);
+            }
+        };
         // The replay identity is minted from the DRAFT digest, not the shape
         // digest. Two publishes of the same shape that differ in version or
         // synthesis evidence are different operations: keying on the shape
@@ -268,10 +266,9 @@ impl AgentLibraryStore {
         request: AgentGraphRetireRequest,
     ) -> Result<AgentGraphWriteResult, String> {
         validate_context(self, &request.context)?;
-        let expected_revision = request
-            .context
-            .expected_revision
-            .ok_or_else(|| "agent graph writes require an explicit expected_revision".to_string())?;
+        let expected_revision = request.context.expected_revision.ok_or_else(|| {
+            "agent graph writes require an explicit expected_revision".to_string()
+        })?;
         let owner = self.scope_handle(&request.context.tenant_id)?;
         let txn = self.mutations.open_write(&owner)?;
         let nonce = match resolve_nonce_first(&self.mutations, &txn, &request.context) {
@@ -288,14 +285,13 @@ impl AgentLibraryStore {
                 return Err(error);
             }
         };
-        let replay_context =
-            match admitted_context(&request.context, "agent-graph:retire") {
-                Ok(context) => context,
-                Err(error) => {
-                    txn.abort()?;
-                    return Err(error);
-                }
-            };
+        let replay_context = match admitted_context(&request.context, "agent-graph:retire") {
+            Ok(context) => context,
+            Err(error) => {
+                txn.abort()?;
+                return Err(error);
+            }
+        };
         let operation = match agent_library_operation_identity(
             &owner,
             &replay_context,
@@ -659,7 +655,9 @@ impl AgentLibraryStore {
             .ok_or_else(|| "agent graph commit has no target version".to_string())?;
         if recorded_version != committed_version {
             txn.abort()?;
-            return Err("agent graph result version differs from the committed version".to_string());
+            return Err(
+                "agent graph result version differs from the committed version".to_string(),
+            );
         }
         self.mutations.commit(txn, &batch)?;
         Ok(AgentGraphWriteResult {
@@ -777,8 +775,14 @@ fn graph_outbox_headers(entry: &AgentGraphEntry) -> BTreeMap<String, String> {
             "composed_work_ceiling".to_string(),
             entry.composed_work_ceiling.to_string(),
         ),
-        ("definition_actor_scope".to_string(), entry.actor_scope.clone()),
-        ("definition_purpose_id".to_string(), entry.purpose_id.clone()),
+        (
+            "definition_actor_scope".to_string(),
+            entry.actor_scope.clone(),
+        ),
+        (
+            "definition_purpose_id".to_string(),
+            entry.purpose_id.clone(),
+        ),
         (
             "definition_policy_digest".to_string(),
             entry.policy_digest.clone(),
@@ -970,10 +974,10 @@ pub type AgentGraphStoreRef = Arc<AgentLibraryStore>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eg_types::agent_component::ComponentDependency;
     use eg_types::agent_graph::{
         AgentGraphDraft, AgentGraphEdge, AgentGraphNode, AgentGraphNodeKind, AgentGraphShape,
     };
-    use eg_types::agent_component::ComponentDependency;
     use eg_types::contract::Nonce;
 
     fn digest(byte: char) -> String {
@@ -1022,7 +1026,11 @@ mod tests {
 
     /// Seed an agent and return the node kind that runs it, pinned to its real
     /// `definition_digest`.
-    fn agent_node(store: &AgentLibraryStore, tenant_id: &str, agent_id: &str) -> AgentGraphNodeKind {
+    fn agent_node(
+        store: &AgentLibraryStore,
+        tenant_id: &str,
+        agent_id: &str,
+    ) -> AgentGraphNodeKind {
         AgentGraphNodeKind::Agent {
             agent_id: agent_id.to_string(),
             definition_digest: super::super::agent_library::seed_agent_for_test(
@@ -1140,7 +1148,10 @@ mod tests {
 
         let current = store.current_graph("tenant-a", "graph-a").unwrap().unwrap();
         assert_eq!(current, published.result.graph);
-        assert_eq!(store.graph_revisions("tenant-a", "graph-a").unwrap().len(), 1);
+        assert_eq!(
+            store.graph_revisions("tenant-a", "graph-a").unwrap().len(),
+            1
+        );
     }
 
     #[test]
@@ -1233,11 +1244,12 @@ mod tests {
         );
         let current = store.current_graph("tenant-a", "graph-a").unwrap().unwrap();
         assert_eq!(
-            current.composed_work_ceiling,
-            published.result.graph.composed_work_ceiling,
+            current.composed_work_ceiling, published.result.graph.composed_work_ceiling,
             "it must survive the round trip through redb"
         );
-        current.validate().expect("the persisted row re-derives its own digest");
+        current
+            .validate()
+            .expect("the persisted row re-derives its own digest");
     }
 
     #[test]
@@ -1299,7 +1311,10 @@ mod tests {
                 graph_id: "graph-a".to_string(),
             })
             .unwrap();
-        assert_eq!(retired.result.graph.lifecycle, AgentLibraryLifecycle::Retired);
+        assert_eq!(
+            retired.result.graph.lifecycle,
+            AgentLibraryLifecycle::Retired
+        );
         assert_eq!(retired.result.graph.entry_revision, 2);
 
         let error = store
@@ -1320,7 +1335,10 @@ mod tests {
                 graph: draft(&store, "tenant-a", "graph-a"),
             })
             .unwrap();
-        assert!(store.current_graph("tenant-b", "graph-a").unwrap().is_none());
+        assert!(store
+            .current_graph("tenant-b", "graph-a")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1335,7 +1353,10 @@ mod tests {
             })
             .unwrap();
         assert!(store.current("tenant-a", "same-id").unwrap().is_none());
-        assert!(store.current_graph("tenant-a", "same-id").unwrap().is_some());
+        assert!(store
+            .current_graph("tenant-a", "same-id")
+            .unwrap()
+            .is_some());
     }
 
     #[test]
@@ -1352,7 +1373,10 @@ mod tests {
             })
             .unwrap_err();
         assert!(error.contains("contracts agree"), "got: {error}");
-        assert!(store.current_graph("tenant-a", "graph-a").unwrap().is_none());
+        assert!(store
+            .current_graph("tenant-a", "graph-a")
+            .unwrap()
+            .is_none());
     }
 
     // ---- reference resolution: the pins a shape makes to L1, L2 and
@@ -1387,8 +1411,14 @@ mod tests {
                 graph,
             })
             .expect_err("an unresolvable agent pin must be refused");
-        assert!(error.contains("which does not exist in this tenant"), "got: {error}");
-        assert!(store.current_graph("tenant-a", "graph-a").unwrap().is_none());
+        assert!(
+            error.contains("which does not exist in this tenant"),
+            "got: {error}"
+        );
+        assert!(store
+            .current_graph("tenant-a", "graph-a")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1431,7 +1461,10 @@ mod tests {
                 graph,
             })
             .expect_err("a cross-tenant agent pin must be refused");
-        assert!(error.contains("which does not exist in this tenant"), "got: {error}");
+        assert!(
+            error.contains("which does not exist in this tenant"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1447,7 +1480,14 @@ mod tests {
             .expect("the first graph publishes while its agents are live");
         store
             .retire(eg_types::agent_library::AgentLibraryRetireRequest {
-                context: context(&store, "tenant-a", "key-retire", 2, 1, "agent-library:retire"),
+                context: context(
+                    &store,
+                    "tenant-a",
+                    "key-retire",
+                    2,
+                    1,
+                    "agent-library:retire",
+                ),
                 agent_id: "agent:research".to_string(),
             })
             .expect("the agent retires");
@@ -1460,8 +1500,14 @@ mod tests {
         assert!(error.contains("which is retired"), "got: {error}");
         // The graph published before the retirement is untouched, and the agent
         // stays readable, because that graph still has to resolve it.
-        assert!(store.current_graph("tenant-a", "graph-a").unwrap().is_some());
-        assert!(store.current("tenant-a", "agent:research").unwrap().is_some());
+        assert!(store
+            .current_graph("tenant-a", "graph-a")
+            .unwrap()
+            .is_some());
+        assert!(store
+            .current("tenant-a", "agent:research")
+            .unwrap()
+            .is_some());
     }
 
     #[test]
@@ -1481,7 +1527,10 @@ mod tests {
                 graph,
             })
             .expect_err("an unresolvable component pin must be refused");
-        assert!(error.contains("which does not exist in this tenant"), "got: {error}");
+        assert!(
+            error.contains("which does not exist in this tenant"),
+            "got: {error}"
+        );
     }
 
     #[test]
@@ -1547,7 +1596,10 @@ mod tests {
                 graph: ghost,
             })
             .expect_err("an unresolvable template pin must be refused");
-        assert!(error.contains("which does not exist in this tenant"), "got: {error}");
+        assert!(
+            error.contains("which does not exist in this tenant"),
+            "got: {error}"
+        );
     }
 
     // ---- composition: a graph whose node is another GRAPH ----
@@ -1647,7 +1699,13 @@ mod tests {
     #[test]
     fn a_nested_graph_publishes_and_its_composed_ceiling_is_the_product() {
         let (_dir, store) = open_store();
-        let child = publish_shape(&store, "graph:child", child_shape(&store, "tenant-a", 4), "key-child", 1);
+        let child = publish_shape(
+            &store,
+            "graph:child",
+            child_shape(&store, "tenant-a", 4),
+            "key-child",
+            1,
+        );
         assert_eq!(child.composed_work_ceiling, 4);
 
         let parent = publish_shape(
@@ -1676,12 +1734,25 @@ mod tests {
         // transaction: a pinned child is a claim, and an unresolvable claim must
         // not become a durable revision.
         let (_dir, store) = open_store();
-        publish_shape(&store, "graph:child", child_shape(&store, "tenant-a", 4), "key-child", 1);
+        publish_shape(
+            &store,
+            "graph:child",
+            child_shape(&store, "tenant-a", 4),
+            "key-child",
+            1,
+        );
         let mut graph = draft(&store, "tenant-a", "graph:parent");
         graph.shape = parent_shape(&store, "tenant-a", "graph:child", &digest('7'), 3);
         let error = store
             .publish_graph(AgentGraphPublishRequest {
-                context: context(&store, "tenant-a", "key-parent", 2, 0, "agent-graph:publish"),
+                context: context(
+                    &store,
+                    "tenant-a",
+                    "key-parent",
+                    2,
+                    0,
+                    "agent-graph:publish",
+                ),
                 graph,
             })
             .expect_err("an unresolvable pin must be refused");
@@ -1715,17 +1786,33 @@ mod tests {
         graph.shape = parent_shape(&store, "tenant-a", "graph:child", &child.shape_digest, 3);
         let error = store
             .publish_graph(AgentGraphPublishRequest {
-                context: context(&store, "tenant-a", "key-parent", 2, 0, "agent-graph:publish"),
+                context: context(
+                    &store,
+                    "tenant-a",
+                    "key-parent",
+                    2,
+                    0,
+                    "agent-graph:publish",
+                ),
                 graph,
             })
             .expect_err("a cross-tenant composition must be refused");
-        assert!(error.contains("no such graph in this tenant"), "got: {error}");
+        assert!(
+            error.contains("no such graph in this tenant"),
+            "got: {error}"
+        );
     }
 
     #[test]
     fn composing_a_retired_child_is_refused_while_it_stays_resolvable() {
         let (_dir, store) = open_store();
-        let child = publish_shape(&store, "graph:child", child_shape(&store, "tenant-a", 4), "key-child", 1);
+        let child = publish_shape(
+            &store,
+            "graph:child",
+            child_shape(&store, "tenant-a", 4),
+            "key-child",
+            1,
+        );
         store
             .retire_graph(eg_types::agent_graph::AgentGraphRetireRequest {
                 context: context(&store, "tenant-a", "key-retire", 2, 1, "agent-graph:retire"),
@@ -1736,7 +1823,14 @@ mod tests {
         graph.shape = parent_shape(&store, "tenant-a", "graph:child", &child.shape_digest, 3);
         let error = store
             .publish_graph(AgentGraphPublishRequest {
-                context: context(&store, "tenant-a", "key-parent", 3, 0, "agent-graph:publish"),
+                context: context(
+                    &store,
+                    "tenant-a",
+                    "key-parent",
+                    3,
+                    0,
+                    "agent-graph:publish",
+                ),
                 graph,
             })
             .expect_err("nothing new may be built on a withdrawn graph");
@@ -1755,7 +1849,13 @@ mod tests {
         // danger the ceiling exists for -- the PRODUCT across levels, each of
         // which looks modest on its own -- is only reachable at depth >= 2.
         let (_dir, store) = open_store();
-        let leaf = publish_shape(&store, "graph:leaf", child_shape(&store, "tenant-a", 5), "key-leaf", 1);
+        let leaf = publish_shape(
+            &store,
+            "graph:leaf",
+            child_shape(&store, "tenant-a", 5),
+            "key-leaf",
+            1,
+        );
         let mid = publish_shape(
             &store,
             "graph:mid",
@@ -1799,6 +1899,9 @@ mod tests {
             .unwrap()
             .expect("the graph survives a reopen");
         assert_eq!(current.entry_revision, 1);
-        assert_eq!(current.shape_digest, shape(&reopened, "tenant-a").shape_digest());
+        assert_eq!(
+            current.shape_digest,
+            shape(&reopened, "tenant-a").shape_digest()
+        );
     }
 }

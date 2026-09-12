@@ -557,33 +557,27 @@ fn delegation_library_draft() -> eg_types::AgentLibraryEntryDraft {
             kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
             definition_digest: prefixed('2'),
         },
-        tools: vec![
-            eg_types::agent_component::ComponentDependency {
-                component_id: "tool:rmdd27-search".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::Tool,
-                definition_digest: prefixed('3'),
-            },
-        ],
-        skills: vec![
-            eg_types::agent_component::ComponentDependency {
-                component_id: "skill:rmdd27-delegate".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::Skill,
-                definition_digest: prefixed('4'),
-            },
-        ],
+        tools: vec![eg_types::agent_component::ComponentDependency {
+            component_id: "tool:rmdd27-search".to_string(),
+            kind: eg_types::agent_component::AgentComponentKind::Tool,
+            definition_digest: prefixed('3'),
+        }],
+        skills: vec![eg_types::agent_component::ComponentDependency {
+            component_id: "skill:rmdd27-delegate".to_string(),
+            kind: eg_types::agent_component::AgentComponentKind::Skill,
+            definition_digest: prefixed('4'),
+        }],
         model_profile: eg_types::agent_component::ComponentDependency {
             component_id: "model-profile:rmdd27".to_string(),
             kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
             definition_digest: prefixed('5'),
         },
         model_identity: "model:rmdd27".to_string(),
-        ontologies: vec![
-            eg_types::agent_component::ComponentDependency {
-                component_id: "ontology:rmdd27".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::Ontology,
-                definition_digest: prefixed('6'),
-            },
-        ],
+        ontologies: vec![eg_types::agent_component::ComponentDependency {
+            component_id: "ontology:rmdd27".to_string(),
+            kind: eg_types::agent_component::AgentComponentKind::Ontology,
+            definition_digest: prefixed('6'),
+        }],
         tenant_id: TENANT.to_string(),
         actor_scope: "delegate:target".to_string(),
         purpose_id: "delegation.execute".to_string(),
@@ -847,55 +841,47 @@ fn decode_delegation_result(response: crate::protocol::Response) -> eg_types::Kg
 /// Extracted so `seed_draft_components_for_test` can rewrite each pin to the real
 /// component digest before the publish, which now resolves them.
 #[cfg(feature = "redb")]
-fn restart_delegate_draft(
-    digest: &dyn Fn(char) -> String,
-) -> eg_types::AgentLibraryEntryDraft {
+fn restart_delegate_draft(digest: &dyn Fn(char) -> String) -> eg_types::AgentLibraryEntryDraft {
     eg_types::AgentLibraryEntryDraft {
-            agent_id: "rmdd27-selected-agent".to_string(),
-            package_id: "rmdd27-agent-package".to_string(),
-            version: "1.0.0".to_string(),
-            role: "worker".to_string(),
-            role_digest: digest('a'),
-            system_prompt: eg_types::agent_component::ComponentDependency {
-                component_id: "prompt:rmdd27-agent-v1".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
-                definition_digest: digest('b'),
-            },
-            tools: vec![
-                eg_types::agent_component::ComponentDependency {
-                    component_id: "tool:rmdd27-search".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::Tool,
-                    definition_digest: digest('c'),
-                },
-            ],
-            skills: vec![
-                eg_types::agent_component::ComponentDependency {
-                    component_id: "skill:rmdd27-reason".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::Skill,
-                    definition_digest: digest('d'),
-                },
-            ],
-            model_profile: eg_types::agent_component::ComponentDependency {
-                component_id: "model-profile:rmdd27-default".to_string(),
-                kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
-                definition_digest: digest('e'),
-            },
-            model_identity: "model:rmdd27-default".to_string(),
-            ontologies: vec![
-                eg_types::agent_component::ComponentDependency {
-                    component_id: "ontology:rmdd27-core".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::Ontology,
-                    definition_digest: digest('f'),
-                },
-            ],
-            tenant_id: TENANT.to_string(),
-            actor_scope: "definition:rmdd27-selected-agent".to_string(),
-            purpose_id: "delegation.execute".to_string(),
-            policy_digest: digest('0'),
-            source_revision: "rmdd27-agent-source:1".to_string(),
-            source_revision_digest: digest('1'),
-            runtime: Default::default(),
-            instantiated_from: None,
+        agent_id: "rmdd27-selected-agent".to_string(),
+        package_id: "rmdd27-agent-package".to_string(),
+        version: "1.0.0".to_string(),
+        role: "worker".to_string(),
+        role_digest: digest('a'),
+        system_prompt: eg_types::agent_component::ComponentDependency {
+            component_id: "prompt:rmdd27-agent-v1".to_string(),
+            kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
+            definition_digest: digest('b'),
+        },
+        tools: vec![eg_types::agent_component::ComponentDependency {
+            component_id: "tool:rmdd27-search".to_string(),
+            kind: eg_types::agent_component::AgentComponentKind::Tool,
+            definition_digest: digest('c'),
+        }],
+        skills: vec![eg_types::agent_component::ComponentDependency {
+            component_id: "skill:rmdd27-reason".to_string(),
+            kind: eg_types::agent_component::AgentComponentKind::Skill,
+            definition_digest: digest('d'),
+        }],
+        model_profile: eg_types::agent_component::ComponentDependency {
+            component_id: "model-profile:rmdd27-default".to_string(),
+            kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
+            definition_digest: digest('e'),
+        },
+        model_identity: "model:rmdd27-default".to_string(),
+        ontologies: vec![eg_types::agent_component::ComponentDependency {
+            component_id: "ontology:rmdd27-core".to_string(),
+            kind: eg_types::agent_component::AgentComponentKind::Ontology,
+            definition_digest: digest('f'),
+        }],
+        tenant_id: TENANT.to_string(),
+        actor_scope: "definition:rmdd27-selected-agent".to_string(),
+        purpose_id: "delegation.execute".to_string(),
+        policy_digest: digest('0'),
+        source_revision: "rmdd27-agent-source:1".to_string(),
+        source_revision_digest: digest('1'),
+        runtime: Default::default(),
+        instantiated_from: None,
     }
 }
 

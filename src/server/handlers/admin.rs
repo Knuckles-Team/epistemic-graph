@@ -930,15 +930,13 @@ pub(crate) async fn handle_agent_template(
                 Err(error) => Response::err(req_id, error),
             }
         }
-        AgentTemplateOp::Instantiate { request } => {
-            match store.instantiate_template(&request) {
-                Ok(draft) => match ResultPayload::raw(&draft) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+        AgentTemplateOp::Instantiate { request } => match store.instantiate_template(&request) {
+            Ok(draft) => match ResultPayload::raw(&draft) {
+                Ok(payload) => Response::ok(req_id, payload),
                 Err(error) => Response::err(req_id, error),
-            }
-        }
+            },
+            Err(error) => Response::err(req_id, error),
+        },
     }
 }
 
@@ -1830,33 +1828,27 @@ mod agent_library_security_tests {
                 kind: eg_types::agent_component::AgentComponentKind::SystemPrompt,
                 definition_digest: digest('2'),
             },
-            tools: vec![
-                eg_types::agent_component::ComponentDependency {
-                    component_id: "tool:search".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::Tool,
-                    definition_digest: digest('3'),
-                },
-            ],
-            skills: vec![
-                eg_types::agent_component::ComponentDependency {
-                    component_id: "skill:research".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::Skill,
-                    definition_digest: digest('4'),
-                },
-            ],
+            tools: vec![eg_types::agent_component::ComponentDependency {
+                component_id: "tool:search".to_string(),
+                kind: eg_types::agent_component::AgentComponentKind::Tool,
+                definition_digest: digest('3'),
+            }],
+            skills: vec![eg_types::agent_component::ComponentDependency {
+                component_id: "skill:research".to_string(),
+                kind: eg_types::agent_component::AgentComponentKind::Skill,
+                definition_digest: digest('4'),
+            }],
             model_profile: eg_types::agent_component::ComponentDependency {
                 component_id: "model:default".to_string(),
                 kind: eg_types::agent_component::AgentComponentKind::ModelProfile,
                 definition_digest: digest('5'),
             },
             model_identity: "model:default".to_string(),
-            ontologies: vec![
-                eg_types::agent_component::ComponentDependency {
-                    component_id: "ontology:core".to_string(),
-                    kind: eg_types::agent_component::AgentComponentKind::Ontology,
-                    definition_digest: digest('6'),
-                },
-            ],
+            ontologies: vec![eg_types::agent_component::ComponentDependency {
+                component_id: "ontology:core".to_string(),
+                kind: eg_types::agent_component::AgentComponentKind::Ontology,
+                definition_digest: digest('6'),
+            }],
             tenant_id: tenant_id.to_string(),
             actor_scope: "definition:builder-a".to_string(),
             purpose_id: "agent-library:definition".to_string(),
@@ -1989,15 +1981,9 @@ mod agent_library_security_tests {
             Some(nonce),
         );
         let body = forged_context(&store, "tenant-a");
-        let bound = bind_agent_library_context(
-            &store,
-            42,
-            &verified,
-            body,
-            "agent-library:publish",
-            true,
-        )
-        .unwrap();
+        let bound =
+            bind_agent_library_context(&store, 42, &verified, body, "agent-library:publish", true)
+                .unwrap();
         assert_eq!(bound.request_id, 42);
         assert_eq!(bound.principal, store.owner_principal());
         assert_eq!(bound.caller_principal, verified.principal_persistence_id());

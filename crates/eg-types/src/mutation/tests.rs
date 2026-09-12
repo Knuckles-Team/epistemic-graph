@@ -8,15 +8,15 @@ use serde::Serialize;
 
 use crate::authority::{
     AdmissionOutcome, AuthorityContext, AuthorityScope, DecisionOutcome, EffectState,
-    IngressSurface, NonceReplayKey, OperationReplayIdentity, Operation, ReplayReceipt,
+    IngressSurface, NonceReplayKey, Operation, OperationReplayIdentity, ReplayReceipt,
     ReplayStatus, ScopeKind, SignedAuthorityEnvelopeEvidence, VerificationStatus,
     VerifiedAuthority, AUTHORITY_CONTEXT_SCHEMA_V1, AUTHORITY_PROTOCOL_V1,
 };
 use crate::contract::{
-    ActorId, AudienceId, BoundedVec, Digest256, Ed25519Signature, IdempotencyKey,
-    MethodId, Nonce, OpaqueId, PolicyRevision, ProtocolId, RecordBytes, ResourceId,
-    SchemaId, TenantId, UtcUnixNanos, MAX_MUTATION_EFFECTS, MAX_MUTATION_ENVELOPE_BYTES,
-    MAX_OUTBOX_INTENTS, MAX_SCOPE_COMPONENTS,
+    ActorId, AudienceId, BoundedVec, Digest256, Ed25519Signature, IdempotencyKey, MethodId, Nonce,
+    OpaqueId, PolicyRevision, ProtocolId, RecordBytes, ResourceId, SchemaId, TenantId,
+    UtcUnixNanos, MAX_MUTATION_EFFECTS, MAX_MUTATION_ENVELOPE_BYTES, MAX_OUTBOX_INTENTS,
+    MAX_SCOPE_COMPONENTS,
 };
 use crate::outbox::{OutboxHeader, OutboxIntent};
 
@@ -71,11 +71,7 @@ fn authority_for(
     canonical_payload_digest: Digest256,
     egress_authorization_digest: Digest256,
     effect_digest: Digest256,
-) -> (
-    VerifiedAuthority,
-    OperationReplayIdentity,
-    NonceReplayKey,
-) {
+) -> (VerifiedAuthority, OperationReplayIdentity, NonceReplayKey) {
     let mut context = AuthorityContext {
         schema_version: ResourceId::new(AUTHORITY_CONTEXT_SCHEMA_V1).unwrap(),
         protocol_id: ProtocolId::new(AUTHORITY_PROTOCOL_V1).unwrap(),
@@ -360,13 +356,15 @@ fn egress_destination_must_match_the_authority_decision() {
         recompute_egress_authorization_digest(&authorized).unwrap(),
         payload.effect_digest().unwrap(),
     );
-    assert!(MutationRequestEnvelope::new(MutationRequestEnvelopeParts::new(
-        payload,
-        authority.0,
-        authority.1,
-        authority.2,
-    ))
-    .is_err());
+    assert!(
+        MutationRequestEnvelope::new(MutationRequestEnvelopeParts::new(
+            payload,
+            authority.0,
+            authority.1,
+            authority.2,
+        ))
+        .is_err()
+    );
 }
 
 #[test]

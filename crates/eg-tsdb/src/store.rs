@@ -281,7 +281,6 @@ fn codec_err<E: std::fmt::Display>(e: E) -> TsError {
     TsError::Codec(e.to_string())
 }
 
-
 /// Fixed store-private scope used ONLY to bootstrap the physical `series.redb` root
 /// and materialize the `SERIES_CHUNKS`/`SERIES_META`/`PROJECTION_STATE` tables on
 /// first open (MutationBatch v1 store-ownership migration — see
@@ -809,7 +808,9 @@ impl SeriesStore {
             StorageKernel::create_owner::<TimeSeriesOwner>(path, physical, None)
         }
         .map_err(redb_err)?;
-        let (kernel, authority) = kernel.into_read_and_mutation_authority().map_err(redb_err)?;
+        let (kernel, authority) = kernel
+            .into_read_and_mutation_authority()
+            .map_err(redb_err)?;
         let bootstrap = Arc::new(bind_serving_scope(
             &kernel,
             verifier.as_ref(),

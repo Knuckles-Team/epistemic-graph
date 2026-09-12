@@ -146,10 +146,7 @@ fn signed_knowledge_stream_and_native_analytics_publication_round_trip() {
                 .await,
             );
             assert_eq!(graph_batch.family, KnowledgeResultFamily::Graph);
-            assert_eq!(
-                graph_batch.projection,
-                KnowledgeStreamProjection::ArrowIpc
-            );
+            assert_eq!(graph_batch.projection, KnowledgeStreamProjection::ArrowIpc);
             assert_eq!(arrow_rows(&graph_batch.payload), 3);
             assert!(graph_batch.cursor.exhausted);
             for reference in [

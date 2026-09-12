@@ -67,15 +67,15 @@ pub use identity::{
     SemanticVector, SEMANTIC_ANN_INDEX_SCHEMA, SEMANTIC_BINDING_SCHEMA,
     SEMANTIC_LEXICAL_INDEX_SCHEMA, SEMANTIC_VECTOR_SCHEMA,
 };
-pub use persistence::{
-    SemanticActivationTarget, SemanticActivePointer, SemanticAnnIndexManifest, SemanticDeadLetter,
-    SemanticDeadLetterDraft, SemanticIndexManifest, SemanticLexicalIndexManifest,
-    SemanticSourceProgress,
-};
 pub use op::{
     SemanticBindingPage, SemanticIndexOp, SemanticStageLeaseEntry, SemanticStageLeasePage,
     MAX_SEMANTIC_BINDING_PAGE_LIMIT, MAX_SEMANTIC_CURSOR_CHARS, MAX_SEMANTIC_STAGE_CLAIM_LIMIT,
     MAX_SEMANTIC_STAGE_LEASE_MS,
+};
+pub use persistence::{
+    SemanticActivationTarget, SemanticActivePointer, SemanticAnnIndexManifest, SemanticDeadLetter,
+    SemanticDeadLetterDraft, SemanticIndexManifest, SemanticLexicalIndexManifest,
+    SemanticSourceProgress,
 };
 pub use policy::{SemanticPolicyComponents, SemanticPolicyIdentity};
 pub use provenance::{

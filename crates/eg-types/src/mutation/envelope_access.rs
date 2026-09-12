@@ -6,9 +6,7 @@ use super::{MAX_MUTATION_PRECONDITIONS, MAX_PROVENANCE_REFS};
 use crate::authority::{
     AuthorityScope, NonceReplayKey, OperationReplayIdentity, VerifiedAuthority,
 };
-use crate::contract::{
-    BoundedVec, OpaqueId, ResourceId, MAX_MUTATION_EFFECTS, MAX_OUTBOX_INTENTS,
-};
+use crate::contract::{BoundedVec, OpaqueId, ResourceId, MAX_MUTATION_EFFECTS, MAX_OUTBOX_INTENTS};
 use crate::outbox::OutboxIntent;
 
 impl MutationRequestEnvelope {
@@ -36,9 +34,7 @@ impl MutationRequestEnvelope {
         &self.nonce_replay_key
     }
 
-    pub fn preconditions(
-        &self,
-    ) -> &BoundedVec<MutationPrecondition, MAX_MUTATION_PRECONDITIONS> {
+    pub fn preconditions(&self) -> &BoundedVec<MutationPrecondition, MAX_MUTATION_PRECONDITIONS> {
         &self.preconditions
     }
 

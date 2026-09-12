@@ -106,10 +106,8 @@ fn committed_saga_fresh_replay_consumes_nonce_and_rejects_reuse() {
         "physical:test:ledger-only",
         Some(Arc::new(TestIntegrity)),
     );
-    let owner = fixture.bind::<LedgerOnlyOwner>(
-        &verifier("tenant-a", OwnerLayout::LedgerOnly),
-        identity,
-    );
+    let owner =
+        fixture.bind::<LedgerOnlyOwner>(&verifier("tenant-a", OwnerLayout::LedgerOnly), identity);
     let (batch, sealed) = recovery_batch(owner.identity().clone(), "committed-saga-replay");
     assert!(matches!(
         fixture
@@ -125,7 +123,10 @@ fn committed_saga_fresh_replay_consumes_nonce_and_rejects_reuse() {
 
     let retry = retry_of(&batch);
     assert!(matches!(
-        fixture.mutations.saga_step(&owner, &retry, 4, None).unwrap(),
+        fixture
+            .mutations
+            .saga_step(&owner, &retry, 4, None)
+            .unwrap(),
         crate::SagaBegin::Committed(_)
     ));
     let consumed = fixture
@@ -153,8 +154,7 @@ fn authenticated_binding_rejects_cross_tenant_and_different_actor() {
     // The principal the committing ledger requires is the envelope's, so a
     // batch naming another owner is refused by `owner_rows` -- exactly as it
     // was when the value lived in the deleted `context.principal`.
-    let eg_types::mutation_batch::MutationEnvelope::Operation(envelope) =
-        &mut wrong_actor.envelope
+    let eg_types::mutation_batch::MutationEnvelope::Operation(envelope) = &mut wrong_actor.envelope
     else {
         panic!("a fixture operation batch has an operation envelope");
     };
@@ -233,10 +233,7 @@ fn strict_owner_preserves_sequential_batches_occ_and_replay() {
     // A retry is a FRESH attempt over the unchanged stable identity, which is
     // what a producer compiles; re-submitting the byte-identical batch value
     // would be a duplicated attempt, and the kernel refuses that by name.
-    let (replay, begun) = fixture
-        .mutations
-        .admit(&owner, &retry_of(&first))
-        .unwrap();
+    let (replay, begun) = fixture.mutations.admit(&owner, &retry_of(&first)).unwrap();
     assert!(matches!(begun, Begin::Replay(_)));
     replay.abort().unwrap();
 }
@@ -405,8 +402,7 @@ fn an_owner_write_reaches_only_its_own_layouts_tables() {
     // by the LAYOUT, not by a scope component in the key, so the serving scope is
     // written into the key text here rather than being a tuple element.
     const BLOB_ROWS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
-    const LEDGER: TableDefinition<(&str, &str), &[u8]> =
-        TableDefinition::new("ledger_batches");
+    const LEDGER: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("ledger_batches");
     const OTHER_LAYOUT: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac");
     const IDENTITY: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root");
 
@@ -479,8 +475,7 @@ fn an_admitted_write_can_read_its_own_owner_rows_before_a_batch_exists() {
     // by the LAYOUT, not by a scope component in the key, so the serving scope is
     // written into the key text here rather than being a tuple element.
     const BLOB_ROWS: TableDefinition<&str, &[u8]> = TableDefinition::new("cas_blobs");
-    const LEDGER: TableDefinition<(&str, &str), &[u8]> =
-        TableDefinition::new("ledger_batches");
+    const LEDGER: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("ledger_batches");
     const OTHER_LAYOUT: TableDefinition<&str, &[u8]> = TableDefinition::new("rbac");
     const IDENTITY: TableDefinition<&str, &[u8]> = TableDefinition::new("mutation_store_root");
 

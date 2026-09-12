@@ -1,8 +1,7 @@
 use super::*;
 use crate::contract::{
-    ActorId, AudienceId, BoundedVec, Digest256, Ed25519Signature, IdempotencyKey,
-    MethodId, Nonce, OpaqueId, PolicyRevision, ProtocolId, ResourceId, SchemaId,
-    TenantId, UtcUnixNanos,
+    ActorId, AudienceId, BoundedVec, Digest256, Ed25519Signature, IdempotencyKey, MethodId, Nonce,
+    OpaqueId, PolicyRevision, ProtocolId, ResourceId, SchemaId, TenantId, UtcUnixNanos,
 };
 
 fn digest(byte: u8) -> Digest256 {
@@ -25,8 +24,7 @@ fn context(nonce: u8, request: &str, issued_at: i64) -> AuthorityContext {
             kind: ScopeKind::new("graph").unwrap(),
             scope_id: scope_id.clone(),
             tenant: Some(TenantId::new("tenant:a").unwrap()),
-            parent_scope_ids: BoundedVec::new(vec![ResourceId::new("tenant:a").unwrap()])
-                .unwrap(),
+            parent_scope_ids: BoundedVec::new(vec![ResourceId::new("tenant:a").unwrap()]).unwrap(),
             graph_incarnation: None,
         },
         purpose_kind: PurposeKind::new("graph_write").unwrap(),
@@ -201,8 +199,7 @@ fn changing_payload_method_scope_or_policy_conflicts() {
             kind: ScopeKind::new("graph").unwrap(),
             scope_id: ResourceId::new("graph:tenant:a/other").unwrap(),
             tenant: Some(TenantId::new("tenant:a").unwrap()),
-            parent_scope_ids: BoundedVec::new(vec![ResourceId::new("tenant:a").unwrap()])
-                .unwrap(),
+            parent_scope_ids: BoundedVec::new(vec![ResourceId::new("tenant:a").unwrap()]).unwrap(),
             graph_incarnation: None,
         },
         purpose_resource: Some(ResourceId::new("graph:tenant:a/other").unwrap()),
@@ -248,8 +245,7 @@ fn replay_receipt_matrix_rejects_cross_state_fields() {
     authority.replay_receipt.prior_replay_receipt_id =
         Some(authority.replay_receipt.receipt_id.clone());
     assert!(authority.replay_receipt.validate().is_err());
-    authority.replay_receipt.prior_replay_receipt_id =
-        Some(OpaqueId::new("replay:prior").unwrap());
+    authority.replay_receipt.prior_replay_receipt_id = Some(OpaqueId::new("replay:prior").unwrap());
     assert!(authority.replay_receipt.validate().is_ok());
 }
 

@@ -514,8 +514,9 @@ impl SemanticIndexOp {
                 validate_generation(source_manifest.generation)?;
                 validate_outbox_record(record)
             }
-            Self::SubscribeStageConsumer { consumer, .. }
-            | Self::StageStatus { consumer, .. } => validate_text("consumer", consumer),
+            Self::SubscribeStageConsumer { consumer, .. } | Self::StageStatus { consumer, .. } => {
+                validate_text("consumer", consumer)
+            }
             Self::ClaimStageLeases {
                 consumer,
                 limit,
