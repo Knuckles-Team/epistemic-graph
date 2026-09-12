@@ -959,11 +959,11 @@ mod sql_source_read_tests {
     use eg_types::contract::Nonce;
     use eg_types::mutation_batch::{DurabilityDomain, MutationSurface};
     use eg_types::semantic_index::{
-        SemanticAnnIndexMethod, SemanticAnnIndexSpec, SemanticBindingDraft,
-        SemanticLexicalIndexSpec, SemanticModelIdentity, SemanticPolicyComponents,
-        SemanticSourceSelector, SemanticStage, SemanticStageOutcome, SemanticStageReceipt,
-        SemanticVectorMetric, SqlColumnRef, SEMANTIC_SOURCE_DIRTY_TOPIC, SEMANTIC_SQL_CATALOG_ID,
-        SEMANTIC_SQL_SCHEMA_ID,
+        SemanticAnnIndexMethod, SemanticAnnIndexSpec, SemanticBindingDraft, SemanticDeadLetter,
+        SemanticDeadLetterDraft, SemanticLexicalIndexSpec, SemanticModelIdentity,
+        SemanticPolicyComponents, SemanticSourceSelector, SemanticStage, SemanticStageArtifact,
+        SemanticStageOutcome, SemanticStagePredecessor, SemanticStageReceipt, SemanticVectorMetric,
+        SqlColumnRef, SEMANTIC_SOURCE_DIRTY_TOPIC, SEMANTIC_SQL_CATALOG_ID, SEMANTIC_SQL_SCHEMA_ID,
     };
     use eg_types::RowPredicate;
     use serde_json::{Map, Value};
@@ -1492,6 +1492,87 @@ mod sql_source_read_tests {
             "the durable full receipt is distinct from the raw ACL decision digest"
         );
 
+        // S1 completion is NOT the end of this entity's pipeline, and the
+        // fixture may not behave as if it were. `successor: None` above does
+        // not mean "no successor": `validate_successor_intent`'s `SourceCommit`
+        // arm DERIVES the S2 GraphProjection intent from the committed receipt
+        // and enqueues it on the stage-intent topic in the same mutation.
+        //
+        // The stage outbox is one commit-ordered stream per
+        // `(scope, consumer)`, and `ack_mutation_outbox` refuses a watermark
+        // that would skip an undelivered predecessor -- `OUTBOX_ORDER_GAP`, in
+        // `outbox::cursor::require_no_earlier_gap`. So this worker cannot
+        // acknowledge ANY later event on that stream, the deletion's own S1
+        // included, until the derived S2 is resolved. Claiming two leases and
+        // completing only the later one, as this fixture first did, is exactly
+        // the corrupt watermark that rule exists to refuse.
+        //
+        // The S2 must also be resolved BEFORE the deletion is admitted: the
+        // tombstone admission REPLACES the single
+        // `(generation, source_entity_id)` source-progress row with the
+        // deletion revision, and `validate_stage_predecessor_in` then refuses
+        // every terminal outcome offered for the superseded revision --
+        // `RejectedDeadLetter` included.
+        //
+        // This fixture serves only the S1 SQL-source tier, so it retires the
+        // derived S2 through the pipeline's own dead-letter terminal, the one
+        // terminal outcome that does not itself publish a further successor.
+        let mut budget = OutboxClaimBudget::new(1, 5_000, 7).unwrap();
+        let outcome = adapter
+            .claim_stage_leases(&binding, &worker, &mut budget)
+            .unwrap();
+        assert_eq!(outcome.claims.len(), 1);
+        let projection_lease = outcome.claims.into_iter().next().unwrap();
+        let projection_intent = service
+            .validate_stage_lease(&projection_lease, worker.agent_id(), 7)
+            .unwrap();
+        // The proof that completing S1 ADVANCED the pipeline rather than merely
+        // acknowledging a row: the next claimable event on the stream is the S2
+        // derived from the exact S1 receipt just committed.
+        assert_eq!(projection_intent.stage, SemanticStage::GraphProjection);
+        assert_eq!(
+            projection_intent.scope.source_entity_id(),
+            Some(source_entity_id.as_str())
+        );
+        assert_eq!(projection_intent.source_revision, intent.source_revision);
+        assert_eq!(
+            projection_intent.predecessor,
+            SemanticStagePredecessor::EntityReceipt {
+                stage: SemanticStage::SourceCommit,
+                receipt_digest: transition.receipt.receipt_digest(),
+            }
+        );
+        let projection_failed_at = "unix-ms:7".to_string();
+        let projection_dead_letter = SemanticDeadLetter::create(SemanticDeadLetterDraft {
+            intent: projection_intent.clone(),
+            attempt: projection_lease.attempt,
+            error_code: "stage_tier_not_served".to_string(),
+            reason: "this fixture serves only the S1 SQL source tier".to_string(),
+            failed_at: projection_failed_at.clone(),
+        })
+        .unwrap();
+        service
+            .complete_stage(
+                &projection_lease,
+                &SemanticStageTransition {
+                    intent: projection_intent.clone(),
+                    receipt: SemanticStageReceipt {
+                        intent_digest: projection_intent.intent_digest,
+                        output_digest: projection_dead_letter.failure_digest,
+                        cursor: "graph-projection:not-served".to_string(),
+                        completed_at: projection_failed_at,
+                        outcome: SemanticStageOutcome::RejectedDeadLetter,
+                    },
+                    generation_checkpoint: None,
+                },
+                &SemanticStageArtifact::DeadLetter {
+                    dead_letter: Box::new(projection_dead_letter),
+                },
+                None,
+                7,
+            )
+            .unwrap();
+
         let mut delete = TableTxn::new();
         delete.push(TxnOp::Delete {
             table: "documents".to_string(),
@@ -1518,44 +1599,28 @@ mod sql_source_read_tests {
         assert!(deletion_page.sources.is_empty());
         let deletion_revision = deletion_page.source_revision.clone();
         let deletion_admission = service
-            .admit_sql_source_dirty_reconcile(&deletion_dirty, &read_port, 7)
+            .admit_sql_source_dirty_reconcile(&deletion_dirty, &read_port, 8)
             .unwrap();
         assert!(deletion_admission.complete);
         assert_eq!(deletion_admission.receipts.len(), 1);
 
-        // Eight, not one. By this point the queue holds the S2 derived from the
-        // completed S1 alongside the deletion's own S1, and
-        // `OutboxClaimBudget::allowance` bounds every claim by
+        // Eight, not one. `OutboxClaimBudget::allowance` bounds every claim by
         // `consecutive_cap()` = `(limit / 4).max(1)` even for a lone,
-        // uncontended tenant -- so a budget of one returns exactly one row and
-        // the filter below could pick the wrong one and find nothing.
-        let mut budget = OutboxClaimBudget::new(8, 5_000, 8).unwrap();
+        // uncontended tenant, so a budget of one would cap this page at one row
+        // whatever the queue holds -- and the point of this claim is that the
+        // queue holds EXACTLY one row. With the derived S2 resolved above, the
+        // deletion's S1 is now the head of the consumer's resolved prefix.
+        let mut budget = OutboxClaimBudget::new(8, 5_000, 9).unwrap();
         let outcome = adapter
             .claim_stage_leases(&binding, &worker, &mut budget)
             .unwrap();
-        // TWO rows, not one. The original `1` here was written on the
-        // assumption that `complete_sql_source_stage(.., successor: None, ..)`
-        // above publishes nothing -- but `None` does not mean "no successor":
-        // the store DERIVES one (`validate_successor_intent`'s `SourceCommit`
-        // arm builds the S2 GraphProjection intent from the committed receipt)
-        // and enqueues it in the same mutation. So the queue holds that derived
-        // S2 alongside the deletion's own S1, and the assertion is that both
-        // are claimable -- which is also the proof that completing S1 advanced
-        // the pipeline rather than merely acknowledging a row.
-        assert_eq!(outcome.claims.len(), 2);
-        let (tombstone_lease, tombstone_intent) = outcome
-            .claims
-            .into_iter()
-            .filter_map(|lease| {
-                let intent = service
-                    .validate_stage_lease(&lease, worker.agent_id(), 9)
-                    .ok()?;
-                (intent.stage == SemanticStage::SourceCommit
-                    && intent.source_revision == deletion_revision)
-                    .then_some((lease, intent))
-            })
-            .next()
-            .expect("the deletion S1 is durably leased");
+        assert_eq!(outcome.claims.len(), 1);
+        let tombstone_lease = outcome.claims.into_iter().next().unwrap();
+        let tombstone_intent = service
+            .validate_stage_lease(&tombstone_lease, worker.agent_id(), 9)
+            .unwrap();
+        assert_eq!(tombstone_intent.stage, SemanticStage::SourceCommit);
+        assert_eq!(tombstone_intent.source_revision, deletion_revision);
         let tombstone_claim = adapter
             .claim_sql_tombstone(
                 56,
@@ -1656,9 +1721,22 @@ mod sql_source_read_tests {
             "restart and replay retain one exact tombstone manifest"
         );
         let status = service.stage_status(worker.agent_id(), 12).unwrap();
-        assert_eq!(status.pending, 0);
+        // Three resolved rows, not two: the present source's S1, the S2 it
+        // derived (retired as a dead letter), and the deletion's S1. A
+        // semantic `RejectedDeadLetter` is still an ACK of its outbox row --
+        // `complete_stage` acknowledges the lease through the ordinary cursor
+        // -- so it counts as delivered here, and `dead_lettered` stays zero
+        // because that counter belongs to the outbox's own retry-exhaustion
+        // path, not to a semantic rejection.
+        assert_eq!(status.delivered, 3);
+        assert_eq!(status.dead_lettered, 0);
         assert_eq!(status.inflight, 0);
-        assert_eq!(status.delivered, 2);
+        // ONE pending row, not zero: completing the tombstone S1 derived its
+        // own S2 GraphProjection intent, exactly as the present source's S1
+        // did. A zero here would be asserting that a completed S1 is a dead
+        // end, which is the assumption this whole fixture was built on and
+        // which the outbox order gap refuted.
+        assert_eq!(status.pending, 1);
     }
 }
 
