@@ -7,6 +7,7 @@ from typing import Any
 
 import msgpack
 import pytest
+from _client_fixtures import unused_reader, unused_writer
 
 from epistemic_graph.client import EpistemicGraphClient
 
@@ -108,7 +109,9 @@ def _decode_envelope(request: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_work_item_retries_bind_stable_keys_to_signed_wire() -> None:
+async def test_work_item_retries_bind_stable_keys_to_signed_wire(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Exercise WorkItemClient -> generated helper -> real signed request.
 
     The fake round-trip returns native-shaped results but receives the complete
@@ -118,8 +121,8 @@ async def test_work_item_retries_bind_stable_keys_to_signed_wire() -> None:
     """
 
     client = EpistemicGraphClient(
-        object(),
-        object(),
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
@@ -146,8 +149,8 @@ async def test_work_item_retries_bind_stable_keys_to_signed_wire() -> None:
     async def supports(_method: str) -> bool:
         return True
 
-    client._roundtrip = round_trip  # type: ignore[method-assign]
-    client.supports = supports  # type: ignore[method-assign]
+    monkeypatch.setattr(client, "_roundtrip", round_trip)
+    monkeypatch.setattr(client, "supports", supports)
 
     submit = _submit_request()
     await client.work_items.submit(submit)
@@ -201,8 +204,8 @@ async def test_work_item_retries_bind_stable_keys_to_signed_wire() -> None:
 @pytest.mark.asyncio
 async def test_work_item_retry_key_validation_rejects_blank_values() -> None:
     client = EpistemicGraphClient(
-        object(),
-        object(),
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),

@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import ObdaClient, RdfClient
+from epistemic_graph.client import EpistemicGraphClient, ObdaClient, RdfClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture, which this
@@ -22,25 +22,32 @@ from epistemic_graph.client import ObdaClient, RdfClient
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeLowLevelClient:
+class _FakeLowLevelClient(EpistemicGraphClient):
     """Records every `_send` call and returns a canned `SparqlResult`-shaped payload."""
 
     def __init__(self, result: Any) -> None:
         self.result = result
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         self.sent.append((method, params))
         return self.result
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     """Stands in for `EpistemicGraphClient`: exposes `.rdf`, the one namespace
     `ObdaClient` reaches through."""
 
     def __init__(self, result: Any) -> None:
         self.low_level = _FakeLowLevelClient(result)
-        self.rdf = RdfClient(self.low_level)  # type: ignore[arg-type]
+        self.rdf = RdfClient(self.low_level)
 
 
 PEOPLE_MAPPING = """
@@ -50,13 +57,22 @@ PEOPLE_MAPPING = """
     COLUMN  http://example.org/name  name
 """
 
+
+def _sent_params(fake: _FakeClient) -> list[dict[str, Any]]:
+    """Narrow captured calls: every RdfClient operation sends parameters."""
+
+    params = [value for _method, value in fake.low_level.sent]
+    assert all(value is not None for value in params)
+    return [value for value in params if value is not None]
+
+
 RESULT_ONE_ROW = {"vars": ["name"], "rows": [["Alice"]]}
 
 
 @pytest.mark.asyncio
 async def test_evaluate_sends_sparql_virtual_scoped_to_the_loaded_source() -> None:
     fake = _FakeClient(RESULT_ONE_ROW)
-    obda = ObdaClient(fake)  # type: ignore[arg-type]
+    obda = ObdaClient(fake)
 
     await obda.load(PEOPLE_MAPPING, "people")
     rows = await obda.evaluate(
@@ -83,7 +99,7 @@ async def test_evaluate_sends_sparql_virtual_scoped_to_the_loaded_source() -> No
 @pytest.mark.asyncio
 async def test_reload_is_idempotent_last_load_wins() -> None:
     fake = _FakeClient(RESULT_ONE_ROW)
-    obda = ObdaClient(fake)  # type: ignore[arg-type]
+    obda = ObdaClient(fake)
 
     await obda.load(PEOPLE_MAPPING, "people")
     replacement = PEOPLE_MAPPING.replace("name", "fullname")
@@ -91,7 +107,7 @@ async def test_reload_is_idempotent_last_load_wins() -> None:
     await obda.evaluate("SELECT * WHERE { ?s ?p ?o }")
 
     # Only ONE mapping is ever sent for "people" -- the LATEST one, never both.
-    sent_mappings = [params["mapping"] for _method, params in fake.low_level.sent]
+    sent_mappings = [params["mapping"] for params in _sent_params(fake)]
     assert sent_mappings == [replacement]
 
 
@@ -100,7 +116,7 @@ async def test_evaluate_unregistered_source_raises_typed_error_not_empty() -> No
     """P6 negative case (client-side half): an unregistered mapping never silently
     returns an empty result -- it fails fast, locally, with no engine round trip."""
     fake = _FakeClient(RESULT_ONE_ROW)
-    obda = ObdaClient(fake)  # type: ignore[arg-type]
+    obda = ObdaClient(fake)
 
     with pytest.raises(KeyError, match="never loaded"):
         await obda.evaluate("SELECT * WHERE { ?s ?p ?o }", source_name="ghost")
@@ -112,7 +128,7 @@ async def test_evaluate_unregistered_source_raises_typed_error_not_empty() -> No
 @pytest.mark.asyncio
 async def test_evaluate_requires_source_name_when_multiple_are_loaded() -> None:
     fake = _FakeClient(RESULT_ONE_ROW)
-    obda = ObdaClient(fake)  # type: ignore[arg-type]
+    obda = ObdaClient(fake)
 
     await obda.load(PEOPLE_MAPPING, "people")
     await obda.load(PEOPLE_MAPPING, "other")
@@ -122,24 +138,28 @@ async def test_evaluate_requires_source_name_when_multiple_are_loaded() -> None:
 
     # Disambiguating with an explicit source_name works.
     await obda.evaluate("SELECT * WHERE { ?s ?p ?o }", source_name="people")
-    assert fake.low_level.sent[-1][1]["tables"] == ["people"]
+    params = fake.low_level.sent[-1][1]
+    assert params is not None
+    assert params["tables"] == ["people"]
 
 
 @pytest.mark.asyncio
 async def test_evaluate_with_exactly_one_loaded_source_omits_source_name() -> None:
     fake = _FakeClient(RESULT_ONE_ROW)
-    obda = ObdaClient(fake)  # type: ignore[arg-type]
+    obda = ObdaClient(fake)
 
     await obda.load(PEOPLE_MAPPING, "people")
     await obda.evaluate("SELECT * WHERE { ?s ?p ?o }")  # no source_name needed
 
-    assert fake.low_level.sent[-1][1]["tables"] == ["people"]
+    params = fake.low_level.sent[-1][1]
+    assert params is not None
+    assert params["tables"] == ["people"]
 
 
 @pytest.mark.asyncio
 async def test_load_rejects_empty_source_name_or_mapping() -> None:
     fake = _FakeClient(RESULT_ONE_ROW)
-    obda = ObdaClient(fake)  # type: ignore[arg-type]
+    obda = ObdaClient(fake)
 
     with pytest.raises(ValueError):
         await obda.load(PEOPLE_MAPPING, "")

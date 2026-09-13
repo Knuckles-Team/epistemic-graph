@@ -94,7 +94,9 @@ def _seed_python_package(root: Path) -> dict[Path, bytes]:
 
 
 def _fixture_pyproject(root_config: dict[str, object], root: Path) -> None:
-    maturin = root_config["tool"]["maturin"]
+    tool = root_config["tool"]
+    assert isinstance(tool, dict)
+    maturin = tool["maturin"]
     assert isinstance(maturin, dict)
     excludes = maturin["exclude"]
     assert set(excludes) == EXPECTED_EXCLUDES

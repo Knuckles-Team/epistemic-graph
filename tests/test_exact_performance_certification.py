@@ -150,7 +150,7 @@ def test_gate_fails_closed_when_any_workload_area_is_missing() -> None:
 
 def test_gate_rejects_document_only_modality_coverage() -> None:
     harness = _load_harness()
-    coverage = {
+    coverage: dict[str, dict[str, Any]] = {
         name: {"covered": True}
         for name in harness.COVERAGE_CONTRACT
         if name != "modality"

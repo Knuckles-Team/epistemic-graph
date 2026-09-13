@@ -2,27 +2,34 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
-from epistemic_graph.client import WorkItemClient, _work_item_capability_result
+from epistemic_graph.client import (
+    EpistemicGraphClient,
+    WorkItemClient,
+    _work_item_capability_result,
+)
 
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeGraphClient:
+class _FakeGraphClient(EpistemicGraphClient):
     def __init__(self, result: dict[str, object]) -> None:
         self.result = result
-        self.calls: list[tuple[str, dict[str, object]]] = []
+        self.calls: list[tuple[str, dict[str, Any]]] = []
 
     async def _send(
         self,
         method: str,
-        params: dict[str, object],
+        params: dict[str, Any] | None = None,
         graph: str | None = None,
         *,
         idempotency_key: str | None = None,
-    ) -> dict[str, object]:
+    ) -> Any:
         del graph, idempotency_key
+        assert params is not None
         self.calls.append((method, params))
         return self.result
 
@@ -37,7 +44,7 @@ async def test_mint_and_verify_bind_only_opaque_wire_fields() -> None:
             "capability": b"WIC1" + b"n" * 32,
         }
     )
-    client = WorkItemClient(mint_transport)  # type: ignore[arg-type]
+    client = WorkItemClient(mint_transport)
     minted = await client.mint_capability(
         {"schema_version": "1", "work_item_id": "work-1"}
     )
@@ -59,7 +66,7 @@ async def test_mint_and_verify_bind_only_opaque_wire_fields() -> None:
             "capability": None,
         }
     )
-    verifier = WorkItemClient(verify_transport)  # type: ignore[arg-type]
+    verifier = WorkItemClient(verify_transport)
     denied = await verifier.verify_capability(
         {
             "schema_version": "1",
@@ -101,7 +108,7 @@ def test_capability_result_rejects_unknown_fields_and_authority_projection() -> 
 
 @pytest.mark.asyncio
 async def test_capability_request_does_not_accept_public_authority_tuple() -> None:
-    client = WorkItemClient(_FakeGraphClient({}))  # type: ignore[arg-type]
+    client = WorkItemClient(_FakeGraphClient({}))
     with pytest.raises(ValueError, match="unsupported fields"):
         await client.mint_capability(
             {

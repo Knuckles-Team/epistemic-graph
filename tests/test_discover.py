@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import GraphOperationsClient
+from epistemic_graph.client import EpistemicGraphClient, GraphOperationsClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
@@ -24,11 +24,18 @@ from epistemic_graph.client import GraphOperationsClient
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         self.sent.append((method, params))
         return [
             {
@@ -44,7 +51,7 @@ class _FakeClient:
 @pytest.mark.asyncio
 async def test_discover_sends_one_rpc() -> None:
     fake = _FakeClient()
-    gc = GraphOperationsClient(fake)  # type: ignore[arg-type]
+    gc = GraphOperationsClient(fake)
     out = await gc.discover(["deploy", "service"], [0.1, 0.2, 0.3], k=7)
     assert fake.sent == [
         (
@@ -67,7 +74,7 @@ async def test_discover_empty_embedding_keyword_only() -> None:
     """An empty embedding (embedder/vLLM unavailable) is a valid keyword-only call
     and defaults ``k`` to 5."""
     fake = _FakeClient()
-    gc = GraphOperationsClient(fake)  # type: ignore[arg-type]
+    gc = GraphOperationsClient(fake)
     await gc.discover(["deploy"], [])
     assert fake.sent[0][0] == "Discover"
     assert fake.sent[0][1] is not None

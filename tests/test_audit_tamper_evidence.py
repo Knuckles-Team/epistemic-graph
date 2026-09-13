@@ -53,6 +53,10 @@ pytestmark = [
 @pytest.fixture(scope="module")
 def anchor_service():
     """A dedicated server with provenance anchoring armed at a 1s tick."""
+    # The module-level `skipif(_SERVER_BIN is None, ...)` above means this
+    # fixture never runs without a built binary; make that guarantee visible
+    # to the type checker too.
+    assert _SERVER_BIN is not None
     tmpdir = tempfile.mkdtemp(prefix="eg-audit-")
     socket_path = os.path.join(tmpdir, "test.sock")
     secret = "audit-test-secret"  # sanitizer:ignore — test-only value

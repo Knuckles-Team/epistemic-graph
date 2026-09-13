@@ -54,13 +54,23 @@ import uuid
 import zipfile
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePath
+from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
-try:
+if TYPE_CHECKING:
+    # mypy resolves this file itself by its bare name (scripts/ has no
+    # __init__.py, so a direct `mypy scripts` run names every sibling module
+    # bare) -- pin the type-checked import to the SAME bare name so this
+    # module is never simultaneously "configure_rust_path_remap" and
+    # "scripts.configure_rust_path_remap" in one mypy run (the runtime
+    # fallback below is unaffected; TYPE_CHECKING is always False at runtime).
     from configure_rust_path_remap import path_remaps
-except ModuleNotFoundError:  # imported as ``scripts.normalize_wheel_sbom`` in tests
-    from scripts.configure_rust_path_remap import path_remaps
+else:
+    try:
+        from configure_rust_path_remap import path_remaps
+    except ModuleNotFoundError:  # imported as ``scripts.normalize_wheel_sbom`` in tests
+        from scripts.configure_rust_path_remap import path_remaps
 
 # Fixed, arbitrary namespace for the content-derived ``serialNumber`` UUIDv5
 # (RFC 4122 ยง4.3). Computed once as
@@ -106,7 +116,7 @@ def _normalize_slashes(value: str) -> str:
 def _root_aliases(
     environ: Mapping[str, str],
     *,
-    checkout: str | Path | None,
+    checkout: str | PurePath | None,
 ) -> tuple[tuple[str, str], ...]:
     unique: dict[str, tuple[str, str]] = {}
     for source, replacement in path_remaps(environ, checkout=checkout):
@@ -272,7 +282,7 @@ def normalize_sbom_bytes(
     data: bytes,
     *,
     environ: Mapping[str, str] | None = None,
-    checkout: str | Path | None = None,
+    checkout: str | PurePath | None = None,
 ) -> bytes:
     env = os.environ if environ is None else environ
     document = json.loads(data)
@@ -306,7 +316,7 @@ def normalize_wheel(
     path: Path,
     *,
     environ: Mapping[str, str] | None = None,
-    checkout: str | Path | None = None,
+    checkout: str | PurePath | None = None,
 ) -> int:
     try:
         with zipfile.ZipFile(path) as archive:

@@ -5,11 +5,14 @@ Fake clients only — no running engine. Mirrors tests/test_union_reads.py.
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
 from conftest import request_context
 
+from epistemic_graph.client import EpistemicGraphClient, NodeClient
 from epistemic_graph.pool import ShardRouter
 
 # Fake-client unit tests only -- never needs the shared native engine (see
@@ -35,8 +38,14 @@ def test_authority_can_co_locate_ingest_lanes() -> None:
 # ── scatter-gather fakes ─────────────────────────────────────────────────────
 
 
-class _FakeNodes:
-    """Records union calls and returns per-graph canned data for one shard."""
+class _FakeNodes(NodeClient):
+    """Records union calls and returns per-graph canned data for one shard.
+
+    Subclasses the real ``NodeClient`` (never calling its ``__init__``, which
+    mypy does not require to match) purely so it satisfies
+    ``EpistemicGraphClient.nodes: NodeClient`` below -- only the three union
+    methods this fixture drives are overridden; nothing else on ``NodeClient``
+    is ever called here."""
 
     def __init__(self, shard: _FakeShardClient) -> None:
         self._shard = shard
@@ -76,9 +85,9 @@ class _FakeNodes:
         return out
 
 
-class _FakeShardClient:
+class _FakeShardClient(EpistemicGraphClient):
     def __init__(self) -> None:
-        self._graph_name: str | None = None
+        self._graph_name = ""
         self.calls: list[tuple[str, str, list[str]]] = []
         self.data: dict[tuple[str, str], dict[str, Any]] = {}
         self.label_rows: dict[str, list[tuple[str, str, Any]]] = {}
@@ -90,17 +99,36 @@ class _FakeShardClient:
 
 
 class _FakePool:
+    """Stands in for one shard's ``ConnectionPool`` -- see ``pool.py``'s
+    ``_PooledConnections`` Protocol, which this satisfies structurally."""
+
     def __init__(self, client: _FakeShardClient) -> None:
         self.client = client
+        self.max_size = 1
         self.acquired = 0
         self.released = 0
+
+    async def initialize(self) -> None:  # pragma: no cover - never called in tests
+        pass
 
     async def acquire(self) -> _FakeShardClient:
         self.acquired += 1
         return self.client
 
-    def release(self, client: _FakeShardClient) -> None:
+    def release(self, client: EpistemicGraphClient) -> None:
         self.released += 1
+
+    @contextlib.asynccontextmanager
+    async def connection(self) -> AsyncIterator[_FakeShardClient]:
+        # pragma: no cover - never called in tests
+        client = await self.acquire()
+        try:
+            yield client
+        finally:
+            self.release(client)
+
+    async def close_all(self) -> None:  # pragma: no cover - never called in tests
+        pass
 
 
 def _router_with_fakes(
@@ -121,7 +149,7 @@ def _router_with_fakes(
         auth_secret="s",
         route_resolver=resolve,
     )
-    router.pools = {ep: _FakePool(shards[ep]) for ep in endpoints}  # type: ignore[assignment,misc]
+    router.pools = {ep: _FakePool(shards[ep]) for ep in endpoints}
     return router
 
 

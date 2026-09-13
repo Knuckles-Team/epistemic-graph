@@ -544,7 +544,9 @@ async def test_close_is_idempotent_repeated_calls():
 
 
 @pytest.mark.asyncio
-async def test_cancelled_close_finishes_shared_writer_shutdown():
+async def test_cancelled_close_finishes_shared_writer_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Canceling one close waiter must not strand the shared teardown task;
     the caller observes cancellation only after the writer has been joined.
     """
@@ -569,7 +571,7 @@ async def test_cancelled_close_finishes_shared_writer_shutdown():
             await release_wait.wait()
             return await original_wait_closed()
 
-        writer.wait_closed = _controlled_wait_closed
+        monkeypatch.setattr(writer, "wait_closed", _controlled_wait_closed)
         close_task = asyncio.ensure_future(client.close())
         await asyncio.wait_for(wait_started.wait(), timeout=2.0)
         close_task.cancel()
@@ -589,7 +591,9 @@ async def test_cancelled_close_finishes_shared_writer_shutdown():
 
 
 @pytest.mark.asyncio
-async def test_close_after_peer_eof_still_tears_down_writer():
+async def test_close_after_peer_eof_still_tears_down_writer(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """THE core GOC-81 W02 regression: the reader loop observing EOF first
     must NOT make a later `close()` a silent no-op that skips
     `writer.close()`/`writer.wait_closed()` -- that was the leak.
@@ -625,7 +629,7 @@ async def test_close_after_peer_eof_still_tears_down_writer():
             wrapped_wait_closed_calls["n"] += 1
             return await original_wait_closed()
 
-        writer.wait_closed = _counting_wait_closed
+        monkeypatch.setattr(writer, "wait_closed", _counting_wait_closed)
 
         # Pre-fix: `close()` checked `if not self._closed` and returned
         # immediately here without ever calling `wait_closed()`.
@@ -661,7 +665,9 @@ async def test_close_preserves_first_terminal_error():
 
 
 @pytest.mark.asyncio
-async def test_close_after_transport_error_closes_writer_once():
+async def test_close_after_transport_error_closes_writer_once(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """An error path may close the poisoned stream before the owner calls
     `close()`; the final close must still await it without issuing a duplicate
     writer-close request.
@@ -691,8 +697,8 @@ async def test_close_after_transport_error_closes_writer_once():
             wait_closed_calls["n"] += 1
             return await original_wait_closed()
 
-        writer.close = _counting_close
-        writer.wait_closed = _counting_wait_closed
+        monkeypatch.setattr(writer, "close", _counting_close)
+        monkeypatch.setattr(writer, "wait_closed", _counting_wait_closed)
         client._mark_dead(ConnectionError("transport failed"))
         await client.close()
 
@@ -781,7 +787,9 @@ async def test_close_during_in_flight_request_fails_it_cleanly():
 
 
 @pytest.mark.asyncio
-async def test_cancelled_request_releases_pending_and_close_is_clean():
+async def test_cancelled_request_releases_pending_and_close_is_clean(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Caller cancellation removes only that request from the demux map;
     the shared stream remains usable until the explicit owner close, which
     still performs one complete writer shutdown.
@@ -809,8 +817,8 @@ async def test_cancelled_request_releases_pending_and_close_is_clean():
             wait_closed_calls["n"] += 1
             return await original_wait_closed()
 
-        writer.close = _counting_close
-        writer.wait_closed = _counting_wait_closed
+        monkeypatch.setattr(writer, "close", _counting_close)
+        monkeypatch.setattr(writer, "wait_closed", _counting_wait_closed)
 
         pending = asyncio.ensure_future(client._send("Hang"))
         await asyncio.sleep(0.05)
@@ -829,7 +837,7 @@ async def test_cancelled_request_releases_pending_and_close_is_clean():
 
 
 @pytest.mark.asyncio
-async def test_two_concurrent_closes_run_teardown_once():
+async def test_two_concurrent_closes_run_teardown_once(monkeypatch: pytest.MonkeyPatch):
     server = _EchoHealthServer()
     await server.start()
     try:
@@ -849,7 +857,7 @@ async def test_two_concurrent_closes_run_teardown_once():
             close_calls["n"] += 1
             return original_close()
 
-        writer.close = _counting_close
+        monkeypatch.setattr(writer, "close", _counting_close)
 
         await asyncio.gather(client.close(), client.close())
         assert close_calls["n"] == 1

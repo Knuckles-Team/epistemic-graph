@@ -38,7 +38,7 @@ def _resources() -> tuple[int, int, int, collections.Counter[str]]:
     )
 
 
-class _AsyncClient:
+class _AsyncClient(EpistemicGraphClient):
     def __init__(self) -> None:
         self.close_calls = 0
 

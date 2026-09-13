@@ -157,7 +157,7 @@ def test_contract_rejects_unknown_scanner_keys(tmp_path):
 
 def test_complexity_parser_keeps_nested_children_and_duplicate_names():
     complexity = _load_script("check_complexity_staged")
-    measured = {}
+    measured: dict[str, list[tuple[int, int, int, bool]]] = {}
     complexity._walk(
         {
             "name": "outer",

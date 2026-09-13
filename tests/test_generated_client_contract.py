@@ -1,10 +1,11 @@
 """The generated Python client is exactly what the engine contract publishes.
 
-Pure stdlib and pure static: it reads ``contract/methods.json`` and parses the generated
-modules plus ``epistemic_graph/client.py`` as text. It never imports the client, never
-builds the engine, and never opens a socket — so it runs anywhere ``python3 -m unittest``
-does. It is the Python half of what the deleted ``tests/test_protocol_parity.py``
-asserted; the Rust half is ``gen_contract --check`` plus the eg-capabilities bijection
+Pure stdlib and pure static: it reads ``contract/methods.json`` and parses the
+generated modules plus ``epistemic_graph/client.py`` as text. It never imports
+the client, builds the engine, or opens a socket, so it runs anywhere
+``python3 -m unittest`` does. It is the Python half of what the deleted
+``tests/test_protocol_parity.py`` asserted; the Rust half is ``gen_contract
+--check`` plus the eg-capabilities bijection
 test, and neither side keeps a baseline file any more.
 """
 
@@ -85,18 +86,36 @@ def _wire_field(name: str, value: ast.expr | None) -> tuple[str, bool]:
     if value is None:
         return name, True
     if isinstance(value, ast.Call) and getattr(value.func, "id", None) == "Field":
-        alias = next(
-            (
-                k.value.value
-                for k in value.keywords
-                if k.arg == "alias" and isinstance(k.value, ast.Constant)
-            ),
-            name,
-        )
+        alias = _wire_alias(value.keywords, name)
         first = value.args[0] if value.args else None
         mandatory = isinstance(first, ast.Constant) and first.value is Ellipsis
         return alias, mandatory
     return name, False
+
+
+def _wire_alias(keywords: list[ast.keyword], fallback: str) -> str:
+    """Return a string ``Field(alias=...)`` value or the Python field name."""
+
+    alias = next(
+        (
+            k.value.value
+            for k in keywords
+            if k.arg == "alias" and isinstance(k.value, ast.Constant)
+        ),
+        None,
+    )
+    return alias if isinstance(alias, str) else fallback
+
+
+def _literal_string_keys(mapping: ast.Dict) -> set[str] | None:
+    """Return statically comparable string keys, or ``None`` for dynamic keys."""
+
+    keys: set[str] = set()
+    for key in mapping.keys:
+        if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+            return None
+        keys.add(key.value)
+    return keys
 
 
 class GeneratedClientContract(unittest.TestCase):
@@ -105,7 +124,9 @@ class GeneratedClientContract(unittest.TestCase):
         self.trees = _module_trees()
         self.sends = _generated_sends(self.trees)
 
-    def test_every_python_profile_method_has_exactly_one_generated_function(self) -> None:
+    def test_every_python_profile_method_has_exactly_one_generated_function(
+        self,
+    ) -> None:
         expected = {
             f"send_{_snake(d['id'])}"
             for d in self.descriptors
@@ -131,7 +152,7 @@ class GeneratedClientContract(unittest.TestCase):
     def test_no_method_id_is_spelled_outside_generated_code(self) -> None:
         tree = ast.parse(_CLIENT.read_text(encoding="utf-8"))
         literals = [
-            node
+            node.args[0]
             for node in ast.walk(tree)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
@@ -140,9 +161,10 @@ class GeneratedClientContract(unittest.TestCase):
             and isinstance(node.args[0], ast.Constant)
         ]
         self.assertEqual(
-            [node.args[0].value for node in literals],
+            [node.value for node in literals],
             [],
-            "client.py still names methods itself instead of calling the generated functions",
+            "client.py still names methods itself instead of calling the "
+            "generated functions",
         )
 
     def test_literal_request_dicts_match_their_generated_model(self) -> None:
@@ -154,20 +176,27 @@ class GeneratedClientContract(unittest.TestCase):
         }
         failures: list[str] = []
         for node in ast.walk(ast.parse(_CLIENT.read_text(encoding="utf-8"))):
-            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            if not isinstance(node, ast.Call) or not isinstance(
+                node.func, ast.Attribute
+            ):
                 continue
             model = models.get(by_send.get(node.func.attr, ""))
-            if model is None or len(node.args) < 2 or not isinstance(node.args[1], ast.Dict):
+            if (
+                model is None
+                or len(node.args) < 2
+                or not isinstance(node.args[1], ast.Dict)
+            ):
                 continue
-            keys = {k.value for k in node.args[1].keys if isinstance(k, ast.Constant)}
-            if len(keys) != len(node.args[1].keys):
+            keys = _literal_string_keys(node.args[1])
+            if keys is None:
                 continue  # a non-literal key: not statically comparable
             every, required = model
             unknown = keys - every
             missing = required - keys
             if unknown or missing:
                 failures.append(
-                    f"line {node.lineno} {node.func.attr}: unknown={sorted(unknown)} missing={sorted(missing)}"
+                    f"line {node.lineno} {node.func.attr}: "
+                    f"unknown={sorted(unknown)} missing={sorted(missing)}"
                 )
         self.assertEqual(failures, [], "\n".join(failures))
 

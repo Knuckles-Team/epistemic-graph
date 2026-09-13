@@ -41,13 +41,14 @@ is present, ``httpx`` is used for pooled keep-alive connections instead.
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import ssl
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from types import TracebackType
+from types import ModuleType, TracebackType
 from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import quote
 
@@ -61,16 +62,16 @@ logger = logging.getLogger(__name__)
 # Optional httpx acceleration — pulled by the ``lmcache`` extra. Absent ⇒ the
 # stdlib urllib transport is used, so the base import never requires httpx.
 try:  # pragma: no cover - exercised only where httpx is installed
-    import httpx as _httpx
+    _httpx: ModuleType | None = importlib.import_module("httpx")
 except Exception:
-    _httpx = None  # type: ignore[assignment]
+    _httpx = None
 
 HTTPX_AVAILABLE = _httpx is not None
 
 # Transport-layer failures the connector swallows into a cache miss. urllib
 # raises URLError/OSError; httpx (optional) raises httpx.HTTPError subclasses.
 _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (OSError, ValueError)
-if HTTPX_AVAILABLE:  # pragma: no cover - only where httpx installed
+if _httpx is not None:  # pragma: no cover - only where httpx installed
     _TRANSPORT_ERRORS = (*_TRANSPORT_ERRORS, _httpx.HTTPError)
 
 

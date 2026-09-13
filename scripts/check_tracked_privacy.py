@@ -37,21 +37,23 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
+
+from _git_subprocess_env import (
+    sanitized_git_env,
+    strip_inherited_git_repository_env,
+)
 
 # R-07: `pwd` is POSIX-only and raises ImportError at import time on Windows.
 # It only ever supplies one extra candidate identifier (the passwd-db
 # username) alongside several already-portable ones (getpass.getuser(),
 # hostname, env vars, home-dir name) below, so on Windows this module simply
 # runs with one fewer redundant source instead of failing to import at all.
+pwd: ModuleType | None
 if sys.platform != "win32":
     import pwd
 else:  # pragma: no cover - exercised only on Windows
-    pwd = None  # type: ignore[assignment]
-
-from _git_subprocess_env import (
-    sanitized_git_env,
-    strip_inherited_git_repository_env,
-)
+    pwd = None
 
 # NE-059 (sibling of BUG-180/D-LGI-1, ported from agent-utilities' own fix):
 # every ``git`` subprocess this module shells out to -- ``derive_local_
