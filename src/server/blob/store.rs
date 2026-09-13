@@ -37,7 +37,7 @@ use crate::mutation_batch::{
 };
 use eg_storage::{
     BlobOwner, BlobSharedRead, BlobSharedServiceHandle, CasChunkRows, OwnedStoreHandle,
-    PhysicalStoreIdentity, ScopedRead, StorageKernel,
+    PhysicalStoreIdentity, ScopedRead, StorageKernel, StoreOpenOptions,
 };
 use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -427,6 +427,29 @@ fn decode_upload(bytes: &[u8]) -> Result<DurableUpload, String> {
 /// `EPISTEMIC_GRAPH_BLOB_GROUP_CHUNKS`.
 const DEFAULT_GROUP_CHUNKS: usize = 32;
 
+/// Default bound on this store's redb page cache (CONCEPT:EG-KG.storage.bounded-blob-memory).
+/// The group window bounds the STAGED chunk bodies, but the CAS stores multi-MB chunk
+/// VALUES, so redb's 1 GiB default page cache is what actually lets resident memory
+/// track the blob size. Evicting past this cap is the real bound. 128 MiB is about 2x
+/// the 64 MiB group window. Tunable via `EPISTEMIC_GRAPH_BLOB_CACHE_BYTES`, validated by
+/// [`StoreOpenOptions::with_cache_bytes`].
+const DEFAULT_CACHE_BYTES: usize = 128 * 1024 * 1024;
+
+/// The open options every `RedbChunkStore` handle runs under: the page-cache cap above,
+/// or the operator's `EPISTEMIC_GRAPH_BLOB_CACHE_BYTES`. A value that does not parse or
+/// is outside the kernel's accepted range fails the open rather than silently running
+/// uncapped.
+fn blob_open_options() -> Result<StoreOpenOptions, String> {
+    let cache_bytes = match std::env::var("EPISTEMIC_GRAPH_BLOB_CACHE_BYTES") {
+        Ok(raw) => raw
+            .trim()
+            .parse::<usize>()
+            .map_err(|_| "EPISTEMIC_GRAPH_BLOB_CACHE_BYTES must be a byte count".to_string())?,
+        Err(_) => DEFAULT_CACHE_BYTES,
+    };
+    StoreOpenOptions::default().with_cache_bytes(cache_bytes)
+}
+
 /// The open chunk group: up to `group` chunk bodies staged in memory, flushed as ONE
 /// admitted maintenance mutation. `AdmittedMutation` borrows the mutation kernel and so
 /// cannot be parked in a field, hence a buffered group rather than a held-open
@@ -530,20 +553,20 @@ impl RedbChunkStore {
     /// land in the SAME transaction as the ledger's idempotency/OCC/outbox rows, which
     /// is what `commit_native_batch` needs for atomicity.
     ///
-    /// NOTE (flagged, not resolved here): the previous `Database::builder()
-    /// .set_cache_size(EPISTEMIC_GRAPH_BLOB_CACHE_BYTES)` tuning is DROPPED by this
-    /// migration — `eg_storage::StorageKernel::{create_owner, open_owner}` open the
-    /// file themselves with no cache-size injection point, and this store has no other
-    /// path to the database beneath them. That cap existed to bound RSS against this
-    /// store's multi-MB chunk values; the follow-up belongs in `eg-storage`.
+    /// The handle runs under [`blob_open_options`]: a capped redb page cache. The
+    /// kernel migration first opened this file with redb's 1 GiB default because
+    /// `eg-storage` had no cache injection point then; `StoreOpenOptions` is that
+    /// injection point, and without it resident memory tracked the blob size (a 256 MB
+    /// blob grew peak RSS by ~546 MB) despite the group window.
     pub fn open(persist_dir: &str) -> Result<Self, String> {
         std::fs::create_dir_all(persist_dir).map_err(|e| e.to_string())?;
         let path = std::path::Path::new(persist_dir).join("blob.redb");
         let physical = PhysicalStoreIdentity::new(BLOB_PHYSICAL_STORE)?;
+        let options = blob_open_options()?;
         let kernel = if path.exists() {
-            StorageKernel::open_owner::<BlobOwner>(&path, physical, None)
+            StorageKernel::open_owner_with::<BlobOwner>(&path, physical, None, options)
         } else {
-            StorageKernel::create_owner::<BlobOwner>(&path, physical, None)
+            StorageKernel::create_owner_with::<BlobOwner>(&path, physical, None, options)
         }?;
         let authority = crate::store_authority::process_authority();
         let shared_proof = authority.proof();
@@ -1279,6 +1302,10 @@ mod shared_service_adoption_tests {
         assert_eq!(store.incref(digest).unwrap(), 1);
     }
 }
+
+/// Per-test peak-RSS window shared by the blob bounded-memory tests (see its module doc).
+#[cfg(test)]
+pub(super) mod peak_rss;
 
 #[cfg(test)]
 mod tests;
