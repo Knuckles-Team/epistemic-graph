@@ -144,15 +144,76 @@ _PATH_OR_ENDPOINT = re.compile(
 
 PNG_FIXTURE = bytes(
     (
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-        0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41,
-        0x54, 0x78, 0xDA, 0x63, 0xFC, 0xCF, 0xC0, 0x50,
-        0x0F, 0x00, 0x05, 0xFE, 0x02, 0xFE, 0x42, 0x75,
-        0x27, 0x59, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
-        0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        0x89,
+        0x50,
+        0x4E,
+        0x47,
+        0x0D,
+        0x0A,
+        0x1A,
+        0x0A,
+        0x00,
+        0x00,
+        0x00,
+        0x0D,
+        0x49,
+        0x48,
+        0x44,
+        0x52,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x08,
+        0x06,
+        0x00,
+        0x00,
+        0x00,
+        0x1F,
+        0x15,
+        0xC4,
+        0x89,
+        0x00,
+        0x00,
+        0x00,
+        0x0D,
+        0x49,
+        0x44,
+        0x41,
+        0x54,
+        0x78,
+        0xDA,
+        0x63,
+        0xFC,
+        0xCF,
+        0xC0,
+        0x50,
+        0x0F,
+        0x00,
+        0x05,
+        0xFE,
+        0x02,
+        0xFE,
+        0x42,
+        0x75,
+        0x27,
+        0x59,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x49,
+        0x45,
+        0x4E,
+        0x44,
+        0xAE,
+        0x42,
+        0x60,
+        0x82,
     )
 )
 
@@ -444,7 +505,9 @@ class MeasurementState:
     client_digest: str = ""
     client_version: str = "unknown"
     bootstrap_verified: bool = False
-    scenario_executions: dict[str, ScenarioExecution] = dataclass_field(default_factory=dict)
+    scenario_executions: dict[str, ScenarioExecution] = dataclass_field(
+        default_factory=dict
+    )
     cleanup_failed: bool = False
 
 
@@ -471,11 +534,13 @@ def _read_bounded_file(
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
         metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= maximum_bytes:
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or not 0 < metadata.st_size <= maximum_bytes
+        ):
             raise CertificationError(f"invalid_{label}_file")
         if private and (
-            metadata.st_uid != os.geteuid()
-            or stat.S_IMODE(metadata.st_mode) & 0o077
+            metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) & 0o077
         ):
             raise CertificationError(f"{label}_file_permissions")
         chunks: list[bytes] = []
@@ -518,9 +583,7 @@ def _validate_opaque(value: Any, namespace: str, label: str) -> str:
 
 def _load_authority(path: Path) -> AuthorityConfig:
     try:
-        raw = _read_bounded_file(
-            path, "authority", MAX_AUTHORITY_BYTES, private=True
-        )
+        raw = _read_bounded_file(path, "authority", MAX_AUTHORITY_BYTES, private=True)
         value = json.loads(raw)
     except CertificationError:
         raise
@@ -540,7 +603,10 @@ def _load_authority(path: Path) -> AuthorityConfig:
         raise CertificationError("invalid_auth_secret")
     if not isinstance(signer_key, str) or not 32 <= len(signer_key) <= 4096:
         raise CertificationError("invalid_signer_key")
-    if any(ord(character) < 32 or ord(character) == 127 for character in auth_secret + signer_key):
+    if any(
+        ord(character) < 32 or ord(character) == 127
+        for character in auth_secret + signer_key
+    ):
         raise CertificationError("invalid_secret_material")
 
     signer_id = _validate_opaque(data["signer_id"], "certifier", "signer_id")
@@ -623,7 +689,11 @@ def _load_dataset(path: Path) -> tuple[dict[str, Any], str]:
     }
     for field, (minimum, maximum) in integer_bounds.items():
         item = data[field]
-        if isinstance(item, bool) or not isinstance(item, int) or not minimum <= item <= maximum:
+        if (
+            isinstance(item, bool)
+            or not isinstance(item, int)
+            or not minimum <= item <= maximum
+        ):
             raise CertificationError(f"invalid_dataset_{field}")
     if data["job_items_per_transaction"] > data["job_item_cardinality"]:
         raise CertificationError("invalid_dataset_job_cardinality")
@@ -638,7 +708,9 @@ def _load_dataset(path: Path) -> tuple[dict[str, Any], str]:
         if (
             not isinstance(points, list)
             or len(points) < 2
-            or any(isinstance(item, bool) or not isinstance(item, int) for item in points)
+            or any(
+                isinstance(item, bool) or not isinstance(item, int) for item in points
+            )
             or points != sorted(set(points))
             or points[-1] != final
             or points[0] <= 0
@@ -782,7 +854,9 @@ def _validate_scenario_identity(
     seen_drivers: set[str],
 ) -> None:
     scenario_id = scenario["scenario_id"]
-    match = _SCENARIO_ID.fullmatch(scenario_id) if isinstance(scenario_id, str) else None
+    match = (
+        _SCENARIO_ID.fullmatch(scenario_id) if isinstance(scenario_id, str) else None
+    )
     if match is None or int(match.group(1)) != ordinal or scenario_id in seen_scenarios:
         raise CertificationError("invalid_scenario_identity")
     seen_scenarios.add(scenario_id)
@@ -941,9 +1015,7 @@ def _load_scenario_contracts(
     schema_path: Path = DEFAULT_SCENARIO_SCHEMA,
     ledger_path: Path = DEFAULT_COMPLEXITY_LEDGER,
 ) -> ScenarioContracts:
-    manifest, manifest_sha256 = _read_public_json(
-        manifest_path, "scenario_manifest"
-    )
+    manifest, manifest_sha256 = _read_public_json(manifest_path, "scenario_manifest")
     schema, schema_sha256 = _read_public_json(schema_path, "scenario_schema")
     _validate_scenario_schema(schema)
 
@@ -980,9 +1052,7 @@ def _load_scenario_contracts(
             },
             "scenario",
         )
-        _validate_scenario_identity(
-            scenario, ordinal, seen_scenarios, seen_drivers
-        )
+        _validate_scenario_identity(scenario, ordinal, seen_scenarios, seen_drivers)
         _validate_scenario_scales(scenario)
         _validate_scenario_repetitions(scenario)
         _validate_scenario_resource_bounds(scenario)
@@ -1086,7 +1156,12 @@ def _validate_work_root(path: Path) -> Path:
 
 
 def _validate_output_path(path: Path, suffix: str) -> Path:
-    if not path.is_absolute() or path.suffix != suffix or path.exists() or path.is_symlink():
+    if (
+        not path.is_absolute()
+        or path.suffix != suffix
+        or path.exists()
+        or path.is_symlink()
+    ):
         raise CertificationError("invalid_output_path")
     try:
         parent = path.parent.resolve(strict=True)
@@ -1097,7 +1172,9 @@ def _validate_output_path(path: Path, suffix: str) -> Path:
     return parent / path.name
 
 
-def _stage_binary(source: Path, expected_digest: str, work_dir: Path) -> tuple[Path, int]:
+def _stage_binary(
+    source: Path, expected_digest: str, work_dir: Path
+) -> tuple[Path, int]:
     if not _HEX_64.fullmatch(expected_digest):
         raise CertificationError("invalid_engine_digest")
     try:
@@ -1131,7 +1208,10 @@ def _stage_binary(source: Path, expected_digest: str, work_dir: Path) -> tuple[P
             os.close(output)
     finally:
         os.close(descriptor)
-    if digest.hexdigest() != expected_digest or _sha256_file(destination) != expected_digest:
+    if (
+        digest.hexdigest() != expected_digest
+        or _sha256_file(destination) != expected_digest
+    ):
         raise CertificationError("engine_digest_mismatch")
     return destination, size
 
@@ -1316,7 +1396,9 @@ async def _bootstrap_and_connect(
 
 def _read_rss_kib(pid: int) -> int:
     try:
-        for line in Path(f"/proc/{pid}/status").read_text(encoding="ascii").splitlines():
+        for line in (
+            Path(f"/proc/{pid}/status").read_text(encoding="ascii").splitlines()
+        ):
             if line.startswith("VmRSS:"):
                 return int(line.split()[1])
     except (OSError, UnicodeError, ValueError, IndexError):
@@ -1726,7 +1808,9 @@ def _validate_modality_page(value: Any, occurrence_ids: set[str]) -> None:
     records = value["records"]
     if not isinstance(records, list) or len(records) != 1:
         raise CertificationError("incorrect_modality_query_result")
-    occurrence = records[0].get("occurrence_id") if isinstance(records[0], dict) else None
+    occurrence = (
+        records[0].get("occurrence_id") if isinstance(records[0], dict) else None
+    )
     if occurrence not in occurrence_ids or value["next"] != occurrence:
         raise CertificationError("incorrect_modality_query_result")
 
@@ -1745,8 +1829,10 @@ def _modality_bundle(
 ) -> tuple[dict[str, Any], str, str]:
     if modality not in MODALITIES:
         raise CertificationError("invalid_modality_fixture")
+
     def token(namespace: str, kind: str) -> str:
         return _opaque(namespace, seed, index, f"{modality}:{kind}")
+
     content = hashlib.sha256(source).hexdigest()
     artifact = token("artifact", "artifact")
     occurrence = token("occurrence", "occurrence")
@@ -1889,9 +1975,7 @@ async def _probe_node_scale(
     ordinal_by_id: dict[str, int],
 ) -> tuple[list[float], list[float], int]:
     routing = await _repeat_latency(
-        lambda: client.placement.route(
-            route_tenant_ref, workload.route_partition_ref
-        ),
+        lambda: client.placement.route(route_tenant_ref, workload.route_partition_ref),
         manifest["probe_repetitions"],
         lambda value: _validate_route(
             value, route_tenant_ref, workload.route_partition_ref
@@ -1901,9 +1985,7 @@ async def _probe_node_scale(
     point = await _repeat_latency(
         lambda ids=ids: client.nodes.properties_batch(ids),
         manifest["probe_repetitions"],
-        lambda value, ids=ids: _validate_properties_batch(
-            value, ids, ordinal_by_id
-        ),
+        lambda value, ids=ids: _validate_properties_batch(value, ids, ordinal_by_id),
     )
     return routing, point, len(ids)
 
@@ -1924,9 +2006,7 @@ async def _measure_node_batches(
     next_operation = 0
     scale_points = set(manifest["scale_points"])
     current_node_ingest_group: list[float] = []
-    ordinal_by_id = {
-        node_id: index for index, node_id in enumerate(workload.node_ids)
-    }
+    ordinal_by_id = {node_id: index for index, node_id in enumerate(workload.node_ids)}
     for chunk in _chunks(workload.node_operations, manifest["batch_size"]):
         result, elapsed = await _timed(
             lambda chunk=chunk: client.lifecycle.batch_update(chunk)
@@ -1990,12 +2070,8 @@ async def _measure_graph(
     route_tenant_ref: str,
     node_id_set: set[str],
 ) -> GraphMeasurements:
-    nodes = await _measure_node_batches(
-        client, manifest, workload, route_tenant_ref
-    )
-    edge_latencies, edge_count = await _measure_edge_batches(
-        client, manifest, workload
-    )
+    nodes = await _measure_node_batches(client, manifest, workload, route_tenant_ref)
+    edge_latencies, edge_count = await _measure_edge_batches(client, manifest, workload)
     node_count, observed_edge_count = await asyncio.gather(
         client.nodes.count(), client.edges.count()
     )
@@ -2061,9 +2137,7 @@ async def _measure_jobs(
             if time.monotonic() >= deadline:
                 raise CertificationError("job_completion_timeout")
             await asyncio.sleep(0.01)
-        job_completion_latencies.append(
-            (time.perf_counter_ns() - started) / 1_000_000
-        )
+        job_completion_latencies.append((time.perf_counter_ns() - started) / 1_000_000)
     return job_submit_latencies, job_completion_latencies
 
 
@@ -2109,17 +2183,28 @@ async def _measure_one_modality(
             manifest["seed"],
             global_index,
         )
-        outcome, elapsed = await _timed(
-            lambda modality=modality, bundle=bundle, occurrence=occurrence, idempotency=idempotency, source=source: (
-                client.modalities.ingest(
-                    modality,
-                    idempotency_ref=idempotency,
-                    target_occurrence_id=occurrence,
-                    bundle_msgpack=msgpack.packb(bundle, use_bin_type=True),
-                    source_bytes=source,
-                )
+
+        # A plain `def` (not a `lambda`) so the multi-line signature below
+        # can wrap under the line-length limit; the default-argument capture
+        # still binds `modality`/`bundle`/`occurrence`/`idempotency`/`source`
+        # at THIS iteration's values, avoiding the loop-variable late-binding
+        # bug a bare closure over the `for` target would have.
+        def _ingest_call(
+            modality=modality,
+            bundle=bundle,
+            occurrence=occurrence,
+            idempotency=idempotency,
+            source=source,
+        ):
+            return client.modalities.ingest(
+                modality,
+                idempotency_ref=idempotency,
+                target_occurrence_id=occurrence,
+                bundle_msgpack=msgpack.packb(bundle, use_bin_type=True),
+                source_bytes=source,
             )
-        )
+
+        outcome, elapsed = await _timed(_ingest_call)
         if (
             not isinstance(outcome, dict)
             or outcome.get("disposition") != "Applied"
@@ -2131,9 +2216,7 @@ async def _measure_one_modality(
         if index in scale_points:
             query_groups.append(
                 await _repeat_latency(
-                    lambda modality=modality: _native_modality_query(
-                        client, modality
-                    ),
+                    lambda modality=modality: _native_modality_query(client, modality),
                     manifest["modality_query_repetitions"],
                     lambda value, occurrence_ids=occurrence_ids: (
                         _validate_modality_page(value, occurrence_ids)
@@ -2255,12 +2338,8 @@ def _build_metrics(
         "point_query_latency_p99_ms": _percentile(series.point_query_latencies, 0.99),
         "point_query_throughput_rows_per_second": series.query_rows
         / (series.query_elapsed_ms / 1_000),
-        "analytics_query_latency_p99_ms": _percentile(
-            series.analytics_latencies, 0.99
-        ),
-        "job_submit_latency_p99_ms": _percentile(
-            series.job_submit_latencies, 0.99
-        ),
+        "analytics_query_latency_p99_ms": _percentile(series.analytics_latencies, 0.99),
+        "job_submit_latency_p99_ms": _percentile(series.job_submit_latencies, 0.99),
         "job_completion_latency_p99_ms": _percentile(
             series.job_completion_latencies, 0.99
         ),
@@ -2279,9 +2358,7 @@ def _build_metrics(
         / (modality_elapsed_ms / 1_000),
         "memory_ready_rss_mib": ready_rss_kib / 1024,
         "memory_peak_rss_mib": memory.peak_rss_kib / 1024,
-        "memory_growth_rss_mib": max(
-            0, memory.workload_peak_rss_kib - ready_rss_kib
-        )
+        "memory_growth_rss_mib": max(0, memory.workload_peak_rss_kib - ready_rss_kib)
         / 1024,
     }
     metrics = {name: float(value) for name, value in metrics.items()}
@@ -2471,7 +2548,9 @@ def _evaluate(
         results[name] = {
             "value": round(value, 6),
             "unit": unit,
-            "comparator": "less_than_or_equal" if direction == "maximum" else "greater_than_or_equal",
+            "comparator": "less_than_or_equal"
+            if direction == "maximum"
+            else "greater_than_or_equal",
             "threshold": limit,
             "passed": passed,
         }
@@ -2507,7 +2586,9 @@ def _scenario_binding(
 
 
 def _scale_growth_ratio(values: list[float]) -> float:
-    if len(values) < 2 or any(not math.isfinite(value) or value <= 0 for value in values):
+    if len(values) < 2 or any(
+        not math.isfinite(value) or value <= 0 for value in values
+    ):
         raise CertificationError("invalid_scenario_growth_samples")
     return max(values[1:]) / values[0]
 
@@ -2708,8 +2789,7 @@ def _evaluate_scenarios(
 def _coverage_structure_failures(coverage: dict[str, Any]) -> list[str]:
     names = set(coverage)
     failures = [
-        f"missing_coverage:{name}"
-        for name in sorted(COVERAGE_CONTRACT - names)
+        f"missing_coverage:{name}" for name in sorted(COVERAGE_CONTRACT - names)
     ]
     if names - COVERAGE_CONTRACT:
         failures.append("invalid_coverage:unexpected")
@@ -2723,9 +2803,7 @@ def _coverage_counts_are_valid(values: Any, expected: set[str]) -> bool:
     if not isinstance(values, dict) or set(values) != expected:
         return False
     return all(
-        not isinstance(value, bool)
-        and isinstance(value, int)
-        and value >= 1
+        not isinstance(value, bool) and isinstance(value, int) and value >= 1
         for value in values.values()
     )
 
@@ -2853,15 +2931,19 @@ def _markdown(report: dict[str, Any]) -> str:
         "",
         f"Status: **{report['status'].upper()}**",
         "",
-        "This report contains measured results for one digest-pinned engine on the committed synthetic dataset. No result is extrapolated.",
+        "This report contains measured results for one digest-pinned engine on the "
+        "committed synthetic dataset. No result is extrapolated.",
         "",
         "## Artifact and environment",
         "",
         f"- Engine SHA-256: `{report['exact_artifact']['sha256']}`",
         f"- Dataset SHA-256: `{report['dataset']['workload_sha256']}`",
-        f"- Scenario manifest SHA-256: `{report['scenario_contract']['manifest_sha256']}`",
-        f"- Complexity ledger SHA-256: `{report['scenario_contract']['complexity_ledger_sha256']}`",
-        f"- Evidence binding SHA-256: `{report['scenario_evidence_binding']['binding_sha256']}`",
+        f"- Scenario manifest SHA-256: "
+        f"`{report['scenario_contract']['manifest_sha256']}`",
+        f"- Complexity ledger SHA-256: "
+        f"`{report['scenario_contract']['complexity_ledger_sha256']}`",
+        f"- Evidence binding SHA-256: "
+        f"`{report['scenario_evidence_binding']['binding_sha256']}`",
         f"- Architecture: `{report['hardware_class']['architecture']}`",
         f"- Runtime class: `{report['hardware_class']['runtime_class']}`",
         f"- Logical CPUs: `{report['hardware_class']['logical_cpu_count']}`",
@@ -2899,7 +2981,8 @@ def _markdown(report: dict[str, Any]) -> str:
             "",
             "## Implemented hot-path row evidence",
             "",
-            "| Row | Scenario | Work growth | Memory growth | Latency p99 ms | Result |",
+            "| Row | Scenario | Work growth | Memory growth | Latency p99 ms | Result "
+            "|",
             "|---|---|---:|---:|---:|---|",
         ]
     )
@@ -3005,7 +3088,9 @@ async def _run_measurement_steps(
         workload_sha256=inputs.workload.digest,
     )
     spawn_started_ns = time.perf_counter_ns()
-    engine = _spawn_engine(binary, inputs.work_dir, inputs.authority, args.engine_sha256)
+    engine = _spawn_engine(
+        binary, inputs.work_dir, inputs.authority, args.engine_sha256
+    )
     state.engine = engine
     sampler = RssSampler(engine.process.pid)
     state.sampler = sampler
@@ -3256,9 +3341,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset-manifest", type=Path, default=DEFAULT_DATASET)
     parser.add_argument("--thresholds", type=Path, default=DEFAULT_THRESHOLDS)
     parser.add_argument("--scenario-manifest", type=Path, default=DEFAULT_SCENARIOS)
-    parser.add_argument(
-        "--scenario-schema", type=Path, default=DEFAULT_SCENARIO_SCHEMA
-    )
+    parser.add_argument("--scenario-schema", type=Path, default=DEFAULT_SCENARIO_SCHEMA)
     parser.add_argument(
         "--complexity-ledger", type=Path, default=DEFAULT_COMPLEXITY_LEDGER
     )
@@ -3268,7 +3351,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = _parser().parse_args()
-    if not math.isfinite(args.startup_timeout_seconds) or not 1 <= args.startup_timeout_seconds <= 300:
+    if (
+        not math.isfinite(args.startup_timeout_seconds)
+        or not 1 <= args.startup_timeout_seconds <= 300
+    ):
         print("G-37 certification failed: invalid_startup_timeout", file=sys.stderr)
         return 2
     try:

@@ -104,7 +104,7 @@ def check(package_dir: Path, *, verify_import: bool = True) -> list[str]:
 
     sys.path.insert(0, str(package_dir.parent))
     try:
-        import epistemic_graph.numeric as kernel  # noqa: PLC0415
+        import epistemic_graph.numeric as kernel
     except ImportError as exc:
         # Presence is proven; loadability here is not required, because the
         # artifact may be cross-built for the deployment host. Do NOT fail --

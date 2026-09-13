@@ -103,15 +103,21 @@ def _replacement_rules(
                 candidate_wide = _neutral_text(variant, filler).encode("utf-16le")
                 byte_probe = candidate_bytes + b"/child"
                 wide_probe = candidate_wide + "/child".encode("utf-16le")
-                if any(pattern.search(byte_probe) for pattern in forbidden_byte_patterns):
+                if any(
+                    pattern.search(byte_probe) for pattern in forbidden_byte_patterns
+                ):
                     continue
-                if any(pattern.search(wide_probe) for pattern in forbidden_wide_patterns):
+                if any(
+                    pattern.search(wide_probe) for pattern in forbidden_wide_patterns
+                ):
                     continue
                 byte_alias = candidate_bytes
                 wide_alias = candidate_wide
                 break
             if byte_alias is None or wide_alias is None:
-                raise ValueError("could not derive a collision-free neutral build alias")
+                raise ValueError(
+                    "could not derive a collision-free neutral build alias"
+                )
 
             byte_key = (encoded.lower(), False)
             if byte_key not in seen:

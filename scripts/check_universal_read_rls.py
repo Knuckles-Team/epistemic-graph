@@ -13,10 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, squash
@@ -101,7 +98,9 @@ def capability_inventory() -> dict[str, bool]:
     """
     inventory: dict[str, bool] = {}
     for row in parse_method_policy_table(load_capability_sources(ROOT)):
-        require(row.name not in inventory, f"duplicate capability policy for {row.name}")
+        require(
+            row.name not in inventory, f"duplicate capability policy for {row.name}"
+        )
         inventory[row.name] = row.mutates
     return inventory
 
@@ -142,15 +141,18 @@ def _check_sql_wire_read_contract(wire: str) -> None:
     require(
         all(
             (
-                "self.filter_view_for_verified_actor(&mut snap).await?" in wire_sql_read,
+                "self.filter_view_for_verified_actor(&mut snap).await?"
+                in wire_sql_read,
                 "self.filter_view_for_verified_actor(&mut view).await?"
                 in wire_overlay_read,
-                "self.filter_view_for_verified_actor(&mut view).await?" in wire_uql_read,
+                "self.filter_view_for_verified_actor(&mut view).await?"
+                in wire_uql_read,
                 "exec_sql_typed_with_tables(&snap, projection.store(), &sql)"
                 in wire_sql_read,
                 "fn verified_actor(&self) -> WireResult<String>" in wire,
                 "self.check_access_for_kind(&graph, &kind).await?" in wire_execute,
-                ".check_access(graph, Self::crossmodal_access(&stmt))" in wire_crossmodal,
+                ".check_access(graph, Self::crossmodal_access(&stmt))"
+                in wire_crossmodal,
                 wire_execute.find("self.check_access_for_kind(&graph, &kind).await?")
                 < wire_execute.find("self.execute_dispatch_and_finish("),
             )
@@ -176,9 +178,7 @@ def main() -> None:
     access = read("src/server/access.rs")
     isolation, can_see_row = isolation_source()
     dispatch = read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
-    graph_ops = read_module_tree(
-        "src/server/handlers/graph_ops.rs", root_dir=ROOT
-    )
+    graph_ops = read_module_tree("src/server/handlers/graph_ops.rs", root_dir=ROOT)
     knowledge = knowledge_stream_handler_source()
     query = read("src/server/handlers/query.rs")
     rdf = read("src/server/handlers/rdf.rs")
@@ -249,7 +249,8 @@ def main() -> None:
                 "if !self.has_rules()" not in isolation,
             )
         ),
-        "default-deny RLS does not classify every topology row, including missing properties",
+        "default-deny RLS does not classify every topology row, including missing "
+        "properties",
     )
 
     # Resolve the graph-dispatch path by CALL GRAPH, and compare on squashed
@@ -277,7 +278,8 @@ def main() -> None:
             # `&core` became `core` when the parameter type changed with the
             # extraction; the manifest and the authority still travel together.
             "core, materialization_manifest.as_ref(), read_authority.as_ref(),",
-            "handlers::mining::try_handle( req_id, core.clone(), read_authority.as_ref(),",
+            "handlers::mining::try_handle( req_id, core.clone(), "
+            "read_authority.as_ref(),",
             "handlers::graphlearn::try_handle(req_id, core.clone(), method)",
             "read_authority.as_ref(), method,",
             # `core.clone()` became `ctx.core.clone()` when the post-lock routers
@@ -521,7 +523,8 @@ def main() -> None:
                 in access,
             )
         ),
-        "verified tenant extraction or Alice/Bob/cross-tenant adversarial proof is absent",
+        "verified tenant extraction or Alice/Bob/cross-tenant adversarial proof is "
+        "absent",
     )
     require(
         dispatch.count("CarrierAuthority::from_verified") >= 12,
@@ -538,7 +541,8 @@ def main() -> None:
                 "authority.actor_scope().to_string()" in jobs,
             )
         ),
-        "analytics Status/Cancel/Resume/Submit is not bound to verified owner + graph ACL",
+        "analytics Status/Cancel/Resume/Submit is not bound to verified owner + graph "
+        "ACL",
     )
     require(
         all(
@@ -586,7 +590,8 @@ def main() -> None:
                 "authority.tenant_scope()" in sqlite_file,
             )
         ),
-        "SQLite/user-table file export is available without explicit verified admin authority",
+        "SQLite/user-table file export is available without explicit verified admin "
+        "authority",
     )
     require(
         all(
@@ -641,11 +646,13 @@ def main() -> None:
                 in streaming,
             )
         ),
-        "CDC/Watch/continuous-query/trigger reads lack graph ACL, row images, or owner namespace",
+        "CDC/Watch/continuous-query/trigger reads lack graph ACL, row images, or owner "
+        "namespace",
     )
     require(
         'authority.require_admin("CEP subscriptions")' in cep,
-        "graph-unbound CEP is not strict-deny except for explicit verified admin authority",
+        "graph-unbound CEP is not strict-deny except for explicit verified admin "
+        "authority",
     )
     require(
         all(
@@ -673,7 +680,8 @@ def main() -> None:
                 "authority.tenant_scope()," in wire,
             )
         ),
-        "transaction-derived CONSTRUCT/plan/belief reads use raw committed cores or bearer txn ids",
+        "transaction-derived CONSTRUCT/plan/belief reads use raw committed cores or "
+        "bearer txn ids",
     )
 
     unauthenticated_carriers = {
@@ -698,7 +706,8 @@ def main() -> None:
                 "HTTP_READ_TIMEOUT_SECS" in graphql_sse,
             )
         ),
-        "GraphQL SSE is not bound to current signed authority, graph ACL/RLS, and resource limits",
+        "GraphQL SSE is not bound to current signed authority, graph ACL/RLS, and "
+        "resource limits",
     )
     require(
         all(

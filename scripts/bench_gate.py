@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""CONCEPT:EG-KG.query.perf-recall-ci-gate — the perf/recall regression GATE for the eg-plan hybrid_queries bench.
+"""CONCEPT:EG-KG.query.perf-recall-ci-gate — the perf/recall regression GATE for the
+eg-plan hybrid_queries bench.
 
 Runs AFTER `cargo bench -p eg-plan --features …` has produced its criterion output. It
 reads two artifacts and fails (exit 1) on a regression:
 
   1. **recall** — the `eg_plan_recall.json` the bench writes (measured recall@k of the
      vector leg vs the brute-force oracle). Must stay >= `recall_floor`. The bench ALSO
-     asserts this internally, so a recall regression already fails the bench binary; this
+     asserts this internally, so a recall regression already fails the bench binary;
+     this
      is the redundant, reported check.
 
   2. **latency** — criterion's per-bench `estimates.json`
      (`target/criterion/<bench>/new/estimates.json`), the MEDIAN (p50) point estimate in
      nanoseconds. Must stay <= the committed per-bench ceiling. Ceilings are generous
-     (see thresholds.json) so this is a catastrophic-regression net, not a p50 chase — it
+     (see thresholds.json) so this is a catastrophic-regression net, not a p50 chase —
+     it
      never flakes on machine variance. A bench with no estimates (feature not built) is
      skipped.
 
@@ -22,6 +25,7 @@ Usage:
       [--criterion-dir target/criterion] \
       [--recall-json target/eg_plan_recall.json]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,7 +48,9 @@ def main() -> int:
         default=repo / "crates" / "eg-plan" / "benches" / "thresholds.json",
     )
     ap.add_argument("--criterion-dir", type=Path, default=repo / "target" / "criterion")
-    ap.add_argument("--recall-json", type=Path, default=repo / "target" / "eg_plan_recall.json")
+    ap.add_argument(
+        "--recall-json", type=Path, default=repo / "target" / "eg_plan_recall.json"
+    )
     args = ap.parse_args()
 
     thresholds = load_json(args.thresholds)
@@ -65,9 +71,7 @@ def main() -> int:
             f"{'OK' if ok else 'FAIL'}"
         )
         if not ok:
-            failures.append(
-                f"recall@{k} {measured:.4f} < floor {recall_floor:.4f}"
-            )
+            failures.append(f"recall@{k} {measured:.4f} < floor {recall_floor:.4f}")
     else:
         failures.append(
             f"recall artifact missing: {args.recall_json} "
@@ -84,7 +88,8 @@ def main() -> int:
         p50 = float(data["median"]["point_estimate"])  # nanoseconds
         ok = p50 <= float(ceiling)
         reported.append(
-            f"  {name}: p50 {p50 / 1e6:.3f} ms  (ceiling {float(ceiling) / 1e6:.1f} ms)  "
+            f"  {name}: p50 {p50 / 1e6:.3f} ms  (ceiling {float(ceiling) / 1e6:.1f} "
+            f"ms)  "
             f"{'OK' if ok else 'FAIL'}"
         )
         if not ok:

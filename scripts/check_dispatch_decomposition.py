@@ -5,14 +5,11 @@ from __future__ import annotations
 
 import hashlib
 import re
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rust_module_tree import _rust_code_mask, _rust_comments_mask, read_compiler_family
 
+ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_PATHS = {
     "src/server/dispatch.rs",
@@ -32,29 +29,66 @@ EXPECTED_PATHS = {
 }
 
 REDUNDANT_WRAPPERS = {
-    "dispatch_health", "dispatch_parse_file", "dispatch_parse_files",
-    "dispatch_index_repository", "dispatch_observe_screen", "dispatch_shutdown",
-    "dispatch_unpaged_resource_stats", "dispatch_resource_stats_page",
-    "dispatch_create_graph", "dispatch_delete_graph", "dispatch_list_graphs",
-    "dispatch_reshard", "dispatch_placement_route", "dispatch_raft_add_learner",
-    "dispatch_cluster_members", "dispatch_register_server", "dispatch_create_channel",
-    "dispatch_join_channel", "dispatch_leave_channel", "dispatch_close_channel",
-    "dispatch_send_message", "dispatch_get_channel_messages", "dispatch_list_channels",
-    "dispatch_get_channel_members", "dispatch_register_identity",
-    "dispatch_get_identity_from_store", "dispatch_policy_export", "dispatch_rbac_admin",
-    "dispatch_apply_multisig_mutation", "dispatch_analytics_job", "dispatch_statechart",
-    "dispatch_viz", "dispatch_begin_txn", "dispatch_txn_add_measurement",
-    "dispatch_txn_axiom", "dispatch_txn_construct", "dispatch_txn_plan_writeback",
-    "dispatch_txn_materialize_belief", "dispatch_blob_begin", "dispatch_kv_get",
-    "dispatch_import_sqlite_file", "dispatch_cdc_read", "dispatch_cep_subscribe",
-    "dispatch_owl_reason_distributed", "dispatch_apply_change_envelope",
-    "dispatch_apply_change_envelopes", "authorize_and_route_served_modality",
-    "authorize_and_route_knowledge_stream", "dispatch_get_change_envelope",
-    "dispatch_get_content_version", "dispatch_get_change_cursor", "dispatch_nl_query",
-    "dispatch_multi_graph_batch_update", "dispatch_op_audit_prove_inclusion",
-    "dispatch_op_served_modality", "dispatch_change_env_apply_change_envelope",
-    "dispatch_change_env_apply_change_envelopes", "dispatch_change_env_get_change_envelope",
-    "dispatch_change_env_get_content_version", "dispatch_change_env_get_change_cursor",
+    "dispatch_health",
+    "dispatch_parse_file",
+    "dispatch_parse_files",
+    "dispatch_index_repository",
+    "dispatch_observe_screen",
+    "dispatch_shutdown",
+    "dispatch_unpaged_resource_stats",
+    "dispatch_resource_stats_page",
+    "dispatch_create_graph",
+    "dispatch_delete_graph",
+    "dispatch_list_graphs",
+    "dispatch_reshard",
+    "dispatch_placement_route",
+    "dispatch_raft_add_learner",
+    "dispatch_cluster_members",
+    "dispatch_register_server",
+    "dispatch_create_channel",
+    "dispatch_join_channel",
+    "dispatch_leave_channel",
+    "dispatch_close_channel",
+    "dispatch_send_message",
+    "dispatch_get_channel_messages",
+    "dispatch_list_channels",
+    "dispatch_get_channel_members",
+    "dispatch_register_identity",
+    "dispatch_get_identity_from_store",
+    "dispatch_policy_export",
+    "dispatch_rbac_admin",
+    "dispatch_apply_multisig_mutation",
+    "dispatch_analytics_job",
+    "dispatch_statechart",
+    "dispatch_viz",
+    "dispatch_begin_txn",
+    "dispatch_txn_add_measurement",
+    "dispatch_txn_axiom",
+    "dispatch_txn_construct",
+    "dispatch_txn_plan_writeback",
+    "dispatch_txn_materialize_belief",
+    "dispatch_blob_begin",
+    "dispatch_kv_get",
+    "dispatch_import_sqlite_file",
+    "dispatch_cdc_read",
+    "dispatch_cep_subscribe",
+    "dispatch_owl_reason_distributed",
+    "dispatch_apply_change_envelope",
+    "dispatch_apply_change_envelopes",
+    "authorize_and_route_served_modality",
+    "authorize_and_route_knowledge_stream",
+    "dispatch_get_change_envelope",
+    "dispatch_get_content_version",
+    "dispatch_get_change_cursor",
+    "dispatch_nl_query",
+    "dispatch_multi_graph_batch_update",
+    "dispatch_op_audit_prove_inclusion",
+    "dispatch_op_served_modality",
+    "dispatch_change_env_apply_change_envelope",
+    "dispatch_change_env_apply_change_envelopes",
+    "dispatch_change_env_get_change_envelope",
+    "dispatch_change_env_get_content_version",
+    "dispatch_change_env_get_change_cursor",
 }
 
 ROUTE_OWNERS = {
@@ -63,7 +97,9 @@ ROUTE_OWNERS = {
     "dispatch_resource_cost_methods": "src/server/dispatch/router/resource_cost.rs",
     "dispatch_graph_lifecycle_methods": "src/server/dispatch/router/graph_lifecycle.rs",
     "dispatch_channel_methods": "src/server/dispatch/router/channels.rs",
-    "dispatch_identity_and_access_methods": "src/server/dispatch/router/identity_access.rs",
+    "dispatch_identity_and_access_methods": (
+        "src/server/dispatch/router/identity_access.rs"
+    ),
     "route_change_envelope_ops": "src/server/dispatch/change_envelope.rs",
     "route_graph_op_method": "src/server/dispatch/graph_pipeline.rs",
     # `dispatch_op_workitem_mutation` was split in two during the decomposition
@@ -71,14 +107,20 @@ ROUTE_OWNERS = {
     # function that exists in neither this tree nor EG main b2ac7b93 -- it had
     # been failing on both. Assert the two real successors instead of dropping
     # the check.
-    "dispatch_op_workitem_claim_capability":
-        "src/server/dispatch/graph_pipeline/work_governance.rs",
-    "dispatch_op_workitem_submission_or_resources":
-        "src/server/dispatch/graph_pipeline/work_governance.rs",
+    "dispatch_op_workitem_claim_capability": (
+        "src/server/dispatch/graph_pipeline/work_governance.rs"
+    ),
+    "dispatch_op_workitem_submission_or_resources": (
+        "src/server/dispatch/graph_pipeline/work_governance.rs"
+    ),
 }
 
 LEGACY_COALESCER_METHODS = (
-    "AddNode", "RemoveNode", "AddEdge", "RemoveEdge", "CompareAndSetNodeFields",
+    "AddNode",
+    "RemoveNode",
+    "AddEdge",
+    "RemoveEdge",
+    "CompareAndSetNodeFields",
 )
 
 # The previous value (e695ad19...) matched NEITHER this tree NOR EG main
@@ -102,7 +144,9 @@ def sources() -> dict[str, str]:
         str(path.relative_to(ROOT)): path.read_text(encoding="utf-8")
         for path in family.all_paths
     }
-    require(set(paths) == EXPECTED_PATHS, "compiler module family or orphan set changed")
+    require(
+        set(paths) == EXPECTED_PATHS, "compiler module family or orphan set changed"
+    )
     return paths
 
 
@@ -131,16 +175,24 @@ def check_inventory(parts: dict[str, str]) -> None:
     #   context_matches_verified_authority`. The CHECK is preserved (see
     #   `validate_submit_context`); only the duplicate definition is gone.
     require(len(names) == 330, "named-function inventory changed")
-    require(len(re.findall(r"#\[(?:tokio::)?test", joined)) == 48, "test inventory changed")
+    require(
+        len(re.findall(r"#\[(?:tokio::)?test", joined)) == 48, "test inventory changed"
+    )
     require(
         len(re.findall(r"\bassert(?:_eq|_ne)?!", joined)) == 135,
         "assertion inventory changed",
     )
-    require(len(REDUNDANT_WRAPPERS) == 60, "wrapper deletion inventory is not exhaustive")
-    require(not REDUNDANT_WRAPPERS.intersection(names), "redundant one-arm wrapper returned")
+    require(
+        len(REDUNDANT_WRAPPERS) == 60, "wrapper deletion inventory is not exhaustive"
+    )
+    require(
+        not REDUNDANT_WRAPPERS.intersection(names), "redundant one-arm wrapper returned"
+    )
     require("classifier/handler diverged" not in joined, "wrapper sentinel returned")
     for function, owner in ROUTE_OWNERS.items():
-        owners = [path for path, source in parts.items() if function in function_names(source)]
+        owners = [
+            path for path, source in parts.items() if function in function_names(source)
+        ]
         require(owners == [owner], f"{function} ownership changed: {owners}")
 
 
@@ -153,7 +205,9 @@ def check_cfg_contract(parts: dict[str, str]) -> None:
         }
     )
     digest = hashlib.sha256("\n".join(predicates).encode()).hexdigest()
-    require(len(predicates) == 74 and digest == CFG_FINGERPRINT, "cfg boundary set changed")
+    require(
+        len(predicates) == 74 and digest == CFG_FINGERPRINT, "cfg boundary set changed"
+    )
 
 
 def check_routing_and_coalescing(parts: dict[str, str]) -> None:
@@ -175,12 +229,15 @@ def check_routing_and_coalescing(parts: dict[str, str]) -> None:
     )
     query_order = ("route_query_gateway(", "route_rdf_gateway(")
     global_order = (
-        "handlers::wasm_udf::try_handle(", "handlers::federation::try_handle(",
+        "handlers::wasm_udf::try_handle(",
+        "handlers::federation::try_handle(",
         "handlers::dist_compute::try_handle(",
     )
     for markers in (gateway_order, graph_order, query_order, global_order):
         offsets = [graph.rindex(marker) for marker in markers]
-        require(offsets == sorted(offsets), "graph gateway/terminal route order changed")
+        require(
+            offsets == sorted(offsets), "graph gateway/terminal route order changed"
+        )
     pipeline_order = (
         "route_pipeline_compute(&ctx, method)",
         "route_pipeline_surfaces(&ctx, method)",
@@ -188,7 +245,10 @@ def check_routing_and_coalescing(parts: dict[str, str]) -> None:
     )
     offsets = [graph.rindex(marker) for marker in pipeline_order]
     require(offsets == sorted(offsets), "graph gateway/terminal route order changed")
-    require("try_coalesce_write" not in graph, "unreachable legacy coalescer fallback returned")
+    require(
+        "try_coalesce_write" not in graph,
+        "unreachable legacy coalescer fallback returned",
+    )
     gateway = parts.get("src/server/handlers/graph_ops/gateway_graph.rs")
     if gateway is None:
         gateway = (ROOT / "src/server/handlers/graph_ops/gateway_graph.rs").read_text()
@@ -198,8 +258,14 @@ def check_routing_and_coalescing(parts: dict[str, str]) -> None:
         "\n];", 1
     )[0]
     for method in LEGACY_COALESCER_METHODS:
-        require(f"Method::{method}" in gateway, f"legacy coalescer proof lost gateway arm {method}")
-        require(f'"{method}"' in routed, f"legacy coalescer method escaped GATEWAY_ROUTED: {method}")
+        require(
+            f"Method::{method}" in gateway,
+            f"legacy coalescer proof lost gateway arm {method}",
+        )
+        require(
+            f'"{method}"' in routed,
+            f"legacy coalescer method escaped GATEWAY_ROUTED: {method}",
+        )
 
 
 def check_consensus_exhaustiveness(parts: dict[str, str]) -> None:
@@ -208,7 +274,10 @@ def check_consensus_exhaustiveness(parts: dict[str, str]) -> None:
     end = consensus.index("\n}\n", start) + 2
     route = consensus[start:end]
     require("_ =>" not in route, "native consensus route regained a wildcard fallback")
-    require("domain_of" not in "\n".join(parts.values()), "a second dispatch domain registry appeared")
+    require(
+        "domain_of" not in "\n".join(parts.values()),
+        "a second dispatch domain registry appeared",
+    )
 
 
 def check_compile_shapes(parts: dict[str, str]) -> None:
@@ -224,8 +293,12 @@ def check_compile_shapes(parts: dict[str, str]) -> None:
         "audit inclusion anchor contract no longer accepts the optional sequence",
     )
     for variant in (
-        "TxnAddMeasurement", "TxnAxiom", "TxnConstruct", "TxnPlanWriteback",
-        "TxnMaterializeBelief", "OwlReasonDistributed",
+        "TxnAddMeasurement",
+        "TxnAxiom",
+        "TxnConstruct",
+        "TxnPlanWriteback",
+        "TxnMaterializeBelief",
+        "OwlReasonDistributed",
     ):
         require(
             f"method @ (Method::{variant}" not in router,

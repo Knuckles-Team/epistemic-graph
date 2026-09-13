@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Fail-closed OSV audit for the committed ``uv.lock`` (CONCEPT:EG-KG.storage.python-dependency-cve-gate).
+"""Fail-closed OSV audit for the committed ``uv.lock``
+(CONCEPT:EG-KG.storage.python-dependency-cve-gate).
 
 This is the Python twin of agent-utilities' own ``scripts/audit_dependencies.py`` --
 same file, same conventions, deliberately not reinvented, so EG and AU share one
@@ -41,11 +42,12 @@ import pathlib
 import re
 import ssl
 import sys
-import tomllib
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+
+import tomllib
 
 OSV_BATCH = "https://api.osv.dev/v1/querybatch"
 OSV_VULN_PREFIX = "https://api.osv.dev/v1/vulns/"
@@ -65,7 +67,7 @@ class AuditError(RuntimeError):
 
 
 class _RejectRedirects(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, _newurl):  # noqa: ANN001
+    def redirect_request(self, req, fp, code, msg, headers, _newurl):
         raise AuditError("OSV redirect was rejected")
 
 
@@ -372,7 +374,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  FAIL stale acceptance {package} {advisory_id}")
     if failures or unused:
         print(
-            "audit: dependency vulnerabilities or stale risk acceptances require review",
+            "audit: dependency vulnerabilities or stale risk acceptances require "
+            "review",
             file=sys.stderr,
         )
         return 1

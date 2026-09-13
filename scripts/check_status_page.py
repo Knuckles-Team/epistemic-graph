@@ -18,10 +18,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts"))
+from build_status_page import STATUS_PATH, render
 
-from build_status_page import STATUS_PATH, render  # noqa: E402
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def main() -> int:

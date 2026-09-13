@@ -5,14 +5,12 @@ from __future__ import annotations
 
 import ast
 import re
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rust_lexer import _balanced_span_from, _rust_code_mask
+from rust_module_tree import read_module_tree
 
-from rust_lexer import _balanced_span_from, _rust_code_mask  # noqa: E402
-from rust_module_tree import read_module_tree  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
 
 PHASES = {
     "before_rows",

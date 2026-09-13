@@ -116,9 +116,7 @@ def _is_engine_extension(name: str) -> bool:
 
 
 def inject(server_whl: Path, engine_whl: Path) -> None:
-    extension_bytes, extension_mode, extension_name = _find_kernel_extension(
-        engine_whl
-    )
+    extension_bytes, extension_mode, extension_name = _find_kernel_extension(engine_whl)
     target = f"{TARGET_PACKAGE}/{extension_name}"
 
     # Read every entry AS ZipInfo (not just name->bytes) so we can faithfully copy

@@ -3,13 +3,11 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rust_module_tree import read_module_tree
 
-from rust_module_tree import read_module_tree  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def read(relative: str) -> str:

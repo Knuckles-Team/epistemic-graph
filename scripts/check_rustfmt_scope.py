@@ -103,7 +103,8 @@ def _explicit_paths(raw_paths: Iterable[str]) -> list[str]:
         path = _normalise_path(raw)
         if not _is_scope_path(path):
             raise GuardError(
-                f"unsupported path {path!r}; pass Rust files or a Rustfmt guard/configuration file"
+                f"unsupported path {path!r}; pass Rust files or a Rustfmt "
+                f"guard/configuration file"
             )
         paths.add(path)
     return sorted(paths)
@@ -159,7 +160,8 @@ def _pinned_channel() -> str:
     channel = toolchain.get("channel")
     if not isinstance(channel, str) or not PINNED_CHANNEL.fullmatch(channel):
         raise GuardError(
-            "rust-toolchain.toml channel must be an exact numeric release (for example 1.96.0)"
+            "rust-toolchain.toml channel must be an exact numeric release (for example "
+            "1.96.0)"
         )
     return channel
 
@@ -249,7 +251,8 @@ def _run_rustfmt(channel: str, paths: list[str]) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Check changed Rust files with the pinned Rustfmt; never rewrite the tree."
+        description="Check changed Rust files with the pinned Rustfmt; never rewrite "
+        "the tree."
     )
     parser.add_argument(
         "--base",

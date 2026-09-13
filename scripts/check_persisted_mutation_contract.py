@@ -4,13 +4,8 @@
 from __future__ import annotations
 
 import re
-import sys
 from collections.abc import Mapping
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import (
     EXPECTED_METHOD_POLICY_ROWS,
@@ -31,6 +26,8 @@ from rust_module_tree import read_module_paths as _read_module_paths
 from rust_module_tree import (
     read_module_tree as _read_module_tree,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def read(relative: str) -> str:
@@ -61,9 +58,7 @@ _NATIVE_CATALOG_ENTRY = re.compile(
     r"(?:record|unit|write)[ \t]+([A-Z][A-Za-z0-9_]*)[ \t]+"
     r"=>[ \t]+([A-Z][A-Za-z0-9_]*)[ \t]*,$"
 )
-_NATIVE_CATALOG_MACRO = re.compile(
-    r"\bmacro_rules\s*!\s*native_method_catalog\b"
-)
+_NATIVE_CATALOG_MACRO = re.compile(r"\bmacro_rules\s*!\s*native_method_catalog\b")
 
 
 def _native_method_catalog(source: str) -> dict[str, str]:
@@ -80,8 +75,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     arrows = [
         position
         for position in range(len(macro_body) - 1)
-        if macro_body.startswith("=>", position)
-        and depths[position] == (0, 0, 0)
+        if macro_body.startswith("=>", position) and depths[position] == (0, 0, 0)
     ]
     require(
         len(arrows) == 1,
@@ -136,7 +130,8 @@ def _native_method_catalog(source: str) -> dict[str, str]:
                 "PlanMatViewGet",
             )
         ),
-        "read-only cluster/catalog methods must remain outside the native mutation catalog",
+        "read-only cluster/catalog methods must remain outside the native mutation "
+        "catalog",
     )
     domain_counts: dict[str, int] = {}
     for _, domain in entries:
@@ -193,9 +188,7 @@ def _const_slice(source: str, name: str) -> str:
 
 def _function(source: str, name: str) -> str:
     mask = _rust_code_mask(source)
-    match = re.search(
-        rf"\bfn\s+{re.escape(name)}(?:\s*<[^>{{}}]*>)?\s*\(", mask
-    )
+    match = re.search(rf"\bfn\s+{re.escape(name)}(?:\s*<[^>{{}}]*>)?\s*\(", mask)
     require(match is not None, f"missing Rust function inventory: {name}")
     start = mask.find("{", match.end())
     require(start >= 0, f"missing function body: {name}")
@@ -618,10 +611,13 @@ def _check_mutation_gateway_inventory(
     # still be real capability rows and must not silently become mutating.
     policy = _policy_inventory(sources["capabilities"])
     extras = observed - routed
+    invalid_extras = sorted(
+        name for name in extras if name not in policy or policy[name][0]
+    )
     require(
         extras <= set(policy) and all(not policy[name][0] for name in extras),
         "non-routed gateway arms must remain declared non-mutating capabilities: "
-        f"invalid={sorted(name for name in extras if name not in policy or policy[name][0])}",
+        f"invalid={invalid_extras}",
     )
     require(
         "MutationPlan::for_method" in gateway_body and "commit_gateway" in gateway_body,
@@ -679,7 +675,8 @@ def _check_mutation_cluster_inventory(
     )
     require(
         event_constants == {"SPARQL_HTTP_UPDATE_EVENT"},
-        "coordinated ApplyMutation event inventory differs from the current served carriers: "
+        "coordinated ApplyMutation event inventory differs from the current served "
+        "carriers: "
         f"observed={sorted(event_constants)}",
     )
     # cluster_mutation_route delegates its consensus/fanout arms to
@@ -711,19 +708,23 @@ def _check_mutation_dispatch_order(sources: Mapping[str, str]) -> None:
     terminal_at = terminal.find("handlers::graph_ops::try_handle(")
     require(
         gateway_at >= 0,
-        "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
+        "dispatch no longer routes graph/query/RDF gateways before the terminal "
+        "handler",
     )
     require(
         query_at >= 0,
-        "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
+        "dispatch no longer routes graph/query/RDF gateways before the terminal "
+        "handler",
     )
     require(
         query_at < rdf_at,
-        "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
+        "dispatch no longer routes graph/query/RDF gateways before the terminal "
+        "handler",
     )
     require(
         terminal_at >= 0,
-        "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
+        "dispatch no longer routes graph/query/RDF gateways before the terminal "
+        "handler",
     )
 
 
@@ -825,7 +826,8 @@ def _check_external_compute_contract(external_compute: str) -> None:
     ):
         require(
             required in external_compute,
-            "signed KnowledgeStream/native AnalyticsJob external-compute proof is missing",
+            "signed KnowledgeStream/native AnalyticsJob external-compute proof is "
+            "missing",
         )
 
 
@@ -849,7 +851,8 @@ def _check_sparql_carrier(source: str) -> None:
     ):
         require(
             required in sparql,
-            "SPARQL HTTP writes must bind an exact signed request and complete detached preimages",
+            "SPARQL HTTP writes must bind an exact signed request and complete "
+            "detached preimages",
         )
 
 
@@ -870,7 +873,8 @@ def _check_ros2_carrier(source: str) -> None:
     ):
         require(
             required in ros2,
-            "ROS2 inbound writes must reconstruct and dispatch the exact signed request",
+            "ROS2 inbound writes must reconstruct and dispatch the exact signed "
+            "request",
         )
 
 
@@ -894,7 +898,8 @@ def _check_dispatch_order(sources: Mapping[str, str]) -> None:
     for required in ("Method::FromMsgpack", "Method::AddNode"):
         require(
             required in preflight,
-            "served coordinator routing or canonical graph-gateway termination is missing",
+            "served coordinator routing or canonical graph-gateway termination is "
+            "missing",
         )
 
 
@@ -974,7 +979,8 @@ def _check_blob_result_contract(blob_store: str, blob_store_tests: str) -> None:
         and "blob_shared_write" in implementation
         and "insert_chunk_if_absent" in implementation
         and "adjust_refcount" in implementation,
-        "blob result kernel must atomically bind CAS, refcount, overflow, and MutationBatch",
+        "blob result kernel must atomically bind CAS, refcount, overflow, and "
+        "MutationBatch",
     )
     blob_shared = read("crates/eg-storage/src/owner/blob_shared.rs")
     require(
@@ -984,7 +990,8 @@ def _check_blob_result_contract(blob_store: str, blob_store_tests: str) -> None:
         and "shared blob reference count overflow" in blob_shared
         and "checked_sub" in blob_shared
         and "shared blob reference count underflow" in blob_shared,
-        "blob result kernel must atomically bind CAS, refcount, overflow, and MutationBatch",
+        "blob result kernel must atomically bind CAS, refcount, overflow, and "
+        "MutationBatch",
     )
     require(
         "direct_ref_acquire_compensation_and_gc_are_restart_replay_safe"
@@ -1064,9 +1071,7 @@ def mutation_inventory_sources() -> dict[str, str]:
     mutation_batch = read_compiler_family("src/server/mutation_batch.rs")
     graph_ops = read_compiler_family("src/server/handlers/graph_ops.rs")
     graph_gateway, graph_gateway_routes = _graph_gateway_sources(
-        read_module_paths(
-            "src/server/handlers/graph_ops.rs", include_tests=False
-        )
+        read_module_paths("src/server/handlers/graph_ops.rs", include_tests=False)
     )
     dispatch = read_compiler_family("src/server/dispatch.rs")
     raft = read_compiler_family("src/raft/mod.rs")
@@ -1182,7 +1187,8 @@ def _check_version_fallbacks(
     ):
         require(
             forbidden not in authoritative_writers,
-            f"authoritative mutation writer retains a permissive version fallback: {forbidden}",
+            "authoritative mutation writer retains a permissive version fallback: "
+            f"{forbidden}",
         )
 
 
@@ -1220,7 +1226,8 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
     accepted_algorithms = set(re.findall(r'"(sha256(?:-row-delta-[^"]+)?)"', validator))
     require(
         accepted_algorithms == {"sha256", "sha256-row-delta-v2"},
-        "authoritative state validator must accept exactly sha256 and sha256-row-delta-v2",
+        "authoritative state validator must accept exactly sha256 and "
+        "sha256-row-delta-v2",
     )
     require(
         'const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";' in row_delta_producer
@@ -1288,7 +1295,8 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
                 "#[serde(alias" not in contract,
             )
         ),
-        "product identity must quarantine incompatible shapes without serde defaults or aliases",
+        "product identity must quarantine incompatible shapes without serde defaults "
+        "or aliases",
     )
     require(
         all(
@@ -1371,7 +1379,8 @@ def _check_m1_store_contract(native_store: str) -> None:
                 "pub struct AdmittedMutation<'a, D: OwnerDomain>",
             )
         ),
-        "native mutation store must separate physical root identity from logical bindings",
+        "native mutation store must separate physical root identity from logical "
+        "bindings",
     )
     # The current kernel split owns a single live table namespace: physical
     # identity/owner tables in eg-storage and ledger/replay tables in
@@ -1448,7 +1457,8 @@ def _check_m1_store_contract(native_store: str) -> None:
                 "binding_for_write(store, transaction.get(), owner.identity())",
             )
         ),
-        "store initialization/binding and mutation entrypoints must fail closed through an owner-minted write",
+        "store initialization/binding and mutation entrypoints must fail closed "
+        "through an owner-minted write",
     )
     require(
         all(
@@ -1460,7 +1470,8 @@ def _check_m1_store_contract(native_store: str) -> None:
                 "quarantine before serving" in native_store,
             )
         ),
-        "incompatible prototype tables must fail closed before initialization or serving",
+        "incompatible prototype tables must fail closed before initialization or "
+        "serving",
     )
     retired = set(
         re.findall(
@@ -1565,7 +1576,8 @@ def _check_m1_write_safety(
                 "0xE6" not in native_store,
             )
         ),
-        "private recovery authenticity must use the injected canonical integrity authority",
+        "private recovery authenticity must use the injected canonical integrity "
+        "authority",
     )
     require(
         all(
@@ -1577,7 +1589,8 @@ def _check_m1_write_safety(
                 native_store.count("rmp_serde::to_vec_named") == 1,
             )
         ),
-        "every mutation write must preflight size/count budgets before allocating serialization",
+        "every mutation write must preflight size/count budgets before allocating "
+        "serialization",
     )
     # The old single-file KISS line caps were tied to the deleted
     # eg-mutation-store layout.  Preserve the architectural invariant directly:
@@ -1632,7 +1645,8 @@ def _check_m1_write_safety(
         in contract_with_tests
         and "a_semantic_operation_is_refused_outside_a_semantic_scope"
         in contract_with_tests,
-        "semantic index writes must use the dedicated native scope and reject graph-scope smuggling",
+        "semantic index writes must use the dedicated native scope and reject "
+        "graph-scope smuggling",
     )
 
 
@@ -1737,7 +1751,8 @@ def main() -> None:
         "authoritative_graph_version" in compiler
         and "projected_version == 0" in compiler
         and "does not match the serving projection" in compiler,
-        "authoritative mutation writers must allow only explicit zero bootstrap and exact durable/RAM agreement",
+        "authoritative mutation writers must allow only explicit zero bootstrap and "
+        "exact durable/RAM agreement",
     )
     require(
         "checked_add(1)" in graph_store

@@ -52,7 +52,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 import zipfile
 from collections.abc import Sequence
 from hashlib import sha256
@@ -70,8 +69,7 @@ _SENSITIVE_PATTERNS: tuple[re.Pattern[bytes], ...] = (
     ),
     re.compile(
         rb"(?i)(?<![A-Za-z0-9])(?:[a-z]:[\\/]|\\\\[^\\/\x00]{1,128}[\\/]"
-        rb"[^\\/\x00]{1,128}[\\/])(?:users|documents[ ]and[ ]settings)[\\/]"
-        + _SEGMENT
+        rb"[^\\/\x00]{1,128}[\\/])(?:users|documents[ ]and[ ]settings)[\\/]" + _SEGMENT
     ),
     re.compile(rb"(?i)(?<![A-Za-z0-9])/(?:home|users)/" + _SEGMENT),
     re.compile(rb"(?i)(?<![A-Za-z0-9])/(?:root|github/home)"),
@@ -122,7 +120,8 @@ def _zipinfo_fields(info: zipfile.ZipInfo) -> dict[str, object]:
 def _read_wheel(
     path: Path,
 ) -> tuple[dict[str, tuple[zipfile.ZipInfo, bytes]], bytes]:
-    """Return ``{member_name: (ZipInfo, decompressed_bytes)}`` plus the archive comment."""
+    """Return ``{member_name: (ZipInfo, decompressed_bytes)}`` plus the archive
+    comment."""
 
     members: dict[str, tuple[zipfile.ZipInfo, bytes]] = {}
     with zipfile.ZipFile(path) as archive:
@@ -160,12 +159,18 @@ def _format_hexdump(data: bytes, focus_offset: int, *, radius: int = 64) -> str:
             break
         hex_part = " ".join(f"{byte:02x}" for byte in row)
         ascii_part = "".join(chr(byte) if 0x20 <= byte < 0x7F else "." for byte in row)
-        marker = "  <-- first differing byte" if row_start <= focus_offset < row_start + 16 else ""
+        marker = (
+            "  <-- first differing byte"
+            if row_start <= focus_offset < row_start + 16
+            else ""
+        )
         lines.append(f"    {row_start:08x}  {hex_part:<47}  {ascii_part}{marker}")
     return "\n".join(lines)
 
 
-def _print_zipinfo_diff(label: str, primary: dict[str, object], reproduction: dict[str, object]) -> None:
+def _print_zipinfo_diff(
+    label: str, primary: dict[str, object], reproduction: dict[str, object]
+) -> None:
     print(f"  {label}:")
     for field in _ZIPINFO_FIELDS:
         p_value = primary[field]
@@ -187,8 +192,10 @@ def _print_mismatch_report(primary_path: Path, reproduction_path: Path) -> None:
         primary_members, primary_comment = _read_wheel(primary_path)
         reproduction_members, reproduction_comment = _read_wheel(reproduction_path)
     except (OSError, zipfile.BadZipFile) as exc:
-        print(f"\ncould not open one or both wheels for member-level diagnosis: "
-              f"{type(exc).__name__}: {exc}")
+        print(
+            f"\ncould not open one or both wheels for member-level diagnosis: "
+            f"{type(exc).__name__}: {exc}"
+        )
         return
 
     primary_names = set(primary_members)
@@ -197,7 +204,10 @@ def _print_mismatch_report(primary_path: Path, reproduction_path: Path) -> None:
     only_reproduction = sorted(reproduction_names - primary_names)
     common = sorted(primary_names & reproduction_names)
 
-    print(f"\nmember count: primary={len(primary_members)} reproduction={len(reproduction_members)}")
+    print(
+        f"\nmember count: primary={len(primary_members)} "
+        f"reproduction={len(reproduction_members)}"
+    )
     print("\nprimary member list:")
     for name in sorted(primary_names):
         print(f"  {name}")
@@ -216,7 +226,9 @@ def _print_mismatch_report(primary_path: Path, reproduction_path: Path) -> None:
 
     primary_order = list(primary_members.keys())
     reproduction_order = list(reproduction_members.keys())
-    if primary_order != reproduction_order and set(primary_order) == set(reproduction_order):
+    if primary_order != reproduction_order and set(primary_order) == set(
+        reproduction_order
+    ):
         print(
             "\nNOTE: member order differs between wheels (identical member set, "
             "different archive order) -- this alone changes the whole-file digest."
@@ -243,7 +255,9 @@ def _print_mismatch_report(primary_path: Path, reproduction_path: Path) -> None:
         if p_hash == r_hash:
             if p_fields != r_fields:
                 container_only.append(name)
-                print(f"\n--- CONTAINER-ONLY (decompressed bytes IDENTICAL): {name} ---")
+                print(
+                    f"\n--- CONTAINER-ONLY (decompressed bytes IDENTICAL): {name} ---"
+                )
                 print(f"  sha256 (both): {p_hash}")
                 _print_zipinfo_diff("ZipInfo", p_fields, r_fields)
             continue
@@ -254,8 +268,10 @@ def _print_mismatch_report(primary_path: Path, reproduction_path: Path) -> None:
         print(f"  reproduction sha256={r_hash} size={len(r_data)}")
         offset = _first_diff_offset(p_data, r_data)
         if offset is None:
-            print("  decompressed bytes are identical up to the shorter length "
-                  "(cannot happen alongside a sha256 mismatch; reported for completeness)")
+            print(
+                "  decompressed bytes are identical up to the shorter length "
+                "(cannot happen alongside a sha256 mismatch; reported for completeness)"
+            )
         elif offset >= min(len(p_data), len(r_data)):
             print(
                 "  content differs only in LENGTH beyond the common prefix "
@@ -282,14 +298,18 @@ def _print_mismatch_report(primary_path: Path, reproduction_path: Path) -> None:
 
 
 def compare(primary_arg: Path, reproduction_arg: Path) -> None:
-    """Run the three protected assertions, printing a report before any digest failure."""
+    """Run the three protected assertions, printing a report before any digest
+    failure."""
 
     primary = _resolve_wheel_group(primary_arg)
     reproduction = _resolve_wheel_group(reproduction_arg)
 
     if not (len(primary) == len(reproduction) == 1):
         print(f"primary candidate(s) ({primary_arg}): {[p.name for p in primary]}")
-        print(f"reproduction candidate(s) ({reproduction_arg}): {[p.name for p in reproduction]}")
+        print(
+            f"reproduction candidate(s) ({reproduction_arg}): "
+            f"{[p.name for p in reproduction]}"
+        )
     assert len(primary) == len(reproduction) == 1, "release wheel cardinality mismatch"
 
     if primary[0].name != reproduction[0].name:
@@ -302,9 +322,7 @@ def compare(primary_arg: Path, reproduction_arg: Path) -> None:
     primary_digest = sha256(primary_bytes).digest()
     reproduction_digest = sha256(reproduction_bytes).digest()
     if primary_digest != reproduction_digest:
-        print(
-            f"primary whole-file sha256:      {sha256(primary_bytes).hexdigest()}"
-        )
+        print(f"primary whole-file sha256:      {sha256(primary_bytes).hexdigest()}")
         print(
             f"reproduction whole-file sha256: {sha256(reproduction_bytes).hexdigest()}"
         )
@@ -319,12 +337,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "primary",
         type=Path,
-        help="primary wheel directory (globbed for epistemic_graph-*.whl) or wheel file path",
+        help="primary wheel directory (globbed for epistemic_graph-*.whl) or wheel "
+        "file path",
     )
     parser.add_argument(
         "reproduction",
         type=Path,
-        help="reproduction wheel directory (globbed for epistemic_graph-*.whl) or wheel file path",
+        help="reproduction wheel directory (globbed for epistemic_graph-*.whl) or "
+        "wheel file path",
     )
     args = parser.parse_args(argv)
     compare(args.primary, args.reproduction)

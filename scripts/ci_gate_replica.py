@@ -90,11 +90,13 @@ it applies uniformly wherever a heavy, toolchain-gated feature combination
 is invoked — see check_toolchain_requirements.
 
 Usage:
-  scripts/ci_gate_replica.py                    # full run (heavy — pre-push/manual only)
+  scripts/ci_gate_replica.py                    # full run (heavy — pre-push/manual)
   scripts/ci_gate_replica.py --dry-run           # print the plan, execute nothing
   scripts/ci_gate_replica.py --consistency-check # only the anti-drift check
-  scripts/ci_gate_replica.py --skip-safe [REF]   # is it safe to skip this gate for the diff vs REF (default HEAD)?
-  scripts/ci_gate_replica.py --workflows-dir DIR # override the workflows directory (testing)
+  scripts/ci_gate_replica.py --skip-safe [REF]   # is it safe to skip this gate for the
+                                                  # diff vs REF (default HEAD)?
+  scripts/ci_gate_replica.py --workflows-dir DIR # override the workflows directory
+                                                  # (testing)
 
 LOCAL CARGO RESOURCE GUARD: every executed step receives a bounded
 `CARGO_BUILD_JOBS` environment value. The default is `min(4, detected CPUs)`
@@ -128,11 +130,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-_SCRIPTS_DIR = REPO_ROOT / "scripts"
-for _entry in (str(REPO_ROOT), str(_SCRIPTS_DIR)):
-    if _entry not in sys.path:
-        sys.path.insert(0, _entry)
+import push_gate_evidence
 
 # ─────────────────────────────────────────────────────────────────────────
 # This file is the executable entry point and the module every consumer loads
@@ -141,8 +139,18 @@ for _entry in (str(REPO_ROOT), str(_SCRIPTS_DIR)):
 # the cohesive parts it composes live in the `ci_replica` package, whose names
 # are re-exported here so that surface is unchanged. See ci_replica/__init__.py
 # for the dependency direction.
+#
+# `ci_replica` and `push_gate_evidence` are both plain siblings of this file
+# in `scripts/`, so a direct `python3 scripts/ci_gate_replica.py` invocation
+# (the hooks, release.yml) already has this file's own directory as
+# `sys.path[0]` and needs no bootstrap. The one other caller — the meta-tests,
+# which load this file by path via `importlib` rather than executing it —
+# gets `scripts/` on `sys.path` from `pythonpath = scripts` in pytest.ini
+# instead. Neither caller needs `scripts/` to be importable as a dotted
+# package from the repo root, so the import below is a bare sibling import,
+# not `from scripts import push_gate_evidence`.
 # ─────────────────────────────────────────────────────────────────────────
-from ci_replica.build_toolchain import (  # noqa: E402
+from ci_replica.build_toolchain import (
     TOOLCHAIN_FEATURE_REQUIREMENTS,
     _expand_features,
     _extract_requested_features,
@@ -155,11 +163,11 @@ from ci_replica.build_toolchain import (  # noqa: E402
     check_toolchain_requirements,
     find_required_build_binaries,
 )
-from ci_replica.drift import (  # noqa: E402
+from ci_replica.drift import (
     DriftReport,
     consistency_check,
 )
-from ci_replica.registry import (  # noqa: E402
+from ci_replica.registry import (
     ARTIFACT_IO_ACTIONS,
     BUILD_AFFECTING_FILE_PATTERNS,
     CARGO_CONFIG_PATH,
@@ -178,7 +186,7 @@ from ci_replica.registry import (  # noqa: E402
     is_build_affecting,
     resolve_cargo_build_jobs,
 )
-from ci_replica.workflow_plan import (  # noqa: E402
+from ci_replica.workflow_plan import (
     _action_name,
     _apply_matrix,
     _combo_label,
@@ -192,7 +200,7 @@ from ci_replica.workflow_plan import (  # noqa: E402
     load_workflow,
 )
 
-from scripts import push_gate_evidence  # noqa: E402
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: Public surface re-exported from the `ci_replica` package for every consumer
 #: that loads this file as one module (the hooks, release.yml, the meta-tests).
@@ -483,7 +491,10 @@ def _parse_ci_gate_args() -> argparse.Namespace:
         nargs="?",
         const="HEAD",
         metavar="BASE_REF",
-        help="print whether skipping this gate is safe for the diff vs BASE_REF (default HEAD); exit 0 if safe, 1 if not",
+        help=(
+            "print whether skipping this gate is safe for the diff vs BASE_REF "
+            "(default HEAD); exit 0 if safe, 1 if not"
+        ),
     )
     ap.add_argument(
         "--workflows-dir",
@@ -498,11 +509,13 @@ def _handle_skip_safe(base_ref: str) -> int:
     safe, hits = diff_touches_build_affecting_files(base_ref)
     if safe:
         print(
-            f"SKIP-SAFE: no build-affecting files changed vs {base_ref!r}; skipping ci-gate-replica is safe."
+            f"SKIP-SAFE: no build-affecting files changed vs {base_ref!r}; "
+            "skipping ci-gate-replica is safe."
         )
         return 0
     print(
-        f"NOT SKIP-SAFE: build-affecting file(s) changed vs {base_ref!r}; do NOT skip ci-gate-replica:"
+        f"NOT SKIP-SAFE: build-affecting file(s) changed vs {base_ref!r}; "
+        "do NOT skip ci-gate-replica:"
     )
     for hit in hits:
         print(f"  - {hit}")
@@ -542,7 +555,8 @@ def _begin_evidence(dry_run: bool) -> tuple[Any, Any]:
         return store, store.begin_execution()
     except (push_gate_evidence.EvidenceError, OSError) as exc:
         print(
-            f"push-gate-evidence: unavailable ({type(exc).__name__}); executing normally"
+            f"push-gate-evidence: unavailable ({type(exc).__name__}); "
+            "executing normally"
         )
         return None, None
 
@@ -613,7 +627,8 @@ def _record_step_evidence(
 
 def _run_fresh_item(item: dict, selection, state: _GateExecutionState) -> dict:
     print(
-        f"\n############### STEP [{item['workflow']}:{item['job']}] {item['name']} ###############"
+        f"\n############### STEP [{item['workflow']}:{item['job']}] "
+        f"{item['name']} ###############"
     )
     status, elapsed = _run_step(
         item["detail"],
@@ -621,7 +636,8 @@ def _run_fresh_item(item: dict, selection, state: _GateExecutionState) -> dict:
         state.cargo_build_jobs,
     )
     print(
-        f"### STEP_RESULT job={item['job']} name={item['name']!r} exit={status} secs={elapsed:.1f}"
+        f"### STEP_RESULT job={item['job']} name={item['name']!r} "
+        f"exit={status} secs={elapsed:.1f}"
     )
     _record_step_evidence(selection, status, elapsed, state)
     return {**item, "status": status, "elapsed": elapsed}
@@ -653,7 +669,8 @@ def _non_run_item(item: dict) -> dict:
             else "NOT VALIDATED LOCALLY"
         )
         print(
-            f"\n### {tag} [{item['workflow']}:{item['job']}] {item['name']}\n    reason: {item['detail']}"
+            f"\n### {tag} [{item['workflow']}:{item['job']}] {item['name']}\n"
+            f"    reason: {item['detail']}"
         )
         status = "NOT_VALIDATED_LOCALLY"
     return {**item, "status": status, "elapsed": 0.0}
@@ -694,7 +711,8 @@ def _print_summary_rows(results: list[dict]) -> tuple[bool, bool]:
         status = result["status"]
         label = f"{result['workflow']}:{result['job']}"
         print(
-            f"{label:36s} {result['name'][:56]:56s} status={str(status):22s} secs={result['elapsed']:8.1f}"
+            f"{label:36s} {result['name'][:56]:56s} "
+            f"status={str(status):22s} secs={result['elapsed']:8.1f}"
         )
         if _status_is_bad(status):
             if result["blocking"]:
@@ -711,12 +729,13 @@ def _print_not_validated(results: list[dict]) -> None:
     if not not_validated:
         return
     print(
-        f"\n### {len(not_validated)} STEP(S) NOT VALIDATED LOCALLY — these were NEVER RUN on "
-        "this host and are NOT a pass, never counted as one:"
+        f"\n### {len(not_validated)} STEP(S) NOT VALIDATED LOCALLY — these were "
+        "NEVER RUN on this host and are NOT a pass, never counted as one:"
     )
     for result in not_validated:
         print(
-            f"  - [{result['workflow']}:{result['job']}] {result['name']}\n      reason: {result['detail']}"
+            f"  - [{result['workflow']}:{result['job']}] {result['name']}\n"
+            f"      reason: {result['detail']}"
         )
 
 
@@ -726,11 +745,13 @@ def _summarize_results(results: list[dict]) -> int:
     _print_not_validated(results)
     print(f"BLOCKING_FAIL={'1' if blocking_fail else '0'}")
     print(
-        f"ADVISORY_FAIL={'1' if advisory_fail else '0'} (never fails the pre-push gate — reported loudly only)"
+        f"ADVISORY_FAIL={'1' if advisory_fail else '0'} "
+        "(never fails the pre-push gate — reported loudly only)"
     )
     print(f"OVERALL_FAIL={'1' if blocking_fail else '0'}")
     print(
-        f"=== SENTINEL_COMPLETE {datetime.datetime.now(datetime.timezone.utc).isoformat()} ==="
+        "=== SENTINEL_COMPLETE "
+        f"{datetime.datetime.now(datetime.timezone.utc).isoformat()} ==="
     )
     return 1 if blocking_fail else 0
 
@@ -772,7 +793,8 @@ def main() -> int:
         return 2
 
     print(
-        f"=== ci_gate_replica.py START {datetime.datetime.now(datetime.timezone.utc).isoformat()} "
+        "=== ci_gate_replica.py START "
+        f"{datetime.datetime.now(datetime.timezone.utc).isoformat()} "
         f"nproc={detected_cpus} cargo_build_jobs={cargo_build_jobs} "
         f"cargo_build_jobs_max={MAX_LOCAL_CARGO_BUILD_JOBS} ==="
     )
@@ -784,10 +806,12 @@ def main() -> int:
 
     if not ok:
         print(
-            "\nRefusing to run the gate: the consistency check above failed. This IS the"
+            "\nRefusing to run the gate: the consistency check above failed. This IS "
+            "the"
         )
         print(
-            "anti-drift guard working as intended — fix the classification, don't bypass it."
+            "anti-drift guard working as intended — fix the classification, don't "
+            "bypass it."
         )
         return 1
 

@@ -54,12 +54,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
+import tomllib
 from rust_module_tree import read_module_paths
 from scanner_contract import run_git
 
@@ -118,9 +116,7 @@ def _declared(section: object, kind: str, manifest_dir: Path, rel: str) -> list[
         declared_path = entry.get("path")
         if isinstance(declared_path, str):
             candidate = (manifest_dir / declared_path).resolve()
-            targets.append(
-                Target(rel, kind, _relative(candidate), "manifest [path]")
-            )
+            targets.append(Target(rel, kind, _relative(candidate), "manifest [path]"))
     return targets
 
 
@@ -164,7 +160,9 @@ def _fuzz_targets(manifest_dir: Path, rel: str) -> list[Target]:
     ]
 
 
-def _library_target(table: dict, package: dict, manifest_dir: Path, rel: str) -> list[Target]:
+def _library_target(
+    table: dict, package: dict, manifest_dir: Path, rel: str
+) -> list[Target]:
     declared = _declared(table.get("lib"), "lib", manifest_dir, rel)
     if declared:
         return declared

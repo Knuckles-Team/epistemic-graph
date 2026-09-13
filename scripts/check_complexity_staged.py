@@ -64,10 +64,8 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from rust_exhaustive_match import exhaustive_dispatch_exempt  # noqa: E402
-from scanner_contract import (  # noqa: E402
+from rust_exhaustive_match import exhaustive_dispatch_exempt
+from scanner_contract import (
     CCCC_MAX_COGNITIVE,
     CCCC_MAX_CYCLOMATIC,
     CCCC_SUPPORTED_SUFFIXES,

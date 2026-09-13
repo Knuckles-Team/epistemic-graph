@@ -35,13 +35,11 @@ tests.
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rust_module_tree import read_module_paths
 
-from rust_module_tree import read_module_paths  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
 
 # The one and only subsystem permitted to hold the production call site, named
 # by its module root rather than by a leaf filename.

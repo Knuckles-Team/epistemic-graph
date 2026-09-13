@@ -68,9 +68,7 @@ STALE_CLAIMS: dict[str, tuple[str, ...]] = {
         "`epistemic-tms`/`epistemic-causal` remain opt-in",
         "dataset-handle",
     ),
-    "docs/architecture/epistemic-os-hardening.md": (
-        "dataset-handle",
-    ),
+    "docs/architecture/epistemic-os-hardening.md": ("dataset-handle",),
 }
 
 
@@ -115,7 +113,8 @@ def check_generated_ledger() -> None:
         if f"| `{method}` |" not in ledger:
             fail(
                 "generated capability ledger is stale; missing method "
-                f"{method!r}. Regenerate with `cargo run -p eg-capabilities --features canonical-ledger --bin gen_ledger`."
+                f"{method!r}. Regenerate with `cargo run -p eg-capabilities --features "
+                f"canonical-ledger --bin gen_ledger`."
             )
 
 

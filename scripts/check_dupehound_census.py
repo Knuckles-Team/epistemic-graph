@@ -37,11 +37,10 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+import check_dupehound
+import scanner_contract
 
-import check_dupehound  # noqa: E402
-import scanner_contract  # noqa: E402
+ROOT = Path(__file__).resolve().parent.parent
 
 REPOSITORY = "agent-packages/epistemic-graph"
 PROFILE_ID = "dupehound-full-tree-v1:epistemic-graph"

@@ -14,7 +14,6 @@ from pathlib import Path
 
 from rust_lexer import (
     _balanced_span_from,
-    macro_rule_body_spans,
     _delimiter_depths,
     _evaluate_cfg,
     _item_end,
@@ -23,6 +22,7 @@ from rust_lexer import (
     _rust_code_mask,
     _rust_comments_mask,
     _top_level_parts,
+    macro_rule_body_spans,
     require,
 )
 
@@ -167,9 +167,7 @@ def _validate_conditional_path_list(
     require(not mask[closer + 1 : end].strip(), failure)
     item = r"[A-Za-z_][A-Za-z0-9_]*(?:\s*::\s*[A-Za-z_][A-Za-z0-9_]*)*"
     require(
-        re.fullmatch(
-            rf"\s*{item}(?:\s*,\s*{item})*\s*,?\s*", mask[cursor + 1 : closer]
-        )
+        re.fullmatch(rf"\s*{item}(?:\s*,\s*{item})*\s*,?\s*", mask[cursor + 1 : closer])
         is not None,
         failure,
     )
@@ -487,7 +485,10 @@ class _ProductionScopeWalker:
     ) -> tuple[tuple, ...]:
         if self.include_tests:
             return scope_predicates
-        return (*scope_predicates, *_cfg_predicates(self.comments_mask, self.mask, attrs))
+        return (
+            *scope_predicates,
+            *_cfg_predicates(self.comments_mask, self.mask, attrs),
+        )
 
     def _visit_include(
         self,
@@ -583,7 +584,7 @@ class _ProductionScopeWalker:
 
 
 def _require_declarations_consumed(
-    path: Path, active_mask: str, walker: "_ProductionScopeWalker"
+    path: Path, active_mask: str, walker: _ProductionScopeWalker
 ) -> None:
     """Fail closed on a compiler-active declaration the traversal did not own.
 

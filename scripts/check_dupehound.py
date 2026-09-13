@@ -24,11 +24,10 @@ import sys
 from pathlib import Path
 from typing import Any, NoReturn
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dupehound_ledger
+import scanner_contract
 
-import dupehound_ledger  # noqa: E402
-import scanner_contract  # noqa: E402
+ROOT = Path(__file__).resolve().parent.parent
 
 EXPECTED_JSON_SCHEMA_VERSION = 1
 
@@ -314,8 +313,7 @@ def _parsed_document(stripped: str, output: str, context: str) -> Any:
     except (TypeError, UnicodeError, json.JSONDecodeError) as exc:
         preview = stripped[:200].replace("\n", " ")
         fail(
-            f"dupehound returned invalid JSON: {exc}{context}; "
-            f"stdout began {preview!r}"
+            f"dupehound returned invalid JSON: {exc}{context}; stdout began {preview!r}"
         )
 
 
@@ -416,9 +414,7 @@ def _validated_findings(
             f"dupehound exited {result.returncode}: "
             f"{(result.stderr or '').strip()[:500]}"
         )
-    findings = finding_document(
-        result.stdout or "", context=_process_context(result)
-    )
+    findings = finding_document(result.stdout or "", context=_process_context(result))
     if result.returncode == 0 and findings:
         fail("dupehound returned findings with exit 0")
     if result.returncode == 1 and not findings:

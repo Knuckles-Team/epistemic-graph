@@ -65,9 +65,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import tomllib
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _git_subprocess_env import (  # noqa: E402
+from _git_subprocess_env import (
     sanitized_git_env,
     strip_inherited_git_repository_env,
 )
@@ -99,13 +97,13 @@ ALLOWED_DOTFILES: frozenset[str] = frozenset(
         ".repo-layout.toml",
         ".bumpversion.cfg",  # release version bump config (bump2version)
         ".cargo-audit-allow.txt",  # risk-accepted RUSTSEC/OSV ledger (cargo-deny gate)
-        ".security-audit-allow.txt",  # risk-accepted PYTHON OSV ledger (dependency-audit gate)
+        ".security-audit-allow.txt",  # risk-accepted Python OSV ledger (dep-audit gate)
         ".codespellignore",  # codespell false-positive word list
         ".dockerignore",  # Docker build-context exclusions
         ".env.example",  # non-secret catalog of explicit process-env keys
         ".gitattributes",  # git attributes (line endings, diff drivers, ...)
         ".gitignore",  # git exclusion patterns
-        ".importlinter",  # import-linter contract config (import-linter-architecture hook)
+        ".importlinter",  # import-linter contract config (import-linter-architecture)
         ".mergequeue.yaml",  # merge-queue config
         ".pre-commit-config.yaml",  # pre-commit hook config
         ".python-version",  # exact Python patch used by local tooling and CI
@@ -306,16 +304,21 @@ def report_violations(hygiene: RootHygiene) -> None:
     ):
         print(
             "\nPick the one that is true for each undeclared entry:\n"
-            "  * it is scratch/proof output   -> delete it (it should never have been committed)\n"
-            "  * it belongs to the workspace  -> move it to ${WORKSPACE_ROOT}/, not this package\n"
-            "  * it belongs inside a package  -> move it under the package source dir or scripts/\n"
-            "  * it genuinely belongs at root -> add a one-line reason to .repo-layout.toml\n"
+            "  * it is scratch/proof output   -> delete it (it should never have been "
+            "committed)\n"
+            "  * it belongs to the workspace  -> move it to ${WORKSPACE_ROOT}/, not "
+            "this package\n"
+            "  * it belongs inside a package  -> move it under the package source dir "
+            "or scripts/\n"
+            "  * it genuinely belongs at root -> add a one-line reason to "
+            ".repo-layout.toml\n"
             "    (dirs/files) or, for a conventional self-describing dot-file, to\n"
             "    ALLOWED_DOTFILES in scripts/check_root_hygiene.py\n"
         )
     if hygiene.stale_dirs or hygiene.stale_files:
         print(
-            "\nA declared .repo-layout.toml entry no longer exists in the tracked tree.\n"
+            "\nA declared .repo-layout.toml entry no longer exists in the tracked "
+            "tree.\n"
             "Remove it from the manifest -- a stale entry is exactly the fiction this\n"
             "manifest exists to prevent (see its own header).\n"
         )

@@ -546,7 +546,9 @@ def main() -> int:
     multimodal_relative = "scripts/certify_exact_multimodal.py"
     batch_relative = "scripts/certify_exact_knowledge_batch.py"
     reasoning_relative = "scripts/certify_exact_reasoning_repair.py"
-    _check_protocol_campaign(sources[protocol_relative], trees[protocol_relative], errors)
+    _check_protocol_campaign(
+        sources[protocol_relative], trees[protocol_relative], errors
+    )
     _check_multimodal_campaign(trees[multimodal_relative], errors)
     _check_batch_campaign(sources[batch_relative], trees[batch_relative], errors)
     _check_reasoning_campaign(

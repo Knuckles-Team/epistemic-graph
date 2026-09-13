@@ -45,8 +45,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _git_subprocess_env import (  # noqa: E402
+from _git_subprocess_env import (
     sanitized_git_env,
     strip_inherited_git_repository_env,
 )

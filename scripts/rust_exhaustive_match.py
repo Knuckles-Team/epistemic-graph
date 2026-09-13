@@ -81,13 +81,9 @@ their own; no over-cap function in this tree is affected.  If that changes, the
 from __future__ import annotations
 
 import re
-import sys
-from pathlib import Path
 from typing import NamedTuple
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from rust_lexer import _balanced_span_from, _rust_code_mask  # noqa: E402
+from rust_lexer import _balanced_span_from, _rust_code_mask
 
 #: An arm pattern that binds instead of discriminating. `_`, a bare lowercase
 #: binding, and an `ident @ _` binding all match every remaining value, so the

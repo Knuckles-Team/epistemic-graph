@@ -65,8 +65,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 from rust_lexer import (
     _balanced_span_from,
     _delimiter_depths,
@@ -201,7 +199,9 @@ def _function_spans(mask: str) -> list[tuple[int, int, str, str]]:
     return spans
 
 
-def _enclosing(spans: list[tuple[int, int, str, str]], position: int) -> tuple[str, str]:
+def _enclosing(
+    spans: list[tuple[int, int, str, str]], position: int
+) -> tuple[str, str]:
     best: tuple[str, str] = ("<file scope>", "()")
     width = None
     for start, end, name, returns in spans:
@@ -220,7 +220,7 @@ def _outside(position: tuple, scope: tuple) -> bool:
     point of keeping three counters.
     """
 
-    return any(value < bound for value, bound in zip(position, scope))
+    return any(value < bound for value, bound in zip(position, scope, strict=True))
 
 
 def _brace_openers(mask: str) -> dict[int, int]:
@@ -443,7 +443,9 @@ def dispatch_arms() -> tuple[list[Arm], set[str]]:
 # Property 4 -- digest round-trip
 # --------------------------------------------------------------------------
 
-_PREFIX_CONSTANT = re.compile(r'const\s+DIGEST_PREFIX\s*:\s*&str\s*=\s*"(?P<value>[^"]*)"')
+_PREFIX_CONSTANT = re.compile(
+    r'const\s+DIGEST_PREFIX\s*:\s*&str\s*=\s*"(?P<value>[^"]*)"'
+)
 _STRUCT_DECL = re.compile(r"\bstruct\s+(?P<name>[A-Z][A-Za-z0-9_]*)\s*\{")
 _IMPL_BLOCK = re.compile(r"\bimpl\s+(?P<name>[A-Z][A-Za-z0-9_]*)\s*\{")
 _LITERAL = re.compile(r"\b(?P<name>Self|[A-Z][A-Za-z0-9_]*)\s*\{")
@@ -543,7 +545,9 @@ def _validated_digest_fields(mask: str, text: str, forms: dict[str, str]) -> dic
     accepted: dict[tuple[str, str], str] = {}
     for call in _VALIDATE_CALL.finditer(text):
         form = forms.get(call.group("fn"), "")
-        if not form.startswith("accepts:") or not call.group("field").endswith("digest"):
+        if not form.startswith("accepts:") or not call.group("field").endswith(
+            "digest"
+        ):
             continue
         owner = _enclosing_impl(mask, call.start())
         if owner:
@@ -597,7 +601,8 @@ def _local_binding(
     if best is None:
         return None
     binding = re.search(
-        rf"\blet\s+(?:mut\s+)?{re.escape(name)}\s*(?::[^=;]*)?=", mask[best[0] : best[1]]
+        rf"\blet\s+(?:mut\s+)?{re.escape(name)}\s*(?::[^=;]*)?=",
+        mask[best[0] : best[1]],
     )
     if binding is None:
         return None
@@ -642,7 +647,9 @@ def _literal_form(value: str) -> str | None:
     return None
 
 
-def _copied_form(value: str, authoritative: dict, parameters: dict[str, str]) -> str | None:
+def _copied_form(
+    value: str, authoritative: dict, parameters: dict[str, str]
+) -> str | None:
     """The form a COPY carries, resolved through the parameter it reads from."""
 
     read = {

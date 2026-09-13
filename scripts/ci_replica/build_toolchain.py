@@ -171,9 +171,12 @@ def check_build_tool_dependencies(
                 display_path = cargo_config_path
             problems.append(
                 f"'{binary}' (required by {source} in {display_path}) is never "
-                f"installed or otherwise referenced in: {', '.join(missing_in)}. cargo hard-errors "
-                f"(does not soft-fall-back) if a configured rustc-wrapper/linker/runner binary is "
-                f"not on PATH — add an explicit install step to those workflow(s), or remove the "
+                f"installed or otherwise referenced in: {', '.join(missing_in)}. cargo "
+                f"hard-errors "
+                f"(does not soft-fall-back) if a configured "
+                f"rustc-wrapper/linker/runner binary is "
+                f"not on PATH — add an explicit install step to those workflow(s), or "
+                f"remove the "
                 f"{source} setting."
             )
     return problems
@@ -360,9 +363,12 @@ def check_toolchain_requirements(
         for tool, why in TOOLCHAIN_FEATURE_REQUIREMENTS.get(feature, ()):
             if shutil.which(tool) is None:
                 return (
-                    f"{tool!r} not on PATH -- required to compile the {feature!r} feature here "
-                    f"({why}). NOT a CI defect: this host lacks the toolchain, the build config "
-                    f"does not lack an install step (see check_build_tool_dependencies for that "
+                    f"{tool!r} not on PATH -- required to compile the {feature!r} "
+                    f"feature here "
+                    f"({why}). NOT a CI defect: this host lacks the toolchain, the "
+                    f"build config "
+                    f"does not lack an install step (see check_build_tool_dependencies "
+                    f"for that "
                     f"check)."
                 )
     return None

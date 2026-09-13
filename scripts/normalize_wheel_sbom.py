@@ -82,7 +82,6 @@ _URI_ALIASES = {
     "/build/rustup": "build://rustup",
     "/build/tools": "build://tools",
     "/build/temp": "build://temp",
-    "/build/cargo-target": "build://cargo-target",
     "/build/local-data": "build://local-data",
     "/build/app-data": "build://app-data",
     # Avoid a ``//home/`` URI segment: byte-level privacy scanners correctly
@@ -221,7 +220,9 @@ def _epoch_timestamp(environ: Mapping[str, str]) -> str | None:
 def _without_identity_fields(document: Mapping[str, object]) -> dict[str, object]:
     """Return the document sans the two fields that never reflect BOM content."""
 
-    fingerprint = {key: value for key, value in document.items() if key != "serialNumber"}
+    fingerprint = {
+        key: value for key, value in document.items() if key != "serialNumber"
+    }
     metadata = fingerprint.get("metadata")
     if isinstance(metadata, Mapping) and "timestamp" in metadata:
         fingerprint["metadata"] = {

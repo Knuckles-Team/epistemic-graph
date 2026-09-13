@@ -4,10 +4,7 @@
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, top_level_fns
@@ -75,12 +72,14 @@ def require_knowledge_stream_authority(handler: str) -> None:
                 "authority.policy_lease = Some(lease)",
                 "authority.policy_store = Some(policy_store)",
                 "fn validate_stream_preflight(",
-                "validate_stream_preflight(authority, caller, graph_name, carrier, &request)",
+                "validate_stream_preflight(authority, caller, graph_name, carrier, "
+                "&request)",
                 "authority.validate_before()",
                 "authority.validate_after()",
             )
         ),
-        "KnowledgeStream lacks a lease-bound constructor or strict pre/post page fences",
+        "KnowledgeStream lacks a lease-bound constructor or strict pre/post page "
+        "fences",
     )
 
 
@@ -98,8 +97,7 @@ def require_native_runtime_contract(modality: str, runtime: str) -> None:
         f"{modality} lacks a concrete native runtime",
     )
     require(
-        "production_probe" in runtime
-        and "malformed_and_resource_bounds" in runtime,
+        "production_probe" in runtime and "malformed_and_resource_bounds" in runtime,
         f"{modality} lacks an executed native production probe",
     )
 
@@ -599,7 +597,8 @@ def require_modality_raft_replication() -> None:
         and "sanitized_modality_tag" in command
         and "MAX_REPLICATED_MODALITY_STATE_BYTES" in command
         and "is_sealed" in command,
-        "Raft modality command is not encrypted, authenticated, bounded, and source-free",
+        "Raft modality command is not encrypted, authenticated, bounded, and "
+        "source-free",
     )
     require(
         "encrypted_command_round_trips_without_raw_source" in raft
@@ -646,7 +645,8 @@ def require_modality_durability() -> None:
     require(
         "raw source bytes are replaced by the state-backed receipt" in mutation_apply
         and "if let Method::ServedModality { op }" in mutation_apply,
-        "durability policy does not document the state-backed source-free modality path",
+        "durability policy does not document the state-backed source-free modality "
+        "path",
     )
     raft_store = read("src/raft/store.rs")
     require(
@@ -660,7 +660,8 @@ def require_modality_durability() -> None:
         and "command.sealed_runtime_state.clone()" in raft_store
         and "command.result_msgpack.clone()" in raft_store
         and ".map(super::SanitizedModalityRaftCommand::receipt_method)" in raft_store,
-        "followers do not validate and deterministically commit sanitized modality state",
+        "followers do not validate and deterministically commit sanitized modality "
+        "state",
     )
 
 

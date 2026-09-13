@@ -115,7 +115,8 @@ def inject(server_whl: Path, numeric_whl: Path) -> None:
     # into the rewritten wheel. Dropping external_attr is what previously stripped the
     # 0755 executable bit off ``*.data/scripts/epistemic-graph-server`` — pip then
     # installed a non-executable console binary and ``epistemic-graph-server --help``
-    # died with "Permission denied" (CONCEPT:AU-KG.compute.is-installed-kernel-discovery CI smoke).
+    # died with "Permission denied" (CONCEPT:AU-KG.compute.is-installed-kernel-discovery
+    # CI smoke).
     with zipfile.ZipFile(server_whl) as z:
         infos = z.infolist()
         names = [info.filename for info in infos]
