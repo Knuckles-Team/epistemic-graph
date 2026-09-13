@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-# ruff: noqa: I001 -- synchronized across repositories with different import policies
+
 """Bounded, dependency-free fuzz smoke test for repository config parsers."""
 
 from __future__ import annotations
 
 import json
 import sys
-import tomllib
 from pathlib import Path
 
+import tomllib
 
 MAX_FILES = 16
 MAX_SOURCE_BYTES = 1024 * 1024
