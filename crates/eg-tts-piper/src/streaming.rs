@@ -366,3 +366,116 @@ pub fn synthesize_streaming(
         deadline,
     })
 }
+
+/// `ChunkStream`'s bounded paths without ONNX: the test stands in for the producer
+/// by holding the far ends of both channels, so each outcome is forced, not raced.
+#[cfg(test)]
+mod chunk_stream_tests {
+    use super::*;
+
+    /// Bound for waits that must NOT expire in a passing run.
+    const GENEROUS: Duration = Duration::from_secs(30);
+
+    type ChunkSender = mpsc::SyncSender<Result<SynthesizedChunk, TtsError>>;
+
+    fn stream_without_producer(
+        deadline_in: Duration,
+    ) -> (ChunkStream, ChunkSender, mpsc::SyncSender<()>) {
+        let (tx, rx) = mpsc::sync_channel(4);
+        let (exited, producer_exited) = mpsc::sync_channel(1);
+        let stream = ChunkStream {
+            rx: Some(rx),
+            producer_exited,
+            cancel: CancellationToken::new(),
+            deadline: Instant::now() + deadline_in,
+        };
+        (stream, tx, exited)
+    }
+
+    #[test]
+    fn next_passes_a_produced_item_through() {
+        let (mut stream, tx, _exited) = stream_without_producer(GENEROUS);
+        tx.send(Err(TtsError::Cancelled))
+            .expect("stream is receiving");
+        assert!(matches!(stream.next(), Some(Err(TtsError::Cancelled))));
+    }
+
+    #[test]
+    fn next_ends_promptly_once_the_producer_is_gone() {
+        let (mut stream, tx, _exited) = stream_without_producer(GENEROUS);
+        drop(tx);
+        let started = Instant::now();
+        assert!(stream.next().is_none());
+        assert!(
+            started.elapsed() < GENEROUS,
+            "a disconnect must not wait out the deadline"
+        );
+    }
+
+    #[test]
+    fn next_on_a_silent_live_producer_times_out_once_cancels_and_ends() {
+        // `_tx` stays alive and never sends: a wedged producer.
+        let (mut stream, _tx, _exited) = stream_without_producer(Duration::from_millis(50));
+        let cancel = stream.cancel.clone();
+        assert!(matches!(stream.next(), Some(Err(TtsError::Timeout))));
+        assert!(cancel.is_cancelled(), "a timeout must cancel the producer");
+        assert!(stream.next().is_none(), "a timed-out stream ends");
+    }
+
+    #[test]
+    fn drop_cancels_and_disconnects_before_waiting_for_the_producer_to_exit() {
+        // The deadline sits far past GENEROUS, so a drop that disconnects only
+        // after its wait fails the loop below instead of racing it.
+        let (stream, tx, exited) = stream_without_producer(Duration::from_secs(300));
+        let cancel = stream.cancel.clone();
+        let (dropped, drop_done) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            drop(stream);
+            let _ = dropped.send(());
+        });
+
+        // A producer blocked on a full channel is released only if the receiver
+        // is gone while drop waits. Keep sending until the channel disconnects.
+        let limit = Instant::now() + GENEROUS;
+        loop {
+            match tx.try_send(Err(TtsError::Cancelled)) {
+                Err(mpsc::TrySendError::Disconnected(_)) => break,
+                _ if Instant::now() > limit => panic!("drop never disconnected the chunk channel"),
+                _ => thread::sleep(Duration::from_millis(1)),
+            }
+        }
+        assert!(cancel.is_cancelled(), "drop must cancel the producer");
+        assert!(
+            drop_done.try_recv().is_err(),
+            "drop waits for the producer's exit signal while one is still possible"
+        );
+
+        exited
+            .send(())
+            .expect("drop is waiting for the exit signal");
+        assert_eq!(drop_done.recv_timeout(GENEROUS), Ok(()));
+    }
+
+    #[test]
+    fn drop_returns_at_the_deadline_when_the_producer_never_exits() {
+        // `_exited` stays alive and never signals: a producer inside one
+        // uninterruptible forward pass.
+        let (stream, _tx, _exited) = stream_without_producer(Duration::from_millis(100));
+        let (dropped, drop_done) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            drop(stream);
+            let _ = dropped.send(());
+        });
+        assert_eq!(drop_done.recv_timeout(GENEROUS), Ok(()));
+    }
+
+    #[test]
+    fn the_exit_signal_fires_when_the_producer_panics() {
+        let (exited, exit_seen) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            let _signal = ProducerExitSignal(exited);
+            panic!("producer fixture panics");
+        });
+        assert_eq!(exit_seen.recv_timeout(GENEROUS), Ok(()));
+    }
+}

@@ -33,3 +33,25 @@ execution, no model acquisition, no generic Transformers/safetensors claim, and
 no speaker diarization, biometric identity, or verification. Callers must supply
 already-resolved model/config artifacts, and the provider independently verifies
 their declared SHA-256 digests before loading them.
+
+## Running the synthesis tests
+
+`crates/eg-tts-piper/tests/piper_synthesis.rs` drives real ONNX inference. Its
+fixture voice is a tiny ONNX graph generated in Rust at test time (no committed
+binary, no trained weights), so the only external prerequisite is the runtime.
+
+Under `--all-features` the crate is built with `ort-load-dynamic`, and `ort`
+loads the runtime from `ORT_DYLIB_PATH`:
+
+```bash
+export ORT_DYLIB_PATH="$(scripts/fetch_onnxruntime.sh)"
+cargo test -p eg-tts-piper --all-features
+```
+
+A missing or unreadable runtime FAILS every inference test. It never skips them.
+The script downloads the official ONNX Runtime 1.24.2 release, the version
+`ort-sys` 2.0.0-rc.12 pins (api-24), and checks its sha256.
+
+Measured on 2026-09-13 on R820, which has no AVX2: all synthesis tests pass
+with this library. Debian's `libonnxruntime1.23` package does not work, because
+its API version is older than the pin.
