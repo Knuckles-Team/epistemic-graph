@@ -43,16 +43,19 @@ fn handle_get_edge_properties_batch(
     // One round-trip for N edges. Each entry is the list of property blobs
     // for that (src, tgt) pair (a pair may have multiple edges), in input
     // order; an empty inner list ⇒ no such edge.
-    let out: Vec<Vec<serde_bytes::ByteBuf>> = edges
+    let out: Vec<Vec<eg_types::types::PropertyBlob>> = edges
         .into_iter()
         .map(|(src, tgt)| {
             g.get_edge_properties(&src, &tgt)
                 .into_iter()
-                .map(serde_bytes::ByteBuf::from)
+                .map(eg_types::types::PropertyBlob)
                 .collect()
         })
         .collect();
-    Response::ok(req_id, ResultPayload::raw(&out))
+    Response::ok(
+        req_id,
+        ResultPayload::of_ref::<eg_types::result_contract::graph::GetEdgePropertiesBatch>(&out),
+    )
 }
 
 /// Route gateway-owned edge mutations.
@@ -120,7 +123,10 @@ pub(super) async fn try_handle_edge_reads(
                 .as_ref()
                 .map(|(s, t, ord)| (s.as_str(), t.as_str(), *ord));
             let edges = g.get_edges_page(after_ref, limit);
-            Response::ok(req_id, ResultPayload::raw(&edges))
+            Response::ok(
+                req_id,
+                ResultPayload::of_ref::<eg_types::result_contract::graph::GetEdgesPage>(&edges),
+            )
         }
         Method::GetEdgeProperties {
             source_id,
@@ -134,7 +140,12 @@ pub(super) async fn try_handle_edge_reads(
                     eg_types::msgpack::decode_property_value(&p).unwrap_or(serde_json::json!({}))
                 })
                 .collect();
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(val)))
+            Response::ok(
+                req_id,
+                ResultPayload::of_dynamic::<eg_types::result_contract::graph::GetEdgeProperties, _>(
+                    &val,
+                ),
+            )
         }
         Method::GetEdgePropertiesBatch { edges } => {
             handle_get_edge_properties_batch(req_id, core, edges)

@@ -185,9 +185,9 @@ fn apply_apply_mutation(
             )
             .map_err(|error| format!("ApplyMutation: {error}"))?;
             core.replace_snapshot(update_core.snapshot())?;
-            serde_json::to_value(&report)
-                .map(ResultPayload::Json)
-                .map_err(|error| error.to_string())
+            ResultPayload::of::<eg_types::result_contract::graph::ApplyMutation>(
+                eg_types::rdf_report::ApplyMutationResult::Report(report),
+            )
         }
         #[cfg(not(feature = "shacl"))]
         {
@@ -250,10 +250,12 @@ fn apply_run_datalog_reasoning(
             property_chains,
         ));
     }
-    Ok(ResultPayload::Json(serde_json::json!({
-        "inferred_count": all_inferred.len(),
-        "inferred_triples": all_inferred,
-    })))
+    ResultPayload::of::<eg_types::result_contract::reasoning::RunDatalogReasoning>(
+        eg_types::types::DatalogReasoningResult {
+            inferred_count: all_inferred.len(),
+            inferred_triples: all_inferred,
+        },
+    )
 }
 
 /// `ClaimNext`: pure extract-method from `try_handle_gateway`'s closure,
@@ -282,7 +284,9 @@ fn apply_add_scene_object(
         return Err("AddSceneObject: undecodable pose_msgpack".to_string());
     };
     let id = core.add_scene_object(&pose, parent);
-    Ok(ResultPayload::String(id))
+    Ok(ResultPayload::scalar::<
+        eg_types::result_contract::graph::AddSceneObject,
+    >(id))
 }
 
 /// `SetPose`: pure extract-method from `try_handle_gateway`'s closure,
@@ -296,7 +300,9 @@ fn apply_set_pose(
         return Err("SetPose: undecodable pose_msgpack".to_string());
     };
     let ok = core.set_pose(node_id, &pose);
-    Ok(ResultPayload::Bool(ok))
+    Ok(ResultPayload::scalar::<
+        eg_types::result_contract::graph::SetPose,
+    >(ok))
 }
 
 /// `AddEmbedding`: pure extract-method from `try_handle_gateway`'s closure,
@@ -347,7 +353,9 @@ fn apply_supersede_edge(
         valid_at,
         tx_now,
     ) {
-        Ok(()) => Ok(ResultPayload::String("ok".to_string())),
+        Ok(()) => Ok(ResultPayload::scalar::<
+            eg_types::result_contract::graph::SupersedeEdge,
+        >("ok".to_string())),
         Err(e) => Err(e),
     }
 }
@@ -532,7 +540,7 @@ pub(super) async fn try_handle(
             );
             commit_gateway(ctx, plan, method, move |core| {
                 let out = core.maintain(&ids, now_ms, half_life_ms, evict_threshold, delete);
-                ResultPayload::raw(&out)
+                ResultPayload::of::<eg_types::result_contract::graph::Maintain>(out)
             })
             .await
         }
@@ -603,7 +611,7 @@ pub(super) async fn try_handle(
                     next_state_ref.as_deref(),
                     t,
                 );
-                ResultPayload::raw(&step_id)
+                ResultPayload::of::<eg_types::result_contract::graph::AppendStep>(step_id)
             })
             .await
         }
@@ -699,9 +707,7 @@ pub(super) async fn try_handle(
                     .unwrap_or_default()
                     .as_secs();
                 let stats = core.decay_sweep(now, half_life_secs, floor, prune);
-                serde_json::to_value(&stats)
-                    .map(ResultPayload::Json)
-                    .map_err(|e| e.to_string())
+                ResultPayload::of::<eg_types::result_contract::graph::DecaySweep>(stats)
             })
             .await
         }
@@ -816,9 +822,7 @@ pub(super) async fn try_handle(
             let (max_age_secs, min_score) = (*max_age_secs, *min_score);
             commit_gateway(ctx, plan, method, move |core| {
                 let stats = crate::algorithms::prune_by_lifecycle(core, max_age_secs, min_score);
-                serde_json::to_value(&stats)
-                    .map(ResultPayload::Json)
-                    .map_err(|e| e.to_string())
+                ResultPayload::of::<eg_types::result_contract::graph::PruneByLifecycle>(stats)
             })
             .await
         }
@@ -851,9 +855,11 @@ pub(super) async fn try_handle(
             let (node_type, threshold) = (node_type.clone(), *threshold);
             commit_gateway(ctx, plan, method, move |core| {
                 let removed = core.compact_nodes_by_type(&node_type, threshold);
-                Ok(ResultPayload::Json(
-                    serde_json::json!({ "removed_nodes": removed }),
-                ))
+                ResultPayload::of::<eg_types::result_contract::graph::CompactNodesByType>(
+                    eg_types::types::CompactNodesResult {
+                        removed_nodes: removed,
+                    },
+                )
             })
             .await
         }

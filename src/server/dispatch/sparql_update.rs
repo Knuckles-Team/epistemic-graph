@@ -451,6 +451,20 @@ fn sparql_rollback_methods(
         .collect::<Vec<_>>()
 }
 
+/// Close `saga` with the coordinated `ApplyMutation` result it records, returning the
+/// durable result.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+fn finish_coordinated_saga(
+    coord: &SparqlUpdateCoordination<'_>,
+    saga: handlers::admin::AdminSaga,
+    update: eg_types::rdf_report::CoordinatedSparqlUpdate,
+) -> Result<ResultPayload, String> {
+    let result = ResultPayload::of::<eg_types::result_contract::graph::ApplyMutation>(
+        eg_types::rdf_report::ApplyMutationResult::Coordinated(update),
+    )?;
+    handlers::admin::finish_admin_saga(coord.redb, saga.batch, saga.created_at_ms, result)
+}
+
 /// Close the parent saga on the roll-forward path and clear its retained
 /// decision.
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
@@ -459,17 +473,16 @@ async fn finish_sparql_commit(
     saga: handlers::admin::AdminSaga,
     plan: &SparqlRecoveryPlan,
 ) -> Response {
-    let result = ResultPayload::Json(serde_json::json!({
-        "outcome": "committed",
-        "updated_graphs": plan.graphs.len(),
-        "created_graphs": plan.graphs.iter().filter(|graph| !graph.existed_before).count(),
-    }));
-    let committed = match handlers::admin::finish_admin_saga(
-        coord.redb,
-        saga.batch,
-        saga.created_at_ms,
-        result,
-    ) {
+    let update = eg_types::rdf_report::CoordinatedSparqlUpdate {
+        outcome: eg_types::rdf_report::SparqlUpdateOutcome::Committed,
+        updated_graphs: plan.graphs.len(),
+        created_graphs: plan
+            .graphs
+            .iter()
+            .filter(|graph| !graph.existed_before)
+            .count(),
+    };
+    let committed = match finish_coordinated_saga(coord, saga, update) {
         Ok(committed) => committed,
         Err(error) => return Response::err(coord.req_id, error),
     };
@@ -621,14 +634,12 @@ async fn finish_sparql_compensation(
             return Response::err(coord.req_id, error);
         }
     }
-    let result = ResultPayload::Json(serde_json::json!({
-        "outcome": "compensated",
-        "updated_graphs": 0,
-        "created_graphs": 0,
-    }));
-    if let Err(error) =
-        handlers::admin::finish_admin_saga(coord.redb, saga.batch, saga.created_at_ms, result)
-    {
+    let update = eg_types::rdf_report::CoordinatedSparqlUpdate {
+        outcome: eg_types::rdf_report::SparqlUpdateOutcome::Compensated,
+        updated_graphs: 0,
+        created_graphs: 0,
+    };
+    if let Err(error) = finish_coordinated_saga(coord, saga, update) {
         return Response::err(coord.req_id, error);
     }
     if let Err(error) = clear_coordinated_graph_decision(coord.redb, coord.parent_id).await {

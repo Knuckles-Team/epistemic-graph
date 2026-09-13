@@ -92,11 +92,13 @@ pub(super) async fn try_handle_scene_graph(
                  through try_handle_gateway before it ever reaches this terminal handler"
         ),
         Method::WorldTransform { node_id } => {
-            let payload = match core.world_transform(&node_id) {
-                Some(pose) => ResultPayload::Json(pose.to_json()),
-                None => ResultPayload::Json(serde_json::Value::Null),
-            };
-            Response::ok(req_id, payload)
+            let pose = core
+                .world_transform(&node_id)
+                .map(eg_types::types::ScenePose::from);
+            Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::graph::WorldTransform>(pose),
+            )
         }
         Method::SceneChildren { node_id } => {
             Response::ok(req_id, ResultPayload::Ids(core.scene_children(&node_id)))
@@ -128,7 +130,9 @@ pub(super) async fn try_handle_trajectory_memory(
         ),
         Method::BestTrajectory { traj_ids, gamma } => Response::ok(
             req_id,
-            ResultPayload::raw(&core.best_trajectory(&traj_ids, gamma)),
+            ResultPayload::of::<eg_types::result_contract::graph::BestTrajectory>(
+                core.best_trajectory(&traj_ids, gamma),
+            ),
         ),
         other => return ControlFlow::Continue(other),
     })
@@ -208,10 +212,10 @@ pub(super) async fn try_handle_lifecycle_context(
         } => {
             let g = core.analysis_snapshot();
             let view = crate::algorithms::get_context_view(&g, &agent_id, max_tokens);
-            match serde_json::to_value(&view) {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-                Err(e) => Response::err(req_id, e.to_string()),
-            }
+            Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::query::GetContextView>(view),
+            )
         }
         // BatchUpdate (CONCEPT:EG-P0-2 bypass guard, L11):
         // GATEWAY_ROUTED — see the AddNode/RemoveNode comment above.
