@@ -1,6 +1,6 @@
 {
   "artifact_digests": {
-    "contract/methods.json": "1ce5502cbb901002d4df3516205e82a034f8919942087fa4e3ae3758741125b7",
+    "contract/methods.json": "705ca855dd3fbab0035af9e9d8d41a6fa00452f2eb0c2fcb35c29f3e62e87f94",
     "contract/schemas/method.request.json": "1b641bce8438c3840f6a2b60029cfaa186807465e082fd3a6311e2b0a6e10f59",
     "contract/schemas/result.Bool.json": "f4bcf35f07ea1acd8a6067aa0279864f120fc1eb6e308afb0720e034b2d57744",
     "contract/schemas/result.Count.json": "c139342b656a7d5b0bf598ad6a64f92992dc1071ab8f6568bcfa55422f1f326a",
@@ -9,6 +9,11 @@
     "contract/schemas/result.Ids.json": "cef7480310b4300eebd51a58740a8d606713ab1fd6d043a7eda4b451a33595ae",
     "contract/schemas/result.NodeList.json": "584c3712101c532f50581a956cf755b9e84b280bbe2d189ece85b9e577365e4b",
     "contract/schemas/result.String.json": "a3e272c53a4f5de4d4d6d51ff824bf63bfb22b3aa59609d990cd53065148a4ab",
+    "contract/schemas/result.body.AgentComponent.json": "593f36ca7ef9c4009d897cb5c9709d6b34c44243f6798454fb1c12541a4e4f9e",
+    "contract/schemas/result.body.AgentGraph.json": "0d1b7b1ace01fdb401671a6aeb8f143cd394e1933dcd88a7be0e8fb4a196b061",
+    "contract/schemas/result.body.AgentLibrary.json": "83fd33bac9f64fa6a1e816ce549def08111ff5f0e6f3a1606e582c57c904d1a7",
+    "contract/schemas/result.body.AgentTemplate.json": "98480e419671c4e449cdf4ef55c285ea0d2403b757b36e6d69b27de7a82e6067",
+    "contract/schemas/result.body.KgDelegate.json": "9f484cdb39647f565e3eaaf4da309ea9aac217f46b574248a5587d998a3e11ff",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
     "crates/eg-capabilities/generated/method_catalog.rs": "6d6044a771817f5b912e82607ce5642cf0f5f672a0c380654210a2bc02863fe2",
     "docs/capabilities.generated.md": "5e98d2c213e8a4e9dfe80a50b40750b66a399494cb927bdd6567a8a9f70e4262",
@@ -28,8 +33,8 @@
     "epistemic_graph/generated/storage.py": "768804103220681735de4834d7c3c0bcb9dbcc9c3091d3af7eb306fde1e498bc",
     "epistemic_graph/generated/transactions.py": "620eca482b86fd65c956204e308ef15a4d6765fa21887a4a93dbe40dd85998be"
   },
-  "cargo_lock_sha256": "2d09df71aedddead47c01fb9f94721dc152de2e09c3235c7a27c7e2aecb6ed0f",
-  "contract_digest": "1086033280266095e4cc4753c00af769bae677c30e42e761d26d4e78aaa446e4",
+  "cargo_lock_sha256": "34a1a1e140d576c7abb8bcf3a5a8e3f32d5301d6f8f2211cccc18fdfeb766845",
+  "contract_digest": "ebc80b584e3905488ec50276a9b8d4a17ddd4e0f1761f5a4a010c066f60e132b",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -44,292 +49,355 @@
     "viz"
   ],
   "format_identities": {
-    "AGENT_COMPONENT_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-types/src/agent_component.rs:59"
-      ],
-      "value": "2"
-    },
-    "AGENT_GRAPH_ENTRY_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-types/src/agent_graph.rs:47"
-      ],
-      "value": "2"
-    },
-    "AGENT_LIBRARY_ENTRY_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-types/src/agent_library.rs:25"
-      ],
-      "value": "5"
-    },
-    "AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-types/src/agent_library.rs:26"
-      ],
-      "value": "1"
-    },
-    "AGENT_LIBRARY_RESULT_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-types/src/agent_library.rs:27"
-      ],
-      "value": "1"
-    },
-    "AGENT_LIBRARY_SCOPE_INCARNATION": {
-      "sites": [
-        "src/server/persistence/agent_library.rs:43"
-      ],
-      "value": "\"agent-library:v1\""
-    },
-    "AGENT_TEMPLATE_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-types/src/agent_template.rs:50"
-      ],
-      "value": "2"
-    },
-    "ANALYTICS_JOB_SCOPE_INCARNATION": {
-      "sites": [
-        "crates/eg-jobs/src/store.rs:2413"
-      ],
-      "value": "\"incarnation:eg-jobs:analytics-jobs:1\""
-    },
-    "BOOTSTRAP_COMMONS_INCARNATION": {
-      "sites": [
-        "crates/eg-core/src/registry.rs:458"
-      ],
-      "value": "\"incarnation:commons:v1\""
-    },
-    "BUNDLE_FORMAT_VERSION": {
-      "sites": [
-        "src/server/persistence/backup.rs:133"
-      ],
-      "value": "5"
-    },
-    "CATALOG_SCOPE_INCARNATION": {
-      "sites": [
-        "src/server/persistence/tenant_catalog.rs:54"
-      ],
-      "value": "\"tenant-catalog:v1\""
-    },
-    "CLUSTER_HIERARCHY_SCOPE_INCARNATION": {
-      "sites": [
-        "src/server/persistence/cluster_hierarchy_store.rs:42"
-      ],
-      "value": "\"cluster-hierarchy:v1\""
-    },
-    "COLD_SCOPE_INCARNATION": {
-      "sites": [
-        "crates/eg-kvcache/src/cold.rs:131"
-      ],
-      "value": "\"kvcache-cold:v1\""
-    },
-    "COLD_TIER_SCOPE_INCARNATION": {
-      "sites": [
-        "src/server/cold_tier_impl.rs:23"
-      ],
-      "value": "\"cold-tier:v1\""
-    },
-    "COMPILED_BATCH_INCARNATION": {
-      "sites": [
-        "crates/eg-types/src/mutation_batch/model/identity.rs:176"
-      ],
-      "value": "\"epistemic-graph:mutation-batch-compiler:v1\""
-    },
-    "CONSENSUS_TRANSACTION_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-transaction/src/participant/mod.rs:31"
-      ],
-      "value": "1"
-    },
-    "CONSENSUS_TXN_SCHEMA_VERSION": {
-      "sites": [
-        "src/server/handlers/txn.rs:2478"
-      ],
-      "value": "1"
-    },
-    "DIRECT_STATE_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-storage/src/direct_state/contract.rs:43"
-      ],
-      "value": "1"
-    },
-    "DISCOVERY_SCHEMA_VERSION": {
-      "sites": [
-        "src/server/handlers/topology.rs:28"
-      ],
-      "value": "1"
-    },
-    "EMBEDDING_BINDING_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-query/src/tables/embedding_binding.rs:46"
-      ],
-      "value": "1"
-    },
-    "ENCRYPTION_KEY_BINDING_FORMAT_VERSION": {
-      "sites": [
-        "src/crypto.rs:397"
-      ],
-      "value": "1"
-    },
-    "GRAPH_META_SCHEMA_VERSION": {
-      "sites": [
-        "src/redb_store/dump.rs:877"
-      ],
-      "value": "2"
-    },
-    "GRAPH_SNAPSHOT_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-core/src/graph/snapshot.rs:20"
-      ],
-      "value": "2"
-    },
-    "INSTANCE_MUTATION_INCARNATION": {
-      "sites": [
-        "crates/eg-statechart/src/store/batches.rs:23"
-      ],
-      "value": ""
-    },
-    "INTENT_SCHEMA_VERSION": {
-      "sites": [
-        "src/server/txn_intent.rs:60"
-      ],
-      "value": "1"
-    },
-    "KNOWLEDGE_STREAM_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-types/src/knowledge_stream.rs:13"
-      ],
-      "value": "1"
-    },
-    "MEMBERSHIP_SHRINK_SCHEMA_VERSION": {
-      "sites": [
-        "src/raft/membership_shrink.rs:18"
-      ],
-      "value": "1"
-    },
-    "MODALITY_ROW_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-modality/src/rows.rs:43"
-      ],
-      "value": "1"
-    },
-    "NATIVE_CONTROL_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-types/src/native_control.rs:18"
-      ],
-      "value": "1"
-    },
-    "NODE_INFO_SCOPE_INCARNATION": {
-      "sites": [
-        "src/server/persistence/node_info_store.rs:46"
-      ],
-      "value": "\"node-info:v1\""
-    },
-    "PATH_SCOPE_INCARNATION": {
-      "sites": [
-        "crates/eg-core/src/path_persist.rs:191"
-      ],
-      "value": "\"path-index:v1\""
-    },
-    "POLICY_BUNDLE_FORMAT_VERSION": {
-      "sites": [
-        "src/server/policy_export/mod.rs:183"
-      ],
-      "value": "\"policy-bundle-v1\""
-    },
-    "PROGRAM_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-program/src/contracts.rs:13"
-      ],
-      "value": "1"
-    },
-    "PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-query/src/tables/property_graph/model.rs:29"
-      ],
-      "value": "2"
-    },
-    "PROPERTY_GRAPH_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-query/src/tables/property_graph/model.rs:20"
-      ],
-      "value": "1"
-    },
-    "PROVENANCE_SCOPE_INCARNATION": {
-      "sites": [
-        "src/server/viz_provenance.rs:51"
-      ],
-      "value": "\"viz-provenance:v1\""
-    },
-    "RAFT_RESPONSE_SCHEMA_VERSION": {
-      "sites": [
-        "src/raft/mod.rs:179"
-      ],
-      "value": "2"
-    },
-    "RAFT_SNAPSHOT_SCHEMA_VERSION": {
-      "sites": [
-        "src/raft/store.rs:95"
-      ],
-      "value": "4"
-    },
-    "RAFT_WIRE_VERSION": {
-      "sites": [
-        "src/raft/network.rs:128"
-      ],
-      "value": "1"
-    },
-    "RAW_GRAPH_ROWS_SCHEMA_VERSION": {
-      "sites": [
-        "src/server/persistence/online_reshard.rs:197"
-      ],
-      "value": "2"
-    },
-    "RBAC_SCOPE_INCARNATION": {
-      "sites": [
-        "crates/eg-core/src/rbac_persist.rs:58"
-      ],
-      "value": "\"rbac-security-control:v1\""
-    },
-    "REPLAY_SCOPE_INCARNATION": {
-      "sites": [
-        "src/server/request_replay.rs:77"
-      ],
-      "value": "\"request-replay:v1\""
-    },
-    "SCHEMA_MIGRATION_FORMAT_VERSION": {
-      "sites": [
-        "crates/eg-query/src/tables/migration.rs:32"
-      ],
-      "value": "1"
-    },
-    "SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-epistemic/src/incremental/events.rs:60",
-        "crates/eg-jobs/src/result.rs:147",
-        "crates/eg-types/src/epistemic_operations_manifest.rs:6",
-        "crates/eg-types/src/mutation_batch/fault.rs:23",
-        "src/performance_probe.rs:26"
-      ],
-      "value": "1"
-    },
-    "SECONDARY_INDEX_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-query/src/tables/index.rs:21"
-      ],
-      "value": "1"
-    },
-    "STORAGE_KERNEL_SCHEMA_VERSION": {
-      "sites": [
-        "crates/eg-storage/src/physical/incarnation.rs:25"
-      ],
-      "value": "2"
-    },
-    "WIRE_VERSION": {
-      "sites": [
-        "crates/eg-viz-graph-tiles/src/wire.rs:41"
-      ],
-      "value": "1"
-    }
+    "AGENT_COMPONENT_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/agent_component.rs",
+        "scope": "",
+        "value": "2"
+      }
+    ],
+    "AGENT_GRAPH_ENTRY_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/agent_graph.rs",
+        "scope": "",
+        "value": "2"
+      }
+    ],
+    "AGENT_LIBRARY_ENTRY_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/agent_library.rs",
+        "scope": "",
+        "value": "5"
+      }
+    ],
+    "AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/agent_library.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "AGENT_LIBRARY_RESULT_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/agent_library.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "AGENT_LIBRARY_SCOPE_INCARNATION": [
+      {
+        "file": "src/server/persistence/agent_library.rs",
+        "scope": "",
+        "value": "\"agent-library:v1\""
+      }
+    ],
+    "AGENT_TEMPLATE_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/agent_template.rs",
+        "scope": "",
+        "value": "2"
+      }
+    ],
+    "ANALYTICS_JOB_SCOPE_INCARNATION": [
+      {
+        "file": "crates/eg-jobs/src/store.rs",
+        "scope": "",
+        "value": "\"incarnation:eg-jobs:analytics-jobs:1\""
+      }
+    ],
+    "BOOTSTRAP_COMMONS_INCARNATION": [
+      {
+        "file": "crates/eg-core/src/registry.rs",
+        "scope": "impl GraphRegistry",
+        "value": "\"incarnation:commons:v1\""
+      }
+    ],
+    "BUNDLE_FORMAT_VERSION": [
+      {
+        "file": "src/server/persistence/backup.rs",
+        "scope": "",
+        "value": "5"
+      }
+    ],
+    "CATALOG_SCOPE_INCARNATION": [
+      {
+        "file": "src/server/persistence/tenant_catalog.rs",
+        "scope": "",
+        "value": "\"tenant-catalog:v1\""
+      }
+    ],
+    "CLUSTER_HIERARCHY_SCOPE_INCARNATION": [
+      {
+        "file": "src/server/persistence/cluster_hierarchy_store.rs",
+        "scope": "",
+        "value": "\"cluster-hierarchy:v1\""
+      }
+    ],
+    "COLD_SCOPE_INCARNATION": [
+      {
+        "file": "crates/eg-kvcache/src/cold.rs",
+        "scope": "",
+        "value": "\"kvcache-cold:v1\""
+      }
+    ],
+    "COLD_TIER_SCOPE_INCARNATION": [
+      {
+        "file": "src/server/cold_tier_impl.rs",
+        "scope": "",
+        "value": "\"cold-tier:v1\""
+      }
+    ],
+    "COMPILED_BATCH_INCARNATION": [
+      {
+        "file": "crates/eg-types/src/mutation_batch/model/identity.rs",
+        "scope": "",
+        "value": "\"epistemic-graph:mutation-batch-compiler:v1\""
+      }
+    ],
+    "CONSENSUS_TRANSACTION_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-transaction/src/participant/mod.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "CONSENSUS_TXN_SCHEMA_VERSION": [
+      {
+        "file": "src/server/handlers/txn.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "DIRECT_STATE_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-storage/src/direct_state/contract.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "DISCOVERY_SCHEMA_VERSION": [
+      {
+        "file": "src/server/handlers/topology.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "EMBEDDING_BINDING_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-query/src/tables/embedding_binding.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "ENCRYPTION_KEY_BINDING_FORMAT_VERSION": [
+      {
+        "file": "src/crypto.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "GRAPH_META_SCHEMA_VERSION": [
+      {
+        "file": "src/redb_store/dump.rs",
+        "scope": "",
+        "value": "2"
+      }
+    ],
+    "GRAPH_SNAPSHOT_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-core/src/graph/snapshot.rs",
+        "scope": "",
+        "value": "2"
+      }
+    ],
+    "INSTANCE_MUTATION_INCARNATION": [
+      {
+        "file": "crates/eg-statechart/src/store/batches.rs",
+        "scope": "",
+        "value": "\"incarnation:eg-statechart:statechart-instances:1\""
+      }
+    ],
+    "INTENT_SCHEMA_VERSION": [
+      {
+        "file": "src/server/txn_intent.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "KNOWLEDGE_STREAM_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/knowledge_stream.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "MEMBERSHIP_SHRINK_SCHEMA_VERSION": [
+      {
+        "file": "src/raft/membership_shrink.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "MODALITY_ROW_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-modality/src/rows.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "NATIVE_CONTROL_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/native_control.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "NODE_INFO_SCOPE_INCARNATION": [
+      {
+        "file": "src/server/persistence/node_info_store.rs",
+        "scope": "",
+        "value": "\"node-info:v1\""
+      }
+    ],
+    "PATH_SCOPE_INCARNATION": [
+      {
+        "file": "crates/eg-core/src/path_persist.rs",
+        "scope": "mod redb_store",
+        "value": "\"path-index:v1\""
+      }
+    ],
+    "POLICY_BUNDLE_FORMAT_VERSION": [
+      {
+        "file": "src/server/policy_export/mod.rs",
+        "scope": "",
+        "value": "\"policy-bundle-v1\""
+      }
+    ],
+    "PROGRAM_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-program/src/contracts.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "PROPERTY_GRAPH_CATALOG_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-query/src/tables/property_graph/model.rs",
+        "scope": "",
+        "value": "2"
+      }
+    ],
+    "PROPERTY_GRAPH_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-query/src/tables/property_graph/model.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "PROVENANCE_SCOPE_INCARNATION": [
+      {
+        "file": "src/server/viz_provenance.rs",
+        "scope": "",
+        "value": "\"viz-provenance:v1\""
+      }
+    ],
+    "RAFT_RESPONSE_SCHEMA_VERSION": [
+      {
+        "file": "src/raft/mod.rs",
+        "scope": "",
+        "value": "2"
+      }
+    ],
+    "RAFT_SNAPSHOT_SCHEMA_VERSION": [
+      {
+        "file": "src/raft/store.rs",
+        "scope": "",
+        "value": "4"
+      }
+    ],
+    "RAFT_WIRE_VERSION": [
+      {
+        "file": "src/raft/network.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "RAW_GRAPH_ROWS_SCHEMA_VERSION": [
+      {
+        "file": "src/server/persistence/online_reshard.rs",
+        "scope": "",
+        "value": "2"
+      }
+    ],
+    "RBAC_SCOPE_INCARNATION": [
+      {
+        "file": "crates/eg-core/src/rbac_persist.rs",
+        "scope": "",
+        "value": "\"rbac-security-control:v1\""
+      }
+    ],
+    "REPLAY_SCOPE_INCARNATION": [
+      {
+        "file": "src/server/request_replay.rs",
+        "scope": "",
+        "value": "\"request-replay:v1\""
+      }
+    ],
+    "SCHEMA_MIGRATION_FORMAT_VERSION": [
+      {
+        "file": "crates/eg-query/src/tables/migration.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-epistemic/src/incremental/events.rs",
+        "scope": "impl ReasoningProjectionWakeup",
+        "value": "1"
+      },
+      {
+        "file": "crates/eg-jobs/src/result.rs",
+        "scope": "impl TypedJobResult",
+        "value": "1"
+      },
+      {
+        "file": "crates/eg-types/src/epistemic_operations_manifest.rs",
+        "scope": "",
+        "value": "& [(\"request_context\" , \"2\") , (\"mutation_batch\" , \"1\") , (\"change_envelope\" , \"1\") , (\"work_item\" , \"1\") , (\"artifact\" , \"1\") , (\"knowledge_batch\" , \"1\") , (\"analytics_job\" , \"1\") , (\"trace_outcome\" , \"1\") , (\"placement_route\" , \"1\") , (\"claim_work_item\" , \"1\") , (\"evidence_bundle\" , \"1\") , (\"operation_result\" , \"1\") , (\"resource_reservation\" , \"1\") , (\"resource_reservation_status\" , \"1\") , (\"resource_host_update\" , \"1\") , (\"development_lane\" , \"1\")]"
+      },
+      {
+        "file": "crates/eg-types/src/mutation_batch/fault.rs",
+        "scope": "fn apply_certification_fault",
+        "value": "1"
+      },
+      {
+        "file": "src/performance_probe.rs",
+        "scope": "",
+        "value": "\"1\""
+      }
+    ],
+    "SECONDARY_INDEX_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-query/src/tables/index.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "STORAGE_KERNEL_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-storage/src/physical/incarnation.rs",
+        "scope": "",
+        "value": "2"
+      }
+    ],
+    "WIRE_VERSION": [
+      {
+        "file": "crates/eg-viz-graph-tiles/src/wire.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ]
   },
   "generator": "eg-capabilities/gen_contract",
   "internal_only_methods": 19,
@@ -343,6 +411,6 @@
     "dispatch-only": 83,
     "undeclared": 223
   },
-  "source_tree_oid": "90998433027f29010a5c69ae86d0a402dff4fd83a3f7fa49564fe33a7b641a3e",
+  "source_tree_oid": "1cd66ef2569518eede00325a906dc51189e55f12a4dbfe4108852035a9b105c0",
   "typed_result_methods": 129
 }

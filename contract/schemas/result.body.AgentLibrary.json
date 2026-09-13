@@ -1,0 +1,599 @@
+{
+  "$comment": "Carried as ResultPayload::Raw: a MessagePack `bin` holding the MessagePack encoding of exactly one of `bodies`, chosen by the request's `selected_by` tag (`result` when the method has a single body). The same MessagePack-vs-JSON caveat as method.request.json applies to byte fields.",
+  "$defs": {
+    "AgentComponentKind": {
+      "description": "What kind of part this is.\n\nClosed on purpose. Every kind here is referenced by name from\n[`crate::agent_library::AgentLibraryEntry`] or\n[`crate::agent_library::AgentRuntimeContract`] or\n[`crate::agent_graph`], so the set is the set of things an agent is\nactually built out of — not an open taxonomy.",
+      "oneOf": [
+        {
+          "const": "model_profile",
+          "description": "An LLM and the profile it is invoked under (`model_profile_ref`).",
+          "type": "string"
+        },
+        {
+          "const": "system_prompt",
+          "description": "Instructions, static or dynamic (`system_prompt_ref`).",
+          "type": "string"
+        },
+        {
+          "const": "tool",
+          "description": "One callable tool (`tool_refs`). An MCP server's tools ingest as these.",
+          "type": "string"
+        },
+        {
+          "const": "toolset",
+          "description": "A group of tools with one provenance: an MCP server, a function\ntoolset, a skill pack (`toolset_refs`).",
+          "type": "string"
+        },
+        {
+          "const": "mcp_server",
+          "description": "An MCP server itself -- the thing a set of tools/prompts/resources is\nserved BY. Modelled separately from `Toolset` because impact analysis\nasks about the server (\"this server is down / its schema moved --\nwhich agents are affected?\"), and that question needs the server to be\na node, not an attribute of each tool.",
+          "type": "string"
+        },
+        {
+          "const": "mcp_prompt",
+          "description": "An MCP prompt: a named, parameterized prompt template a server offers.",
+          "type": "string"
+        },
+        {
+          "const": "mcp_resource",
+          "description": "An MCP resource: addressable context a server exposes for reading.",
+          "type": "string"
+        },
+        {
+          "const": "skill",
+          "description": "A pydantic-ai skill (`skill_refs`).",
+          "type": "string"
+        },
+        {
+          "const": "ontology",
+          "description": "An ontology or vocabulary (`ontology_refs`).",
+          "type": "string"
+        },
+        {
+          "const": "schema",
+          "description": "A deps/output contract schema (`deps_contract`, `output_contract`).",
+          "type": "string"
+        },
+        {
+          "const": "output_validator",
+          "description": "An `@agent.output_validator` (`output_validator_refs`).",
+          "type": "string"
+        },
+        {
+          "const": "predicate",
+          "description": "A predicate behind a graph decision node or edge condition\n(`AgentGraphNodeKind::Decision::decision`, `AgentGraphEdge::condition`).\nBoth slots pin a `ComponentDependency` of this kind, so republishing a\npredicate cannot re-route an already-approved graph.",
+          "type": "string"
+        }
+      ]
+    },
+    "AgentLibraryEntry": {
+      "additionalProperties": false,
+      "description": "One durable Agent Library revision.",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "definition_digest": {
+          "description": "Digest of the immutable definition fields.  Lifecycle, revision and\ntimestamps are revision metadata and are intentionally excluded.",
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "instantiated_from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TemplateInstanceRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which template produced this agent, if any (RF-ADR-008 item C).\n\n`None` for a hand-authored agent. Present on an instance so \"which agents\ncame from this template?\" is a traversal -- the same reason components\nare pinned rather than named. Otherwise inert: an instance is admitted,\ndelegated and pinned exactly like any other agent, which is what keeps\nthose paths free of a template-aware branch."
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/AgentLibraryLifecycle"
+        },
+        "model_identity": {
+          "description": "Kept alongside `model_profile`: the profile is the pinned component,\nthis is the model it names. A reader answering \"what model does this\nagent run on?\" should not have to resolve a component to find out.",
+          "type": "string"
+        },
+        "model_profile": {
+          "$ref": "#/$defs/ComponentDependency"
+        },
+        "ontologies": {
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "package_id": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "role_digest": {
+          "type": "string"
+        },
+        "runtime": {
+          "$ref": "#/$defs/AgentRuntimeContract",
+          "default": {
+            "deps_contract": null,
+            "model_settings": {
+              "max_output_tokens": null,
+              "parallel_tool_calls": null,
+              "request_timeout_ms": null,
+              "seed": null,
+              "stop_sequences": [],
+              "temperature_milli": null,
+              "top_p_milli": null
+            },
+            "output_contract": null,
+            "output_mode": null,
+            "output_validator_refs": [],
+            "prompt_mode": null,
+            "retry_policy": {
+              "model_retries": 0,
+              "output_retries": 0
+            },
+            "toolset_refs": [],
+            "usage_limits": {
+              "input_tokens_limit": null,
+              "output_tokens_limit": null,
+              "request_limit": null,
+              "tool_calls_limit": null
+            }
+          },
+          "description": "How this agent RUNS -- output/deps contracts, model settings, budgets.\nSee [`AgentRuntimeContract`]. An empty contract is a plain-text agent\nwith engine-default budgets."
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "source_revision_digest": {
+          "type": "string"
+        },
+        "system_prompt": {
+          "$ref": "#/$defs/ComponentDependency",
+          "description": "The components this agent is assembled from, each pinned to an exact\nL1 revision (RF-ADR-008). These were opaque `*_ref` strings plus a\nper-set digest; pinning them by `(component_id, kind, definition_digest)`\nis what connects the hierarchy:\n\n* \"which agents use this tool?\" becomes a traversal, not a string match;\n* republishing a component changes its digest, so an agent assembled\n  from the old one no longer resolves -- silently inheriting a changed\n  tool is no longer possible;\n* each slot's `kind` is checked, so a tool cannot be wired in where a\n  model profile belongs.\n\nThe former `*_set_digest` fields are gone: a digest over the whole set\nwas pinning what the per-item digests now pin individually, and\n`definition_digest` already covers the sorted list."
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "updated_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "agent_id",
+        "package_id",
+        "version",
+        "role",
+        "role_digest",
+        "system_prompt",
+        "tools",
+        "skills",
+        "model_profile",
+        "model_identity",
+        "ontologies",
+        "tenant_id",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest",
+        "source_revision",
+        "source_revision_digest",
+        "entry_revision",
+        "lifecycle",
+        "definition_digest",
+        "created_at_ms",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "AgentLibraryLifecycle": {
+      "description": "The retained lifecycle of one Agent Library definition.\n\n`Retired` is a durable tombstone.  It remains in the revision stream and\ncannot be replaced by a later publish, preserving the definition's\nprovenance and preventing silent resurrection of an agent identity.",
+      "enum": [
+        "published",
+        "retired"
+      ],
+      "type": "string"
+    },
+    "AgentLibraryWriteResult": {
+      "additionalProperties": false,
+      "description": "Receipt returned by the EG Agent Library storage seam.\n\nThe entry is the exact committed revision. `replayed` is set only when the\ncaller's idempotency key reconciles to an already committed receipt.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "committed_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entry": {
+          "$ref": "#/$defs/AgentLibraryEntry"
+        },
+        "replayed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "entry",
+        "batch_id",
+        "committed_version",
+        "replayed"
+      ],
+      "type": "object"
+    },
+    "AgentModelSettings": {
+      "additionalProperties": false,
+      "description": "Bounded model-invocation settings (pydantic-ai `ModelSettings`).\n\nEvery continuous setting is an INTEGER in thousandths, never a float. These\nvalues are hashed into `definition_digest`, and floats have no canonical\nbyte form for that purpose: `NaN != NaN` breaks `Eq`, `0.0` and `-0.0` are\nequal but hash differently, and the same value can format differently across\nplatforms and serde versions. A reproducible definition digest cannot be\nbuilt on any of that, so the wire type carries milli-units and the harness\ndivides by 1000 when it constructs the model settings.",
+      "properties": {
+        "max_output_tokens": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "parallel_tool_calls": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "request_timeout_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "seed": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stop_sequences": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "temperature_milli": {
+          "description": "Sampling temperature in thousandths (`700` = 0.7).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "top_p_milli": {
+          "description": "Nucleus-sampling mass in thousandths (`950` = 0.95).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "stop_sequences"
+      ],
+      "type": "object"
+    },
+    "AgentOutputMode": {
+      "description": "How the model is asked to produce the agent's structured output.\n\nMirrors pydantic-ai's `ToolOutput` / `NativeOutput` / `PromptedOutput`.",
+      "oneOf": [
+        {
+          "const": "text",
+          "description": "Free text — pydantic-ai's default `output_type=str`.",
+          "type": "string"
+        },
+        {
+          "const": "tool",
+          "description": "A synthesized tool call carries the structured result.",
+          "type": "string"
+        },
+        {
+          "const": "native",
+          "description": "The provider's own structured-output mode.",
+          "type": "string"
+        },
+        {
+          "const": "prompted",
+          "description": "The schema is described in the prompt and parsed from the reply.",
+          "type": "string"
+        }
+      ]
+    },
+    "AgentPromptMode": {
+      "description": "Whether the system prompt is fixed at publish time or resolved per run.\n\npydantic-ai distinguishes `Agent(system_prompt=…)` from `@agent.system_prompt`\n/ `@agent.instructions`. The distinction is durable identity, not style: a\nstatic prompt's digest pins the prompt itself, while a dynamic prompt's\ndigest can only pin the FUNCTION that produces it. A dynamic prompt must\ntherefore be digest-bound again at resolution time, and a reader that cannot\ntell the two apart cannot know whether `system_prompt_digest` covers the text\nthe model actually saw.",
+      "enum": [
+        "static",
+        "dynamic"
+      ],
+      "type": "string"
+    },
+    "AgentRetryPolicy": {
+      "additionalProperties": false,
+      "description": "Retry budgets that belong to the agent definition, not to one delegation.\n\nDistinct from `KgDelegateRequest::max_attempts`, which is how many times the\nENGINE will re-admit the work item. These are how many times the agent will\nask the model again within a single run after a tool error or an output that\nfails validation (pydantic-ai `retries` / `output_retries`).",
+      "properties": {
+        "model_retries": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_retries": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_retries",
+        "output_retries"
+      ],
+      "type": "object"
+    },
+    "AgentRuntimeContract": {
+      "additionalProperties": false,
+      "description": "The part of an agent's definition that governs how it RUNS, as opposed to\nwhich components it is assembled from.\n\nGrouped into one nested type rather than flattened into\n[`AgentLibraryEntryDraft`] deliberately. The draft, the entry, `create`,\n`retire` and `as_draft` each restate every field, so a flat shape would pay\nfive edits per field and grow a 23-field struct to 35 — the exact sprawl\nRF-ADR-008 exists to avoid. It also names a real concept: two agents with\nthe same components but different output contracts are different agents.\n\nEvery field participates in `definition_digest`.",
+      "properties": {
+        "deps_contract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The agent's typed input (pydantic-ai `deps_type`). `None` = no deps."
+        },
+        "model_settings": {
+          "$ref": "#/$defs/AgentModelSettings"
+        },
+        "output_contract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The agent's typed output (pydantic-ai `output_type`). `None` with\n[`AgentOutputMode::Text`] is the plain-text default."
+        },
+        "output_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentOutputMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "output_validator_refs": {
+          "description": "`@agent.output_validator` functions, by reference.",
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "prompt_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentPromptMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`None` is read as [`AgentPromptMode::Static`]."
+        },
+        "retry_policy": {
+          "$ref": "#/$defs/AgentRetryPolicy"
+        },
+        "toolset_refs": {
+          "description": "Grouped tool sources — a `FunctionToolset`, an MCP server, a skill pack.\n\n`tools` on the entry is the flattened resolution of these WHERE THE\nPUBLISHER CAN FLATTEN THEM, so a reader that only cares which individual\ntools exist need not walk the grouping. The engine does not, and cannot,\nenforce that: a toolset is an L1 reference, its contents live in the\nsystem that owns it, and resolving an MCP server's tool list is not\nsomething this contract can do at publish time. Treating the flattening\nas an invariant would therefore be asserting a property nothing checks.\n\nSo the capability proof covers BOTH lists instead — see\n[`AgentLibraryEntry::tool_surface_digest`]. An agent that names a toolset\nit did not flatten still has that toolset inside the digest delegation\nadmits, rather than a proof over a strict subset of what it can call.",
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "usage_limits": {
+          "$ref": "#/$defs/AgentUsageLimits"
+        }
+      },
+      "required": [
+        "output_validator_refs",
+        "toolset_refs",
+        "model_settings",
+        "retry_policy",
+        "usage_limits"
+      ],
+      "type": "object"
+    },
+    "AgentUsageLimits": {
+      "additionalProperties": false,
+      "description": "Per-run consumption ceilings (pydantic-ai `UsageLimits`).\n\n`None` means \"the engine's bounded default\", never \"unlimited\" — an agent\ndefinition cannot opt out of a ceiling, only decline to tighten it.",
+      "properties": {
+        "input_tokens_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_tokens_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "request_limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tool_calls_limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ComponentDependency": {
+      "additionalProperties": false,
+      "description": "One pinned requirement of a component.\n\nThe `kind` is carried alongside the id so a dependency can be type-checked\nwithout resolving it: a [`AgentComponentKind::Tool`] whose input schema\npoints at a [`AgentComponentKind::ModelProfile`] is rejected structurally,\nnot at run time. The `definition_digest` pins the exact revision, so a\ndependency cannot silently change under a component that was reviewed\nagainst it.",
+      "properties": {
+        "component_id": {
+          "type": "string"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/AgentComponentKind"
+        }
+      },
+      "required": [
+        "component_id",
+        "kind",
+        "definition_digest"
+      ],
+      "type": "object"
+    },
+    "TemplateInstanceRef": {
+      "additionalProperties": false,
+      "description": "Where an instantiated agent came from.",
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "description": "Parameter name -> the component it was bound to. Ordered, so an\ninstance's digest does not depend on map iteration order.",
+          "type": "object"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "template_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "template_id",
+        "entry_revision",
+        "definition_digest",
+        "bindings"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "bodies": {
+    "current": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentLibraryEntry"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "history": {
+      "items": {
+        "$ref": "#/$defs/AgentLibraryEntry"
+      },
+      "type": "array"
+    },
+    "publish": {
+      "$ref": "#/$defs/AgentLibraryWriteResult"
+    },
+    "retire": {
+      "$ref": "#/$defs/AgentLibraryWriteResult"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentLibraryWriteResult"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "method": "AgentLibrary",
+  "selected_by": "operation",
+  "title": "AgentLibrary result body"
+}

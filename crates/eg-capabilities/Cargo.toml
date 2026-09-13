@@ -77,6 +77,25 @@ optional = true
 version = "0.4.3"
 optional = true
 
+# The format-identity pass parses Rust items instead of scanning lines, so a site is
+# identified by file + enclosing item path and a value by its tokens -- never by a
+# line number that `cargo fmt` or a blank line would move.
+[dependencies.syn]
+version = "2.0.119"
+optional = true
+default-features = false
+features = ["full", "parsing", "printing", "visit"]
+
+[dependencies.quote]
+version = "1.0.47"
+optional = true
+default-features = false
+
+[dependencies.proc-macro2]
+version = "1.0.107"
+optional = true
+default-features = false
+
 # The generator can never run under a partial feature profile: the registry it
 # serializes must be the complete supported wire inventory.
 [[bin]]
@@ -94,6 +113,9 @@ contract-schema = [
     "dep:serde_json",
     "dep:sha2",
     "dep:hex",
+    "dep:syn",
+    "dep:quote",
+    "dep:proc-macro2",
     "eg-types/contract-schema",
 ]
 # The checked-in ledger is the complete supported wire inventory, not a

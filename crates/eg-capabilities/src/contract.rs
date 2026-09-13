@@ -113,6 +113,7 @@ fn descriptor_json(d: &MethodDescriptor) -> serde_json::Value {
         "domain": d.domain,
         "request_schema": schema_ref_json(d.request_schema, id),
         "result_schema": schema_ref_json(d.result_schema, id),
+        "result_body_schema": schema::result_body_path(id),
         "result_provenance": provenance_json(d.result_provenance),
         "error_set": d.error_set,
         "policy": {
@@ -238,11 +239,19 @@ fn receipt_json(root: &Path, artifacts: &[Artifact]) -> Vec<u8> {
         .collect();
     let identities: BTreeMap<String, serde_json::Value> = collect_format_identities(root)
         .into_iter()
-        .map(|i| {
-            (
-                i.name.clone(),
-                serde_json::json!({"value": i.value, "sites": i.sites}),
-            )
+        .map(|identity| {
+            let sites: Vec<serde_json::Value> = identity
+                .sites
+                .iter()
+                .map(|site| {
+                    serde_json::json!({
+                        "file": site.file,
+                        "scope": site.scope,
+                        "value": site.value,
+                    })
+                })
+                .collect();
+            (identity.name, serde_json::json!(sites))
         })
         .collect();
     let source_oid = source_tree_oid(root);

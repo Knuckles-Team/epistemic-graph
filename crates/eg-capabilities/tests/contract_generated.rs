@@ -34,6 +34,58 @@ fn committed_contract_artifacts_match_the_registry() {
     }
 }
 
+fn committed_json(path: &str) -> serde_json::Value {
+    let text = std::fs::read_to_string(repo_root().join(path))
+        .unwrap_or_else(|error| panic!("cannot read {path}: {error}"));
+    serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path} is not JSON: {error}"))
+}
+
+/// The contract profile turns on `eg-types/timeseries` (via `canonical-ledger`), so the
+/// `Op` variants that feature gates are part of the published request schema. `Op` is
+/// externally tagged: a variant's name is its subschema's single required key.
+#[test]
+fn request_schema_covers_the_timeseries_op_variants() {
+    let document = committed_json("contract/schemas/method.request.json");
+    let variants: std::collections::BTreeSet<String> = document["$defs"]["Op"]["oneOf"]
+        .as_array()
+        .expect("`Op` is a oneOf over its variants")
+        .iter()
+        .filter_map(|variant| variant["required"].as_array()?.first()?.as_str())
+        .map(str::to_string)
+        .collect();
+    for gated in ["SensorAlign", "SensorFuse", "TsScan"] {
+        assert!(
+            variants.contains(gated),
+            "`Op::{gated}` is missing from method.request.json -- the contract profile no \
+             longer enables `eg-types/timeseries`"
+        );
+    }
+}
+
+/// A result DTO change must move a digest: every bound result-body schema is an
+/// `artifact_digests` entry, and every descriptor's pointer resolves to one.
+#[test]
+fn every_result_body_schema_is_digested() {
+    let receipt = committed_json("contract/receipt.json");
+    let digests = receipt["artifact_digests"]
+        .as_object()
+        .expect("the receipt carries artifact_digests");
+    let methods = committed_json("contract/methods.json");
+    let bound: Vec<&str> = methods["methods"]
+        .as_array()
+        .expect("methods.json lists methods")
+        .iter()
+        .filter_map(|method| method["result_body_schema"].as_str())
+        .collect();
+    assert!(!bound.is_empty(), "no method binds a result-body schema");
+    for path in bound {
+        assert!(
+            digests.contains_key(path),
+            "{path} is referenced by methods.json but not digested"
+        );
+    }
+}
+
 #[test]
 fn every_declared_format_identity_exists_in_the_tree() {
     let root = repo_root();
