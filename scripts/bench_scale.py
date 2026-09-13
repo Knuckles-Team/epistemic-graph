@@ -34,7 +34,6 @@ import os
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -62,14 +61,22 @@ def _rss_kb(pid: int) -> int:
     return 0
 
 
-@dataclass
 class ShardProc:
     """One spawned shard server: its process handle plus the socket path it
     was told to listen on. ``subprocess.Popen`` has no such attribute of its
-    own, so this pairs the two instead of stashing an ad hoc one onto it."""
+    own, so this pairs the two instead of stashing an ad hoc one onto it.
 
-    proc: subprocess.Popen
-    sock: str
+    This is deliberately a plain slotted class rather than a dataclass: the
+    benchmark's smoke test loads this script through ``module_from_spec`` and
+    ``exec_module`` without registering it in ``sys.modules``, while dataclass
+    decoration consults that registry on Python 3.14.
+    """
+
+    __slots__ = ("proc", "sock")
+
+    def __init__(self, proc: subprocess.Popen, sock: str) -> None:
+        self.proc = proc
+        self.sock = sock
 
 
 def _spawn_shards(binary: Path, n: int, tmp: str) -> list[ShardProc]:
