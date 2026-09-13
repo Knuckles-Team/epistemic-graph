@@ -92,9 +92,7 @@ def test_conditional_derive_is_inert_and_the_child_module_is_still_read(
         "strum::IntoStaticStr",
     ],
 )
-def test_each_audited_conditional_derive_is_inert(
-    tmp_path: Path, derive: str
-) -> None:
+def test_each_audited_conditional_derive_is_inert(tmp_path: Path, derive: str) -> None:
     walker = _script("rust_module_tree")
     _plant_module(tmp_path, f'#[cfg_attr(feature = "x", derive({derive}))]')
 
@@ -293,7 +291,8 @@ fn audited_free_function() {
 mod outer {
     pub mod inner {
         pub async fn smuggled_nested_module_fn() {
-            let lease = isolation.mint_policy_decision_lease(&caller_token, &graph, read);
+            let lease = isolation.mint_policy_decision_lease(&caller_token, &graph,
+            read);
         }
     }
 }

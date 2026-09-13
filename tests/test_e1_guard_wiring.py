@@ -22,9 +22,7 @@ def _load_gate(filename: str, module_name: str):
 
 
 def test_p2_guard_rejects_a_missing_post_page_fence() -> None:
-    module = _load_gate(
-        "check_p2_modality_architecture.py", "e1_p2_modality_guard"
-    )
+    module = _load_gate("check_p2_modality_architecture.py", "e1_p2_modality_guard")
     handler = module.knowledge_stream_handler_source()
     module.require_knowledge_stream_authority(handler)
 
@@ -44,8 +42,7 @@ def test_modality_guard_reads_probe_child_and_rejects_a_lost_probe_body(
     runtime = tmp_path / "crates" / "eg-video" / "src"
     runtime.mkdir(parents=True)
     (runtime / "runtime.rs").write_text(
-        "mod probe;\n"
-        "pub struct NativeVideoRuntime;\n",
+        "mod probe;\npub struct NativeVideoRuntime;\n",
         encoding="utf-8",
     )
     (runtime / "runtime").mkdir()
@@ -118,9 +115,7 @@ def test_analytics_gate_reads_consensus_child_and_rejects_a_lost_call_body(
 def test_lazy_gate_reads_registry_child_and_rejects_a_lost_fence_body(
     tmp_path, monkeypatch
 ) -> None:
-    module = _load_gate(
-        "check_lazy_lifecycle_architecture.py", "e1_lazy_module_tree"
-    )
+    module = _load_gate("check_lazy_lifecycle_architecture.py", "e1_lazy_module_tree")
     registry = tmp_path / "crates" / "eg-core" / "src"
     registry.mkdir(parents=True)
     (registry / "registry.rs").write_text(
@@ -178,14 +173,14 @@ def test_mint_guard_rejects_a_call_site_without_verified_mac_binding(tmp_path) -
         ),
         encoding="utf-8",
     )
-    with pytest.raises(SystemExit, match="does not construct its own MintAuthorization"):
+    with pytest.raises(
+        SystemExit, match="does not construct its own MintAuthorization"
+    ):
         module.require_self_constructed_authorization(tmp_path, only_path, only_line)
 
 
 def test_current_only_guard_rejects_generated_graphql_without_variables() -> None:
-    module = _load_gate(
-        "check_current_only_architecture.py", "e1_current_only_guard"
-    )
+    module = _load_gate("check_current_only_architecture.py", "e1_current_only_guard")
     client = module.read("epistemic_graph/client.py")
     generated = module.read("epistemic_graph/generated/query.py")
     module._check_client_basic_contract(client, generated)
@@ -214,7 +209,9 @@ def test_persisted_blob_guard_rejects_split_refcount_commit() -> None:
         "check_persisted_mutation_contract.py", "e1_persisted_mutation_guard"
     )
     sources = module.mutation_inventory_sources()
-    module._check_blob_result_contract(sources["blob_store"], sources["blob_store_tests"])
+    module._check_blob_result_contract(
+        sources["blob_store"], sources["blob_store_tests"]
+    )
 
     broken = sources["blob_store"].replace("CAS_REFCOUNT", "REFCOUNT_TABLE_REMOVED")
     with pytest.raises(SystemExit, match="atomically bind CAS"):

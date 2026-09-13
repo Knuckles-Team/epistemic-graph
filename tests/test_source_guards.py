@@ -33,7 +33,8 @@ _AMQP_WIRE = _ROOT / "src" / "server" / "amqp_wire" / "mod.rs"
 _HOOKS = _ROOT / ".pre-commit-config.yaml"
 _RELEASE = _ROOT / ".github" / "workflows" / "release.yml"
 
-# A cargo subcommand that resolves dependencies can REWRITE Cargo.lock; `--locked` is what
+# A cargo subcommand that resolves dependencies can REWRITE Cargo.lock; `--locked` is
+# what
 # stops it. Anything else (`fmt`) cannot.
 _RESOLVING_SUBCOMMANDS = ("run", "test", "check", "build", "clippy")
 
@@ -53,7 +54,9 @@ def _rust_sources(*roots: Path) -> str:
 def _cargo_invocations(path: Path) -> list[tuple[int, str]]:
     """`(line number, command)` for every resolving cargo invocation in a gate file."""
     found: list[tuple[int, str]] = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         if line.lstrip().startswith("#"):
             continue
         for match in re.finditer(r"cargo\s+(\w[\w-]*)", line):
@@ -115,7 +118,8 @@ class RustSourceGuards(unittest.TestCase):
         """Every typed Raw response propagates serializer failures.
 
         `unwrap_or_default` turns an encoding error into a SUCCESSFUL empty byte string
-        and `expect` turns the same boundary failure into a process panic. Both break the
+        and `expect` turns the same boundary failure into a process panic. Both break
+        the
         one fallible Raw contract: the caller must see the error.
         """
         handlers = _rust_sources(_QUERY_HANDLER, _RDF_HANDLER)
@@ -129,7 +133,11 @@ class RustSourceGuards(unittest.TestCase):
         )
         store = _REDB_STORE.read_text(encoding="utf-8")
         self.assertIsNone(
-            re.search(r"ResultPayload::raw\([^;]+?\)\s*\.(?:expect|unwrap)\(", store, re.DOTALL),
+            re.search(
+                r"ResultPayload::raw\([^;]+?\)\s*\.(?:expect|unwrap)\(",
+                store,
+                re.DOTALL,
+            ),
             "redb_store panics instead of returning a Raw encoding error",
         )
 

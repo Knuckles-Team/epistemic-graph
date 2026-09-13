@@ -12,16 +12,12 @@ import csv
 import hashlib
 import io
 import os
-import sys
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-
-from check_wheel_completeness import check_wheel, main  # noqa: E402
+from check_wheel_completeness import check_wheel, main
 
 # This module exercises only the static wheel checker against in-memory fixtures.
 # Keep the session-scoped native-engine fixture out of the complete wheel suite,

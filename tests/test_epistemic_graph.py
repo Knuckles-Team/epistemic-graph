@@ -76,7 +76,8 @@ def test_edge_addition_and_removal(clean_graph):
 
 
 def test_topological_sorting(clean_graph):
-    """Test Kahn's algorithm topological sorting on valid DAGs and exception on cyclic graphs."""
+    """Test Kahn's algorithm topological sorting on valid DAGs and exception on cyclic
+    graphs."""
     clean_graph.nodes.add("X", "{}")
     clean_graph.nodes.add("Y", "{}")
     clean_graph.nodes.add("Z", "{}")
@@ -127,7 +128,8 @@ def test_shortest_path_bfs(clean_graph):
     clean_graph.edges.add("1", "3", "{}")
     clean_graph.edges.add("3", "4", "{}")
 
-    # Shortest path from 1 to 4 should be 1 -> 3 -> 4 (length 3 nodes) rather than 1 -> 2 -> 3 -> 4
+    # Shortest path from 1 to 4 should be 1 -> 3 -> 4 (length 3 nodes) rather than 1 ->
+    # 2 -> 3 -> 4
     path = clean_graph.graph.shortest_path("1", "4")
     assert path == ["1", "3", "4"]
 
@@ -209,7 +211,8 @@ def test_vf2_subgraph_match(clean_graph):
     pattern.nodes.add("P2", '{"type": "function"}')
     pattern.edges.add("P1", "P2", "{}")
 
-    # Pass the pattern client to vf2_subgraph_match (client handles sending pattern_graph_name)
+    # Pass the pattern client to vf2_subgraph_match (client handles sending
+    # pattern_graph_name)
     result = clean_graph.graph.vf2_subgraph_match(pattern)
     matches = result["matches"]
     assert len(matches) == 1
@@ -231,7 +234,8 @@ def test_reactive_state_ledger(clean_graph):
     assert "ADD_NODE|Y|" in ledger[1]
     assert "ADD_EDGE|X|Y|" in ledger[2]
 
-    # We will test Transaction replay on the same graph to avoid the removed to_json/from_json
+    # We will test Transaction replay on the same graph to avoid the removed
+    # to_json/from_json
     graph2 = clean_graph
 
     # Transaction replay
@@ -287,7 +291,7 @@ def test_index_repository_resolves_cross_file_edges(clean_graph):
     ]
     try:
         res = clean_graph.graph.index_repository(files)
-    except Exception as exc:  # noqa: BLE001 - capability probe
+    except Exception as exc:
         # The CI test server is built `--features server` (no `ast`); skip there.
         if "AST feature not enabled" in str(exc):
             pytest.skip("engine built without the `ast` feature")

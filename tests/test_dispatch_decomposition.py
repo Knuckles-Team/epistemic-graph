@@ -12,8 +12,14 @@ pytestmark = pytest.mark.no_engine
 
 
 def _gate_module():
-    gate_path = Path(__file__).resolve().parents[1] / "scripts" / "check_dispatch_decomposition.py"
-    spec = importlib.util.spec_from_file_location("dispatch_decomposition_gate", gate_path)
+    gate_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "check_dispatch_decomposition.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "dispatch_decomposition_gate", gate_path
+    )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -48,7 +54,9 @@ def test_cfg_boundary_drift_fails_closed() -> None:
     module = _gate_module()
     parts = module.sources()
     target = "src/server/dispatch/graph_pipeline.rs"
-    parts[target] = parts[target].replace('feature = "query"', 'feature = "removed-query"', 1)
+    parts[target] = parts[target].replace(
+        'feature = "query"', 'feature = "removed-query"', 1
+    )
     with pytest.raises(SystemExit, match="cfg boundary set changed"):
         module.check_cfg_contract(parts)
 
@@ -61,8 +69,10 @@ def test_legacy_coalescer_subset_proof_fails_closed() -> None:
     try:
         # Supply the gateway source through the same dictionary seam used by the
         # checker so this mutation never touches the checkout.
-        parts["src/server/handlers/graph_ops/gateway_graph.rs"] = gateway_path.read_text().replace(
-            "Method::AddNode", "Method::RemovedAddNode"
+        parts["src/server/handlers/graph_ops/gateway_graph.rs"] = (
+            gateway_path.read_text().replace(
+                "Method::AddNode", "Method::RemovedAddNode"
+            )
         )
         with pytest.raises(SystemExit, match="gateway arm AddNode"):
             module.check_routing_and_coalescing(parts)

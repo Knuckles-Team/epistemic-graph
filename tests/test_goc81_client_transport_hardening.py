@@ -129,7 +129,9 @@ class _EchoHealthServer:
         self.last_ssl_object: ssl.SSLObject | None = None
         self._writers: list[asyncio.StreamWriter] = []
 
-    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _handle(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         self._writers.append(writer)
         # Only set for a TLS-wrapped connection -- proves a real handshake
         # completed (asyncio decrypts transparently below the StreamReader,
@@ -283,15 +285,11 @@ def test_service_specific_ca_directory_selects_tls(monkeypatch):
     separate `GRAPH_SERVICE_TLS=on` switch.
     """
     _clear_tls_env(monkeypatch)
-    monkeypatch.setenv(
-        "GRAPH_SERVICE_TLS_CA_DIRECTORY", "/etc/epistemic-graph/ca.d"
-    )
+    monkeypatch.setenv("GRAPH_SERVICE_TLS_CA_DIRECTORY", "/etc/epistemic-graph/ca.d")
     decision = EpistemicGraphClient._resolve_tls_decision(
         None, client_cert=None, client_key=None, server_hostname=None
     )
-    assert decision == _TlsDecision(
-        True, "named-profile", None, "ca_directory"
-    )
+    assert decision == _TlsDecision(True, "named-profile", None, "ca_directory")
 
 
 def test_conflicting_tls_disabled_with_client_cert_is_rejected(monkeypatch):
@@ -454,7 +452,9 @@ async def test_served_tls_connection_succeeds_when_explicitly_selected(
             tls_server_hostname="epistemic-graph-test.example.invalid",
         )
         assert await client.ping() == "pong"
-        assert server.last_ssl_object is not None, "expected a real completed TLS handshake"
+        assert server.last_ssl_object is not None, (
+            "expected a real completed TLS handshake"
+        )
         assert server.last_ssl_object.cipher() is not None
     finally:
         if client is not None:
@@ -744,7 +744,9 @@ async def test_close_during_connect_does_not_leak_or_hang(monkeypatch):
 
         close_task = asyncio.ensure_future(client.close())
         await asyncio.sleep(0.05)
-        assert not close_task.done(), "close() must wait for the in-flight dial, not race it"
+        assert not close_task.done(), (
+            "close() must wait for the in-flight dial, not race it"
+        )
 
         release_dial.set()
         await asyncio.wait_for(asyncio.gather(reconnect_task, close_task), timeout=2.0)
@@ -891,7 +893,9 @@ async def test_reconnect_after_eof_uses_new_generation():
             client._on_reader_terminated(
                 starting_generation, ConnectionError("stale reader callback")
             )
-            assert client._closed is False, "a stale-generation callback marked the NEW connection dead"
+            assert client._closed is False, (
+                "a stale-generation callback marked the NEW connection dead"
+            )
             assert client._terminal_error is None
         finally:
             await server2.stop()

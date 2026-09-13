@@ -1,4 +1,5 @@
-"""Round-trip tests for the SABR volatility-surface kernels (CONCEPT:AU-KG.domains.derivatives).
+"""Round-trip tests for the SABR volatility-surface kernels
+(CONCEPT:AU-KG.domains.derivatives).
 Full path: client -> UDS -> Rust -> result. Uses `clean_graph` from conftest.
 """
 
@@ -6,8 +7,9 @@ Full path: client -> UDS -> Rust -> result. Uses `clean_graph` from conftest.
 def test_sabr_implied_vol_and_smile(clean_graph):
     v = clean_graph.finance.sabr_implied_vol(100.0, 100.0, 1.0, 0.2, 0.5, -0.3, 0.4)
     assert v > 0.0
-    smile = clean_graph.finance.sabr_smile(100.0, [80.0, 90.0, 100.0, 110.0, 120.0],
-                                           1.0, 0.2, 0.5, -0.5, 0.5)
+    smile = clean_graph.finance.sabr_smile(
+        100.0, [80.0, 90.0, 100.0, 110.0, 120.0], 1.0, 0.2, 0.5, -0.5, 0.5
+    )
     assert len(smile) == 5 and all(s > 0 for s in smile)
     assert smile[0] > smile[4]  # negative-rho downside skew
 

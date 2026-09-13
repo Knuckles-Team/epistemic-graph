@@ -27,7 +27,8 @@ EXPECTED_EXCLUDES = {"**/__pycache__/**", "**/*.pyc", "**/*.pyo"}
 
 
 def test_shipped_python_surface_has_no_numpy_runtime_imports() -> None:
-    """The native kernel is the only numeric runtime; Python source stays stdlib-only."""
+    """The native kernel is the only numeric runtime; Python source stays
+    stdlib-only."""
 
     findings: list[str] = []
     for path in sorted((REPO / "epistemic_graph").rglob("*.py")):
@@ -41,7 +42,9 @@ def test_shipped_python_surface_has_no_numpy_runtime_imports() -> None:
                 continue
             if any(name == "numpy" or name.startswith("numpy.") for name in names):
                 findings.append(f"{path.relative_to(REPO)}:{node.lineno}")
-    assert not findings, "NumPy runtime imports in shipped source: " + ", ".join(findings)
+    assert not findings, "NumPy runtime imports in shipped source: " + ", ".join(
+        findings
+    )
 
 
 def _recorded_numeric_wheel(path: Path) -> None:

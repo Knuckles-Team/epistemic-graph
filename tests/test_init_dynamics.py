@@ -5,7 +5,8 @@ from epistemic_graph.client import SyncEpistemicGraphClient
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_initial_graph_dynamics(clean_graph):
-    """Verify that a clean, newly instantiated EpistemicGraph is properly configured and empty."""
+    """Verify that a clean, newly instantiated EpistemicGraph is properly configured and
+    empty."""
     assert isinstance(clean_graph, SyncEpistemicGraphClient)
 
     # Check that nodes and edges lists are empty

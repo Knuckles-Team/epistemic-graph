@@ -73,8 +73,7 @@ fn decoy_fault_markers() {
     errors = module._check_fault_seam_contract()
 
     assert (
-        "fault seam apply path: missing "
-        "'batch_matches_request(batch, spec.request_id)'"
+        "fault seam apply path: missing 'batch_matches_request(batch, spec.request_id)'"
     ) in errors
     assert (
         "fault seam request identity helper: missing "

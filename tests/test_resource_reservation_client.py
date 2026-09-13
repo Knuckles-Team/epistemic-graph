@@ -188,7 +188,13 @@ def _host_snapshot() -> dict[str, object]:
         "host_ref": "host-1",
         "revision": 1,
         "capacity": capacity,
-        "observed": {**capacity, "cpu_weight": 1, "memory_mib": 256, "disk_mib": 100, "process_slots": 1},
+        "observed": {
+            **capacity,
+            "cpu_weight": 1,
+            "memory_mib": 256,
+            "disk_mib": 100,
+            "process_slots": 1,
+        },
         "heartbeat_at_ms": 10,
         "heartbeat_ttl_ms": 1000,
         "draining": False,
@@ -206,9 +212,17 @@ def _host_snapshot() -> dict[str, object]:
     }
 
 
-def test_status_reader_omits_ordinary_snapshot_and_accepts_only_valid_aggregate_snapshot() -> None:
-    assert _resource_reservation_status_result(_status_result(None))["host_snapshot"] is None
-    assert _resource_reservation_status_result(_status_result(_host_snapshot()))["host_snapshot"] is not None
+def test_status_reader_omits_ordinary_snapshot_accepts_only_valid_aggregate() -> None:
+    assert (
+        _resource_reservation_status_result(_status_result(None))["host_snapshot"]
+        is None
+    )
+    assert (
+        _resource_reservation_status_result(_status_result(_host_snapshot()))[
+            "host_snapshot"
+        ]
+        is not None
+    )
 
     invalid_ttl = _host_snapshot()
     invalid_ttl["heartbeat_ttl_ms"] = 0

@@ -133,8 +133,12 @@ def find_server_binary() -> str | None:
     candidates = []
     target_dir_env = os.environ.get("CARGO_TARGET_DIR")
     if target_dir_env:
-        candidates.append(os.path.join(target_dir_env, "release", "epistemic-graph-server"))
-        candidates.append(os.path.join(target_dir_env, "debug", "epistemic-graph-server"))
+        candidates.append(
+            os.path.join(target_dir_env, "release", "epistemic-graph-server")
+        )
+        candidates.append(
+            os.path.join(target_dir_env, "debug", "epistemic-graph-server")
+        )
     candidates += [
         os.path.join(root, "target-isolated", "release", "epistemic-graph-server"),
         os.path.join(root, "target-isolated", "debug", "epistemic-graph-server"),
@@ -174,9 +178,7 @@ def _prebuilt_test_binary() -> str | None:
     mode = os.stat(path).st_mode
     if not mode & stat.S_IXUSR:
         return None
-    digest = str(
-        os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY_SHA256", "") or ""
-    ).strip()
+    digest = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY_SHA256", "") or "").strip()
     if digest:
         hasher = hashlib.sha256()
         with open(path, "rb") as handle:

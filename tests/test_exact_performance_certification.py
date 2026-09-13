@@ -62,8 +62,7 @@ def test_committed_workload_and_threshold_manifests_are_complete() -> None:
     assert workload.route_partition_ref.startswith("eg:partition:")
     assert set(workload.modality_sources) == set(harness.MODALITIES)
     assert all(
-        len(workload.modality_sources[modality])
-        == dataset["modality_records_per_kind"]
+        len(workload.modality_sources[modality]) == dataset["modality_records_per_kind"]
         for modality in harness.MODALITIES
     )
     assert set(thresholds["metrics"]) == set(harness.METRIC_CONTRACT)
@@ -245,9 +244,7 @@ def _probe_result(
             {
                 "row_id": row["row_id"],
                 "scales": scales,
-                "equivalence": {
-                    check: True for check in row["equivalence_checks"]
-                },
+                "equivalence": {check: True for check in row["equivalence_checks"]},
             }
         )
     return {
@@ -357,7 +354,9 @@ def test_evaluator_emits_digest_bound_evidence_for_all_54_rows() -> None:
     assert failures == []
     assert len(rows) == 54
     assert len(families) == 30
-    assert all(evidence["evidence_binding_sha256"] == binding for evidence in rows.values())
+    assert all(
+        evidence["evidence_binding_sha256"] == binding for evidence in rows.values()
+    )
     assert all(evidence["passed"] is True for evidence in rows.values())
     assert all(
         set(evidence["threshold_results"])
@@ -377,9 +376,7 @@ def test_exact_binary_probe_source_covers_manifest_inventory() -> None:
     harness = _load_harness()
     contracts = harness._load_scenario_contracts(harness.DEFAULT_SCENARIOS)
     main_source = (ROOT / "src" / "main.rs").read_text(encoding="utf-8")
-    probe_source = (ROOT / "src" / "performance_probe.rs").read_text(
-        encoding="utf-8"
-    )
+    probe_source = (ROOT / "src" / "performance_probe.rs").read_text(encoding="utf-8")
 
     assert "mod performance_probe;" in main_source
     assert "exact_performance_probe" in main_source
@@ -389,8 +386,7 @@ def test_exact_binary_probe_source_covers_manifest_inventory() -> None:
     )[0]
     scenarios = contracts.manifest["scenarios"]
     scenario_offsets = [
-        scenario_source.index(f'"{scenario["scenario_id"]}"')
-        for scenario in scenarios
+        scenario_source.index(f'"{scenario["scenario_id"]}"') for scenario in scenarios
     ]
     assert scenario_offsets == sorted(scenario_offsets)
     for ordinal, scenario in enumerate(scenarios):
@@ -411,9 +407,9 @@ def test_exact_binary_probe_source_covers_manifest_inventory() -> None:
             for check in row["equivalence_checks"]:
                 assert f'"{check}"' in probe_source
 
-    equivalence_source = probe_source.split(
-        "fn row_equivalence_contract", 1
-    )[1].split("fn scenario_contract", 1)[0]
+    equivalence_source = probe_source.split("fn row_equivalence_contract", 1)[1].split(
+        "fn scenario_contract", 1
+    )[0]
     equivalence_arms = {
         row_id: re.findall(r'"([a-z][a-z0-9_]+)"', body)
         for row_id, body in re.findall(

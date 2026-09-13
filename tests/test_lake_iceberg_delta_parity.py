@@ -23,15 +23,18 @@ Run standalone (bypass the slow shared-engine conftest fixture, matching
 
     python3 -m pytest tests/test_lake_iceberg_delta_parity.py --noconftest -q
 
-A18/BUG-222 (see `reports/issue-register.md`): the shared `server::unauthenticated_carrier_denied`
+A18/BUG-222 (see `reports/issue-register.md`): the shared
+`server::unauthenticated_carrier_denied`
 carrier-check STUB that used to deny EVERY `serve_with_security`-wired auxiliary HTTP
-surface unconditionally is fixed — `s3-api`, `sparql-http` (mutations), `kvcache-server`,
+surface unconditionally is fixed — `s3-api`, `sparql-http` (mutations),
+`kvcache-server`,
 and now the Iceberg-REST catalog surface itself all mint a real `CarrierAuthority` from
 their own protocol-native proof (SigV4 / `eg2.` envelope / bearer-JWT / OAuth2 bearer
 respectively) and work for an authenticated carrier. The Iceberg-REST catalog protocol's
 native mechanism is an OAuth2 bearer token (the spec's own `/v1/oauth/tokens`
 convention), verified against a configured Keycloak-compatible JWKS issuer
-(`EPISTEMIC_GRAPH_ICEBERG_JWT_*`, `crate::server::oidc::JwtValidator`) — a validly-signed
+(`EPISTEMIC_GRAPH_ICEBERG_JWT_*`, `crate::server::oidc::JwtValidator`) — a
+validly-signed
 bearer whose tenant claim matches the deployment's own configured tenant now mints a
 `CarrierAuthority` and is served; an unauthenticated request, or a validly-signed bearer
 for a DIFFERENT tenant, both still fail closed (403). `test_iceberg_rest_*` below drive
@@ -91,7 +94,8 @@ except ImportError:
 
 _SKIP_PYICEBERG = pytest.mark.skipif(
     not PYICEBERG_AVAILABLE,
-    reason="pyiceberg[pyarrow] is not installed (see tests/lake-parity-requirements.txt)",
+    reason="pyiceberg[pyarrow] is not installed (see "
+    "tests/lake-parity-requirements.txt)",
 )
 _SKIP_DELTALAKE = pytest.mark.skipif(
     not DELTALAKE_AVAILABLE,
@@ -371,11 +375,19 @@ ICEBERG_TENANT = "tenant:test"  # matches EPISTEMIC_GRAPH_TENANT in iceberg_serv
 ICEBERG_OTHER_TENANT = "tenant:intruder"
 
 try:
+    import importlib.util
+
     import jwt as _pyjwt
     from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
 
-    _OAUTH_DEPS_AVAILABLE = True
+    # Probed by spec, not imported: nothing at module scope binds this name
+    # (the fixture below does its own local `import ... as _rsa` when it
+    # actually needs the module), so a real import here would just be an
+    # unused-name F401 finding.
+    _OAUTH_DEPS_AVAILABLE = (
+        importlib.util.find_spec("cryptography.hazmat.primitives.asymmetric.rsa")
+        is not None
+    )
 except ImportError:
     _OAUTH_DEPS_AVAILABLE = False
 
@@ -385,7 +397,8 @@ _require_strict_parity_prerequisites()
 
 _SKIP_OAUTH_DEPS = pytest.mark.skipif(
     not _OAUTH_DEPS_AVAILABLE,
-    reason="pyjwt/cryptography are not installed (see tests/lake-parity-requirements.txt)",
+    reason="pyjwt/cryptography are not installed (see "
+    "tests/lake-parity-requirements.txt)",
 )
 
 
@@ -394,7 +407,8 @@ def iceberg_oauth_fixture():
     """Start the local JWKS HTTP server + generate the RSA keypair once per module."""
     if not _OAUTH_DEPS_AVAILABLE:
         pytest.skip(
-            "pyjwt/cryptography are not installed (see tests/lake-parity-requirements.txt)"
+            "pyjwt/cryptography are not installed (see "
+            "tests/lake-parity-requirements.txt)"
         )
     import http.server
     import threading
@@ -411,7 +425,7 @@ def iceberg_oauth_fixture():
     jwks_body = json.dumps({"keys": [jwk]}).encode("utf-8")
 
     class _JwksHandler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802 - stdlib override
+        def do_GET(self):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(jwks_body)))
@@ -507,8 +521,7 @@ def iceberg_server(tmp_path_factory, iceberg_oauth_fixture):
     prebuilt = _prebuilt_test_binary()
     if STRICT_PARITY and prebuilt is None:
         pytest.fail(
-            "strict lake parity requires an executable "
-            "EPISTEMIC_GRAPH_TEST_BINARY"
+            "strict lake parity requires an executable EPISTEMIC_GRAPH_TEST_BINARY"
         )
     if prebuilt is not None:
         command = [prebuilt, "--socket-path", socket_path]
@@ -618,7 +631,9 @@ def test_iceberg_rest_listener_responds_when_configured(iceberg_server):
 # compiled server binary rather than a unit-level stand-in.
 # --------------------------------------------------------------------------------- #
 @_SKIP_OAUTH_DEPS
-def test_iceberg_rest_authenticated_bearer_is_allowed(iceberg_server, iceberg_oauth_fixture):
+def test_iceberg_rest_authenticated_bearer_is_allowed(
+    iceberg_server, iceberg_oauth_fixture
+):
     """A bearer that RSA/JWKS/issuer/audience/expiry-verifies AND asserts this
     deployment's own tenant (`EPISTEMIC_GRAPH_TENANT`) mints a real `CarrierAuthority`
     — the Iceberg-REST catalog surface serves the request instead of denying it."""
@@ -647,7 +662,9 @@ def test_iceberg_rest_unauthenticated_request_is_denied(iceberg_server):
 
 
 @_SKIP_OAUTH_DEPS
-def test_iceberg_rest_cross_tenant_bearer_is_denied(iceberg_server, iceberg_oauth_fixture):
+def test_iceberg_rest_cross_tenant_bearer_is_denied(
+    iceberg_server, iceberg_oauth_fixture
+):
     """A validly-signed, unexpired, correctly-issued/audienced bearer for a
     DIFFERENT tenant must still be denied — proves the tenant-match check itself,
     not merely 'is there any Authorization header' (a known-bad input: everything

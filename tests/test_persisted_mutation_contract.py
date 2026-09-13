@@ -78,9 +78,7 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
         "union.rs",
     }
     child_paths = {
-        path.name
-        for path in family.all_paths
-        if path.parent.name == "graph_ops"
+        path.name for path in family.all_paths if path.parent.name == "graph_ops"
     }
     assert child_paths == expected_children
     assert len(facade.splitlines()) <= 80
@@ -141,7 +139,10 @@ def test_graph_ops_gateway_families_contribute_real_method_arms() -> None:
         "gateway_graph.rs": ("Method::AddNode", "commit_gateway_coalescable"),
         "gateway_broker.rs": ("Method::Publish", "commit_gateway"),
         "gateway_mining.rs": ("Method::MineAssociate", "commit_conditional_mutation"),
-        "gateway_mining_ml.rs": ("Method::GraphLearnFit", "Method::MiningPipelineTrain"),
+        "gateway_mining_ml.rs": (
+            "Method::GraphLearnFit",
+            "Method::MiningPipelineTrain",
+        ),
     }
     for filename, required in markers.items():
         source = module._rust_code_mask(
@@ -224,9 +225,12 @@ def test_terminal_gateway_guards_have_reachable_control_flow() -> None:
     )
     assert "ControlFlow::Break(match $method" not in broker
     assert "match $method" in broker
-    assert "allow(unreachable_code)" not in module.read_compiler_family(
-        "src/server/handlers/graph_ops.rs"
-    ).with_tests
+    assert (
+        "allow(unreachable_code)"
+        not in module.read_compiler_family(
+            "src/server/handlers/graph_ops.rs"
+        ).with_tests
+    )
 
 
 def test_decode_json_object_has_one_visible_owner_and_two_consumers() -> None:
@@ -302,7 +306,9 @@ def test_m1_semantic_inventory_rejects_storage_bypass() -> None:
             )
         ),
     }
-    with pytest.raises(SystemExit, match="semantic authority bypasses the mutation owner"):
+    with pytest.raises(
+        SystemExit, match="semantic authority bypasses the mutation owner"
+    ):
         module._check_m1_semantic_inventory(sources)
 
 
@@ -454,12 +460,7 @@ def test_native_command_catalog_rejects_drift_and_comment_spoofs() -> None:
             )
         )
 
-    arm_tail = (
-        "        }\n"
-        "    };\n"
-        "}\n\n"
-        "macro_rules! declare_native_consensus_methods"
-    )
+    arm_tail = "        }\n    };\n}\n\nmacro_rules! declare_native_consensus_methods"
     assert arm_tail in source
     for delimiter in (";", ","):
         unused_arm = (
@@ -759,7 +760,8 @@ def test_module_tree_follows_declared_production_children_and_excludes_tests(
                 '#[path = "alternate.rs"] mod custom_path;',
                 '#[doc = "#[cfg(test)]"] mod doc_cfg_literal;',
                 '#[doc = "#[path = \\"missing.rs\\"]"] mod doc_path_literal;',
-                'const ATTRIBUTE_TEXT: &str = "#[cfg(test)] #[path = \\"missing.rs\\"]";',
+                'const ATTRIBUTE_TEXT: &str = "#[cfg(test)] #[path = '
+                '\\"missing.rs\\"]";',
                 "mod string_literal_attributes;",
                 "mod inline_production { fn inline_production_marker() {} }",
                 'mod inline_include { include!("nested_include.rs"); }',
@@ -1366,9 +1368,7 @@ def test_module_paths_fails_closed_on_invalid_closure(
         (children / "child").mkdir(parents=True)
         (tmp_path / "root.rs").write_text("mod child;\n", encoding="utf-8")
         (children / "child.rs").write_text("fn first() {}\n", encoding="utf-8")
-        (children / "child" / "mod.rs").write_text(
-            "fn second() {}\n", encoding="utf-8"
-        )
+        (children / "child" / "mod.rs").write_text("fn second() {}\n", encoding="utf-8")
     else:
         (tmp_path / "root.rs").write_text(
             '#[path = "root.rs"] mod child;\n', encoding="utf-8"
@@ -1484,7 +1484,8 @@ def test_balanced_span_rejects_unterminated_rust_block() -> None:
             "graph_pipeline",
             "handlers::graph_ops::try_handle_gateway(",
             "handlers::graph_ops::removed_gateway(",
-            "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
+            "dispatch no longer routes graph/query/RDF gateways before the terminal "
+            "handler",
         ),
         (
             "mutation_runtime",
@@ -1531,7 +1532,8 @@ def test_inventory_drift_fails_closed(
         ),
         (
             "ros2_bridge",
-            "\nfn bypass(core: &GraphCore, method: &Method) { crate::mutation_apply::apply(core, method); }\n",
+            "\nfn bypass(core: &GraphCore, method: &Method) { "
+            "crate::mutation_apply::apply(core, method); }\n",
             "ROS2 carrier",
         ),
     ],

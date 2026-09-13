@@ -8,7 +8,6 @@ membership/placement epochs may expose endpoints to callers.
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import hmac
 import inspect
@@ -96,11 +95,14 @@ def _snapshot(fake: _FakeClient) -> dict[str, Any]:
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode()
-    signature = "hmac-sha256:" + hmac.new(
-        fake._auth_secret.encode(),
-        ClusterTopologyClient._DISCOVERY_DOMAIN + payload,
-        hashlib.sha256,
-    ).hexdigest()
+    signature = (
+        "hmac-sha256:"
+        + hmac.new(
+            fake._auth_secret.encode(),
+            ClusterTopologyClient._DISCOVERY_DOMAIN + payload,
+            hashlib.sha256,
+        ).hexdigest()
+    )
     return {
         "schema_version": 1,
         "cluster_id": cluster_id,
@@ -133,7 +135,10 @@ async def test_members_accepts_one_signed_context_bound_snapshot() -> None:
         min_placement_epoch=9,
     )
 
-    assert answer["groups"][0]["members"][0]["client_endpoint"] == "tls://graph-a.example:8443"
+    assert (
+        answer["groups"][0]["members"][0]["client_endpoint"]
+        == "tls://graph-a.example:8443"
+    )
 
 
 @pytest.mark.asyncio
@@ -151,7 +156,9 @@ async def test_members_accepts_one_signed_context_bound_snapshot() -> None:
         ),
     ],
 )
-async def test_members_rejects_unsigned_stale_cross_bound_or_forged_snapshot(mutation: Any) -> None:
+async def test_members_rejects_unsigned_stale_cross_bound_or_forged_snapshot(
+    mutation: Any,
+) -> None:
     fake = _FakeClient({})
     answer = _snapshot(fake)
     fake._answer = answer

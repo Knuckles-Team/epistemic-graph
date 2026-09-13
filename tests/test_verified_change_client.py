@@ -138,7 +138,9 @@ def test_change_canonical_rejects_old_or_incomplete_mutation_contract() -> None:
         ChangeEnvelopeClient._canonical(unknown)
 
 
-def test_bolt_auth_token_is_fresh_signed_request_with_opaque_display_principal() -> None:
+def test_bolt_auth_token_is_fresh_signed_request_with_opaque_display_principal() -> (
+    None
+):
     client = EpistemicGraphClient(  # type: ignore[arg-type]
         object(),
         object(),
@@ -292,7 +294,10 @@ def test_two_connections_with_different_node_ids_mint_independently() -> None:
     # Re-minting on the SAME connection also produces a fresh nonce/mac each
     # call (never a cached/reused envelope).
     token_first_again = first._compute_verified_token(dict(request), None)
-    assert _decode_envelope(token_first_again)["nonce"] != _decode_envelope(token_first)["nonce"]
+    assert (
+        _decode_envelope(token_first_again)["nonce"]
+        != _decode_envelope(token_first)["nonce"]
+    )
 
 
 def test_explicit_context_node_overrides_connection_node_id() -> None:
@@ -345,7 +350,10 @@ def test_v2_token_includes_oidc_token_when_present() -> None:
         object(),
         "fixture-secret",
         "graph-fixture",
-        verified_context={**_context(), "oidc_token": "eyJhbGciOiJSUzI1NiJ9.fixture.sig"},
+        verified_context={
+            **_context(),
+            "oidc_token": "eyJhbGciOiJSUzI1NiJ9.fixture.sig",
+        },
     )
     payload = _decode_envelope(
         client._compute_verified_token(_node_bound_request(), "idempotency-fixture")
@@ -421,7 +429,9 @@ def test_v2_token_oidc_token_does_not_change_the_mac(monkeypatch) -> None:
         client_with_token._compute_verified_token(dict(request), "idempotency-fixture")
     )
     payload_b = _decode_envelope(
-        client_with_other_token._compute_verified_token(dict(request), "idempotency-fixture")
+        client_with_other_token._compute_verified_token(
+            dict(request), "idempotency-fixture"
+        )
     )
     assert payload_absent["nonce"] == payload_a["nonce"] == payload_b["nonce"], (
         "the nonce freeze must actually be effective, or this test proves nothing"
@@ -612,9 +622,7 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
         variant = re.fullmatch(r"    ([A-Za-z][A-Za-z0-9_]*) \{", line)
         if variant:
             current_variant = variant.group(1)
-        if re.search(
-            r"\bplan: (?:crate::wire::Plan|Option<crate::wire::Plan>),", line
-        ):
+        if re.search(r"\bplan: (?:crate::wire::Plan|Option<crate::wire::Plan>),", line):
             assert current_variant
             declared_plan_methods.add(current_variant)
     assert declared_plan_methods == set(plan_methods)

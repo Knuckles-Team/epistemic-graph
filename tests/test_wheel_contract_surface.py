@@ -45,17 +45,17 @@ def _declared_runtime_distributions() -> set[str]:
 
 def _package_modules() -> list[Path]:
     return sorted(
-        path
-        for path in _PACKAGE.rglob("*.py")
-        if "__pycache__" not in path.parts
+        path for path in _PACKAGE.rglob("*.py") if "__pycache__" not in path.parts
     )
 
 
 def _module_scope_imports(tree: ast.Module) -> set[str]:
     """Top-level module names imported UNCONDITIONALLY at module scope.
 
-    Imports nested in a function, an `if`, or a `try` are deliberately excluded: those are
-    optional integrations the package already guards, and only an unconditional module-scope
+    Imports nested in a function, an `if`, or a `try` are deliberately excluded: those
+    are
+    optional integrations the package already guards, and only an unconditional
+    module-scope
     import can break `import epistemic_graph`.
     """
     found: set[str] = set()
@@ -84,7 +84,8 @@ class WheelContractSurface(unittest.TestCase):
         self.assertEqual(
             undeclared,
             {},
-            "the wheel imports these at module scope but declares no dependency for them",
+            "the wheel imports these at module scope but declares no dependency for "
+            "them",
         )
 
     def test_pydantic_is_declared_because_the_generated_client_needs_it(self) -> None:
@@ -102,10 +103,13 @@ class WheelContractSurface(unittest.TestCase):
 
     def test_the_contract_module_is_stdlib_only_and_verifies_the_digest(self) -> None:
         """Executed in an EMPTY namespace, not imported, so this proves the module needs
-        neither pydantic nor the transport -- exactly the constraint a consumer pinning a
+        neither pydantic nor the transport -- exactly the constraint a consumer pinning
+        a
         digest at start-up depends on."""
         source = (_PACKAGE / "contract" / "__init__.py").read_text(encoding="utf-8")
-        namespace: dict[str, object] = {"__file__": str(_SHIPPED_RECEIPT.parent / "__init__.py")}
+        namespace: dict[str, object] = {
+            "__file__": str(_SHIPPED_RECEIPT.parent / "__init__.py")
+        }
         exec(compile(source, "epistemic_graph/contract/__init__.py", "exec"), namespace)
         digest = namespace["RECEIPT_DIGEST"]
         verify = namespace["verify_receipt"]

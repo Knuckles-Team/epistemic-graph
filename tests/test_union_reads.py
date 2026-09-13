@@ -1,4 +1,5 @@
-"""NodeClient cross-graph union reads send the union RPCs (CONCEPT:EG-KG.query.cross-graph-union)."""
+"""NodeClient cross-graph union reads send the union RPCs
+(CONCEPT:EG-KG.query.cross-graph-union)."""
 
 from __future__ import annotations
 
@@ -32,9 +33,7 @@ async def test_properties_union_sends_rpc() -> None:
     fake = _FakeClient(ret=None)
     nc = NodeClient(fake)  # type: ignore[arg-type]
     out = await nc.properties_union("B", GRAPHS)
-    assert fake.sent == [
-        ("UnionGetNodeProperties", {"graphs": GRAPHS, "node_id": "B"})
-    ]
+    assert fake.sent == [("UnionGetNodeProperties", {"graphs": GRAPHS, "node_id": "B"})]
     assert out is None
 
 

@@ -147,7 +147,9 @@ def test_malformed_domain_declaration_fails_closed() -> None:
         '("ParseFile", spec(alternate_policy',
         1,
     )
-    assert malformed != source, "the planted malformation must actually change the source"
+    assert malformed != source, (
+        "the planted malformation must actually change the source"
+    )
 
     with pytest.raises(
         MethodPolicyInventoryError, match="unparsed ingestion policy row"

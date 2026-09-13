@@ -148,7 +148,8 @@ def test_release_scanner_job_is_full_history_blocking_and_pinned():
         "kiss-ai",
         "dupehound",
         "arch-lint-cli",
-        'cargo install --locked --version "$cargo_deny_version" --root "$scanner_root/cargo-deny" cargo-deny',
+        'cargo install --locked --version "$cargo_deny_version" --root '
+        '"$scanner_root/cargo-deny" cargo-deny',
         'test "$(cargo-deny --version)" = "cargo-deny $cargo_deny_version"',
         "import-linter==2.13",
         "jscpd@5.0.16",

@@ -16,8 +16,8 @@ from scripts.configure_rust_path_remap import (
     native_prefix_flags,
     path_remaps,
 )
-from scripts.normalize_wheel_build_paths import normalize_wheel_build_paths
 from scripts.normalize_wheel_build_paths import main as normalize_build_paths_main
+from scripts.normalize_wheel_build_paths import normalize_wheel_build_paths
 from scripts.normalize_wheel_sbom import normalize_wheel
 
 # This file's own module docstring says "no engine required" -- every test here
@@ -150,8 +150,8 @@ def test_native_flags_fall_back_when_compiler_rejects_ffile_prefix_map(tmp_path)
     old_cross_gcc = tmp_path / "aarch64-unknown-linux-gnu-gcc"
     old_cross_gcc.write_text(
         "#!/bin/sh\n"
-        "for arg in \"$@\"; do\n"
-        "  case \"$arg\" in\n"
+        'for arg in "$@"; do\n'
+        '  case "$arg" in\n'
         "    -ffile-prefix-map=*)\n"
         "      echo \"$0: error: unrecognized command line option '$arg'\" >&2\n"
         "      exit 1\n"
@@ -204,9 +204,7 @@ def test_native_flags_omit_when_compiler_accepts_neither_prefix_map_flag(tmp_pat
 
     ancient_cc = tmp_path / "ancient-target-gcc"
     ancient_cc.write_text(
-        "#!/bin/sh\n"
-        "echo \"$0: error: unrecognized command line option\" >&2\n"
-        "exit 1\n"
+        '#!/bin/sh\necho "$0: error: unrecognized command line option" >&2\nexit 1\n'
     )
     ancient_cc.chmod(0o755)
 
@@ -474,12 +472,13 @@ def test_build_path_normalizer_rewrites_native_payload_and_rebuilds_record(
 
 def test_build_path_normalizer_rewrites_cargo_target_dir(tmp_path: Path):
     target = PurePosixPath("/var", "tmp", "fixture-target")
+    native_so_bytes = f"ELF\x00{target}/release/build.rs\x00".encode()
     wheel = _wheel(
         tmp_path,
         {
             "fixture_package-1.0.0.dist-info/METADATA": _neutral_metadata(),
             "fixture_package-1.0.0.dist-info/RECORD": b"stale-record\n",
-            "fixture_package/native.so": f"ELF\x00{target}/release/build.rs\x00".encode(),
+            "fixture_package/native.so": native_so_bytes,
         },
     )
     environ = {"CARGO_TARGET_DIR": str(target)}
@@ -804,9 +803,7 @@ def test_build_path_normalizer_closes_source_before_replacing_on_windows(
 
     monkeypatch.setattr(Path, "replace", guarded_replace)
 
-    assert (
-        normalize_wheel_build_paths(wheel, environ={"HOME": str(build_root)}) == 1
-    )
+    assert normalize_wheel_build_paths(wheel, environ={"HOME": str(build_root)}) == 1
     with zipfile.ZipFile(wheel) as archive:
         payload = archive.read("fixture_package/native.so")
     assert str(build_root).encode() not in payload

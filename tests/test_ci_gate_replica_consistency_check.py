@@ -91,7 +91,8 @@ def test_unregistered_workflow_file_fails_consistency_check(tmp_path):
     for fname in m.WORKFLOW_REGISTRY:
         shutil.copy(m.WORKFLOWS_DIR / fname, workflows_dir / fname)
     (workflows_dir / "newly-added.yml").write_text(
-        "name: New\non:\n  push: {}\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"
+        "name: New\non:\n  push: {}\njobs:\n  x:\n    runs-on: ubuntu-latest\n    "
+        "steps:\n      - run: echo hi\n"
     )
     ok = m.consistency_check(verbose=False, workflows_dir=workflows_dir)
     assert ok is False

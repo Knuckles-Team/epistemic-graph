@@ -18,6 +18,9 @@ import uuid
 
 import pytest
 
+from epistemic_graph.client import EpistemicGraphClient
+from epistemic_graph.embedded import EmbeddedTransport
+
 # BUG-CX-002 fix: `tests/parity/__init__.py` now makes this directory a
 # real package (`parity`), imported under a dotted module name distinct
 # from top-level `tests/conftest.py`'s bare `conftest` -- the two used to
@@ -27,9 +30,6 @@ import pytest
 # works because this is a real package; every module in this directory
 # imports `_harness` the same way.
 from ._harness import BoundEmbeddedTransport, TransportPair
-
-from epistemic_graph.client import EpistemicGraphClient
-from epistemic_graph.embedded import EmbeddedTransport
 
 # Two distinct principals for the RLS cases (plan §3.1/§4.3's proof-of-concept
 # requirement). OWNER reuses this session's already-bootstrapped System

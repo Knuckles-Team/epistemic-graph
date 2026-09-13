@@ -1,4 +1,5 @@
-"""Tests for the release wheel-reproducibility diagnostic (``scripts/compare_wheel_reproducibility``).
+"""Tests for the release wheel-reproducibility diagnostic
+(``scripts/compare_wheel_reproducibility``).
 
 The gate this replaces was a bare inline ``python -c`` with three ``assert``s
 and no diagnostic output on failure -- exactly the shape that made the
@@ -60,8 +61,11 @@ def _make_wheel(
 
 _BASE_MEMBERS = {
     "epistemic_graph/__init__.py": b"print('hello')\n",
-    "epistemic_graph/server.exe": b"\x00" * 32 + b"NATIVE-BINARY-PAYLOAD" + b"\x00" * 32,
-    "epistemic_graph-9.9.9.dist-info/METADATA": b"Metadata-Version: 2.3\nName: epistemic-graph\n",
+    "epistemic_graph/server.exe": b"\x00" * 32
+    + b"NATIVE-BINARY-PAYLOAD"
+    + b"\x00" * 32,
+    "epistemic_graph-9.9.9.dist-info/METADATA": b"Metadata-Version: 2.3\nName: "
+    b"epistemic-graph\n",
 }
 
 
@@ -116,7 +120,11 @@ def test_filename_mismatch_raises_the_exact_protected_message(tmp_path: Path):
     reproduction_dir = tmp_path / "dist-reproduction"
     primary_dir.mkdir()
     reproduction_dir.mkdir()
-    _make_wheel(primary_dir, members=_BASE_MEMBERS, name="epistemic_graph-9.9.9-py3-none-any.whl")
+    _make_wheel(
+        primary_dir,
+        members=_BASE_MEMBERS,
+        name="epistemic_graph-9.9.9-py3-none-any.whl",
+    )
     _make_wheel(
         reproduction_dir,
         members=_BASE_MEMBERS,
@@ -142,7 +150,8 @@ def test_digest_mismatch_raises_the_exact_protected_message(tmp_path: Path):
 
 
 def test_cli_mismatch_exits_nonzero_as_a_subprocess(tmp_path: Path):
-    """A gate that cannot demonstrably fail is not a gate: prove it end-to-end via the CLI."""
+    """A gate that cannot demonstrably fail is not a gate: prove it end-to-end via the
+    CLI."""
 
     primary_dir = tmp_path / "dist-primary"
     reproduction_dir = tmp_path / "dist-reproduction"
@@ -153,7 +162,11 @@ def test_cli_mismatch_exits_nonzero_as_a_subprocess(tmp_path: Path):
     reproduction_members["epistemic_graph/__init__.py"] = b"print('different')\n"
     _make_wheel(reproduction_dir, members=reproduction_members)
 
-    script = Path(__file__).resolve().parents[1] / "scripts" / "compare_wheel_reproducibility.py"
+    script = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "compare_wheel_reproducibility.py"
+    )
     result = subprocess.run(
         [sys.executable, str(script), str(primary_dir), str(reproduction_dir)],
         capture_output=True,
@@ -164,7 +177,9 @@ def test_cli_mismatch_exits_nonzero_as_a_subprocess(tmp_path: Path):
     assert result.returncode != 0
     assert "release wheel digest mismatch" in result.stderr
     assert "CONTENT DIFFERS: epistemic_graph/__init__.py" in result.stdout
-    assert "SUMMARY: content_differing_members=1 container_only_members=0" in result.stdout
+    assert (
+        "SUMMARY: content_differing_members=1 container_only_members=0" in result.stdout
+    )
 
 
 def test_content_difference_is_classified_as_content(tmp_path: Path, capsys):
@@ -194,8 +209,11 @@ def test_content_difference_is_classified_as_content(tmp_path: Path, capsys):
     assert "CONTAINER-ONLY" not in out
 
 
-def test_container_only_difference_is_classified_separately_from_content(tmp_path: Path, capsys):
-    """Identical decompressed bytes but different ZipInfo metadata must be CONTAINER-ONLY, not CONTENT."""
+def test_container_only_difference_is_classified_separately_from_content(
+    tmp_path: Path, capsys
+):
+    """Identical decompressed bytes but different ZipInfo metadata must be
+    CONTAINER-ONLY, not CONTENT."""
 
     primary_dir = tmp_path / "dist-primary"
     reproduction_dir = tmp_path / "dist-reproduction"
@@ -210,7 +228,9 @@ def test_container_only_difference_is_classified_separately_from_content(tmp_pat
     # a different digest-relevant member elsewhere so the overall wheel digest
     # still differs and the report actually runs.
     reproduction_members = dict(_BASE_MEMBERS)
-    reproduction_members["epistemic_graph/README-EXTRA.txt"] = b"padding to force a digest change\n"
+    reproduction_members["epistemic_graph/README-EXTRA.txt"] = (
+        b"padding to force a digest change\n"
+    )
     _make_wheel(
         reproduction_dir,
         members=reproduction_members,
@@ -221,7 +241,10 @@ def test_container_only_difference_is_classified_separately_from_content(tmp_pat
         compare(primary_dir, reproduction_dir)
 
     out = capsys.readouterr().out
-    assert "CONTAINER-ONLY (decompressed bytes IDENTICAL): epistemic_graph/server.exe" in out
+    assert (
+        "CONTAINER-ONLY (decompressed bytes IDENTICAL): epistemic_graph/server.exe"
+        in out
+    )
     assert "CONTENT DIFFERS: epistemic_graph/server.exe" not in out
     assert "members ONLY in reproduction (1):" in out
     assert "epistemic_graph/README-EXTRA.txt" in out

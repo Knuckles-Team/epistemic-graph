@@ -48,9 +48,7 @@ async def test_neighbors_batch_sends_one_rpc_for_many_ids() -> None:
         "ids are requested — a per-id loop reintroducing the N+1 would send "
         "len(node_ids) calls instead"
     )
-    assert fake.sent == [
-        ("GetNeighborsBatch", {"node_ids": ["a", "b", "missing"]})
-    ]
+    assert fake.sent == [("GetNeighborsBatch", {"node_ids": ["a", "b", "missing"]})]
     assert out == {"a": ["b"], "b": ["a", "c"], "missing": []}
 
 

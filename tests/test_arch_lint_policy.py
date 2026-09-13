@@ -173,7 +173,8 @@ async fn served() {
 def test_shadowable_tokio_path_does_not_create_offload_context():
     module = _module()
     source = """
-mod tokio { pub mod task { pub fn spawn_blocking<F, T>(work: F) -> T where F: FnOnce() -> T { work() } } }
+mod tokio { pub mod task { pub fn spawn_blocking<F, T>(work: F) -> T where F: FnOnce()
+-> T { work() } } }
 async fn served() {
     let _ = tokio::task::spawn_blocking(|| std::fs::read("still-on-executor")).await;
 }

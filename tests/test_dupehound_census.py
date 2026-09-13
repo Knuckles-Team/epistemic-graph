@@ -129,9 +129,7 @@ def test_classification_is_complete_and_precedence_is_explicit(census, contract)
     assert set(by_path) == {entry.path for entry in entries}
     assert by_path["src/main.py"].class_name == "production"
     contract_entry = _entry(census, "contract/methods.rs")
-    nested_contract_entry = _entry(
-        census, "crates/eg-types/src/contract/crypto.rs"
-    )
+    nested_contract_entry = _entry(census, "crates/eg-types/src/contract/crypto.rs")
     contract_result = census.classify_entries(
         [contract_entry, nested_contract_entry],
         {

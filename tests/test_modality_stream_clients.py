@@ -289,9 +289,7 @@ async def test_served_native_queries_emit_closed_typed_predicates() -> None:
     await modalities.query_image_region(x=0.1, y=0.2, width=0.3, height=0.4)
     await modalities.query_similar_images(0x1234, maximum_distance=7)
     await modalities.query_audio_window(start_ms=100, end_ms=900, minimum_rms=0.25)
-    await modalities.query_video_window(
-        start_ms=0, end_ms=1_000, keyframes_only=True
-    )
+    await modalities.query_video_window(start_ms=0, end_ms=1_000, keyframes_only=True)
 
     predicates = [params["op"]["predicate"] for _, params in fake.sent]
     assert predicates == [
@@ -341,6 +339,8 @@ async def test_served_native_query_bounds_fail_before_transport() -> None:
         await modalities.query_video_window(start_ms=0, end_ms=4_096_001)
     with pytest.raises(TypeError, match="boolean"):
         await modalities.query_video_window(
-            start_ms=0, end_ms=10, keyframes_only=1  # type: ignore[arg-type]
+            start_ms=0,
+            end_ms=10,
+            keyframes_only=1,  # type: ignore[arg-type]
         )
     assert fake.sent == []

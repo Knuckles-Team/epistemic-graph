@@ -1,4 +1,5 @@
-"""Round-trip tests for the compiled semantic reasoner (CONCEPT:EG-KG.compute.compiled-semantic-reasoner).
+"""Round-trip tests for the compiled semantic reasoner
+(CONCEPT:EG-KG.compute.compiled-semantic-reasoner).
 
 Exercises the live UDS path: ``client.reasoning.reason`` against the running
 epistemic-graph-server (started by the conftest session fixture).
@@ -40,9 +41,7 @@ def test_subclass_inheritance_infers_type(clean_graph):
     # rex : Dog, Dog ⊑ Animal  ⇒  rex : Animal
     clean_graph.nodes.add("rex", {"type": "Dog"})
 
-    result = clean_graph.reasoning.reason(
-        subclass_relations=[("Dog", "Animal")]
-    )
+    result = clean_graph.reasoning.reason(subclass_relations=[("Dog", "Animal")])
 
     assert result["inferred_count"] >= 1
     triples = _triples(result)
