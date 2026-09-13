@@ -65,6 +65,7 @@ pub mod epistemic_operations;
 // exactly generator-clean; see the module doc comment for the full finding.
 pub mod epistemic_operations_ext;
 pub mod epistemic_operations_manifest;
+pub mod ingestion_wire;
 // CONCEPT:INT-P2-1 — the durable analytics-job plane's wire op (`JobOp`), gated
 // `jobs`. Lives here (not in `eg-jobs`, which sits ABOVE eg-core in the DAG) for the
 // SAME reason `acl::RbacAdminOp` does: `protocol::Method::AnalyticsJob` carries it
@@ -84,6 +85,7 @@ pub mod knowledge_stream;
 // store + REST projection that would carry these records over the wire is
 // GOC-10-W03/W05, not yet implemented).
 pub mod lake_catalog;
+pub mod messaging_wire;
 #[cfg(feature = "modality-serving")]
 pub mod modality;
 pub mod msgpack;
@@ -123,6 +125,7 @@ pub mod result_contract;
 pub mod semantic_index;
 #[cfg(feature = "statechart")]
 pub mod statechart;
+pub mod storage_wire;
 pub mod types;
 // GOC-19 — the WorkItem submission command-log admission core (tenant-scoped
 // idempotency replay + per-authority fencing), built on GOC-03's

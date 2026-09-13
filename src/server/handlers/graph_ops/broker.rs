@@ -120,7 +120,7 @@ pub(super) async fn try_handle_streams(
         } => {
             let from = crate::broker::ReadFrom::from_wire(from_offset);
             let msgs = crate::broker::stream_read(core, &stream, from, max as usize);
-            ControlFlow::Break(Response::ok(req_id, ResultPayload::raw(&msgs)))
+            ControlFlow::Break(Response::ok(req_id, ResultPayload::of_ref::<eg_types::result_contract::messaging::StreamRead>(&msgs)))
         }
         #[cfg(feature = "broker")]
         Method::StreamTrim { .. } => unreachable!(
@@ -135,7 +135,7 @@ pub(super) async fn try_handle_streams(
         #[cfg(feature = "broker")]
         Method::StreamCommittedOffset { stream, group } => {
             let committed = crate::broker::committed_offset(core, &stream, &group);
-            ControlFlow::Break(Response::ok(req_id, ResultPayload::raw(&committed)))
+            ControlFlow::Break(Response::ok(req_id, ResultPayload::of_ref::<eg_types::result_contract::messaging::StreamCommittedOffset>(&committed)))
         }
         other => ControlFlow::Continue(other),
     })

@@ -33,373 +33,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::graph::GraphCore;
 
-fn decode_property(bytes: &[u8]) -> Result<serde_json::Value, ()> {
-    eg_types::msgpack::decode_property_value(bytes).map_err(|_| ())
-}
+mod producer;
+mod routing;
 
-// ── Node-id + label conventions (single source of truth) ─────────────────
+pub use producer::*;
+pub use routing::*;
 
-/// Node id for an exchange definition node.
-pub fn exchange_node_id(name: &str) -> String {
-    format!("broker:ex:{name}")
-}
-
-/// Node id for a binding definition node. The `\u{1}` field delimiter is a control
-/// char that cannot appear in a routing key / name, so the composite id is unique and
-/// reversible for [`unbind_queue`].
-pub fn binding_node_id(exchange: &str, queue: &str, routing_key: &str) -> String {
-    format!("broker:bind:{exchange}\u{1}{queue}\u{1}{routing_key}")
-}
-
-/// Node id for a queue's durable monotonic sequence counter.
-pub fn queue_seq_node_id(queue: &str) -> String {
-    format!("broker:seq:{queue}")
-}
-
-/// The `type`/label a queue's pending message nodes carry — the label
-/// `claim_next_fields` scans to deliver the queue FIFO (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending).
-pub fn queue_msg_label(queue: &str) -> String {
-    format!("qmsg:{queue}")
-}
-
-/// Node id for the `seq`-th message appended to `queue`.
-pub fn message_node_id(queue: &str, seq: i64) -> String {
-    format!("broker:msg:{queue}:{seq}")
-}
-
-const EXCHANGE_TYPE: &str = "BrokerExchange";
-const BINDING_TYPE: &str = "BrokerBinding";
-const QUEUE_SEQ_TYPE: &str = "BrokerQueueSeq";
-
-// ── Pure primitives ──────────────────────────────────────────────────────
-
-/// The three routing disciplines (CONCEPT:EG-KG.compute.message-broker-exchanges), mirroring AMQP 0.9.1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ExchangeKind {
-    /// Deliver to queues bound with a routing key EQUAL to the message's.
-    Direct,
-    /// Deliver to queues whose binding pattern matches via `*`/`#` wildcards.
-    Topic,
-    /// Deliver to EVERY bound queue, ignoring the routing key.
-    Fanout,
-}
-
-impl ExchangeKind {
-    /// Parse the wire spelling (`direct`/`topic`/`fanout`, case-insensitive).
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "direct" => Some(Self::Direct),
-            "topic" => Some(Self::Topic),
-            "fanout" => Some(Self::Fanout),
-            _ => None,
-        }
-    }
-
-    /// The canonical lowercase wire spelling.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Direct => "direct",
-            Self::Topic => "topic",
-            Self::Fanout => "fanout",
-        }
-    }
-}
-
-/// A durable exchange definition (CONCEPT:EG-KG.compute.message-broker-exchanges).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Exchange {
-    pub name: String,
-    pub kind: ExchangeKind,
-}
-
-/// A durable exchange→queue binding (CONCEPT:EG-KG.compute.message-broker-exchanges). For a topic exchange the
-/// `routing_key` is a `*`/`#` pattern; for direct it is an exact key; for fanout it
-/// is ignored.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Binding {
-    pub exchange: String,
-    pub queue: String,
-    pub routing_key: String,
-}
-
-/// AMQP 0.9.1 topic wildcard match (CONCEPT:EG-KG.compute.message-broker-exchanges). Both `pattern` and `key` are
-/// dot-delimited word lists; `*` matches EXACTLY one word and `#` matches ZERO OR MORE
-/// words. Correct for the tricky cases (`#` at either end, adjacent `#`, empty key).
-pub fn topic_matches(pattern: &str, key: &str) -> bool {
-    let p: Vec<&str> = if pattern.is_empty() {
-        Vec::new()
-    } else {
-        pattern.split('.').collect()
-    };
-    let k: Vec<&str> = if key.is_empty() {
-        Vec::new()
-    } else {
-        key.split('.').collect()
-    };
-    topic_matches_words(&p, &k)
-}
-
-/// Iterative NFA-style matcher backing [`topic_matches`].
-///
-/// Every reachable pattern position is represented at most once for each key
-/// word. That makes ambiguous chains of `#` polynomial (`O(P * K)` worst case,
-/// `O(P)` memory) instead of recursively enumerating exponentially many ways to
-/// partition the key. In the common case the frontier is small, so work is
-/// proportional to the states that are actually reachable. It also avoids a
-/// caller-controlled recursion depth on the MQTT/AMQP ingress path.
-fn topic_matches_words(pattern: &[&str], key: &[&str]) -> bool {
-    fn push_epsilon_closure(
-        pattern: &[&str],
-        start: usize,
-        generation: usize,
-        seen: &mut [usize],
-        out: &mut Vec<usize>,
-    ) {
-        let mut state = start;
-        loop {
-            // A prior seed already walked this state's complete consecutive-`#`
-            // closure during the current generation.
-            if seen[state] == generation {
-                return;
-            }
-            seen[state] = generation;
-            out.push(state);
-            if state == pattern.len() || pattern[state] != "#" {
-                return;
-            }
-            // `#` may consume zero words, so the following state is reachable
-            // before the next input word is consumed.
-            state += 1;
-        }
-    }
-
-    let mut seen = vec![0usize; pattern.len() + 1];
-    let mut generation = 1usize;
-    let mut active = Vec::with_capacity(pattern.len() + 1);
-    let mut next = Vec::with_capacity(pattern.len() + 1);
-    push_epsilon_closure(pattern, 0, generation, &mut seen, &mut active);
-
-    for word in key {
-        generation += 1;
-        next.clear();
-        for &state in &active {
-            if state == pattern.len() {
-                continue;
-            }
-            match pattern[state] {
-                // Consume one word while remaining at `#`; its epsilon closure
-                // also makes every following consecutive `#` reachable.
-                "#" => push_epsilon_closure(pattern, state, generation, &mut seen, &mut next),
-                "*" => push_epsilon_closure(pattern, state + 1, generation, &mut seen, &mut next),
-                literal if literal == *word => {
-                    push_epsilon_closure(pattern, state + 1, generation, &mut seen, &mut next)
-                }
-                _ => {}
-            }
-        }
-        if next.is_empty() {
-            return false;
-        }
-        std::mem::swap(&mut active, &mut next);
-    }
-
-    active.contains(&pattern.len())
-}
-
-/// Resolve a published `routing_key` against an exchange's `kind` + `bindings` to the
-/// set of destination queues (CONCEPT:EG-KG.compute.message-broker-exchanges) — the PURE routing core. Order-stable
-/// (bindings order) and de-duplicated (a queue bound twice is enqueued once).
-pub fn route(kind: ExchangeKind, bindings: &[Binding], routing_key: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut seen_queues: HashSet<&str> = HashSet::with_capacity(bindings.len());
-    for b in bindings {
-        let hit = match kind {
-            ExchangeKind::Fanout => true,
-            ExchangeKind::Direct => b.routing_key == routing_key,
-            ExchangeKind::Topic => topic_matches(&b.routing_key, routing_key),
-        };
-        if hit && seen_queues.insert(b.queue.as_str()) {
-            out.push(b.queue.clone());
-        }
-    }
-    out
-}
-
-// ── Hex payload codec (dep-free, exact round-trip) ────────────────────────
-
-/// Lower-hex encode arbitrary bytes so a binary AMQP body round-trips through a JSON
-/// node property with fidelity (no base64 dependency, Pi-contract clean).
-pub fn hex_encode(bytes: &[u8]) -> String {
-    const LUT: &[u8; 16] = b"0123456789abcdef";
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        s.push(LUT[(b >> 4) as usize] as char);
-        s.push(LUT[(b & 0x0f) as usize] as char);
-    }
-    s
-}
-
-/// Decode a [`hex_encode`] string back to bytes; `None` on any malformed input.
-pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) {
-        return None;
-    }
-    fn nibble(c: u8) -> Option<u8> {
-        match c {
-            b'0'..=b'9' => Some(c - b'0'),
-            b'a'..=b'f' => Some(c - b'a' + 10),
-            b'A'..=b'F' => Some(c - b'A' + 10),
-            _ => None,
-        }
-    }
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len() / 2);
-    let mut i = 0;
-    while i < b.len() {
-        let hi = nibble(b[i])?;
-        let lo = nibble(b[i + 1])?;
-        out.push((hi << 4) | lo);
-        i += 2;
-    }
-    Some(out)
-}
-
-// ── Graph-backed operations (reuse GraphCore's public API + KG-2.303) ─────
-
-fn node_object(core: &GraphCore, id: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
-    let blob = core.get_node_properties(id)?;
-    match decode_property(&blob) {
-        Ok(serde_json::Value::Object(o)) => Some(o),
-        _ => None,
-    }
-}
-
-fn to_msgpack(v: &serde_json::Value) -> Vec<u8> {
-    rmp_serde::to_vec_named(v).unwrap_or_default()
-}
-
-/// Declare (idempotently upsert) an exchange (CONCEPT:EG-KG.compute.message-broker-exchanges). Re-declaring with the
-/// SAME kind is a no-op success; re-declaring with a DIFFERENT kind is rejected
-/// (AMQP `PRECONDITION_FAILED` semantics).
-pub fn declare_exchange(core: &GraphCore, name: &str, kind: ExchangeKind) -> Result<(), String> {
-    let id = exchange_node_id(name);
-    if let Some(existing) = load_exchange_kind(core, name) {
-        if existing != kind {
-            return Err(format!(
-                "exchange '{name}' already declared as '{}', cannot redeclare as '{}'",
-                existing.as_str(),
-                kind.as_str()
-            ));
-        }
-        return Ok(());
-    }
-    let props = serde_json::json!({
-        "type": EXCHANGE_TYPE,
-        "name": name,
-        "kind": kind.as_str(),
-    });
-    core.add_node(id, to_msgpack(&props));
-    Ok(())
-}
-
-/// Read an exchange's kind, or `None` if it is not declared.
-pub fn load_exchange_kind(core: &GraphCore, name: &str) -> Option<ExchangeKind> {
-    let obj = node_object(core, &exchange_node_id(name))?;
-    ExchangeKind::parse(obj.get("kind")?.as_str()?)
-}
-
-/// Delete an exchange and ALL of its bindings (CONCEPT:EG-KG.compute.message-broker-exchanges). Returns whether the
-/// exchange existed. Queues + their messages are untouched (only the routing edges go).
-pub fn delete_exchange(core: &GraphCore, name: &str) -> bool {
-    let existed = core.has_node(&exchange_node_id(name));
-    for b in load_bindings(core, name) {
-        core.remove_node(binding_node_id(&b.exchange, &b.queue, &b.routing_key));
-    }
-    if existed {
-        core.remove_node(exchange_node_id(name));
-    }
-    existed
-}
-
-/// Bind `queue` to `exchange` under `routing_key` (CONCEPT:EG-KG.compute.message-broker-exchanges), idempotently. Also
-/// ensures the queue's durable sequence counter node exists so publishes start at 0.
-pub fn bind_queue(core: &GraphCore, exchange: &str, queue: &str, routing_key: &str) {
-    ensure_queue_seq(core, queue);
-    let props = serde_json::json!({
-        "type": BINDING_TYPE,
-        "exchange": exchange,
-        "queue": queue,
-        "routing_key": routing_key,
-    });
-    core.add_node(
-        binding_node_id(exchange, queue, routing_key),
-        to_msgpack(&props),
-    );
-}
-
-/// Remove a specific `exchange`/`queue`/`routing_key` binding (CONCEPT:EG-KG.compute.message-broker-exchanges).
-/// Returns whether a matching binding existed.
-pub fn unbind_queue(core: &GraphCore, exchange: &str, queue: &str, routing_key: &str) -> bool {
-    let id = binding_node_id(exchange, queue, routing_key);
-    let existed = core.has_node(&id);
-    if existed {
-        core.remove_node(id);
-    }
-    existed
-}
-
-/// All bindings currently attached to `exchange` (CONCEPT:EG-KG.compute.message-broker-exchanges).
-pub fn load_bindings(core: &GraphCore, exchange: &str) -> Vec<Binding> {
-    core.get_nodes_by_label(BINDING_TYPE, 0)
-        .into_iter()
-        .filter_map(|(_, blob)| {
-            let v = decode_property(&blob).ok()?;
-            let o = v.as_object()?;
-            if o.get("exchange").and_then(|x| x.as_str()) != Some(exchange) {
-                return None;
-            }
-            Some(Binding {
-                exchange: exchange.to_string(),
-                queue: o.get("queue")?.as_str()?.to_string(),
-                routing_key: o.get("routing_key")?.as_str()?.to_string(),
-            })
-        })
-        .collect()
-}
-
-/// Ensure a queue's durable monotonic-seq counter node exists (starting at 0). Called
-/// on bind + on the publish path so an unbound-but-published queue is still monotonic.
-pub fn ensure_queue_seq(core: &GraphCore, queue: &str) {
-    let id = queue_seq_node_id(queue);
-    if !core.has_node(&id) {
-        let props = serde_json::json!({
-            "type": QUEUE_SEQ_TYPE,
-            "queue": queue,
-            "next_seq": 0,
-        });
-        core.add_node(id, to_msgpack(&props));
-    }
-}
-
-/// Publish `payload` to `exchange` with `routing_key` (CONCEPT:EG-KG.compute.message-broker-exchanges). Resolves the
-/// destination queues through [`route`] over the exchange's current bindings, then
-/// appends one pending message to EACH matched queue atomically under one write guard.
-/// Returns the number of queues the message was delivered to (0 = unroutable / unknown
-/// exchange). Deterministic: routing + seq derive only from graph state, so replaying
-/// the same `Method::Publish` over the same pre-image reproduces identical message nodes.
-pub fn publish(core: &GraphCore, exchange: &str, routing_key: &str, payload: &[u8]) -> usize {
-    let Some(kind) = load_exchange_kind(core, exchange) else {
-        return 0;
-    };
-    let bindings = load_bindings(core, exchange);
-    let queues = route(kind, &bindings, routing_key);
-    if queues.is_empty() {
-        return 0;
-    }
-    let payload_hex = hex_encode(payload);
-    core.broker_enqueue(&queues, exchange, routing_key, &payload_hex)
-}
-
+// Shared by the queue/stream implementation and the advisory consumer scan.
+pub(crate) use routing::{decode_property, to_msgpack};
+use routing::{node_object, QUEUE_SEQ_TYPE};
 // ══════════════════════════════════════════════════════════════════════════
 // Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues DLQ / EG-277 TTL / EG-278 priority /
 // EG-279 delay/schedule / EG-280 consumer-groups + QoS). Every addition here is
@@ -468,23 +110,35 @@ pub fn load_queue_policy(core: &GraphCore, queue: &str) -> QueuePolicy {
     }
 }
 
-/// Route + enqueue `payload` with resolved policy fields (CONCEPT:EG-KG.compute.message-ttl-expiry/278/279) —
-/// the shared core behind [`publish_ex`] and the dead-letter republish. Per QUEUE it
-/// resolves `expires_at` from the per-message TTL else the queue's `message_ttl_ms`
-/// (so per-queue TTL is honored), then merges `priority` / `deliver_at` / `expires_at`
-/// plus any `headers` (e.g. `x-death`) into the message node. Returns delivered count.
-#[allow(clippy::too_many_arguments)]
-fn publish_resolved(
-    core: &GraphCore,
-    exchange: &str,
-    routing_key: &str,
-    payload: &[u8],
+/// Inputs for route + enqueue with resolved policy fields (CONCEPT:EG-KG.compute.message-ttl-expiry/278/279).
+/// Keeping the policy-bearing values together makes the shared publish path explicit and reviewable.
+struct ResolvedPublish<'a> {
+    core: &'a GraphCore,
+    exchange: &'a str,
+    routing_key: &'a str,
+    payload: &'a [u8],
     priority: i64,
     deliver_at: Option<u64>,
     ttl_ms: Option<u64>,
     now_ms: Option<u64>,
-    headers: &serde_json::Map<String, serde_json::Value>,
-) -> usize {
+    headers: &'a serde_json::Map<String, serde_json::Value>,
+}
+
+/// Route + enqueue `payload` with resolved policy fields. This is the shared core behind [`publish_ex`]
+/// and the dead-letter republish. Per queue it resolves `expires_at` from the per-message TTL else the queue's
+/// `message_ttl_ms`, then merges `priority` / `deliver_at` / `expires_at` plus any `headers` into the message node.
+fn publish_resolved(request: ResolvedPublish<'_>) -> usize {
+    let ResolvedPublish {
+        core,
+        exchange,
+        routing_key,
+        payload,
+        priority,
+        deliver_at,
+        ttl_ms,
+        now_ms,
+        headers,
+    } = request;
     let Some(kind) = load_exchange_kind(core, exchange) else {
         return 0;
     };
@@ -543,7 +197,7 @@ pub fn publish_ex(
         (Some(n), Some(d)) => Some(n.saturating_add(d)),
         _ => None,
     };
-    publish_resolved(
+    publish_resolved(ResolvedPublish {
         core,
         exchange,
         routing_key,
@@ -552,8 +206,8 @@ pub fn publish_ex(
         deliver_at,
         ttl_ms,
         now_ms,
-        &serde_json::Map::new(),
-    )
+        headers: &serde_json::Map::new(),
+    })
 }
 
 // ── Message-node field accessors (single source of truth) ─────────────────
@@ -748,17 +402,17 @@ fn dead_letter(
                 serde_json::Value::String(reason.into()),
             );
             // Republish to the DL exchange (applies the DL target's own queue TTL).
-            publish_resolved(
+            publish_resolved(ResolvedPublish {
                 core,
-                &dlx,
-                &dl_rk,
-                &payload,
+                exchange: &dlx,
+                routing_key: &dl_rk,
+                payload: &payload,
                 priority,
-                None,
-                None,
-                Some(now_ms),
-                &headers,
-            );
+                deliver_at: None,
+                ttl_ms: None,
+                now_ms: Some(now_ms),
+                headers: &headers,
+            });
         }
     }
     core.remove_node(node_id.to_string());
@@ -931,14 +585,7 @@ impl ReadFrom {
     }
 }
 
-/// A publisher-confirm token (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos): a broker-wide monotonic `delivery_tag`
-/// identifying the publish, plus whether the broker durably accepted it (`confirmed`)
-/// or nacked it (unknown exchange). Mirrors AMQP publisher confirms / Kafka acks.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ConfirmToken {
-    pub delivery_tag: i64,
-    pub confirmed: bool,
-}
+pub use eg_types::messaging_wire::ConfirmToken;
 
 /// Ensure a stream's durable monotonic offset counter node exists (starting at 0),
 /// mirroring [`ensure_queue_seq`] (CONCEPT:EG-KG.compute.replayable-append-log). Called on declare + publish so a
@@ -1230,136 +877,27 @@ pub fn broker_nack_tag(
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════
-// CONCEPT:EG-KG.ingest.broker-reject-publish idempotent producer (effectively-once publish) — ADDITIVE over
-// EG-275/276..284. A publish MAY carry a `(producer_id, seq)` idempotency stamp;
-// the broker keeps a durable per-producer monotonic high-water mark on the SAME
-// control graph and DROPS a re-published `(producer_id, seq)` it has already seen
-// (seq at/under the mark), so a publisher that retries after an ambiguous
-// publisher-confirm gets effectively-once delivery instead of a duplicate. A
-// publish WITHOUT a producer-id behaves EXACTLY as today (at-least-once) — no
-// producer node is touched, no message shape changes.
-//
-// Determinism/atomicity: the dedup decision + high-water-mark bump run under ONE
-// GraphCore write guard and derive purely from the producer node's current state
-// (the caller supplies `producer_id`/`seq`; no server clock / RNG), so a WAL/Raft
-// replay of `Method::PublishIdempotent` reproduces byte-identical state — the same
-// discipline EG-275..284 follow.
-// ══════════════════════════════════════════════════════════════════════════
-
-/// Type carried by a producer's durable dedup high-water-mark node (CONCEPT:EG-KG.ingest.broker-reject-publish).
-pub const PRODUCER_SEQ_TYPE: &str = "BrokerProducerSeq";
-
-/// Node id for a producer's durable dedup state (CONCEPT:EG-KG.ingest.broker-reject-publish) — the per-producer
-/// monotonic `last_seq` high-water mark the broker dedups against. The `producer_id`
-/// is caller-chosen (a stable publisher identity), so the id is deterministic.
-pub fn producer_seq_node_id(producer_id: &str) -> String {
-    format!("broker:producer:{producer_id}")
-}
-
-/// Outcome of an idempotent publish (CONCEPT:EG-KG.ingest.broker-reject-publish). `confirmed` mirrors the EG-284
-/// publisher-confirm (the exchange existed / the broker accepted it); `duplicate` is
-/// `true` when a `(producer_id, seq)` stamp was recognised as already-seen and the
-/// message was DROPPED (effectively-once — a duplicate still confirms so the retrying
-/// publisher stops); `delivered` is the number of queues the message was routed to
-/// (`0` for a duplicate or an unroutable/nacked publish).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IdempotentPublish {
-    pub confirmed: bool,
-    pub duplicate: bool,
-    pub delivered: usize,
-}
-
-/// Publish `payload` with an OPTIONAL `(producer_id, seq)` idempotency stamp
-/// (CONCEPT:EG-KG.ingest.broker-reject-publish) — the effectively-once sibling of [`publish_confirmed`].
-///
-/// * `producer_id == None` (or empty) ⇒ the plain at-least-once path: routes+enqueues
-///   exactly like [`publish_ex`], never touching any producer node — byte-identical to
-///   EG-275/EG-284 behavior (the ADDITIVE guarantee).
-/// * `producer_id == Some(pid)` ⇒ the broker consults `pid`'s durable monotonic
-///   high-water mark: a `seq` at/under the mark is a DUPLICATE (dropped, `duplicate =
-///   true`, still `confirmed`); a `seq` above the mark advances it and the message is
-///   routed+enqueued via [`publish_ex`]. An unknown exchange nacks (`confirmed = false`)
-///   WITHOUT consuming the seq, so a retry after the exchange is declared still lands.
-///
-/// Deterministic: the dedup check + mark bump run under one write guard over durable
-/// graph state and the caller supplies `producer_id`/`seq`, so replay of
-/// `Method::PublishIdempotent` reproduces identical state.
-#[allow(clippy::too_many_arguments)]
-pub fn publish_idempotent(
-    core: &GraphCore,
-    exchange: &str,
-    routing_key: &str,
-    payload: &[u8],
-    producer_id: Option<&str>,
-    seq: i64,
-    priority: i64,
-    delay_ms: Option<u64>,
-    ttl_ms: Option<u64>,
-    now_ms: Option<u64>,
-) -> IdempotentPublish {
-    let confirmed = load_exchange_kind(core, exchange).is_some();
-    // No producer-id ⇒ the unchanged at-least-once path (no dedup, no producer node).
-    let Some(pid) = producer_id.filter(|p| !p.is_empty()) else {
-        let delivered = if confirmed {
-            publish_ex(
-                core,
-                exchange,
-                routing_key,
-                payload,
-                priority,
-                delay_ms,
-                ttl_ms,
-                now_ms,
-            )
-        } else {
-            0
-        };
-        return IdempotentPublish {
-            confirmed,
-            duplicate: false,
-            delivered,
-        };
-    };
-    // Unknown exchange ⇒ nack WITHOUT recording the seq (nothing was accepted, so a
-    // retry once the exchange exists must still be delivered).
-    if !confirmed {
-        return IdempotentPublish {
-            confirmed: false,
-            duplicate: false,
-            delivered: 0,
-        };
-    }
-    // Dedup: a `(producer_id, seq)` already at/under the high-water mark is a duplicate.
-    let is_new = core.broker_producer_check_and_record(&producer_seq_node_id(pid), seq);
-    if !is_new {
-        // Effectively-once: confirm the duplicate but DO NOT re-enqueue it.
-        return IdempotentPublish {
-            confirmed: true,
-            duplicate: true,
-            delivered: 0,
-        };
-    }
-    let delivered = publish_ex(
-        core,
-        exchange,
-        routing_key,
-        payload,
-        priority,
-        delay_ms,
-        ttl_ms,
-        now_ms,
-    );
-    IdempotentPublish {
-        confirmed: true,
-        duplicate: false,
-        delivered,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    macro_rules! publish_idempotent_request {
+        ($core:expr, $exchange:expr, $routing_key:expr, $payload:expr, $producer_id:expr,
+         $seq:expr, $priority:expr, $delay_ms:expr, $ttl_ms:expr, $now_ms:expr) => {
+            publish_idempotent(IdempotentPublishRequest {
+                core: $core,
+                exchange: $exchange,
+                routing_key: $routing_key,
+                payload: $payload,
+                producer_id: $producer_id,
+                seq: $seq,
+                priority: $priority,
+                delay_ms: $delay_ms,
+                ttl_ms: $ttl_ms,
+                now_ms: $now_ms,
+            })
+        };
+    }
 
     // ── CONCEPT:EG-KG.compute.message-broker-exchanges topic wildcard matcher ────────────────────────────
 
@@ -2236,19 +1774,23 @@ mod tests {
     fn eg314_duplicate_producer_seq_is_dropped_distinct_delivered_once() {
         let core = rig();
         // First publish of (P, 0): NEW → routed+enqueued.
-        let r0 = publish_idempotent(&core, "ex", "k", b"m0", Some("P"), 0, 0, None, None, None);
+        let r0 =
+            publish_idempotent_request!(&core, "ex", "k", b"m0", Some("P"), 0, 0, None, None, None);
         assert!(r0.confirmed && !r0.duplicate);
         assert_eq!(r0.delivered, 1);
         // Re-publish of (P, 0): DUPLICATE → confirmed but dropped (not re-enqueued).
-        let dup = publish_idempotent(&core, "ex", "k", b"m0", Some("P"), 0, 0, None, None, None);
+        let dup =
+            publish_idempotent_request!(&core, "ex", "k", b"m0", Some("P"), 0, 0, None, None, None);
         assert!(dup.confirmed && dup.duplicate);
         assert_eq!(dup.delivered, 0);
         // A distinct seq (P, 1): NEW → delivered.
-        let r1 = publish_idempotent(&core, "ex", "k", b"m1", Some("P"), 1, 0, None, None, None);
+        let r1 =
+            publish_idempotent_request!(&core, "ex", "k", b"m1", Some("P"), 1, 0, None, None, None);
         assert!(r1.confirmed && !r1.duplicate);
         assert_eq!(r1.delivered, 1);
         // An older seq (P, 0) again is still a duplicate (at/under the high-water mark).
-        let dup2 = publish_idempotent(&core, "ex", "k", b"x", Some("P"), 0, 0, None, None, None);
+        let dup2 =
+            publish_idempotent_request!(&core, "ex", "k", b"x", Some("P"), 0, 0, None, None, None);
         assert!(dup2.duplicate && dup2.delivered == 0);
         // Exactly the two DISTINCT messages are on the queue, in publish order.
         let mut got = Vec::new();
@@ -2264,16 +1806,19 @@ mod tests {
         let core = rig();
         // Producer A seq 0 and producer B seq 0 are UNRELATED — both delivered.
         assert_eq!(
-            publish_idempotent(&core, "ex", "k", b"a", Some("A"), 0, 0, None, None, None).delivered,
+            publish_idempotent_request!(&core, "ex", "k", b"a", Some("A"), 0, 0, None, None, None)
+                .delivered,
             1
         );
         assert_eq!(
-            publish_idempotent(&core, "ex", "k", b"b", Some("B"), 0, 0, None, None, None).delivered,
+            publish_idempotent_request!(&core, "ex", "k", b"b", Some("B"), 0, 0, None, None, None)
+                .delivered,
             1
         );
         // But A's seq 0 re-published is a duplicate.
         assert!(
-            publish_idempotent(&core, "ex", "k", b"a", Some("A"), 0, 0, None, None, None).duplicate
+            publish_idempotent_request!(&core, "ex", "k", b"a", Some("A"), 0, 0, None, None, None)
+                .duplicate
         );
     }
 
@@ -2283,7 +1828,8 @@ mod tests {
         // to a plain EG-275 publish, incl. the message-node shape.
         let core = rig();
         for _ in 0..3 {
-            let r = publish_idempotent(&core, "ex", "k", b"z", None, 0, 0, None, None, None);
+            let r =
+                publish_idempotent_request!(&core, "ex", "k", b"z", None, 0, 0, None, None, None);
             assert!(r.confirmed && !r.duplicate && r.delivered == 1);
         }
         let mut n = 0;
@@ -2296,7 +1842,7 @@ mod tests {
         let plain = rig();
         assert_eq!(publish(&plain, "ex", "k", b"z"), 1);
         let ec = rig();
-        publish_idempotent(&ec, "ex", "k", b"z", None, 0, 0, None, None, None);
+        publish_idempotent_request!(&ec, "ex", "k", b"z", None, 0, 0, None, None, None);
         let a = plain.get_node_properties(&message_node_id("q", 0)).unwrap();
         let b = ec.get_node_properties(&message_node_id("q", 0)).unwrap();
         let av: serde_json::Value = rmp_serde::from_slice(&a).unwrap();
@@ -2308,10 +1854,22 @@ mod tests {
     fn eg314_unknown_exchange_nacks_without_consuming_seq() {
         let core = rig();
         // Unknown exchange → nack; the producer's seq is NOT consumed …
-        let nack = publish_idempotent(&core, "nope", "k", b"x", Some("P"), 0, 0, None, None, None);
+        let nack = publish_idempotent_request!(
+            &core,
+            "nope",
+            "k",
+            b"x",
+            Some("P"),
+            0,
+            0,
+            None,
+            None,
+            None
+        );
         assert!(!nack.confirmed && !nack.duplicate && nack.delivered == 0);
         // … so publishing (P, 0) to a REAL exchange afterwards still lands (not a dup).
-        let ok = publish_idempotent(&core, "ex", "k", b"x", Some("P"), 0, 0, None, None, None);
+        let ok =
+            publish_idempotent_request!(&core, "ex", "k", b"x", Some("P"), 0, 0, None, None, None);
         assert!(ok.confirmed && !ok.duplicate && ok.delivered == 1);
     }
 
@@ -2320,12 +1878,12 @@ mod tests {
         let core = rig();
         // A stamped publish still threads EG-278 priority through to the message node.
         assert_eq!(
-            publish_idempotent(&core, "ex", "k", b"lo", Some("P"), 0, 0, None, None, None)
+            publish_idempotent_request!(&core, "ex", "k", b"lo", Some("P"), 0, 0, None, None, None)
                 .delivered,
             1
         );
         assert_eq!(
-            publish_idempotent(&core, "ex", "k", b"hi", Some("P"), 1, 5, None, None, None)
+            publish_idempotent_request!(&core, "ex", "k", b"hi", Some("P"), 1, 5, None, None, None)
                 .delivered,
             1
         );
@@ -2341,13 +1899,34 @@ mod tests {
         // never a second enqueue — the determinism contract.
         let core = rig();
         assert_eq!(
-            publish_idempotent(&core, "ex", "k", b"once", Some("P"), 7, 0, None, None, None)
-                .delivered,
+            publish_idempotent_request!(
+                &core,
+                "ex",
+                "k",
+                b"once",
+                Some("P"),
+                7,
+                0,
+                None,
+                None,
+                None
+            )
+            .delivered,
             1
         );
         // Replay: identical call, identical pre-image → recognised duplicate.
-        let replay =
-            publish_idempotent(&core, "ex", "k", b"once", Some("P"), 7, 0, None, None, None);
+        let replay = publish_idempotent_request!(
+            &core,
+            "ex",
+            "k",
+            b"once",
+            Some("P"),
+            7,
+            0,
+            None,
+            None,
+            None
+        );
         assert!(replay.duplicate && replay.delivered == 0);
         // Exactly one message exists.
         assert!(broker_consume(&core, "q", "g", "c", 1, 0, 0).is_some());

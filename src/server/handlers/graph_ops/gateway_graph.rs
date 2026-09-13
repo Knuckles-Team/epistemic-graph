@@ -1,6 +1,9 @@
 use super::*;
 
-use super::gateway::{commit_gateway, commit_gateway_coalescable};
+use super::gateway::commit_gateway;
+
+#[path = "gateway_graph_routes.rs"]
+mod gateway_graph_routes;
 
 /// Decode a MessagePack-encoded JSON object blob (the `props_msgpack` /
 /// `semantic_props_msgpack` wire fields) into a `serde_json` object map
@@ -202,7 +205,7 @@ fn apply_apply_mutation(
 }
 
 /// `RunDatalogReasoning`: pure extract-method from `try_handle_gateway`'s closure,
-/// byte-identical behaviour, no signature change.
+/// byte-identical behaviour.
 ///
 /// Gated on `reasoning`: `crate::reasoning` (see `lib.rs`, `#[cfg(feature =
 /// "reasoning")] pub use eg_compute::reasoning;`) exists only under that feature, and
@@ -213,9 +216,7 @@ fn apply_apply_mutation(
 /// --no-default-features --features server` fails E0433 on every `crate::reasoning::*`
 /// call in this body, even though the function is unreachable in that build.
 #[cfg(feature = "reasoning")]
-#[allow(clippy::too_many_arguments)]
-fn apply_run_datalog_reasoning(
-    core: &GraphCore,
+struct DatalogReasoningInput {
     subclass_relations: Vec<(String, String)>,
     subproperty_relations: Vec<(String, String)>,
     symmetric_properties: Vec<String>,
@@ -224,30 +225,36 @@ fn apply_run_datalog_reasoning(
     domain_rules: Vec<(String, String)>,
     range_rules: Vec<(String, String)>,
     property_chains: Vec<(String, String, String)>,
+}
+
+#[cfg(feature = "reasoning")]
+fn apply_run_datalog_reasoning(
+    core: &GraphCore,
+    input: DatalogReasoningInput,
 ) -> Result<ResultPayload, String> {
     let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
     match crate::reasoning::run_datalog_reasoning(
         core,
-        subclass_relations,
-        subproperty_relations,
-        symmetric_properties,
-        transitive_properties,
-        inverse_properties,
+        input.subclass_relations,
+        input.subproperty_relations,
+        input.symmetric_properties,
+        input.transitive_properties,
+        input.inverse_properties,
     ) {
         Ok(triples) => all_inferred.extend(triples),
         Err(e) => return Err(e),
     }
-    if !domain_rules.is_empty() || !range_rules.is_empty() {
+    if !input.domain_rules.is_empty() || !input.range_rules.is_empty() {
         all_inferred.extend(crate::reasoning::infer_domain_range(
             core,
-            domain_rules,
-            range_rules,
+            input.domain_rules,
+            input.range_rules,
         ));
     }
-    if !property_chains.is_empty() {
+    if !input.property_chains.is_empty() {
         all_inferred.extend(crate::reasoning::infer_property_chains(
             core,
-            property_chains,
+            input.property_chains,
         ));
     }
     Ok(ResultPayload::Json(serde_json::json!({
@@ -324,10 +331,8 @@ fn apply_add_embedding(
 }
 
 /// `SupersedeEdge`: pure extract-method from `try_handle_gateway`'s closure,
-/// byte-identical behaviour, no signature change.
-#[allow(clippy::too_many_arguments)]
-fn apply_supersede_edge(
-    core: &GraphCore,
+/// byte-identical behaviour.
+struct SupersedeEdgeInput {
     source_id: String,
     target_id: String,
     properties_msgpack: Vec<u8>,
@@ -336,16 +341,21 @@ fn apply_supersede_edge(
     prior_relationship: String,
     valid_at: u64,
     tx_now: u64,
+}
+
+fn apply_supersede_edge(
+    core: &GraphCore,
+    input: SupersedeEdgeInput,
 ) -> Result<ResultPayload, String> {
     match core.supersede_edge(
-        source_id,
-        target_id,
-        properties_msgpack,
-        &prior_source,
-        &prior_target,
-        &prior_relationship,
-        valid_at,
-        tx_now,
+        input.source_id,
+        input.target_id,
+        input.properties_msgpack,
+        &input.prior_source,
+        &input.prior_target,
+        &input.prior_relationship,
+        input.valid_at,
+        input.tx_now,
     ) {
         Ok(()) => Ok(ResultPayload::String("ok".to_string())),
         Err(e) => Err(e),
@@ -382,482 +392,5 @@ pub(super) async fn try_handle(
     plan: &MutationPlan,
     method: &Method,
 ) -> Option<Response> {
-    let resp = match method {
-        Method::AddNode { .. } => {
-            let owned_method = method.clone();
-            commit_gateway_coalescable(ctx, plan, method, move |core| {
-                mutation::apply_coalescable_write(core, &owned_method)
-            })
-            .await
-        }
-        Method::CreateNodeIfAbsent {
-            node_id,
-            properties_msgpack,
-        } => {
-            let (node_id, properties_msgpack) = (node_id.clone(), properties_msgpack.clone());
-            commit_gateway(ctx, plan, method, move |core| {
-                Ok(ResultPayload::Bool(
-                    core.create_node_if_absent(node_id, properties_msgpack),
-                ))
-            })
-            .await
-        }
-        Method::RemoveNode { .. } => {
-            let owned_method = method.clone();
-            commit_gateway_coalescable(ctx, plan, method, move |core| {
-                mutation::apply_coalescable_write(core, &owned_method)
-            })
-            .await
-        }
-        Method::AddEdge { .. } => {
-            let owned_method = method.clone();
-            commit_gateway_coalescable(ctx, plan, method, move |core| {
-                mutation::apply_coalescable_write(core, &owned_method)
-            })
-            .await
-        }
-        Method::RemoveEdge { .. } => {
-            let owned_method = method.clone();
-            commit_gateway_coalescable(ctx, plan, method, move |core| {
-                mutation::apply_coalescable_write(core, &owned_method)
-            })
-            .await
-        }
-        Method::CreateSummaryNode {
-            level,
-            child_ids,
-            props_msgpack,
-        } => {
-            let (level, child_ids, props_msgpack) =
-                (*level, child_ids.clone(), props_msgpack.clone());
-            commit_gateway(ctx, plan, method, move |core| {
-                let props = decode_json_object(&props_msgpack);
-                let id = core.create_summary_node(level, &child_ids, props);
-                Ok(ResultPayload::String(id))
-            })
-            .await
-        }
-        Method::Consolidate {
-            episodic_ids,
-            semantic_props_msgpack,
-        } => {
-            let (episodic_ids, semantic_props_msgpack) =
-                (episodic_ids.clone(), semantic_props_msgpack.clone());
-            commit_gateway(ctx, plan, method, move |core| {
-                let props = decode_json_object(&semantic_props_msgpack);
-                let id = core.consolidate(&episodic_ids, props);
-                Ok(ResultPayload::String(id))
-            })
-            .await
-        }
-        Method::Reinforce {
-            node_id,
-            now_ms,
-            weight,
-        } => {
-            let (node_id, now_ms, weight) = (node_id.clone(), *now_ms, *weight);
-            commit_gateway(ctx, plan, method, move |core| {
-                let existed = core.reinforce(&node_id, now_ms, weight);
-                Ok(ResultPayload::Bool(existed))
-            })
-            .await
-        }
-        // ── L11 rollout batch 2 (EG-P0-2 continued): graph-core family ──
-        Method::CompareAndSetNodeFields { .. } => {
-            let owned_method = method.clone();
-            commit_gateway_coalescable(ctx, plan, method, move |core| {
-                mutation::apply_coalescable_write(core, &owned_method)
-            })
-            .await
-        }
-        Method::ClaimNext {
-            label,
-            updates_msgpack,
-        } => {
-            let (label, updates_msgpack) = (label.clone(), updates_msgpack.clone());
-            commit_gateway(ctx, plan, method, move |core| {
-                apply_claim_next(core, &label, &updates_msgpack)
-            })
-            .await
-        }
-        Method::DecayNode {
-            node_id,
-            now_ms,
-            half_life_ms,
-        } => {
-            let (node_id, now_ms, half_life_ms) = (node_id.clone(), *now_ms, *half_life_ms);
-            commit_gateway(ctx, plan, method, move |core| {
-                let acted = core.decay_node(&node_id, now_ms, half_life_ms);
-                Ok(ResultPayload::Bool(acted))
-            })
-            .await
-        }
-        Method::DecayMemories {
-            now_ms,
-            half_life_ms,
-            ids,
-        } => {
-            let (now_ms, half_life_ms, ids) = (*now_ms, *half_life_ms, ids.clone());
-            commit_gateway(ctx, plan, method, move |core| {
-                let n = core.decay_memories(now_ms, half_life_ms, &ids);
-                Ok(ResultPayload::Count(n as u64))
-            })
-            .await
-        }
-        Method::EvictBelow {
-            ids,
-            threshold,
-            delete,
-        } => {
-            let (ids, threshold, delete) = (ids.clone(), *threshold, *delete);
-            commit_gateway(ctx, plan, method, move |core| {
-                let pruned = core.evict_below(&ids, threshold, delete);
-                Ok(ResultPayload::Ids(pruned))
-            })
-            .await
-        }
-        Method::Maintain {
-            ids,
-            now_ms,
-            half_life_ms,
-            evict_threshold,
-            delete,
-        } => {
-            let (ids, now_ms, half_life_ms, evict_threshold, delete) = (
-                ids.clone(),
-                *now_ms,
-                *half_life_ms,
-                *evict_threshold,
-                *delete,
-            );
-            commit_gateway(ctx, plan, method, move |core| {
-                let out = core.maintain(&ids, now_ms, half_life_ms, evict_threshold, delete);
-                ResultPayload::raw(&out)
-            })
-            .await
-        }
-        Method::AddSceneObject {
-            pose_msgpack,
-            parent,
-        } => {
-            let (pose_msgpack, parent) = (pose_msgpack.clone(), parent.clone());
-            commit_gateway(ctx, plan, method, move |core| {
-                apply_add_scene_object(core, &pose_msgpack, parent.as_deref())
-            })
-            .await
-        }
-        Method::SetPose {
-            node_id,
-            pose_msgpack,
-        } => {
-            let (node_id, pose_msgpack) = (node_id.clone(), pose_msgpack.clone());
-            commit_gateway(ctx, plan, method, move |core| {
-                apply_set_pose(core, &node_id, &pose_msgpack)
-            })
-            .await
-        }
-        Method::Reparent {
-            node_id,
-            new_parent,
-        } => {
-            let (node_id, new_parent) = (node_id.clone(), new_parent.clone());
-            commit_gateway(ctx, plan, method, move |core| {
-                let ok = core.reparent(&node_id, new_parent.as_deref());
-                Ok(ResultPayload::Bool(ok))
-            })
-            .await
-        }
-        Method::StartTrajectory { props_msgpack } => {
-            let props_msgpack = props_msgpack.clone();
-            commit_gateway(ctx, plan, method, move |core| {
-                let props = decode_json_object(&props_msgpack);
-                let id = core.start_trajectory(props);
-                Ok(ResultPayload::String(id))
-            })
-            .await
-        }
-        Method::AppendStep {
-            traj_id,
-            action_msgpack,
-            reward,
-            state_ref,
-            next_state_ref,
-            t,
-        } => {
-            let (traj_id, action_msgpack, reward, state_ref, next_state_ref, t) = (
-                traj_id.clone(),
-                action_msgpack.clone(),
-                *reward,
-                state_ref.clone(),
-                next_state_ref.clone(),
-                *t,
-            );
-            commit_gateway(ctx, plan, method, move |core| {
-                let action = eg_types::msgpack::decode_property_value(&action_msgpack)
-                    .unwrap_or(serde_json::Value::Null);
-                let step_id = core.append_step(
-                    &traj_id,
-                    action,
-                    reward,
-                    state_ref.as_deref(),
-                    next_state_ref.as_deref(),
-                    t,
-                );
-                ResultPayload::raw(&step_id)
-            })
-            .await
-        }
-        Method::AddEmbedding { node_id, embedding } => {
-            let (node_id, embedding) = (node_id.clone(), embedding.clone());
-            commit_gateway(ctx, plan, method, move |core| {
-                apply_add_embedding(core, node_id, embedding)
-            })
-            .await
-        }
-        Method::InvalidateEdge {
-            source_id,
-            target_id,
-            relationship,
-            invalid_at,
-            tx_now,
-        } => {
-            let (source_id, target_id, relationship, invalid_at, tx_now) = (
-                source_id.clone(),
-                target_id.clone(),
-                relationship.clone(),
-                *invalid_at,
-                *tx_now,
-            );
-            commit_gateway(ctx, plan, method, move |core| {
-                let n =
-                    core.invalidate_edge(&source_id, &target_id, &relationship, invalid_at, tx_now);
-                Ok(ResultPayload::Count(n as u64))
-            })
-            .await
-        }
-        Method::SupersedeEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-            prior_source,
-            prior_target,
-            prior_relationship,
-            valid_at,
-            tx_now,
-        } => {
-            let (
-                source_id,
-                target_id,
-                properties_msgpack,
-                prior_source,
-                prior_target,
-                prior_relationship,
-                valid_at,
-                tx_now,
-            ) = (
-                source_id.clone(),
-                target_id.clone(),
-                properties_msgpack.clone(),
-                prior_source.clone(),
-                prior_target.clone(),
-                prior_relationship.clone(),
-                *valid_at,
-                *tx_now,
-            );
-            commit_gateway(ctx, plan, method, move |core| {
-                apply_supersede_edge(
-                    core,
-                    source_id,
-                    target_id,
-                    properties_msgpack,
-                    prior_source,
-                    prior_target,
-                    prior_relationship,
-                    valid_at,
-                    tx_now,
-                )
-            })
-            .await
-        }
-        Method::ClearGraph => {
-            commit_gateway(ctx, plan, method, move |core| {
-                core.clear();
-                Ok(ResultPayload::String("ok".to_string()))
-            })
-            .await
-        }
-        Method::EvictLRU { max_nodes } => apply_evict_lru(ctx, plan, method, *max_nodes).await,
-        Method::DecaySweep {
-            half_life_secs,
-            floor,
-            prune,
-        } => {
-            let (half_life_secs, floor, prune) = (*half_life_secs, *floor, *prune);
-            commit_gateway(ctx, plan, method, move |core| {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let stats = core.decay_sweep(now, half_life_secs, floor, prune);
-                serde_json::to_value(&stats)
-                    .map(ResultPayload::Json)
-                    .map_err(|e| e.to_string())
-            })
-            .await
-        }
-        Method::TouchNodes { node_ids } => {
-            let node_ids = node_ids.clone();
-            commit_gateway(ctx, plan, method, move |core| {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let touched = core.touch_nodes(&node_ids, now);
-                Ok(ResultPayload::Count(touched as u64))
-            })
-            .await
-        }
-        Method::FromMsgpack { msgpack } => {
-            let msgpack = msgpack.clone();
-            commit_gateway(ctx, plan, method, move |core| {
-                core.from_msgpack(&msgpack)
-                    .map(|()| ResultPayload::String("ok".to_string()))
-                    .map_err(|e| e.to_string())
-            })
-            .await
-        }
-        Method::Reconcile { msgpack, .. } => {
-            let msgpack = msgpack.clone();
-            commit_gateway(ctx, plan, method, move |core| {
-                core.from_msgpack(&msgpack)
-                    .map(|()| ResultPayload::String("reconciled".to_string()))
-                    .map_err(|e| e.to_string())
-            })
-            .await
-        }
-        Method::ApplyMutation { event_type, query } => {
-            let (event_type, query) = (event_type.clone(), query.clone());
-            commit_gateway(ctx, plan, method, move |core| {
-                apply_apply_mutation(core, event_type, query)
-            })
-            .await
-        }
-        // IcvConfigure is ordinary graph control state: validate and stage it on
-        // the authorized graph image so policy + rows share one commit/snapshot.
-        #[cfg(feature = "shacl")]
-        Method::IcvConfigure {
-            graph,
-            mode,
-            shapes,
-        } => {
-            let (graph, mode, shapes) = (graph.clone(), mode.clone(), shapes.clone());
-            let request_graph = ctx.graph_name.to_string();
-            commit_gateway(ctx, plan, method, move |core| {
-                crate::server::icv_guard::configure(
-                    core,
-                    &request_graph,
-                    graph.as_deref(),
-                    &mode,
-                    &shapes,
-                )
-                .map(|()| ResultPayload::Bool(true))
-            })
-            .await
-        }
-        #[cfg(feature = "reasoning")]
-        Method::RunDatalogReasoning {
-            subclass_relations,
-            subproperty_relations,
-            symmetric_properties,
-            transitive_properties,
-            inverse_properties,
-            domain_rules,
-            range_rules,
-            property_chains,
-        } => {
-            let (
-                subclass_relations,
-                subproperty_relations,
-                symmetric_properties,
-                transitive_properties,
-                inverse_properties,
-                domain_rules,
-                range_rules,
-                property_chains,
-            ) = (
-                subclass_relations.clone(),
-                subproperty_relations.clone(),
-                symmetric_properties.clone(),
-                transitive_properties.clone(),
-                inverse_properties.clone(),
-                domain_rules.clone(),
-                range_rules.clone(),
-                property_chains.clone(),
-            );
-            commit_gateway(ctx, plan, method, move |core| {
-                apply_run_datalog_reasoning(
-                    core,
-                    subclass_relations,
-                    subproperty_relations,
-                    symmetric_properties,
-                    transitive_properties,
-                    inverse_properties,
-                    domain_rules,
-                    range_rules,
-                    property_chains,
-                )
-            })
-            .await
-        }
-        Method::PruneByLifecycle {
-            max_age_secs,
-            min_score,
-        } => {
-            let (max_age_secs, min_score) = (*max_age_secs, *min_score);
-            commit_gateway(ctx, plan, method, move |core| {
-                let stats = crate::algorithms::prune_by_lifecycle(core, max_age_secs, min_score);
-                serde_json::to_value(&stats)
-                    .map(ResultPayload::Json)
-                    .map_err(|e| e.to_string())
-            })
-            .await
-        }
-        Method::BatchUpdate { operations_msgpack } => {
-            let operations_msgpack = operations_msgpack.clone();
-            commit_gateway(ctx, plan, method, move |core| {
-                apply_batch_update(core, &operations_msgpack)
-            })
-            .await
-        }
-        Method::ClearLedger => {
-            commit_gateway(ctx, plan, method, move |core| {
-                core.clear_ledger();
-                Ok(ResultPayload::String("ok".to_string()))
-            })
-            .await
-        }
-        Method::ApplyLedger { transactions } => {
-            let transactions = transactions.clone();
-            commit_gateway(ctx, plan, method, move |core| {
-                core.apply_ledger(transactions)
-                    .map(|()| ResultPayload::String("ok".to_string()))
-            })
-            .await
-        }
-        Method::CompactNodesByType {
-            node_type,
-            threshold,
-        } => {
-            let (node_type, threshold) = (node_type.clone(), *threshold);
-            commit_gateway(ctx, plan, method, move |core| {
-                let removed = core.compact_nodes_by_type(&node_type, threshold);
-                Ok(ResultPayload::Json(
-                    serde_json::json!({ "removed_nodes": removed }),
-                ))
-            })
-            .await
-        }
-        _ => return None,
-    };
-    Some(resp)
+    gateway_graph_routes::try_handle(ctx, plan, method).await
 }

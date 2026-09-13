@@ -6642,7 +6642,9 @@ class LifecycleClient:
         return (await _gen.graph.send_metrics(self._client)).payload
 
     async def to_msgpack(self) -> bytes:
-        return (await _gen.storage.send_to_msgpack(self._client)).payload
+        # The engine declares this result as Json<Vec<u8>>: the snapshot bytes arrive as
+        # an array of byte values, not a MessagePack bin.
+        return bytes((await _gen.storage.send_to_msgpack(self._client)).payload)
 
     async def from_msgpack(self, msgpack_bytes: bytes) -> None:
         await _gen.storage.send_from_msgpack(self._client, {"msgpack": msgpack_bytes})

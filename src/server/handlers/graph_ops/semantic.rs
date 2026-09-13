@@ -58,6 +58,15 @@ fn keyword_overlap(kws: &[String], name: &str, description: &str, ntype: &str) -
     matched as f32 / kws.len() as f32
 }
 
+fn normalized_keywords(keywords: &[String]) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    keywords
+        .iter()
+        .map(|word| word.to_lowercase())
+        .filter(|word| !word.is_empty() && seen.insert(word.clone()))
+        .collect()
+}
+
 /// One-round-trip hybrid discovery (CONCEPT:EG-KG.retrieval.one-round-trip-discovery).
 ///
 /// Ranks nodes by BOTH lexical keyword overlap (over `name`/`description`/`type`)
@@ -84,14 +93,7 @@ fn discover(
     req_id: u64,
 ) -> Response {
     // De-duplicate + lowercase the keyword set (order-independent).
-    let kws: Vec<String> = {
-        let mut seen = std::collections::BTreeSet::new();
-        keywords
-            .iter()
-            .map(|w| w.to_lowercase())
-            .filter(|w| !w.is_empty() && seen.insert(w.clone()))
-            .collect()
-    };
+    let kws = normalized_keywords(keywords);
     let has_kw = !kws.is_empty();
     let has_emb = !query_embedding.is_empty();
 
@@ -151,23 +153,23 @@ fn discover(
     });
     ranked.truncate(k);
 
-    let results: Vec<serde_json::Value> = ranked
+    let results: Vec<eg_types::ingestion_wire::DiscoverHit> = ranked
         .into_iter()
         .map(|(id, score)| {
-            let (name, description, ntype) = node_text(core, &id);
-            serde_json::json!({
-                "id": id,
-                "name": name,
-                "description": description,
-                "type": ntype,
-                "score": score,
-            })
+            let (name, description, node_type) = node_text(core, &id);
+            eg_types::ingestion_wire::DiscoverHit {
+                id,
+                name,
+                description,
+                node_type,
+                score,
+            }
         })
         .collect();
 
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::Value::Array(results)),
+        ResultPayload::of::<eg_types::result_contract::ingestion::Discover>(results),
     )
 }
 
@@ -213,7 +215,12 @@ async fn handle_semantic_search(
     })
     .await
     {
-        Ok(weighted_results) => Response::ok(req_id, ResultPayload::raw(&weighted_results)),
+        Ok(weighted_results) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::ingestion::SemanticSearch>(
+                &weighted_results,
+            ),
+        ),
         Err(resp) => resp,
     }
 }

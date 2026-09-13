@@ -159,6 +159,24 @@ pub fn is_durable_mutation(m: &Method) -> bool {
 /// (replaying the same Method over the same pre-image yields the same state), which
 /// is the Raft state-machine contract.
 pub fn apply(core: &GraphCore, m: &Method) {
+    if apply_base_graph(core, m) {
+        return;
+    }
+    if apply_broker_exchange(core, m) {
+        return;
+    }
+    if apply_broker_streams(core, m) {
+        return;
+    }
+    let _ = apply_memory(core, m);
+}
+
+fn apply_base_graph(core: &GraphCore, m: &Method) -> bool {
+    apply_base_nodes(core, m) || apply_base_edges(core, m) || apply_base_embedding(core, m)
+}
+
+fn apply_base_nodes(core: &GraphCore, m: &Method) -> bool {
+    let mut handled = true;
     match m {
         Method::AddNode {
             node_id,
@@ -204,6 +222,14 @@ pub fn apply(core: &GraphCore, m: &Method) {
                 let _ = core.claim_next_fields(label, &updates);
             }
         }
+        _ => handled = false,
+    }
+    handled
+}
+
+fn apply_base_edges(core: &GraphCore, m: &Method) -> bool {
+    let mut handled = true;
+    match m {
         Method::AddEdge {
             source_id,
             target_id,
@@ -252,6 +278,14 @@ pub fn apply(core: &GraphCore, m: &Method) {
             );
         }
         Method::ClearGraph => core.clear(),
+        _ => handled = false,
+    }
+    handled
+}
+
+fn apply_base_embedding(core: &GraphCore, m: &Method) -> bool {
+    let mut handled = true;
+    match m {
         // Deterministic replay: the embedding upsert has no clock/randomness, so
         // re-running it over the same pre-image reproduces the identical vector.
         // `apply` is void-returning (a best-effort replay applier, matching the
@@ -274,6 +308,18 @@ pub fn apply(core: &GraphCore, m: &Method) {
                 );
             }
         }
+        _ => handled = false,
+    }
+    handled
+}
+
+fn apply_broker_exchange(core: &GraphCore, m: &Method) -> bool {
+    apply_broker_admin(core, m) || apply_broker_queue(core, m)
+}
+
+fn apply_broker_admin(core: &GraphCore, m: &Method) -> bool {
+    let mut handled = true;
+    match m {
         // Message-broker replay (CONCEPT:EG-KG.compute.message-broker-exchanges): re-run the SAME broker fn. Routing
         // reads the (already-replayed) bindings and the seq comes from the durable
         // counter node, so message nodes are reproduced byte-identically; results are
@@ -310,6 +356,14 @@ pub fn apply(core: &GraphCore, m: &Method) {
         } => {
             let _ = crate::broker::publish(core, exchange, routing_key, payload);
         }
+        _ => handled = false,
+    }
+    handled
+}
+
+fn apply_broker_queue(core: &GraphCore, m: &Method) -> bool {
+    let mut handled = true;
+    match m {
         // Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280): re-run the SAME broker fn
         // with the SAME explicit args. Routing reads (already-replayed) bindings, seq
         // comes from the durable counter, and `now_ms` is logged — so the message /
@@ -385,6 +439,14 @@ pub fn apply(core: &GraphCore, m: &Method) {
         Method::SweepExpired { now_ms } => {
             let _ = crate::broker::sweep_expired(core, *now_ms);
         }
+        _ => handled = false,
+    }
+    handled
+}
+
+fn apply_broker_streams(core: &GraphCore, m: &Method) -> bool {
+    let mut handled = true;
+    match m {
         // Streams (CONCEPT:EG-KG.compute.replayable-append-log) + confirms/acks (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos): re-run the SAME
         // broker fn with the SAME explicit args. Offsets/tags come from durable counter
         // nodes and `now_ms` is logged, so message / commit / tag state is reproduced
@@ -458,18 +520,18 @@ pub fn apply(core: &GraphCore, m: &Method) {
             ttl_ms,
             now_ms,
         } => {
-            let _ = crate::broker::publish_idempotent(
+            let _ = crate::broker::publish_idempotent(crate::broker::IdempotentPublishRequest {
                 core,
                 exchange,
                 routing_key,
                 payload,
-                producer_id.as_deref(),
-                *seq,
-                *priority,
-                *delay_ms,
-                *ttl_ms,
-                *now_ms,
-            );
+                producer_id: producer_id.as_deref(),
+                seq: *seq,
+                priority: *priority,
+                delay_ms: *delay_ms,
+                ttl_ms: *ttl_ms,
+                now_ms: *now_ms,
+            });
         }
         #[cfg(feature = "broker")]
         Method::BrokerAckTag {
@@ -498,6 +560,21 @@ pub fn apply(core: &GraphCore, m: &Method) {
             let _ =
                 crate::broker::broker_renew_tag(core, *delivery_tag, consumer, *now_ms, *lease_ms);
         }
+        _ => handled = false,
+    }
+    handled
+}
+
+fn apply_memory(core: &GraphCore, m: &Method) -> bool {
+    apply_memory_episodic(core, m)
+        || apply_memory_maintenance(core, m)
+        || apply_memory_scene(core, m)
+        || apply_memory_trajectory(core, m)
+}
+
+fn apply_memory_episodic(core: &GraphCore, m: &Method) -> bool {
+    let mut handled = true;
+    match m {
         // Agent-memory / scene-graph / trajectory replay (CONCEPT:EG-KG.memory.eg-batch-decay-caller): re-run the
         // SAME eg-core primitive with the SAME explicit args over the same pre-image.
         // Every generated id derives deterministically (sorted inputs / monotonic
@@ -541,6 +618,14 @@ pub fn apply(core: &GraphCore, m: &Method) {
         } => {
             let _ = core.decay_memories(*now_ms, *half_life_ms, ids);
         }
+        _ => handled = false,
+    }
+    handled
+}
+
+fn apply_memory_maintenance(core: &GraphCore, m: &Method) -> bool {
+    let mut handled = true;
+    match m {
         Method::EvictBelow {
             ids,
             threshold,
@@ -557,6 +642,14 @@ pub fn apply(core: &GraphCore, m: &Method) {
         } => {
             let _ = core.maintain(ids, *now_ms, *half_life_ms, *evict_threshold, *delete);
         }
+        _ => handled = false,
+    }
+    handled
+}
+
+fn apply_memory_scene(core: &GraphCore, m: &Method) -> bool {
+    let mut handled = true;
+    match m {
         Method::AddSceneObject {
             pose_msgpack,
             parent,
@@ -579,6 +672,14 @@ pub fn apply(core: &GraphCore, m: &Method) {
         } => {
             let _ = core.reparent(node_id, new_parent.as_deref());
         }
+        _ => handled = false,
+    }
+    handled
+}
+
+fn apply_memory_trajectory(core: &GraphCore, m: &Method) -> bool {
+    let mut handled = true;
+    match m {
         Method::StartTrajectory { props_msgpack } => {
             if let Some(props) = durable_json_object(props_msgpack) {
                 let _ = core.start_trajectory(props);
@@ -603,14 +704,9 @@ pub fn apply(core: &GraphCore, m: &Method) {
                 );
             }
         }
-        // Everything else — `BatchUpdate` (needs `eg-compute`), the `rdf`/`mining`/
-        // `graphlearn` write-back families (need `eg-rdf` / `src/server/handlers`,
-        // both above `eg-core` in the DAG) — is handled by
-        // `src/mutation_apply.rs::apply`'s own match, which calls this function for
-        // its `_` arm. A non-durable `Method` also lands here and is correctly a
-        // no-op.
-        _ => {}
+        _ => handled = false,
     }
+    handled
 }
 
 /// Decode a MessagePack-encoded JSON object blob for canonical replay (CONCEPT:EG-KG.memory.eg-batch-decay-caller). A

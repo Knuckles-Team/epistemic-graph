@@ -849,7 +849,7 @@ def _check_mysql(mysql_packets: str, mysql_wire: str) -> None:
 def main() -> None:
     require_no_retired_graph_topology()
     protocol = read("crates/eg-types/src/protocol.rs")
-    wire = read("crates/eg-types/src/wire.rs")
+    wire = read_module_tree("crates/eg-types/src/wire.rs", root_dir=ROOT)
     schema = read("crates/eg-query/src/tables/schema.rs")
     sql_exec = read("crates/eg-query/src/sql/exec.rs")
     sql_mod = read("crates/eg-query/src/sql/mod.rs")
@@ -914,9 +914,7 @@ def main() -> None:
     # via its `_` arm. A check that reads only src/mutation_apply.rs therefore
     # measures a partial universe post-hoist (BUG-CX-112) -- union both.
     mutation_apply += "\n" + read("crates/eg-core/src/durable_apply.rs")
-    graph_handler = read_module_tree(
-        "src/server/handlers/graph_ops.rs", root_dir=ROOT
-    )
+    graph_handler = read_module_tree("src/server/handlers/graph_ops.rs", root_dir=ROOT)
     access = read("src/server/access.rs")
     broker = read("crates/eg-core/src/broker.rs")
     cdc = read("src/server/cdc.rs")

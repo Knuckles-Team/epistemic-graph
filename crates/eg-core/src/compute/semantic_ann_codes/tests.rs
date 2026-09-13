@@ -2648,10 +2648,7 @@ fn s6_generation_two_demotes_the_previous_live_binding_in_one_write() {
     drop(read);
     let batch = seed_batch(&owner, 1, "s6-demotion-refusal", version);
     let (write, begin) = refusal_codes.mutations.admit(&owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
+    let eg_transaction::Begin::Apply { .. } = begin else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
     let rows = write.owner_rows(&owner, &batch).unwrap();
@@ -3446,10 +3443,7 @@ fn production_generation_checkpoint_heads_refuse_stale_s3_and_s5_cas() {
         let version = eg_transaction::version(&codes.kernel.read_scope(&owner).unwrap()).unwrap();
         let loser = seed_batch(&owner, 1, "checkpoint-cas-loser", version);
         let (loser_write, begin) = codes.mutations.admit(&owner, &loser).unwrap();
-        let eg_transaction::Begin::Apply {
-            source_version: source_version_loser_write,
-        } = begin
-        else {
+        let eg_transaction::Begin::Apply { .. } = begin else {
             panic!("expected a fresh Begin::Apply, got a replay");
         };
         let loser_rows = loser_write.owner_rows(&owner, &loser).unwrap();

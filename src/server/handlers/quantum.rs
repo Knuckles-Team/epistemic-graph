@@ -84,7 +84,12 @@ use eg_quantum_core::planner::{select_backend, PlannerDecision, PlannerOptions, 
 use eg_quantum_core::result::{Outcome, QuantumResult};
 use eg_quantum_sim::stabilizer::StabilizerSimulator;
 use eg_quantum_sim::statevector::StateVectorSimulator;
-use eg_types::quantum::{QuantumOp, QuantumQaoaEdge, QuantumRankCandidate};
+use eg_types::quantum::{
+    QuantumExpectationResult, QuantumOp, QuantumOperationKind, QuantumPlannerAuditEntry,
+    QuantumPlannerReport, QuantumQaoaEdge, QuantumQaoaResult, QuantumRankCandidate,
+    QuantumRankResult, QuantumRankedCandidate, QuantumRunMetadata,
+};
+use eg_types::result_contract::ingestion as results;
 
 use crate::protocol::{Response, ResultPayload};
 
@@ -107,13 +112,17 @@ const DEFAULT_MEMORY_BOUND_BYTES: u64 = 256 * 1024 * 1024;
 /// store), so the dispatch shell can call this directly with no per-graph routing
 /// and no `state`.
 pub(crate) async fn handle(req_id: u64, op: QuantumOp) -> Response {
-    let outcome = match op {
+    match op {
         QuantumOp::Rank {
             candidates,
             shots,
             seed,
             backend_id,
-        } => handle_rank(candidates, shots, seed, backend_id),
+        } => Response::ok(
+            req_id,
+            handle_rank(candidates, shots, seed, backend_id)
+                .and_then(ResultPayload::of::<results::QuantumRank>),
+        ),
         QuantumOp::OptimizeQaoa {
             nodes,
             edges,
@@ -121,18 +130,22 @@ pub(crate) async fn handle(req_id: u64, op: QuantumOp) -> Response {
             shots,
             seed,
             backend_id,
-        } => handle_qaoa(nodes, edges, p_layers, shots, seed, backend_id),
+        } => Response::ok(
+            req_id,
+            handle_qaoa(nodes, edges, p_layers, shots, seed, backend_id)
+                .and_then(ResultPayload::of::<results::QuantumOptimizeQaoa>),
+        ),
         QuantumOp::Expectation {
             program,
             observable_qubits,
             shots,
             seed,
             backend_id,
-        } => handle_expectation(program, observable_qubits, shots, seed, backend_id),
-    };
-    match outcome {
-        Ok(payload) => Response::ok(req_id, ResultPayload::Json(payload)),
-        Err(message) => Response::err(req_id, message),
+        } => Response::ok(
+            req_id,
+            handle_expectation(program, observable_qubits, shots, seed, backend_id)
+                .and_then(ResultPayload::of::<results::QuantumExpectation>),
+        ),
     }
 }
 
@@ -211,21 +224,32 @@ fn rule_name(rule: PlannerRule) -> &'static str {
     }
 }
 
-fn planner_json(
+/// The serde name of a unit-variant vocabulary value (these enums are `snake_case`).
+fn serde_name<T: serde::Serialize>(value: T) -> Option<String> {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(name)) => Some(name),
+        _ => None,
+    }
+}
+
+fn planner_report(
     decision: &PlannerDecision,
     override_requested: &Option<String>,
-) -> serde_json::Value {
-    serde_json::json!({
-        "chosen_backend": decision.chosen.0,
-        "chosen_family": serde_json::to_value(decision.family).unwrap_or(serde_json::Value::Null),
-        "rule": rule_name(decision.rule),
-        "audit_trail": decision
+) -> QuantumPlannerReport {
+    QuantumPlannerReport {
+        chosen_backend: decision.chosen.0.clone(),
+        chosen_family: serde_name(decision.family),
+        rule: rule_name(decision.rule).to_string(),
+        audit_trail: decision
             .audit
             .iter()
-            .map(|e| serde_json::json!({"rule": rule_name(e.rule), "note": e.note}))
-            .collect::<Vec<_>>(),
-        "backend_override_requested": override_requested,
-    })
+            .map(|e| QuantumPlannerAuditEntry {
+                rule: rule_name(e.rule).to_string(),
+                note: e.note.clone(),
+            })
+            .collect(),
+        backend_override_requested: override_requested.clone(),
+    }
 }
 
 /// The full Q0 result metadata, unconditionally present in every response — this is
@@ -233,20 +257,20 @@ fn planner_json(
 /// `OptimizeQaoa` always pass `true`; `Expectation` passes through the backend's own
 /// `is_exact()` unchanged (an expectation value is the kind of quantity Q0's
 /// `HardConstraint` gate exists for, unlike a ranking/partition decision).
-fn result_json(result: &QuantumResult, proposal: bool) -> serde_json::Value {
-    serde_json::json!({
-        "backend_id": result.backend_id.0,
-        "formalism": serde_json::to_value(result.formalism).unwrap_or(serde_json::Value::Null),
-        "seed": result.seed,
-        "shots": result.shots,
-        "circuit_hash": result.circuit_hash.to_hex(),
-        "exact": result.is_exact(),
-        "proposal": proposal,
-        "noise_model_id": result.noise_model_id,
-        "fidelity_hint": result.fidelity_hint,
-        "wall_time_ms": result.wall_time_ms,
-        "peak_memory_bytes": result.peak_memory_bytes,
-    })
+fn run_metadata(result: &QuantumResult, proposal: bool) -> QuantumRunMetadata {
+    QuantumRunMetadata {
+        backend_id: result.backend_id.0.clone(),
+        formalism: serde_name(result.formalism),
+        seed: result.seed,
+        shots: result.shots,
+        circuit_hash: result.circuit_hash.to_hex(),
+        exact: result.is_exact(),
+        proposal,
+        noise_model_id: result.noise_model_id.clone(),
+        fidelity_hint: result.fidelity_hint,
+        wall_time_ms: result.wall_time_ms,
+        peak_memory_bytes: result.peak_memory_bytes,
+    }
 }
 
 fn counts_of(outcome: &Outcome) -> Result<&BTreeMap<String, u64>, String> {
@@ -378,7 +402,7 @@ fn handle_rank(
     shots: Option<u64>,
     seed: Option<u64>,
     backend_id: Option<String>,
-) -> Result<serde_json::Value, String> {
+) -> Result<QuantumRankResult, String> {
     let program = build_rank_program(&candidates)?;
     let (result, decision) = run_program(&program, shots, seed, backend_id.clone())?;
     let counts = counts_of(&result.outcome)?;
@@ -402,24 +426,23 @@ fn handle_rank(
         .collect();
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-    let ranked: Vec<serde_json::Value> = scored
+    let ranked_candidates = scored
         .iter()
         .enumerate()
-        .map(|(rank, (i, probability))| {
-            serde_json::json!({
-                "id": candidates[*i].id,
-                "weight": candidates[*i].weight,
-                "probability": probability,
-                "rank": rank,
-            })
+        .map(|(rank, (i, probability))| QuantumRankedCandidate {
+            id: candidates[*i].id.clone(),
+            weight: candidates[*i].weight,
+            probability: *probability,
+            rank,
         })
         .collect();
 
-    let mut response = result_json(&result, true);
-    response["operation"] = serde_json::Value::String("rank".to_string());
-    response["planner"] = planner_json(&decision, &backend_id);
-    response["ranked_candidates"] = serde_json::Value::Array(ranked);
-    Ok(response)
+    Ok(QuantumRankResult {
+        run: run_metadata(&result, true),
+        operation: QuantumOperationKind::Rank,
+        planner: planner_report(&decision, &backend_id),
+        ranked_candidates,
+    })
 }
 
 // ── OptimizeQaoa ─────────────────────────────────────────────────────────
@@ -513,7 +536,7 @@ fn handle_qaoa(
     shots: Option<u64>,
     seed: Option<u64>,
     backend_id: Option<String>,
-) -> Result<serde_json::Value, String> {
+) -> Result<QuantumQaoaResult, String> {
     let (program, resolved_edges) = build_qaoa_program(&nodes, &edges, p_layers)?;
     let (result, decision) = run_program(&program, shots, seed, backend_id.clone())?;
     let counts = counts_of(&result.outcome)?;
@@ -533,23 +556,24 @@ fn handle_qaoa(
         }
     }
     let best_key = best_key.ok_or("backend returned no measurement outcomes")?;
-    let partition: serde_json::Map<String, serde_json::Value> = nodes
+    let partition: BTreeMap<String, u8> = nodes
         .iter()
         .enumerate()
         .map(|(i, node_id)| {
             let bit = best_key.as_bytes().get(i).copied() == Some(b'1');
-            (node_id.clone(), serde_json::Value::from(i32::from(bit)))
+            (node_id.clone(), u8::from(bit))
         })
         .collect();
 
-    let mut response = result_json(&result, true);
-    response["operation"] = serde_json::Value::String("optimize_qaoa".to_string());
-    response["planner"] = planner_json(&decision, &backend_id);
-    response["partition"] = serde_json::Value::Object(partition);
-    response["cut_value"] = serde_json::json!(best_cut);
-    response["p_layers"] = serde_json::json!(p_layers);
-    response["variational_optimizer"] = serde_json::Value::String("fixed_params_v0".to_string());
-    Ok(response)
+    Ok(QuantumQaoaResult {
+        run: run_metadata(&result, true),
+        operation: QuantumOperationKind::OptimizeQaoa,
+        planner: planner_report(&decision, &backend_id),
+        partition,
+        cut_value: best_cut,
+        p_layers,
+        variational_optimizer: "fixed_params_v0".to_string(),
+    })
 }
 
 // ── Expectation ──────────────────────────────────────────────────────────
@@ -645,7 +669,7 @@ fn handle_expectation(
     shots: Option<u64>,
     seed: Option<u64>,
     backend_id: Option<String>,
-) -> Result<serde_json::Value, String> {
+) -> Result<QuantumExpectationResult, String> {
     let program: QuantumProgram = serde_json::from_value(program_json)
         .map_err(|e| format!("program does not decode as a QuantumProgram: {e}"))?;
     let positions = resolve_observable_positions(&program, &observable_qubits)?;
@@ -662,11 +686,12 @@ fn handle_expectation(
     // closed-form expectation path (no sampling, `stderr` structurally absent rather
     // than `0.0`) is a real future upgrade this response shape has room for -- it is
     // not implemented by this lane.
-    let mut response = result_json(&result, true);
-    response["operation"] = serde_json::Value::String("expectation".to_string());
-    response["planner"] = planner_json(&decision, &backend_id);
-    response["observable_qubits"] = serde_json::json!(observable_qubits);
-    response["expectation_value"] = serde_json::json!(value);
-    response["stderr"] = serde_json::json!(stderr);
-    Ok(response)
+    Ok(QuantumExpectationResult {
+        run: run_metadata(&result, true),
+        operation: QuantumOperationKind::Expectation,
+        planner: planner_report(&decision, &backend_id),
+        observable_qubits,
+        expectation_value: value,
+        stderr,
+    })
 }

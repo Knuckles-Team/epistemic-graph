@@ -54,7 +54,7 @@ use tokio::sync::RwLock;
 
 use super::super::compute::compute_off_lock;
 use super::super::state::ServerState;
-use crate::mutation_batch::{DurabilityDomain, MutationSurface};
+use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 
@@ -62,6 +62,7 @@ use eg_tsdb::point::Point;
 use eg_tsdb::query::{asof_join_backward, gap_fill_locf, time_bucket, Agg};
 use eg_tsdb::store::{ScopedAppendBatch, SeriesKey, SeriesStore};
 use eg_types::contract::Nonce;
+use eg_types::result_contract::storage as results;
 
 const MAX_POINTS_MSGPACK_BYTES: usize = 32 * 1024 * 1024;
 const MAX_POINTS_MSGPACK_ITEMS: usize = 1_000_000;
@@ -191,6 +192,390 @@ pub(crate) struct SeriesPlacement<'a> {
     pub(crate) fencing_token: Option<u64>,
 }
 
+struct TsRequestContext<'a> {
+    state: &'a Arc<RwLock<ServerState>>,
+    req_id: u64,
+    authority: &'a CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+    graph: &'a str,
+    placement_epoch: u64,
+    fencing_token: Option<u64>,
+    original_method: &'a Method,
+}
+
+struct PreparedAppend {
+    store: Arc<SeriesStore>,
+    points: Vec<Point>,
+    graph: String,
+    batch: MutationBatch,
+    committed_at_ms: u64,
+}
+
+async fn prepare_append(
+    context: &TsRequestContext<'_>,
+    points_msgpack: &[u8],
+) -> Result<PreparedAppend, Response> {
+    let store = match store_of(context.state, context.req_id).await {
+        Ok(store) => store,
+        Err(response) => return Err(response),
+    };
+    let points = match decode_points(points_msgpack) {
+        Ok(points) => points,
+        Err(error) => return Err(Response::err(context.req_id, error)),
+    };
+    let graph = context.graph.to_string();
+    let scope = context.authority.namespace("ts-scope", &graph);
+    let expected = match store.mutation_version(context.authority.tenant_scope(), &scope) {
+        Ok(version) => version,
+        Err(error) => {
+            return Err(Response::err(
+                context.req_id,
+                format!("time-series MutationBatch version read failed: {error}"),
+            ))
+        }
+    };
+    let batch_id = crate::server::mutation_batch::opaque_request_key(
+        "timeseries",
+        &scope,
+        context.req_id,
+        context.original_method,
+    );
+    let committed_at_ms = crate::server::dispatch::authoritative_now_ms();
+    let batch = match crate::server::mutation_batch::compile_opaque_method(
+        crate::server::mutation_batch::CompileBatch {
+            batch_id: &batch_id,
+            request_id: context.req_id,
+            attempt_nonce: context.attempt_nonce,
+            principal: Some(context.authority.actor_scope()),
+            tenant: context.authority.tenant_scope(),
+            graph: &scope,
+            placement_epoch: context.placement_epoch,
+            idempotency_key: &batch_id,
+            expected_graph_version: Some(expected),
+            fencing_token: context.fencing_token,
+            created_at_ms: committed_at_ms,
+            default_surface: MutationSurface::Other,
+            authoritative_state: None,
+        },
+        context.original_method,
+        MutationSurface::Other,
+        DurabilityDomain::TimeSeries,
+        "timeseries_append",
+    ) {
+        Ok(batch) => batch,
+        Err(error) => {
+            return Err(Response::err(
+                context.req_id,
+                format!("time-series MutationBatch compile failed: {error}"),
+            ))
+        }
+    };
+    Ok(PreparedAppend {
+        store,
+        points,
+        graph,
+        batch,
+        committed_at_ms,
+    })
+}
+
+async fn handle_append(
+    context: &TsRequestContext<'_>,
+    series_id: String,
+    n_fields: usize,
+    bucket_ns: u64,
+    field_names: Vec<String>,
+    points_msgpack: Vec<u8>,
+) -> Response {
+    let prepared = match prepare_append(context, &points_msgpack).await {
+        Ok(prepared) => prepared,
+        Err(response) => return response,
+    };
+    let authority = context.authority.clone();
+    match compute_off_lock(context.req_id, move || {
+        let key = scoped_key(&authority, &prepared.graph, &series_id)?;
+        prepared
+            .store
+            .append_scoped_batch(
+                &key,
+                ScopedAppendBatch {
+                    n_fields,
+                    bucket_ns,
+                    field_names: &field_names,
+                    points: &prepared.points,
+                    batch: &prepared.batch,
+                    committed_at_ms: prepared.committed_at_ms,
+                },
+            )
+            .map_err(|error| error.to_string())
+    })
+    .await
+    {
+        Ok(Ok(committed_n)) => Response::ok(
+            context.req_id,
+            ResultPayload::scalar::<results::TsAppend>(committed_n),
+        ),
+        Ok(Err(error)) => Response::err(context.req_id, error.to_string()),
+        Err(response) => response,
+    }
+}
+
+async fn handle_range(
+    context: &TsRequestContext<'_>,
+    series_id: String,
+    from: i64,
+    to: i64,
+) -> Response {
+    let store = match store_of(context.state, context.req_id).await {
+        Ok(store) => store,
+        Err(response) => return response,
+    };
+    let graph = context.graph.to_string();
+    let authority = context.authority.clone();
+    match compute_off_lock(context.req_id, move || {
+        let key = scoped_key(&authority, &graph, &series_id)?;
+        store
+            .range_scoped(&key, from, to)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    {
+        Ok(Ok(points)) => {
+            let wire: Vec<(i64, Vec<f64>)> = points
+                .into_iter()
+                .map(|point| (point.ts, point.values))
+                .collect();
+            Response::ok(
+                context.req_id,
+                ResultPayload::of_ref::<results::TsRange>(&wire),
+            )
+        }
+        Ok(Err(error)) => Response::err(context.req_id, error.to_string()),
+        Err(response) => response,
+    }
+}
+
+fn decode_left_timestamps(blob: &[u8]) -> Result<Vec<i64>, &'static str> {
+    let values: Vec<i64> = eg_types::msgpack::decode_bounded(
+        blob,
+        eg_types::msgpack::MsgpackLimits::new(
+            MAX_POINTS_MSGPACK_BYTES,
+            MAX_POINTS_MSGPACK_ITEMS,
+            64,
+        ),
+    )
+    .map_err(|_| "invalid or over-complex left timestamp payload")?;
+    if values.len() > MAX_POINTS_PER_REQUEST {
+        return Err("left timestamp count exceeds the resource limit");
+    }
+    Ok(values)
+}
+
+async fn handle_asof_join(
+    context: &TsRequestContext<'_>,
+    series_id: String,
+    left_ts_msgpack: Vec<u8>,
+    tolerance: i64,
+) -> Response {
+    let store = match store_of(context.state, context.req_id).await {
+        Ok(store) => store,
+        Err(response) => return response,
+    };
+    let left_ts = match decode_left_timestamps(&left_ts_msgpack) {
+        Ok(values) => values,
+        Err(error) => return Response::err(context.req_id, error),
+    };
+    // `-1` over the wire encodes "no tolerance" (unbounded).
+    let tolerance = if tolerance < 0 { None } else { Some(tolerance) };
+    let graph = context.graph.to_string();
+    let authority = context.authority.clone();
+    match compute_off_lock(context.req_id, move || {
+        let key = scoped_key(&authority, &graph, &series_id)?;
+        let right = store
+            .scan_all_scoped(&key)
+            .map_err(|error| error.to_string())?;
+        // Sort left events ascending so the O(L+R) merge holds, but return
+        // results in the CALLER's input order (a stable join surface).
+        let mut order: Vec<usize> = (0..left_ts.len()).collect();
+        order.sort_by_key(|&index| left_ts[index]);
+        let left: Vec<Point> = order
+            .iter()
+            .map(|&index| Point::single(left_ts[index], 0.0))
+            .collect();
+        let joined = asof_join_backward(&left, &right, tolerance);
+        // Re-key by original index: out[orig_i] = matched value (or None).
+        let mut out: Vec<Option<f64>> = vec![None; left_ts.len()];
+        for (slot, &orig_i) in order.iter().enumerate() {
+            out[orig_i] = joined[slot].right;
+        }
+        Ok::<_, String>(out)
+    })
+    .await
+    {
+        Ok(Ok(out)) => Response::ok(
+            context.req_id,
+            ResultPayload::of_ref::<results::TsAsofJoin>(&out),
+        ),
+        Ok(Err(error)) => Response::err(context.req_id, error.to_string()),
+        Err(response) => response,
+    }
+}
+
+async fn handle_window(
+    context: &TsRequestContext<'_>,
+    series_id: String,
+    from: i64,
+    to: i64,
+    width: i64,
+    agg: String,
+) -> Response {
+    let store = match store_of(context.state, context.req_id).await {
+        Ok(store) => store,
+        Err(response) => return response,
+    };
+    let agg = match parse_agg(&agg) {
+        Ok(agg) => agg,
+        Err(error) => return Response::err(context.req_id, error),
+    };
+    let graph = context.graph.to_string();
+    let authority = context.authority.clone();
+    match compute_off_lock(context.req_id, move || {
+        let key = scoped_key(&authority, &graph, &series_id)?;
+        let points = store
+            .range_scoped(&key, from, to)
+            .map_err(|error| error.to_string())?;
+        let bars = time_bucket(&points, width, agg);
+        let wire: Vec<(i64, f64, usize)> = bars
+            .into_iter()
+            .map(|bar| (bar.bucket_start, bar.value, bar.count))
+            .collect();
+        Ok::<_, String>(wire)
+    })
+    .await
+    {
+        Ok(Ok(wire)) => Response::ok(
+            context.req_id,
+            ResultPayload::of_ref::<results::TsWindow>(&wire),
+        ),
+        Ok(Err(error)) => Response::err(context.req_id, error.to_string()),
+        Err(response) => response,
+    }
+}
+
+async fn handle_gap_fill(
+    context: &TsRequestContext<'_>,
+    series_id: String,
+    from: i64,
+    to: i64,
+    step: i64,
+) -> Response {
+    let store = match store_of(context.state, context.req_id).await {
+        Ok(store) => store,
+        Err(response) => return response,
+    };
+    let graph = context.graph.to_string();
+    let authority = context.authority.clone();
+    match compute_off_lock(context.req_id, move || {
+        let key = scoped_key(&authority, &graph, &series_id)?;
+        let points = store
+            .range_scoped(&key, from, to)
+            .map_err(|error| error.to_string())?;
+        let grid = gap_fill_locf(&points, from, to, step);
+        // (ts, value-or-NaN, filled-flag) — None encodes as NaN over the raw wire.
+        let wire: Vec<(i64, f64, bool)> = grid
+            .into_iter()
+            .map(|point| (point.ts, point.value.unwrap_or(f64::NAN), point.filled))
+            .collect();
+        Ok::<_, String>(wire)
+    })
+    .await
+    {
+        Ok(Ok(wire)) => Response::ok(
+            context.req_id,
+            ResultPayload::of_ref::<results::TsGapFill>(&wire),
+        ),
+        Ok(Err(error)) => Response::err(context.req_id, error.to_string()),
+        Err(response) => response,
+    }
+}
+
+async fn handle_evict(context: &TsRequestContext<'_>, series_id: String, cutoff: i64) -> Response {
+    let store = match store_of(context.state, context.req_id).await {
+        Ok(store) => store,
+        Err(response) => return response,
+    };
+    let graph = context.graph.to_string();
+    let authority = context.authority.clone();
+    match compute_off_lock(context.req_id, move || {
+        let key = scoped_key(&authority, &graph, &series_id)?;
+        store
+            .evict_before_scoped(&key, cutoff)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    {
+        Ok(Ok(dropped)) => Response::ok(
+            context.req_id,
+            ResultPayload::scalar::<results::TsEvict>(dropped as u64),
+        ),
+        Ok(Err(error)) => Response::err(context.req_id, error.to_string()),
+        Err(response) => response,
+    }
+}
+
+async fn handle_delete_series(context: &TsRequestContext<'_>, series_id: String) -> Response {
+    let store = match store_of(context.state, context.req_id).await {
+        Ok(store) => store,
+        Err(response) => return response,
+    };
+    let graph = context.graph.to_string();
+    let authority = context.authority.clone();
+    match compute_off_lock(context.req_id, move || {
+        let key = scoped_key(&authority, &graph, &series_id)?;
+        store.delete_scoped(&key).map_err(|error| error.to_string())
+    })
+    .await
+    {
+        Ok(Ok(dropped)) => Response::ok(
+            context.req_id,
+            ResultPayload::scalar::<results::TsDeleteSeries>(dropped as u64),
+        ),
+        Ok(Err(error)) => Response::err(context.req_id, error.to_string()),
+        Err(response) => response,
+    }
+}
+
+async fn handle_list_series(context: &TsRequestContext<'_>) -> Response {
+    let store = match store_of(context.state, context.req_id).await {
+        Ok(store) => store,
+        Err(response) => return response,
+    };
+    let graph = context.graph.to_string();
+    let authority = context.authority.clone();
+    match compute_off_lock(context.req_id, move || {
+        let expected_tenant = authority.tenant_scope().to_string();
+        let expected_graph = authority.namespace("timeseries-graph", &graph);
+        let all = store.list_series().map_err(|error| error.to_string())?;
+        let mut series_ids: Vec<String> = all
+            .into_iter()
+            .filter_map(|encoded| SeriesKey::decode(&encoded))
+            .filter(|key| key.tenant == expected_tenant && key.graph == expected_graph)
+            .map(|key| key.series)
+            .collect();
+        series_ids.sort_unstable();
+        Ok::<_, String>(series_ids)
+    })
+    .await
+    {
+        Ok(Ok(series_ids)) => Response::ok(
+            context.req_id,
+            ResultPayload::of_ref::<results::TsListSeries>(&series_ids),
+        ),
+        Ok(Err(error)) => Response::err(context.req_id, error.to_string()),
+        Err(response) => response,
+    }
+}
+
 pub(crate) async fn try_handle_with_nonce(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -205,6 +590,16 @@ pub(crate) async fn try_handle_with_nonce(
         fencing_token,
     } = placement;
     let original_method = method.clone();
+    let context = TsRequestContext {
+        state,
+        req_id,
+        authority,
+        attempt_nonce,
+        graph,
+        placement_epoch,
+        fencing_token,
+        original_method: &original_method,
+    };
     match method {
         Method::TsAppend {
             series_id,
@@ -212,341 +607,46 @@ pub(crate) async fn try_handle_with_nonce(
             bucket_ns,
             field_names,
             points_msgpack,
-        } => {
-            let store = match store_of(state, req_id).await {
-                Ok(s) => s,
-                Err(r) => return Ok(r),
-            };
-            let points = match decode_points(&points_msgpack) {
-                Ok(p) => p,
-                Err(e) => return Ok(Response::err(req_id, e)),
-            };
-            let graph = graph.to_string();
-            let scope = authority.namespace("ts-scope", &graph);
-            let expected = match store.mutation_version(authority.tenant_scope(), &scope) {
-                Ok(version) => version,
-                Err(error) => {
-                    return Ok(Response::err(
-                        req_id,
-                        format!("time-series MutationBatch version read failed: {error}"),
-                    ))
-                }
-            };
-            let batch_id = crate::server::mutation_batch::opaque_request_key(
-                "timeseries",
-                &scope,
-                req_id,
-                &original_method,
-            );
-            let now = crate::server::dispatch::authoritative_now_ms();
-            let batch = match crate::server::mutation_batch::compile_opaque_method(
-                crate::server::mutation_batch::CompileBatch {
-                    batch_id: &batch_id,
-                    request_id: req_id,
-                    attempt_nonce,
-                    principal: Some(authority.actor_scope()),
-                    tenant: authority.tenant_scope(),
-                    graph: &scope,
-                    placement_epoch,
-                    idempotency_key: &batch_id,
-                    expected_graph_version: Some(expected),
-                    fencing_token,
-                    created_at_ms: now,
-                    default_surface: MutationSurface::Other,
-                    authoritative_state: None,
-                },
-                &original_method,
-                MutationSurface::Other,
-                DurabilityDomain::TimeSeries,
-                "timeseries_append",
-            ) {
-                Ok(batch) => batch,
-                Err(error) => {
-                    return Ok(Response::err(
-                        req_id,
-                        format!("time-series MutationBatch compile failed: {error}"),
-                    ))
-                }
-            };
-            let authority = authority.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let key = scoped_key(&authority, &graph, &series_id)?;
-                store
-                    .append_scoped_batch(
-                        &key,
-                        ScopedAppendBatch {
-                            n_fields,
-                            bucket_ns,
-                            field_names: &field_names,
-                            points: &points,
-                            batch: &batch,
-                            committed_at_ms: now,
-                        },
-                    )
-                    .map_err(|e| e.to_string())
-            })
-            .await
-            {
-                Ok(Ok(committed_n)) => Response::ok(req_id, ResultPayload::Count(committed_n)),
-                Ok(Err(e)) => Response::err(req_id, e.to_string()),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
-
+        } => Ok(handle_append(
+            &context,
+            series_id,
+            n_fields,
+            bucket_ns,
+            field_names,
+            points_msgpack,
+        )
+        .await),
         Method::TsRange {
             series_id,
             from,
             to,
-        } => {
-            let store = match store_of(state, req_id).await {
-                Ok(s) => s,
-                Err(r) => return Ok(r),
-            };
-            let graph = graph.to_string();
-            let authority = authority.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let key = scoped_key(&authority, &graph, &series_id)?;
-                store
-                    .range_scoped(&key, from, to)
-                    .map_err(|e| e.to_string())
-            })
-            .await
-            {
-                Ok(Ok(points)) => {
-                    let wire: Vec<(i64, Vec<f64>)> =
-                        points.into_iter().map(|p| (p.ts, p.values)).collect();
-                    Response::ok(req_id, ResultPayload::raw(&wire))
-                }
-                Ok(Err(e)) => Response::err(req_id, e.to_string()),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
-
+        } => Ok(handle_range(&context, series_id, from, to).await),
         Method::TsAsofJoin {
             series_id,
             left_ts_msgpack,
             tolerance,
-        } => {
-            let store = match store_of(state, req_id).await {
-                Ok(s) => s,
-                Err(r) => return Ok(r),
-            };
-            let left_ts: Vec<i64> = match eg_types::msgpack::decode_bounded(
-                &left_ts_msgpack,
-                eg_types::msgpack::MsgpackLimits::new(
-                    MAX_POINTS_MSGPACK_BYTES,
-                    MAX_POINTS_MSGPACK_ITEMS,
-                    64,
-                ),
-            ) {
-                Ok(v) => v,
-                Err(_) => {
-                    return Ok(Response::err(
-                        req_id,
-                        "invalid or over-complex left timestamp payload",
-                    ))
-                }
-            };
-            if left_ts.len() > MAX_POINTS_PER_REQUEST {
-                return Ok(Response::err(
-                    req_id,
-                    "left timestamp count exceeds the resource limit",
-                ));
-            }
-            // `-1` over the wire encodes "no tolerance" (unbounded).
-            let tol = if tolerance < 0 { None } else { Some(tolerance) };
-            let graph = graph.to_string();
-            let authority = authority.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let key = scoped_key(&authority, &graph, &series_id)?;
-                let right = store.scan_all_scoped(&key).map_err(|e| e.to_string())?;
-                // Sort left events ascending so the O(L+R) merge holds, but return
-                // results in the CALLER's input order (a stable join surface).
-                let mut order: Vec<usize> = (0..left_ts.len()).collect();
-                order.sort_by_key(|&i| left_ts[i]);
-                let left: Vec<Point> = order
-                    .iter()
-                    .map(|&i| Point::single(left_ts[i], 0.0))
-                    .collect();
-                let joined = asof_join_backward(&left, &right, tol);
-                // Re-key by original index: out[orig_i] = matched value (or None).
-                let mut out: Vec<Option<f64>> = vec![None; left_ts.len()];
-                for (slot, &orig_i) in order.iter().enumerate() {
-                    out[orig_i] = joined[slot].right;
-                }
-                Ok::<_, String>(out)
-            })
-            .await
-            {
-                Ok(Ok(out)) => Response::ok(req_id, ResultPayload::raw(&out)),
-                Ok(Err(e)) => Response::err(req_id, e.to_string()),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
-
+        } => Ok(handle_asof_join(&context, series_id, left_ts_msgpack, tolerance).await),
         Method::TsWindow {
             series_id,
             from,
             to,
             width,
             agg,
-        } => {
-            let store = match store_of(state, req_id).await {
-                Ok(s) => s,
-                Err(r) => return Ok(r),
-            };
-            let agg = match parse_agg(&agg) {
-                Ok(a) => a,
-                Err(e) => return Ok(Response::err(req_id, e)),
-            };
-            let graph = graph.to_string();
-            let authority = authority.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let key = scoped_key(&authority, &graph, &series_id)?;
-                let pts = store
-                    .range_scoped(&key, from, to)
-                    .map_err(|e| e.to_string())?;
-                let bars = time_bucket(&pts, width, agg);
-                let wire: Vec<(i64, f64, usize)> = bars
-                    .into_iter()
-                    .map(|b| (b.bucket_start, b.value, b.count))
-                    .collect();
-                Ok::<_, String>(wire)
-            })
-            .await
-            {
-                Ok(Ok(wire)) => Response::ok(req_id, ResultPayload::raw(&wire)),
-                Ok(Err(e)) => Response::err(req_id, e.to_string()),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
-
+        } => Ok(handle_window(&context, series_id, from, to, width, agg).await),
         Method::TsGapFill {
             series_id,
             from,
             to,
             step,
-        } => {
-            let store = match store_of(state, req_id).await {
-                Ok(s) => s,
-                Err(r) => return Ok(r),
-            };
-            let graph = graph.to_string();
-            let authority = authority.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let key = scoped_key(&authority, &graph, &series_id)?;
-                let pts = store
-                    .range_scoped(&key, from, to)
-                    .map_err(|e| e.to_string())?;
-                let grid = gap_fill_locf(&pts, from, to, step);
-                // (ts, value-or-NaN, filled-flag) — None encodes as NaN over the raw wire.
-                let wire: Vec<(i64, f64, bool)> = grid
-                    .into_iter()
-                    .map(|g| (g.ts, g.value.unwrap_or(f64::NAN), g.filled))
-                    .collect();
-                Ok::<_, String>(wire)
-            })
-            .await
-            {
-                Ok(Ok(wire)) => Response::ok(req_id, ResultPayload::raw(&wire)),
-                Ok(Err(e)) => Response::err(req_id, e.to_string()),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
-
-        // Retention (CONCEPT:EG-KG.storage.series-retention-reachability): `evict_before`/
-        // `delete_series` are naturally idempotent at the CONTENT level (re-evicting an
-        // already-past cutoff, or re-deleting an already-gone series, is a safe no-op that
-        // returns `0`) — unlike `TsAppend`, which would double points on a blind retry. So
-        // unlike `TsAppend`'s `append_scoped_batch`, these route through the store's plain
-        // `evict_before_scoped`/`delete_scoped` (one redb write txn each, still commit-
-        // before-ack durable) rather than the `eg_transaction` idempotency-batch
-        // machinery — there is no replay hazard here for that machinery to guard against.
+        } => Ok(handle_gap_fill(&context, series_id, from, to, step).await),
+        // Retention is content-idempotent, so these use the store's direct durable
+        // operations rather than the MutationBatch append path.
         Method::TsEvict { series_id, cutoff } => {
-            let store = match store_of(state, req_id).await {
-                Ok(s) => s,
-                Err(r) => return Ok(r),
-            };
-            let graph = graph.to_string();
-            let authority = authority.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let key = scoped_key(&authority, &graph, &series_id)?;
-                store
-                    .evict_before_scoped(&key, cutoff)
-                    .map_err(|e| e.to_string())
-            })
-            .await
-            {
-                Ok(Ok(dropped)) => Response::ok(req_id, ResultPayload::Count(dropped as u64)),
-                Ok(Err(e)) => Response::err(req_id, e.to_string()),
-                Err(resp) => resp,
-            };
-            Ok(resp)
+            Ok(handle_evict(&context, series_id, cutoff).await)
         }
-
-        Method::TsDeleteSeries { series_id } => {
-            let store = match store_of(state, req_id).await {
-                Ok(s) => s,
-                Err(r) => return Ok(r),
-            };
-            let graph = graph.to_string();
-            let authority = authority.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let key = scoped_key(&authority, &graph, &series_id)?;
-                store.delete_scoped(&key).map_err(|e| e.to_string())
-            })
-            .await
-            {
-                Ok(Ok(dropped)) => Response::ok(req_id, ResultPayload::Count(dropped as u64)),
-                Ok(Err(e)) => Response::err(req_id, e.to_string()),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
-
-        // Enumeration (CONCEPT:EG-KG.storage.series-retention-reachability): the primitive a
-        // multi-series retention sweep needs to discover WHAT to evict/delete in the first
-        // place — without this, `TsEvict`/`TsDeleteSeries` are only reachable one
-        // already-known `series_id` at a time. `SeriesStore::list_series` returns every
-        // series id in the WHOLE store (cross-tenant, cross-graph — it has no scope of its
-        // own); this decodes each one back to a `SeriesKey` and keeps only the rows whose
-        // `(tenant, graph)` match the CALLER's own derived scope (same `scoped_key`
-        // derivation every other `Ts*` method uses), returning just the bare caller-facing
-        // series ids. The encoded storage key never crosses the wire.
-        Method::TsListSeries => {
-            let store = match store_of(state, req_id).await {
-                Ok(s) => s,
-                Err(r) => return Ok(r),
-            };
-            let graph = graph.to_string();
-            let authority = authority.clone();
-            let resp = match compute_off_lock(req_id, move || {
-                let expected_tenant = authority.tenant_scope().to_string();
-                let expected_graph = authority.namespace("timeseries-graph", &graph);
-                let all = store.list_series().map_err(|e| e.to_string())?;
-                let mut series_ids: Vec<String> = all
-                    .into_iter()
-                    .filter_map(|encoded| SeriesKey::decode(&encoded))
-                    .filter(|key| key.tenant == expected_tenant && key.graph == expected_graph)
-                    .map(|key| key.series)
-                    .collect();
-                series_ids.sort_unstable();
-                Ok::<_, String>(series_ids)
-            })
-            .await
-            {
-                Ok(Ok(series_ids)) => Response::ok(req_id, ResultPayload::raw(&series_ids)),
-                Ok(Err(e)) => Response::err(req_id, e.to_string()),
-                Err(resp) => resp,
-            };
-            Ok(resp)
-        }
-
+        Method::TsDeleteSeries { series_id } => Ok(handle_delete_series(&context, series_id).await),
+        // Enumeration is scoped to the caller's verified tenant and graph.
+        Method::TsListSeries => Ok(handle_list_series(&context).await),
         other => Err(other),
     }
 }

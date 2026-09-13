@@ -34,11 +34,18 @@ use eg_asr_whisper::{
     decode_wav_16k_mono, verify_model, CancelFlag, TranscribeOptions, WhisperAsrProvider,
 };
 use eg_audio::asr::AsrError;
-use eg_types::asr_wire::AsrOp;
+use eg_types::asr_wire::{AsrOp, AsrTranscriptSegment, AsrTranscription};
 
 use crate::protocol::{Response, ResultPayload};
 
 const DEFAULT_WINDOW_MS: u32 = 30_000;
+
+struct TranscriptionSettings {
+    language: Option<String>,
+    translate: bool,
+    word_timing: bool,
+    window_ms: u32,
+}
 
 pub(crate) async fn handle(req_id: u64, op: AsrOp) -> Response {
     match op {
@@ -54,24 +61,23 @@ pub(crate) async fn handle(req_id: u64, op: AsrOp) -> Response {
             // whisper.cpp is a blocking, CPU-bound C library call — run it on
             // a blocking-safe thread rather than the async reactor, exactly
             // as any long CPU-bound handler in this codebase must.
+            let settings = TranscriptionSettings {
+                language,
+                translate,
+                word_timing,
+                window_ms: normalize_window(window_ms),
+            };
             let outcome = tokio::task::spawn_blocking(move || {
-                transcribe_file(
-                    &model_path,
-                    &model_sha256,
-                    &audio_wav,
-                    language.as_deref(),
-                    translate,
-                    word_timing,
-                    if window_ms == 0 {
-                        DEFAULT_WINDOW_MS
-                    } else {
-                        window_ms
-                    },
-                )
+                transcribe_file(&model_path, &model_sha256, &audio_wav, settings)
             })
             .await;
             match outcome {
-                Ok(Ok(payload)) => Response::ok(req_id, ResultPayload::Json(payload)),
+                Ok(Ok(transcription)) => Response::ok(
+                    req_id,
+                    ResultPayload::of::<eg_types::result_contract::ingestion::AsrTranscribeFile>(
+                        transcription,
+                    ),
+                ),
                 Ok(Err(err)) => Response::err(req_id, asr_error_message(&err)),
                 Err(_) => Response::err(req_id, "asr worker task panicked".to_string()),
             }
@@ -79,28 +85,32 @@ pub(crate) async fn handle(req_id: u64, op: AsrOp) -> Response {
     }
 }
 
+fn normalize_window(window_ms: u32) -> u32 {
+    match window_ms {
+        0 => DEFAULT_WINDOW_MS,
+        value => value,
+    }
+}
+
 fn transcribe_file(
     model_path: &str,
     model_sha256: &str,
     audio_wav: &[u8],
-    language: Option<&str>,
-    translate: bool,
-    word_timing: bool,
-    window_ms: u32,
-) -> Result<serde_json::Value, AsrError> {
+    settings: TranscriptionSettings,
+) -> Result<AsrTranscription, AsrError> {
     let verified = verify_model(model_path, model_sha256)?;
     let provider = WhisperAsrProvider::load(&verified, "eg-asr-whisper-rpc", false)?;
     let audio = decode_wav_16k_mono(audio_wav)?;
     let opts = TranscribeOptions {
-        language: language.map(str::to_string),
-        translate,
-        word_timing,
-        window_ms,
+        language: settings.language,
+        translate: settings.translate,
+        word_timing: settings.word_timing,
+        window_ms: settings.window_ms,
     };
     let cancel = CancelFlag::new();
     let outcome = provider.transcribe_streaming(&audio, &opts, &cancel, |_partial| {})?;
 
-    let segments: Vec<serde_json::Value> = outcome
+    let segments: Vec<AsrTranscriptSegment> = outcome
         .segments
         .iter()
         .map(|s| {
@@ -117,13 +127,13 @@ fn transcribe_file(
                 } => (Some(*avg_logprob), Some(*no_speech_prob)),
                 _ => (None, None),
             };
-            serde_json::json!({
-                "start": start_ms as f64 / 1000.0,
-                "end": end_ms as f64 / 1000.0,
-                "text": s.text,
-                "avg_logprob": avg_logprob,
-                "no_speech_prob": no_speech_prob,
-            })
+            AsrTranscriptSegment {
+                start: start_ms as f64 / 1000.0,
+                end: end_ms as f64 / 1000.0,
+                text: s.text.clone(),
+                avg_logprob,
+                no_speech_prob,
+            }
         })
         .collect();
     let text = outcome
@@ -135,12 +145,12 @@ fn transcribe_file(
         .trim()
         .to_string();
 
-    Ok(serde_json::json!({
-        "text": text,
-        "language": outcome.language,
-        "segments": segments,
-        "timing_available": outcome.timing_available,
-    }))
+    Ok(AsrTranscription {
+        text,
+        language: outcome.language,
+        segments,
+        timing_available: outcome.timing_available,
+    })
 }
 
 /// A stable, readable message per typed [`AsrError`] variant — never a bare

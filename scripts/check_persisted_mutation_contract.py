@@ -61,9 +61,7 @@ _NATIVE_CATALOG_ENTRY = re.compile(
     r"(?:record|unit|write)[ \t]+([A-Z][A-Za-z0-9_]*)[ \t]+"
     r"=>[ \t]+([A-Z][A-Za-z0-9_]*)[ \t]*,$"
 )
-_NATIVE_CATALOG_MACRO = re.compile(
-    r"\bmacro_rules\s*!\s*native_method_catalog\b"
-)
+_NATIVE_CATALOG_MACRO = re.compile(r"\bmacro_rules\s*!\s*native_method_catalog\b")
 
 
 def _native_method_catalog(source: str) -> dict[str, str]:
@@ -80,8 +78,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     arrows = [
         position
         for position in range(len(macro_body) - 1)
-        if macro_body.startswith("=>", position)
-        and depths[position] == (0, 0, 0)
+        if macro_body.startswith("=>", position) and depths[position] == (0, 0, 0)
     ]
     require(
         len(arrows) == 1,
@@ -193,9 +190,7 @@ def _const_slice(source: str, name: str) -> str:
 
 def _function(source: str, name: str) -> str:
     mask = _rust_code_mask(source)
-    match = re.search(
-        rf"\bfn\s+{re.escape(name)}(?:\s*<[^>{{}}]*>)?\s*\(", mask
-    )
+    match = re.search(rf"\bfn\s+{re.escape(name)}(?:\s*<[^>{{}}]*>)?\s*\(", mask)
     require(match is not None, f"missing Rust function inventory: {name}")
     start = mask.find("{", match.end())
     require(start >= 0, f"missing function body: {name}")
@@ -1017,12 +1012,14 @@ _GRAPH_GATEWAY_FILES = (
     "gateway.rs",
     "gateway_broker.rs",
     "gateway_graph.rs",
+    "gateway_graph_routes.rs",
     "gateway_mining.rs",
     "gateway_mining_derived.rs",
     "gateway_mining_ml.rs",
 )
 _GRAPH_GATEWAY_ROUTER_FILES = (
     "gateway_graph.rs",
+    "gateway_graph_routes.rs",
     "gateway_broker.rs",
     "gateway_mining_ml.rs",
     "gateway_mining.rs",
@@ -1041,7 +1038,7 @@ def _graph_gateway_sources(declared_paths: set[Path]) -> tuple[str, str]:
     }
     require(
         discovered == expected,
-        "graph gateway compiler family differs from the reviewed six files: "
+        "graph gateway compiler family differs from the reviewed files: "
         f"missing={sorted(str(path) for path in expected - discovered)}, "
         f"stale={sorted(str(path) for path in discovered - expected)}",
     )
@@ -1050,9 +1047,11 @@ def _graph_gateway_sources(declared_paths: set[Path]) -> tuple[str, str]:
         for filename in _GRAPH_GATEWAY_FILES
     }
     gateway_source = "\n".join(sources[filename] for filename in _GRAPH_GATEWAY_FILES)
+    # Route classification and application may live in private helpers beside
+    # `try_handle`; inspect each test-free router module in full so a structural
+    # split cannot make owned methods disappear from this proof.
     router_source = "\n".join(
-        _function(sources[filename], "try_handle")
-        for filename in _GRAPH_GATEWAY_ROUTER_FILES
+        sources[filename] for filename in _GRAPH_GATEWAY_ROUTER_FILES
     )
     return gateway_source, router_source
 
@@ -1064,9 +1063,7 @@ def mutation_inventory_sources() -> dict[str, str]:
     mutation_batch = read_compiler_family("src/server/mutation_batch.rs")
     graph_ops = read_compiler_family("src/server/handlers/graph_ops.rs")
     graph_gateway, graph_gateway_routes = _graph_gateway_sources(
-        read_module_paths(
-            "src/server/handlers/graph_ops.rs", include_tests=False
-        )
+        read_module_paths("src/server/handlers/graph_ops.rs", include_tests=False)
     )
     dispatch = read_compiler_family("src/server/dispatch.rs")
     raft = read_compiler_family("src/raft/mod.rs")
