@@ -1,6 +1,8 @@
 use super::*;
 use super::{input::*, writeback::*};
 use eg_compute::mining::entity_resolution;
+use eg_types::compute_result::mining::{EntityMatchRow, EntityResolutionMiningResult};
+use eg_types::result_contract::compute as results;
 
 // Entity resolution + record linkage follows the shared explicit-or-derived
 // input → compute → optional typed-node/claim write-back contract.
@@ -121,33 +123,29 @@ pub(super) fn entity_resolve_response(
     n_records: usize,
     written: usize,
 ) -> Response {
-    let rows: Vec<serde_json::Value> = matches
+    let rows: Vec<EntityMatchRow> = matches
         .iter()
-        .map(|m| {
-            let left = ids
+        .map(|m| EntityMatchRow {
+            left: ids
                 .get(m.left)
                 .cloned()
-                .unwrap_or_else(|| m.left.to_string());
-            let right = ids
+                .unwrap_or_else(|| m.left.to_string()),
+            right: ids
                 .get(m.right)
                 .cloned()
-                .unwrap_or_else(|| m.right.to_string());
-            serde_json::json!({
-                "left": left,
-                "right": right,
-                "similarity": m.similarity,
-                "block_key": m.block_key,
-            })
+                .unwrap_or_else(|| m.right.to_string()),
+            similarity: m.similarity,
+            block_key: m.block_key.clone(),
         })
         .collect();
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "matches": rows,
-            "n_records": n_records,
-            "n_matches": matches.len(),
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineEntityResolve>(EntityResolutionMiningResult {
+            matches: rows,
+            n_records,
+            n_matches: matches.len(),
+            written_back: written,
+        }),
     )
 }
 

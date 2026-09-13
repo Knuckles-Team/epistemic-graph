@@ -23,6 +23,13 @@ use eg_compute::graphlearn::embeddings::{
 };
 use eg_compute::graphlearn::link_predict::{self, FeatureCtx, KanLinkConfig, KanLinkModel};
 use eg_compute::mining::classify;
+use eg_types::compute_result::graphlearn::PredictedLink;
+use eg_types::compute_result::pipeline::{
+    ClassifyPrediction, EstimatorPrediction, GraphlearnPrediction, PipelineClassifiedRow,
+    PipelineComparison, PipelineEvaluation, PipelinePrediction, PipelineServeResult,
+    PipelineTrainResult, PipelineValueRow,
+};
+use eg_types::result_contract::compute::{self as results, MiningPipelinePredict};
 use eg_types::wire::{FeatureStep, ModelSpec, PipelineSpec};
 use serde_json::{json, Value};
 
@@ -278,19 +285,19 @@ fn finish_train(
     }
     Response::ok(
         req_id,
-        ResultPayload::Json(json!({
-            "name": name,
-            "version": version,
-            "model_id": model_id,
-            "family": family,
-            "algorithm": algorithm,
-            "metrics": artifact.metrics,
-            "n_features": artifact.counts.0,
-            "n_train": artifact.counts.1,
-            "n_test": artifact.counts.2,
-            "classes": artifact.classes,
-            "written_back": writeback,
-        })),
+        ResultPayload::of::<results::MiningPipelineTrain>(PipelineTrainResult {
+            name: name.to_string(),
+            version,
+            model_id,
+            family: family.to_string(),
+            algorithm: algorithm.to_string(),
+            metrics: artifact.metrics,
+            n_features: artifact.counts.0,
+            n_train: artifact.counts.1,
+            n_test: artifact.counts.2,
+            classes: artifact.classes,
+            written_back: writeback,
+        }),
     )
 }
 
@@ -322,12 +329,12 @@ pub(crate) fn handle_serve(req_id: u64, core: &GraphCore, name: String, version:
     }
     Response::ok(
         req_id,
-        ResultPayload::Json(json!({
-            "name": name,
-            "version": version,
-            "model_id": model_id,
-            "served": true,
-        })),
+        ResultPayload::of::<results::MiningPipelineServe>(PipelineServeResult {
+            name,
+            version,
+            model_id,
+            served: true,
+        }),
     )
 }
 
@@ -383,26 +390,21 @@ fn predict_classify(
     } else {
         0
     };
-    let rows_json: Vec<Value> = (0..rows.len())
-        .map(|i| {
-            json!({
-                "id": ids.get(i).cloned().unwrap_or_else(|| i.to_string()),
-                "label": out.labels[i],
-                "proba": out.proba[i],
-            })
+    let classified: Vec<PipelineClassifiedRow> = (0..rows.len())
+        .map(|i| PipelineClassifiedRow {
+            id: ids.get(i).cloned().unwrap_or_else(|| i.to_string()),
+            label: out.labels[i],
+            proba: out.proba[i].clone(),
         })
         .collect();
-    Response::ok(
-        req_id,
-        ResultPayload::Json(json!({
-            "model_id": model.model_id,
-            "family": "classify",
-            "rows": rows_json,
-            "classes": out.classes,
-            "n_rows": rows.len(),
-            "written_back": written,
-        })),
-    )
+    let body = PipelinePrediction::Classify(ClassifyPrediction {
+        model_id: model.model_id.clone(),
+        rows: classified,
+        classes: out.classes,
+        n_rows: rows.len(),
+        written_back: written,
+    });
+    Response::ok(req_id, ResultPayload::of::<MiningPipelinePredict>(body))
 }
 
 fn predict_estimator(
@@ -430,24 +432,19 @@ fn predict_estimator(
     } else {
         0
     };
-    let rows_json: Vec<Value> = (0..rows.len())
-        .map(|i| {
-            json!({
-                "id": ids.get(i).cloned().unwrap_or_else(|| i.to_string()),
-                "value": yhat.get(i).copied().unwrap_or(0.0),
-            })
+    let regressed: Vec<PipelineValueRow> = (0..rows.len())
+        .map(|i| PipelineValueRow {
+            id: ids.get(i).cloned().unwrap_or_else(|| i.to_string()),
+            value: yhat.get(i).copied().unwrap_or(0.0),
         })
         .collect();
-    Response::ok(
-        req_id,
-        ResultPayload::Json(json!({
-            "model_id": model.model_id,
-            "family": "estimator",
-            "rows": rows_json,
-            "n_rows": rows.len(),
-            "written_back": written,
-        })),
-    )
+    let body = PipelinePrediction::Estimator(EstimatorPrediction {
+        model_id: model.model_id.clone(),
+        rows: regressed,
+        n_rows: rows.len(),
+        written_back: written,
+    });
+    Response::ok(req_id, ResultPayload::of::<MiningPipelinePredict>(body))
 }
 
 fn predict_graphlearn(
@@ -484,21 +481,20 @@ fn predict_graphlearn(
     // Top-k highest-probability missing links (a sensible default surface; the fuller
     // candidate-pairs API stays on `graph_learn predict`).
     let scored = link_predict::predict_missing_links(&kan, &ctx, &existing, 50);
-    let rows_json: Vec<Value> = scored
+    let predicted: Vec<PredictedLink> = scored
         .iter()
-        .map(|&(a, b, score)| {
-            json!({ "src": graph.node_at(a), "dst": graph.node_at(b), "score": score })
+        .map(|&(a, b, score)| PredictedLink {
+            src: graph.node_at(a).clone(),
+            dst: graph.node_at(b).clone(),
+            score,
         })
         .collect();
-    Response::ok(
-        req_id,
-        ResultPayload::Json(json!({
-            "model_id": model.model_id,
-            "family": "graphlearn",
-            "predicted": rows_json,
-            "n_predicted": scored.len(),
-        })),
-    )
+    let body = PipelinePrediction::Graphlearn(GraphlearnPrediction {
+        model_id: model.model_id.clone(),
+        predicted,
+        n_predicted: scored.len(),
+    });
+    Response::ok(req_id, ResultPayload::of::<MiningPipelinePredict>(body))
 }
 
 // ─────────────────────────── Evaluate ───────────────────────────
@@ -546,13 +542,13 @@ fn handle_evaluate(
         };
     Response::ok(
         req_id,
-        ResultPayload::Json(json!({
-            "name": name,
-            "version": version,
-            "family": model.family,
-            "metrics": metrics_obj,
-            "n": rows.len(),
-        })),
+        ResultPayload::of::<results::MiningPipelineEvaluate>(PipelineEvaluation {
+            name,
+            version,
+            family: model.family,
+            metrics: metrics_obj,
+            n: rows.len(),
+        }),
     )
 }
 
@@ -601,16 +597,16 @@ fn handle_compare(
     let diff = diff_metrics(ma, mb);
     Response::ok(
         req_id,
-        ResultPayload::Json(json!({
-            "name": name,
-            "version_a": version_a,
-            "version_b": version_b,
-            "algorithm_a": a.algorithm,
-            "algorithm_b": b.algorithm,
-            "metrics_a": a.metrics,
-            "metrics_b": b.metrics,
-            "diff": diff,
-        })),
+        ResultPayload::of::<results::MiningPipelineCompare>(PipelineComparison {
+            name,
+            version_a,
+            version_b,
+            algorithm_a: a.algorithm,
+            algorithm_b: b.algorithm,
+            metrics_a: a.metrics,
+            metrics_b: b.metrics,
+            diff,
+        }),
     )
 }
 
