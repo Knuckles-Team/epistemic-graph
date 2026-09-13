@@ -41,6 +41,36 @@ established from measured data: BOTH metrics, EVERY function, INCLUDING nested
 children. Extraction moves complexity into the child, so a parent that now looks
 clean is not the whole story.
 
+EXEMPTION STATUS IS NOT PART OF THE COMPARED VALUE
+---------------------------------------------------
+An earlier version of this gate compared a "graded" cyclomatic number that was
+hard-zeroed to 0 for an exempt row before the before/after comparison ran. That
+folded EXEMPTION STATUS into the METRIC being compared: a function that started
+exempt-over-cap (graded 0) and was simplified below the cap -- ceasing to need
+the exemption at all, since `exhaustive_dispatch_exempt` never grants it to a
+function at or under the cap -- read as its full raw value appearing from
+nowhere (0 -> 9), which the comparison called a regression. Simplifying a
+function until it no longer needs the exemption was, perversely, the one thing
+this gate could not tell from making it worse.
+
+The fix compares RAW metrics on both sides and treats exemption as a
+CLASSIFIER, not a rewrite of the number being classified:
+
+  * a function that is over a cap and NOT exempt on the new side always fails,
+    new or pre-existing, exactly the ordinary case;
+  * a function that was over a cap and exempt at base, and is at or under the
+    cap on the new side (so no longer exempt, because the rule never exempts
+    an at-or-under-cap function) -- always passes. This is the transition the
+    exemption exists to allow: the exhaustive match got simpler, not worse;
+  * an exempt function's cyclomatic axis is judged on its RESIDUAL (measured
+    cyclomatic minus its match-arm count) rather than being erased to 0. Adding
+    arms to an exhaustive dispatch leaves the residual alone (the whole point
+    of keeping the match exhaustive is that arms are free), so that alone never
+    reads as a regression. Any OTHER growth -- more branching inside an arm's
+    body, more decision points outside the match -- raises the residual and
+    fails exactly like ordinary debt would. Cognitive complexity is never
+    graded and never exempt on either side.
+
 WHAT IS COMPARED
 ----------------
 The INDEX (`git show :path`) against HEAD (`git show HEAD:path`) -- not the
@@ -66,7 +96,7 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from rust_exhaustive_match import exhaustive_dispatch_exempt  # noqa: E402
+from rust_exhaustive_match import dispatch_shape, exhaustive_dispatch_exempt  # noqa: E402
 from scanner_contract import (  # noqa: E402
     CCCC_MAX_COGNITIVE,
     CCCC_MAX_CYCLOMATIC,
@@ -94,27 +124,35 @@ RUST_SUFFIX = ".rs"
 class Metrics(NamedTuple):
     """One measured function row, plus whether the dispatch rule accepts it.
 
-    ``exempt`` is never read from disk and never persisted. It is recomputed
-    from the source under measurement on every run by
-    ``rust_exhaustive_match.exhaustive_dispatch_exempt``.
+    ``exempt`` and ``residual`` are never read from disk and never persisted.
+    Both are recomputed from the source under measurement on every run:
+    ``exempt`` by ``rust_exhaustive_match.exhaustive_dispatch_exempt``,
+    ``residual`` (measured cyclomatic minus the function's match-arm count)
+    from ``rust_exhaustive_match.dispatch_shape`` -- only when ``exempt`` is
+    True, ``None`` otherwise, since a non-exempt row is judged on its raw
+    cyclomatic and has no discounted quantity.
     """
 
     cyclomatic: int
     cognitive: int
     line: int
     exempt: bool
+    residual: int | None = None
 
     @property
-    def graded_cyclomatic(self) -> int:
-        """The cyclomatic value this gate JUDGES, as opposed to reports.
+    def effective_cyclomatic(self) -> int:
+        """The cyclomatic value this gate compares between two rows.
 
-        Zero for an accepted exhaustive dispatcher, so that adding an enum
-        variant -- the whole point of keeping the match exhaustive -- does not
-        register as a regression. The instant the function stops qualifying,
-        its full cyclomatic value returns and the change reads as the large
-        regression it is.
+        Raw for a non-exempt row. For an accepted exhaustive dispatcher, the
+        RESIDUAL -- cyclomatic minus its match arms -- so that adding arms,
+        the whole point of keeping the match exhaustive, does not by itself
+        register as growth, while any OTHER branching added to the function
+        still does. Never zeroed: an exempt row's "effective" value is real,
+        just discounted, which is what makes an exempt-over-cap function that
+        drops below the cap comparable to nothing at all rather than reading
+        as a jump from a fabricated 0.
         """
-        return 0 if self.exempt else self.cyclomatic
+        return self.residual if self.exempt and self.residual is not None else self.cyclomatic
 
 
 #: Extensions cccc 1.6.0 actually dispatches. A file outside this set is skipped
@@ -486,22 +524,44 @@ def _rust_source(path: str) -> str | None:
         return None
 
 
+def _residual(source: str | None, row: Metrics) -> int | None:
+    """Cyclomatic minus match-arm count, for a row already known exempt.
+
+    ``exhaustive_dispatch_exempt`` already proved ``dispatch_shape`` returns a
+    usable shape with at least one arm for this exact row -- that is one of
+    its four conditions -- so a ``None`` or zero-arm shape here would mean the
+    two functions disagree, and this fails closed (no residual) rather than
+    dividing by an assumption.
+    """
+    shape = dispatch_shape(source, row.line) if source is not None else None
+    if shape is None or shape.arms <= 0:
+        return None
+    return row.cyclomatic - shape.arms
+
+
+def _stamp_row(row: Metrics, source: str | None, max_cyc: int, max_cog: int) -> Metrics:
+    """One row with its exhaustive-dispatch verdict, and residual when exempt.
+
+    The residual (see ``Metrics.effective_cyclomatic``) is what lets the
+    regression comparison tell "grew because arms were added" from "grew for
+    any other reason" instead of erasing the row to 0.
+    """
+    exempt = exhaustive_dispatch_exempt(
+        source, row.line, row.cyclomatic, row.cognitive, max_cyc, max_cog
+    )
+    residual = _residual(source, row) if exempt else None
+    return row._replace(exempt=exempt, residual=residual)
+
+
 def _graded(
     rows: dict[str, list[Metrics]],
     source: str | None,
     max_cyc: int,
     max_cog: int,
 ) -> dict[str, list[Metrics]]:
-    """Stamp each row with the exhaustive-dispatch verdict for its own source."""
+    """Stamp every row with the exhaustive-dispatch verdict for its source."""
     return {
-        name: [
-            row._replace(
-                exempt=exhaustive_dispatch_exempt(
-                    source, row.line, row.cyclomatic, row.cognitive, max_cyc, max_cog
-                )
-            )
-            for row in measured
-        ]
+        name: [_stamp_row(row, source, max_cyc, max_cog) for row in measured]
         for name, measured in rows.items()
     }
 
@@ -533,21 +593,62 @@ def _flatten(measured: dict) -> list[Metrics]:
     return [row for rows in measured.values() for row in rows]
 
 
-def _worst(rows: list[Metrics]) -> tuple[int, int]:
-    """The worst GRADED cyclomatic and worst cognitive carried by one name.
+def _worst_cognitive(rows: list[Metrics]) -> int:
+    """The worst raw cognitive value carried by one name.
 
-    Graded, not raw: an accepted exhaustive dispatcher contributes 0 on the
-    cyclomatic axis, so growing the enum it dispatches over is not a
-    regression. Cognitive complexity is never graded and never exempt.
+    Cognitive complexity is never graded and never exempt, on either side of
+    the comparison, so this is always the raw measurement.
     """
-    return (
-        max(row.graded_cyclomatic for row in rows),
-        max(row.cognitive for row in rows),
-    )
+    return max(row.cognitive for row in rows)
+
+
+def _worst_raw_cyclomatic_row(rows: list[Metrics]) -> Metrics:
+    """The row with the worst RAW cyclomatic value carried by one name.
+
+    Raw, not effective: this selects WHICH row anchors the cyclomatic
+    comparison, and that selection must not itself already be discounted by
+    exemption, or a low-residual exempt row could hide a worse non-exempt one
+    sharing the same qualified name.
+    """
+    return max(rows, key=lambda row: row.cyclomatic)
+
+
+def _cyclomatic_regressed(
+    prior: list[Metrics], rows: list[Metrics], max_cyc: int
+) -> tuple[bool, int, int]:
+    """Whether the cyclomatic axis regressed, plus the raw (before, after) to
+    report.
+
+    Compares the RAW-worst row on each side, per the terms of acceptance:
+
+      * if the row was exempt-over-cap at base and is at-or-under the cap now
+        (so necessarily not exempt now -- the rule never exempts an
+        at-or-under-cap function), this bypasses the value comparison
+        entirely and always passes: it is the transition the exemption exists
+        to allow, and comparing a raw value against a discounted one would be
+        comparing different units;
+      * otherwise, compare ``effective_cyclomatic`` on both sides: raw for a
+        non-exempt row, residual (arms discounted) for an exempt one. Growth
+        purely from added match arms leaves an exempt row's residual alone;
+        any other growth raises it and is judged exactly like ordinary debt.
+    """
+    before = _worst_raw_cyclomatic_row(prior)
+    after = _worst_raw_cyclomatic_row(rows)
+    if before.exempt and after.cyclomatic <= max_cyc:
+        return False, before.cyclomatic, after.cyclomatic
+    regressed = after.effective_cyclomatic > before.effective_cyclomatic
+    return regressed, before.cyclomatic, after.cyclomatic
+
+
+def _cyclomatic_over_cap(row: Metrics, max_cyc: int) -> bool:
+    """Raw cyclomatic over cap -- discounted to False for an exempt row, since
+    the exemption exists precisely to accept that axis for it."""
+    return row.cyclomatic > max_cyc and not row.exempt
 
 
 def _over_cap(row: Metrics, max_cyc: int, max_cog: int) -> bool:
-    return row.graded_cyclomatic > max_cyc or row.cognitive > max_cog
+    """True when a row fails on its own terms, independent of any history."""
+    return _cyclomatic_over_cap(row, max_cyc) or row.cognitive > max_cog
 
 
 def _new_duplicate_findings(
@@ -568,12 +669,13 @@ def _new_duplicate_findings(
     prior_count = sum(_over_cap(row, max_cyc, max_cog) for row in prior)
     after_rows = sorted(
         (row for row in rows if _over_cap(row, max_cyc, max_cog)),
-        key=lambda row: (row.graded_cyclomatic, row.cognitive),
+        key=lambda row: (row.cyclomatic, row.cognitive),
     )
     # A row can also cross a cap without any row being ADDED -- for instance a
     # dispatcher that grew a catch-all arm and so left the accepted class. That
-    # is a worsening of an existing row, which `_worst` reports; counting it
-    # here as well would report one function twice.
+    # is a worsening of an existing row, which `_cyclomatic_regressed` and
+    # `_worst_cognitive` report; counting it here as well would report one
+    # function twice.
     added_count = min(len(after_rows) - prior_count, len(rows) - len(prior))
     if added_count <= 0:
         return []
@@ -597,10 +699,13 @@ def _regression(
     gains another over-cap function without changing its existing worst row.
     """
     findings = _new_duplicate_findings(name, prior, rows, max_cyc, max_cog)
-    before = _worst(prior)
-    after = _worst(rows)
-    if after[0] > before[0] or after[1] > before[1]:
-        findings.append(("WORSE", name, before, after))
+    cyc_regressed, cyc_before, cyc_after = _cyclomatic_regressed(prior, rows, max_cyc)
+    cog_before = _worst_cognitive(prior)
+    cog_after = _worst_cognitive(rows)
+    if cyc_regressed or cog_after > cog_before:
+        findings.append(
+            ("WORSE", name, (cyc_before, cog_before), (cyc_after, cog_after))
+        )
     return findings
 
 
