@@ -115,6 +115,14 @@ pub mod xread;
 #[cfg(any(test, feature = "harness", feature = "compute-dist"))]
 pub(crate) mod harness_support;
 
+/// The in-process Raft cluster fixture. It is shared by the `harness` gauntlets
+/// (through `harness::cluster::fixture`) and the `compute-dist` modality harness,
+/// so it is declared once, here, under the union of their gates. Loading the file
+/// from both places compiled it twice (`clippy::duplicate_mod`).
+#[cfg(any(test, feature = "harness", feature = "compute-dist"))]
+#[path = "harness/fixture.rs"]
+pub(crate) mod fixture;
+
 /// Correctness + load harness (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) — the standing proof-engine that
 /// gates every distributed/durability claim. Compiled under tests OR the explicit
 /// `harness` feature; never in a production tier build.

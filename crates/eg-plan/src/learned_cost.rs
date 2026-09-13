@@ -203,6 +203,27 @@ pub struct LearnedCostStore {
     corrections: RwLock<HashMap<String, Correction>>,
 }
 
+/// Take the corrections lock even after a holder panicked, and say so.
+///
+/// The curves are advisory and re-learnable: an untrained curve is the exact
+/// identity, and every later observation keeps fitting from whatever state is
+/// there, so a torn gradient step costs a few mis-corrected estimates, never a
+/// wrong answer. Serving continues. The report is what keeps the recovery from
+/// being silent. `eg-plan` sits below the root crate's `lock_recovery`, so it
+/// reports locally, like the derived-tensor CAS in `exec.rs`.
+fn recover_corrections<G>(locked: std::sync::LockResult<G>) -> G {
+    // Invariant `reporting-recovery`: docs/architecture/liveness_invariants.md.
+    #[allow(clippy::disallowed_methods)]
+    locked.unwrap_or_else(|poisoned| {
+        eprintln!(
+            "eg-plan: recovered the poisoned learned-cost corrections lock; a previous \
+             holder panicked mid-update, so one curve may carry a partial gradient step. \
+             The curves are advisory and re-learnable, so serving continues."
+        );
+        poisoned.into_inner()
+    })
+}
+
 impl Default for LearnedCostStore {
     fn default() -> Self {
         Self::new()
@@ -235,10 +256,7 @@ impl LearnedCostStore {
     /// identity per [`Correction::new`]'s zero-init, but skipping the lookup entirely
     /// for a never-seen key avoids allocating an entry just to compute a no-op).
     pub fn correct(&self, op_kind: &str, estimated: f64) -> f64 {
-        let guard = self
-            .corrections
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let guard = recover_corrections(self.corrections.read());
         match guard.get(op_kind) {
             Some(c) => c.correct(estimated),
             None => estimated,
@@ -250,10 +268,7 @@ impl LearnedCostStore {
     /// `(static_abs_log_error, learned_abs_log_error)` pair for this sample — see
     /// [`Correction::observe`].
     pub fn observe(&self, op_kind: &str, estimated: f64, actual: f64) -> (f64, f64) {
-        let mut guard = self
-            .corrections
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut guard = recover_corrections(self.corrections.write());
         let entry = guard
             .entry(op_kind.to_string())
             .or_insert_with(Correction::new);
@@ -264,10 +279,7 @@ impl LearnedCostStore {
     /// [`CostCorrectionArtifact`] per op-kind observed so far, in no particular order.
     /// See the module doc's "Queryable artifact" section.
     pub fn snapshot(&self) -> Vec<CostCorrectionArtifact> {
-        let guard = self
-            .corrections
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let guard = recover_corrections(self.corrections.read());
         guard
             .iter()
             .map(|(kind, c)| CostCorrectionArtifact {

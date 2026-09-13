@@ -7413,7 +7413,7 @@ mod tests {
         // Hold the env lock + pin the cap to default: sibling tests mutate
         // `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES` globally, which would otherwise
         // race this default-cap test under parallel execution.
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
         let core = prop_graph();
@@ -7435,7 +7435,7 @@ mod tests {
 
     #[test]
     fn property_index_invalidates_after_mutation() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
         let core = prop_graph();
@@ -7492,7 +7492,7 @@ mod tests {
 
     #[test]
     fn eg084_path_index_deep_equality_and_existence() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
         let core = json_graph();
@@ -7520,7 +7520,7 @@ mod tests {
 
     #[test]
     fn eg084_path_index_maintained_on_add_cas_remove() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
         let core = json_graph();
@@ -7568,7 +7568,7 @@ mod tests {
 
     #[test]
     fn eg084_path_index_containment_selectivity() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
         let core = json_graph();
@@ -7594,7 +7594,7 @@ mod tests {
 
     #[test]
     fn eg084_path_index_bounded_cap_falls_back() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::set_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS", "1");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
         let core = json_graph();
@@ -7613,7 +7613,7 @@ mod tests {
     /// one `InMemoryPathIndexStore` `Arc` across the two cores simulates a save→reopen.
     #[test]
     fn eg308_path_index_rehydrates_from_store_without_rescan() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
         let store: Arc<dyn crate::path_persist::PathIndexPersistence> =
@@ -7656,7 +7656,7 @@ mod tests {
     /// the new graph state (never a stale view across a write).
     #[test]
     fn eg308_path_index_persist_stays_consistent_after_mutation() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
         let store: Arc<dyn crate::path_persist::PathIndexPersistence> =
@@ -7706,7 +7706,7 @@ mod tests {
     /// equality (`Some`) or existence (`None`) filter, and `None` when unindexable.
     #[test]
     fn eg308_json_path_selectivity_from_index_counts() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
         let core = json_graph(); // 3 nodes: n1/n3 rust, n2 go; n1/n2 have tags
@@ -7743,7 +7743,7 @@ mod tests {
     /// the pre-EG-308 EG-084 path.
     #[test]
     fn eg308_no_store_leaves_path_index_in_memory_unchanged() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_JSON_PATHS");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_JSON_PATHS");
         let core = json_graph();
@@ -7855,7 +7855,7 @@ mod tests {
 
     #[test]
     fn property_index_composite_lookup() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
         let core = prop_graph();
@@ -7875,7 +7875,7 @@ mod tests {
 
     #[test]
     fn property_index_bounded_cap_falls_back() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::set_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES", "1");
         std::env::remove_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES");
         let core = prop_graph();
@@ -7891,7 +7891,7 @@ mod tests {
 
     #[test]
     fn property_index_seed_opt_in() {
-        let _g = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = PROP_ENV_LOCK.lock();
         std::env::set_var("EPISTEMIC_GRAPH_INDEXED_PROPERTIES", " team , type ");
         std::env::remove_var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES");
         let core = prop_graph();
@@ -8953,7 +8953,7 @@ mod tests {
 
     #[test]
     fn pure_edge_changes_preserve_node_derived_caches() {
-        let _guard = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = PROP_ENV_LOCK.lock();
         let g = GraphCore::new();
         g.add_node(
             "a".into(),
@@ -8988,7 +8988,7 @@ mod tests {
         // dropping the covering cache. The `team` update moves `a` from `team=blue` to `team=red`
         // in place; the label + path caches (unaffected) stay warm; the property cache ALSO stays
         // warm (refiled), not dropped — the pre-W1.6 behavior was to null it, forcing a rebuild.
-        let _guard = PROP_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = PROP_ENV_LOCK.lock();
         let g = GraphCore::new();
         g.add_node(
             "a".into(),
@@ -10017,8 +10017,8 @@ mod concurrency_tests {
     // every write lands, and topology membership always agrees with the property
     // maps (each mutation is atomic under the topology write guard).
     use super::*;
+    use crate::test_threads::{BoundedThreads, StartGate};
     use std::sync::Arc;
-    use std::thread;
 
     fn pbytes(i: usize) -> Vec<u8> {
         rmp_serde::to_vec_named(&serde_json::json!({"type": "Code", "i": i})).unwrap()
@@ -10028,30 +10028,28 @@ mod concurrency_tests {
     fn concurrent_add_nodes_all_land() {
         let core = Arc::new(GraphCore::new());
         let (writers, per) = (8usize, 500usize);
-        let mut handles = Vec::new();
+        let mut workers = BoundedThreads::new("concurrent add_node writers + readers", writers + 4);
         for w in 0..writers {
             let c = core.clone();
-            handles.push(thread::spawn(move || {
+            workers.spawn(move || {
                 for k in 0..per {
                     c.add_node(format!("w{w}_n{k}"), pbytes(k));
                 }
-            }));
+            });
         }
         // Readers hammer the topology + property maps concurrently with writers —
         // property reads take no topology lock, so they must never deadlock or
         // observe a torn map.
         for _ in 0..4 {
             let c = core.clone();
-            handles.push(thread::spawn(move || {
+            workers.spawn(move || {
                 for _ in 0..2000 {
                     let _ = c.node_count();
                     let _ = c.get_nodes_arc().len();
                 }
-            }));
+            });
         }
-        for h in handles {
-            h.join().unwrap();
-        }
+        workers.finish();
         assert_eq!(core.node_count(), writers * per);
         // node_map (topology) and node_properties (DashMap) agree on cardinality.
         assert_eq!(core.get_nodes_arc().len(), writers * per);
@@ -10061,23 +10059,21 @@ mod concurrency_tests {
     fn concurrent_create_if_absent_has_exactly_one_winner() {
         let core = Arc::new(GraphCore::new());
         let writers = 16usize;
-        let barrier = Arc::new(std::sync::Barrier::new(writers));
-        let mut handles = Vec::with_capacity(writers);
+        let gate = Arc::new(StartGate::default());
+        let mut contenders = BoundedThreads::new("create_node_if_absent contenders", writers);
         for writer in 0..writers {
             let core = Arc::clone(&core);
-            let barrier = Arc::clone(&barrier);
-            handles.push(thread::spawn(move || {
-                barrier.wait();
+            let gate = Arc::clone(&gate);
+            contenders.spawn(move || {
+                gate.wait("create_node_if_absent contender start line");
                 (
                     writer,
                     core.create_node_if_absent("shared".to_string(), pbytes(writer)),
                 )
-            }));
+            });
         }
-        let outcomes: Vec<_> = handles
-            .into_iter()
-            .map(|handle| handle.join().unwrap())
-            .collect();
+        gate.open();
+        let outcomes = contenders.finish();
         let winners: Vec<_> = outcomes
             .iter()
             .filter_map(|(writer, created)| created.then_some(*writer))
@@ -10101,30 +10097,27 @@ mod concurrency_tests {
             core.add_node(format!("n{i}"), pbytes(i));
         }
         let threads = 8usize;
-        let mut handles = Vec::new();
+        let mut workers = BoundedThreads::new("add_edge writers + snapshotter", threads + 1);
         for t in 0..threads {
             let c = core.clone();
-            handles.push(thread::spawn(move || {
+            workers.spawn(move || {
                 for i in 0..n - 1 {
                     if i % threads == t {
                         let _ = c.add_edge(format!("n{i}"), format!("n{}", i + 1), pbytes(i));
                     }
                 }
-            }));
+            });
         }
         // A snapshotter runs concurrently: snapshot() holds the topology read lock,
         // so every snapshot it produces is an internally consistent point-in-time.
         let c = core.clone();
-        let snapper = thread::spawn(move || {
+        workers.spawn(move || {
             for _ in 0..100 {
                 let s = c.snapshot();
                 assert!(s.nodes.len() <= n);
             }
         });
-        for h in handles {
-            h.join().unwrap();
-        }
-        snapper.join().unwrap();
+        workers.finish();
         assert_eq!(core.edge_count(), n - 1);
     }
 
@@ -10136,10 +10129,10 @@ mod concurrency_tests {
         // live node index without properties, nor an orphan property.
         let core = Arc::new(GraphCore::new());
         core.add_node("x".into(), pbytes(0));
-        let mut handles = Vec::new();
+        let mut workers = BoundedThreads::new("interleaved add/remove of one id", 6);
         for t in 0..6usize {
             let c = core.clone();
-            handles.push(thread::spawn(move || {
+            workers.spawn(move || {
                 for k in 0..1000usize {
                     if (t + k) % 2 == 0 {
                         c.add_node("x".into(), pbytes(k));
@@ -10147,11 +10140,9 @@ mod concurrency_tests {
                         c.remove_node("x".into());
                     }
                 }
-            }));
+            });
         }
-        for h in handles {
-            h.join().unwrap();
-        }
+        workers.finish();
         assert_eq!(
             core.has_node("x"),
             core.get_node_properties("x").is_some(),
@@ -10168,24 +10159,25 @@ mod concurrency_tests {
             core.add_node(format!("n{i}"), pbytes(i));
         }
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let mut handles = Vec::new();
-        // Structural churn: add/remove a moving id set.
+        // Structural churn: add/remove a moving id set until the readers are done.
+        let mut churn = BoundedThreads::new("structural churn writer", 1);
         {
             let c = core.clone();
             let s = stop.clone();
-            handles.push(thread::spawn(move || {
+            churn.spawn(move || {
                 let mut k = 1000usize;
                 while !s.load(std::sync::atomic::Ordering::Relaxed) {
                     c.add_node(format!("n{k}"), pbytes(k));
                     c.remove_node(format!("n{}", k - 1));
                     k += 1;
                 }
-            }));
+            });
         }
         // Readers decode whatever they find — a torn blob would fail to decode.
+        let mut readers = BoundedThreads::new("property readers during churn", 6);
         for _ in 0..6 {
             let c = core.clone();
-            handles.push(thread::spawn(move || {
+            readers.spawn(move || {
                 for _ in 0..5000 {
                     for i in 0..100usize {
                         if let Some(b) = c.get_node_properties(&format!("n{i}")) {
@@ -10193,15 +10185,11 @@ mod concurrency_tests {
                         }
                     }
                 }
-            }));
+            });
         }
-        for _ in 0..2 {
-            handles.pop().unwrap().join().unwrap();
-        }
+        readers.finish();
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        for h in handles {
-            h.join().unwrap();
-        }
+        churn.finish();
     }
 
     #[test]

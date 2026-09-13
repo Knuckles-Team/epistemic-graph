@@ -946,11 +946,19 @@ mod placement_admin_wire_rpc {
                 placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster_body(),
             );
         });
-        driver
-            .expect("spawn the engine test driver thread")
-            .join()
-            .expect("engine driver thread must not panic");
+        let driver = driver.expect("spawn the engine test driver thread");
+        if let Err(error) = crate::bounded_join::join_within(
+            driver,
+            "placement admin three-node cluster test driver",
+            PLACEMENT_ADMIN_SCENARIO_TIMEOUT,
+        ) {
+            panic!("{error}");
+        }
     }
+
+    /// Wedge detector for the whole three-node placement scenario on a loaded
+    /// build host, not a latency budget.
+    const PLACEMENT_ADMIN_SCENARIO_TIMEOUT: Duration = Duration::from_secs(300);
 
     async fn placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster_body() {
         use super::super::DEFAULT_GROUP;

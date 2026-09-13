@@ -13,15 +13,17 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::sync::{Mutex, MutexGuard};
 
 use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
+use parking_lot::{Mutex, MutexGuard};
 
 use crate::algebra::Op;
 use crate::exec::{execute, PlanCtx};
 use crate::rowset::RowSet;
 use crate::Plan;
 
+/// Non-poisoning on purpose: it guards `()`, so a test that panicked while holding
+/// it leaves no state behind to distrust, and std's poison would carry no information.
 static FEDERATION_ALLOW_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 /// Serialize the process-global test override and restore the caller's environment.
@@ -37,9 +39,7 @@ pub(crate) struct MockHttpAllowGuard {
 
 impl MockHttpAllowGuard {
     pub(crate) fn new(url: &str) -> Self {
-        let lock = FEDERATION_ALLOW_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let lock = FEDERATION_ALLOW_ENV_LOCK.lock();
         let previous = std::env::var_os(crate::federation::HTTP_JSON_FEDERATION_ALLOW_ENV);
         let origin = url.trim_end_matches('/');
         let configured = previous
