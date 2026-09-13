@@ -84,6 +84,8 @@ mod stage;
 mod tombstone;
 
 #[cfg(test)]
+mod binding_lifecycle_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod write_door_tests;
