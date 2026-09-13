@@ -1282,6 +1282,7 @@ pub struct PipelineSpec {
 /// consumer reasons about (node add/remove/update, edge add/remove).
 #[cfg(feature = "streaming")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CdcKind {
     AddNode,
     RemoveNode,
@@ -1297,6 +1298,7 @@ pub enum CdcKind {
 /// (an add has no `before`, a remove no `after`).
 #[cfg(feature = "streaming")]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CdcEvent {
     pub seq: u64,
     pub graph: String,
@@ -1311,8 +1313,10 @@ pub struct CdcEvent {
     #[serde(default)]
     pub label: String,
     #[serde(default, with = "serde_bytes")]
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
     pub before: Vec<u8>,
     #[serde(default, with = "serde_bytes")]
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
     pub after: Vec<u8>,
     /// True when `before` carried a value (distinguishes an empty blob from absent).
     #[serde(default)]
@@ -1352,6 +1356,7 @@ pub enum ContinuousAgg {
 /// CDC `seq` it reflects (so a reader knows how current it is).
 #[cfg(feature = "streaming")]
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ContinuousQueryResult {
     pub name: String,
     /// The aggregate value (count, or sum).
@@ -1375,6 +1380,7 @@ pub struct ContinuousQueryResult {
 /// the same way.
 #[cfg(feature = "streaming")]
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct WatchBatch {
     pub events: Vec<CdcEvent>,
     /// The cursor to pass as `from_seq` next time (one past the last delivered seq).
@@ -1401,6 +1407,7 @@ pub struct WatchBatch {
 /// are recorded in a per-graph fired log a client polls with `FiredTriggers`.
 #[cfg(feature = "streaming")]
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct TriggerInfo {
     pub name: String,
     pub graph: String,
@@ -1416,6 +1423,7 @@ pub struct TriggerInfo {
 /// reaction consumer pulls the action payload + the change that fired it.
 #[cfg(feature = "streaming")]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct FiredAction {
     /// Per-graph monotonic fired-id (the cursor for `FiredTriggers`).
     pub fire_seq: u64,
@@ -1426,6 +1434,7 @@ pub struct FiredAction {
     pub node_id: String,
     /// The opaque action payload registered with the trigger (MessagePack).
     #[serde(default, with = "serde_bytes")]
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
     pub action: Vec<u8>,
 }
 
@@ -1464,6 +1473,7 @@ pub struct FiredAction {
 /// comparing `epoch` across resumed reads to catch case 2.
 #[cfg(feature = "streaming")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CdcReadResult {
     pub events: Vec<CdcEvent>,
     /// True when `from_seq` fell behind the retained ring window in THIS
@@ -1515,6 +1525,7 @@ impl CdcReadResult {
 /// the same thing, scoped to the fired-trigger log instead of the change feed.
 #[cfg(feature = "streaming")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct FiredTriggersResult {
     pub fired: Vec<FiredAction>,
     pub gap: bool,

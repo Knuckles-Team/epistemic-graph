@@ -1,6 +1,8 @@
 use super::*;
 
 use super::gateway::commit_gateway;
+#[cfg(feature = "broker")]
+use eg_types::result_contract::messaging as results;
 
 /// `DeclareExchange`: pure extract-method from `try_handle_gateway`'s closure,
 /// byte-identical behaviour, no signature change.
@@ -16,7 +18,7 @@ fn apply_declare_exchange(
         ));
     };
     crate::broker::declare_exchange(core, exchange, k)
-        .map(|()| ResultPayload::String("ok".to_string()))
+        .map(|()| ResultPayload::scalar::<results::DeclareExchange>("ok".to_string()))
 }
 
 pub(super) async fn try_handle(
@@ -40,7 +42,7 @@ pub(super) async fn try_handle(
             let exchange = exchange.clone();
             commit_gateway(ctx, plan, method, move |core| {
                 let existed = crate::broker::delete_exchange(core, &exchange);
-                Ok(ResultPayload::Bool(existed))
+                Ok(ResultPayload::scalar::<results::DeleteExchange>(existed))
             })
             .await
         }
@@ -54,7 +56,9 @@ pub(super) async fn try_handle(
                 (exchange.clone(), queue.clone(), routing_key.clone());
             commit_gateway(ctx, plan, method, move |core| {
                 crate::broker::bind_queue(core, &exchange, &queue, &routing_key);
-                Ok(ResultPayload::String("ok".to_string()))
+                Ok(ResultPayload::scalar::<results::BindQueue>(
+                    "ok".to_string(),
+                ))
             })
             .await
         }
@@ -68,7 +72,7 @@ pub(super) async fn try_handle(
                 (exchange.clone(), queue.clone(), routing_key.clone());
             commit_gateway(ctx, plan, method, move |core| {
                 let existed = crate::broker::unbind_queue(core, &exchange, &queue, &routing_key);
-                Ok(ResultPayload::Bool(existed))
+                Ok(ResultPayload::scalar::<results::UnbindQueue>(existed))
             })
             .await
         }
@@ -82,7 +86,7 @@ pub(super) async fn try_handle(
                 (exchange.clone(), routing_key.clone(), payload.clone());
             commit_gateway(ctx, plan, method, move |core| {
                 let delivered = crate::broker::publish(core, &exchange, &routing_key, &payload);
-                Ok(ResultPayload::Count(delivered as u64))
+                Ok(ResultPayload::scalar::<results::Publish>(delivered as u64))
             })
             .await
         }
@@ -123,7 +127,9 @@ pub(super) async fn try_handle(
                     max_priority,
                 };
                 crate::broker::declare_queue(core, &queue, &policy);
-                Ok(ResultPayload::String("ok".to_string()))
+                Ok(ResultPayload::scalar::<results::DeclareQueue>(
+                    "ok".to_string(),
+                ))
             })
             .await
         }
@@ -157,7 +163,9 @@ pub(super) async fn try_handle(
                     ttl_ms,
                     now_ms,
                 );
-                Ok(ResultPayload::Count(delivered as u64))
+                Ok(ResultPayload::scalar::<results::PublishEx>(
+                    delivered as u64,
+                ))
             })
             .await
         }
@@ -182,7 +190,7 @@ pub(super) async fn try_handle(
                 let claimed = crate::broker::broker_consume(
                     core, &queue, &group, &consumer, now_ms, lease_ms, prefetch,
                 );
-                ResultPayload::raw(&claimed)
+                ResultPayload::of_ref::<results::BrokerConsume>(&claimed)
             })
             .await
         }
@@ -191,7 +199,7 @@ pub(super) async fn try_handle(
             let (queue, node_id) = (queue.clone(), node_id.clone());
             commit_gateway(ctx, plan, method, move |core| {
                 let existed = crate::broker::broker_ack(core, &queue, &node_id);
-                Ok(ResultPayload::Bool(existed))
+                Ok(ResultPayload::scalar::<results::BrokerAck>(existed))
             })
             .await
         }
@@ -206,7 +214,7 @@ pub(super) async fn try_handle(
                 (queue.clone(), node_id.clone(), *requeue, *now_ms);
             commit_gateway(ctx, plan, method, move |core| {
                 let outcome = crate::broker::broker_reject(core, &queue, &node_id, requeue, now_ms);
-                Ok(ResultPayload::String(outcome))
+                Ok(ResultPayload::scalar::<results::BrokerReject>(outcome))
             })
             .await
         }
@@ -215,7 +223,7 @@ pub(super) async fn try_handle(
             let now_ms = *now_ms;
             commit_gateway(ctx, plan, method, move |core| {
                 let acted = crate::broker::sweep_expired(core, now_ms);
-                Ok(ResultPayload::Count(acted as u64))
+                Ok(ResultPayload::scalar::<results::SweepExpired>(acted as u64))
             })
             .await
         }
@@ -232,7 +240,9 @@ pub(super) async fn try_handle(
                     max_age_ms,
                 };
                 crate::broker::declare_stream(core, &stream, &retention);
-                Ok(ResultPayload::String("ok".to_string()))
+                Ok(ResultPayload::scalar::<results::StreamDeclare>(
+                    "ok".to_string(),
+                ))
             })
             .await
         }
@@ -245,7 +255,9 @@ pub(super) async fn try_handle(
             let (stream, payload, now_ms) = (stream.clone(), payload.clone(), *now_ms);
             commit_gateway(ctx, plan, method, move |core| {
                 let offset = crate::broker::stream_publish(core, &stream, &payload, now_ms);
-                Ok(ResultPayload::Count(offset as u64))
+                Ok(ResultPayload::scalar::<results::StreamPublish>(
+                    offset as u64,
+                ))
             })
             .await
         }
@@ -254,7 +266,7 @@ pub(super) async fn try_handle(
             let (stream, now_ms) = (stream.clone(), *now_ms);
             commit_gateway(ctx, plan, method, move |core| {
                 let dropped = crate::broker::stream_trim(core, &stream, now_ms);
-                Ok(ResultPayload::Count(dropped as u64))
+                Ok(ResultPayload::scalar::<results::StreamTrim>(dropped as u64))
             })
             .await
         }
@@ -267,7 +279,9 @@ pub(super) async fn try_handle(
             let (stream, group, offset) = (stream.clone(), group.clone(), *offset);
             commit_gateway(ctx, plan, method, move |core| {
                 crate::broker::commit_offset(core, &stream, &group, offset);
-                Ok(ResultPayload::String("ok".to_string()))
+                Ok(ResultPayload::scalar::<results::StreamCommitOffset>(
+                    "ok".to_string(),
+                ))
             })
             .await
         }
@@ -301,7 +315,7 @@ pub(super) async fn try_handle(
                     ttl_ms,
                     now_ms,
                 );
-                ResultPayload::raw(&token)
+                ResultPayload::of_ref::<results::PublishConfirmed>(&token)
             })
             .await
         }
@@ -351,7 +365,7 @@ pub(super) async fn try_handle(
                     ttl_ms,
                     now_ms,
                 );
-                ResultPayload::raw(&result)
+                ResultPayload::of_ref::<results::PublishIdempotent>(&result)
             })
             .await
         }
@@ -363,7 +377,7 @@ pub(super) async fn try_handle(
             let (delivery_tag, consumer) = (*delivery_tag, consumer.clone());
             commit_gateway(ctx, plan, method, move |core| {
                 let existed = crate::broker::broker_ack_tag(core, delivery_tag, &consumer);
-                Ok(ResultPayload::Bool(existed))
+                Ok(ResultPayload::scalar::<results::BrokerAckTag>(existed))
             })
             .await
         }
@@ -379,7 +393,7 @@ pub(super) async fn try_handle(
             commit_gateway(ctx, plan, method, move |core| {
                 let outcome =
                     crate::broker::broker_nack_tag(core, delivery_tag, &consumer, requeue, now_ms);
-                Ok(ResultPayload::String(outcome))
+                Ok(ResultPayload::scalar::<results::BrokerNackTag>(outcome))
             })
             .await
         }
@@ -393,13 +407,15 @@ pub(super) async fn try_handle(
             let (delivery_tag, consumer, now_ms, lease_ms) =
                 (*delivery_tag, consumer.clone(), *now_ms, *lease_ms);
             commit_gateway(ctx, plan, method, move |core| {
-                Ok(ResultPayload::Bool(crate::broker::broker_renew_tag(
-                    core,
-                    delivery_tag,
-                    &consumer,
-                    now_ms,
-                    lease_ms,
-                )))
+                Ok(ResultPayload::scalar::<results::BrokerRenewTag>(
+                    crate::broker::broker_renew_tag(
+                        core,
+                        delivery_tag,
+                        &consumer,
+                        now_ms,
+                        lease_ms,
+                    ),
+                ))
             })
             .await
         }

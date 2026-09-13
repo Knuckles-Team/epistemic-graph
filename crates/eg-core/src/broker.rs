@@ -931,14 +931,7 @@ impl ReadFrom {
     }
 }
 
-/// A publisher-confirm token (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos): a broker-wide monotonic `delivery_tag`
-/// identifying the publish, plus whether the broker durably accepted it (`confirmed`)
-/// or nacked it (unknown exchange). Mirrors AMQP publisher confirms / Kafka acks.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ConfirmToken {
-    pub delivery_tag: i64,
-    pub confirmed: bool,
-}
+pub use eg_types::messaging_wire::ConfirmToken;
 
 /// Ensure a stream's durable monotonic offset counter node exists (starting at 0),
 /// mirroring [`ensure_queue_seq`] (CONCEPT:EG-KG.compute.replayable-append-log). Called on declare + publish so a
@@ -1257,18 +1250,7 @@ pub fn producer_seq_node_id(producer_id: &str) -> String {
     format!("broker:producer:{producer_id}")
 }
 
-/// Outcome of an idempotent publish (CONCEPT:EG-KG.ingest.broker-reject-publish). `confirmed` mirrors the EG-284
-/// publisher-confirm (the exchange existed / the broker accepted it); `duplicate` is
-/// `true` when a `(producer_id, seq)` stamp was recognised as already-seen and the
-/// message was DROPPED (effectively-once — a duplicate still confirms so the retrying
-/// publisher stops); `delivered` is the number of queues the message was routed to
-/// (`0` for a duplicate or an unroutable/nacked publish).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IdempotentPublish {
-    pub confirmed: bool,
-    pub duplicate: bool,
-    pub delivered: usize,
-}
+pub use eg_types::messaging_wire::IdempotentPublish;
 
 /// Publish `payload` with an OPTIONAL `(producer_id, seq)` idempotency stamp
 /// (CONCEPT:EG-KG.ingest.broker-reject-publish) — the effectively-once sibling of [`publish_confirmed`].

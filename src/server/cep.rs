@@ -495,7 +495,10 @@ pub(crate) async fn try_handle(
             // when `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` is unset — see the module doc.
             #[cfg(feature = "broker")]
             forward_to_broker_if_configured(state, &surface, id).await;
-            Ok(Response::ok(req_id, ResultPayload::Count(id)))
+            Ok(Response::ok(
+                req_id,
+                ResultPayload::scalar::<eg_types::result_contract::messaging::CepSubscribe>(id),
+            ))
         }
 
         Method::CepPoll { sub_id, timeout_ms } => {
@@ -516,7 +519,9 @@ pub(crate) async fn try_handle(
             };
             Ok(Response::ok(
                 req_id,
-                ResultPayload::Bool(surface.unsubscribe(sub_id)),
+                ResultPayload::scalar::<eg_types::result_contract::messaging::CepUnsubscribe>(
+                    surface.unsubscribe(sub_id),
+                ),
             ))
         }
 

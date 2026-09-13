@@ -5,32 +5,11 @@
 // On close, the channel's content is vectorized and persisted
 // as a KG imprint (embedding + participant edges).
 
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::protocol::ChannelType;
 
-/// A single message in a channel.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChannelMessage {
-    pub sender: String,
-    pub payload: String,
-    pub timestamp: u64,
-}
-
-/// KG imprint created when a channel is closed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChannelImprint {
-    pub channel_id: String,
-    pub channel_type: ChannelType,
-    pub creator: String,
-    pub participants: Vec<String>,
-    pub message_count: usize,
-    pub created_at: u64,
-    pub closed_at: u64,
-    pub summary_embedding: Option<Vec<f32>>,
-    pub topic_metadata: Option<String>,
-}
+pub use eg_types::messaging_wire::{ChannelImprint, ChannelMessage};
 
 /// A live communication channel.
 #[derive(Debug, Clone)]

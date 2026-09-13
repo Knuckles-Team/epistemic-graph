@@ -84,6 +84,7 @@ pub mod knowledge_stream;
 // store + REST projection that would carry these records over the wire is
 // GOC-10-W03/W05, not yet implemented).
 pub mod lake_catalog;
+pub mod messaging_wire;
 #[cfg(feature = "modality-serving")]
 pub mod modality;
 pub mod msgpack;
