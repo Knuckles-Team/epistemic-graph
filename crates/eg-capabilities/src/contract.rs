@@ -12,11 +12,14 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::{ConsumerProfile, MethodDescriptor, SchemaProvenance, SchemaRef, Stability};
+use crate::{ConsumerProfile, MethodDescriptor, Stability};
 
 mod format_identity;
 mod python;
+mod results;
 mod schema;
+
+use results::{Catalog, ResultClass};
 
 pub use format_identity::{collect_format_identities, FormatIdentity};
 
@@ -73,48 +76,43 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-fn schema_ref_json(schema_ref: SchemaRef, id: &str) -> serde_json::Value {
-    match schema_ref {
-        SchemaRef::MethodVariant => serde_json::json!({
-            "kind": "named",
-            "schema": format!("contract/schemas/method.request.json#/methods/{id}"),
-        }),
-        SchemaRef::Payload(shape) => serde_json::json!({
-            "kind": "named",
-            "schema": format!("contract/schemas/result.{}.json", shape.as_str()),
-        }),
-        SchemaRef::Opaque(kind) => serde_json::json!({
-            "kind": "opaque",
-            "payload": kind.as_str(),
-        }),
-    }
+/// A method's declared result, as `contract/methods.json` records it.
+fn result_schema_json(d: &MethodDescriptor, catalog: &Catalog) -> serde_json::Value {
+    let id = d.id.as_str();
+    let Some(declared) = catalog.methods.get(id) else {
+        return serde_json::json!({ "kind": "unclassified" });
+    };
+    let bodies: BTreeMap<&str, serde_json::Value> = declared
+        .bodies
+        .iter()
+        .map(|(key, body)| {
+            (
+                *key,
+                serde_json::json!({
+                    "encoding": body.encoding,
+                    "dynamic": body.dynamic.map(|reason| reason.as_str()),
+                }),
+            )
+        })
+        .collect();
+    serde_json::json!({
+        "kind": "declared",
+        "schema": format!("{}#/methods/{id}", schema::result_document_path(d.domain)),
+        "selected_by": declared.by_op.then_some("op"),
+        "bodies": bodies,
+    })
 }
 
-/// How strong the evidence behind a `result_schema` is, and -- when the two sources
-/// disagreed -- exactly what each of them said, so the refusal is auditable.
-fn provenance_json(provenance: SchemaProvenance) -> serde_json::Value {
-    match provenance {
-        SchemaProvenance::Contradicted {
-            dispatch,
-            annotation,
-        } => serde_json::json!({
-            "kind": provenance.as_str(),
-            "dispatch_said": dispatch,
-            "client_annotation_said": annotation,
-        }),
-        other => serde_json::json!({ "kind": other.as_str() }),
-    }
-}
-
-fn descriptor_json(d: &MethodDescriptor) -> serde_json::Value {
+fn descriptor_json(d: &MethodDescriptor, catalog: &Catalog) -> serde_json::Value {
     let id = d.id.as_str();
     serde_json::json!({
         "id": id,
         "domain": d.domain,
-        "request_schema": schema_ref_json(d.request_schema, id),
-        "result_schema": schema_ref_json(d.result_schema, id),
-        "result_body_schema": schema::result_body_path(id),
-        "result_provenance": provenance_json(d.result_provenance),
+        "request_schema": {
+            "kind": "named",
+            "schema": format!("contract/schemas/method.request.json#/methods/{id}"),
+        },
+        "result_schema": result_schema_json(d, catalog),
         "error_set": d.error_set,
         "policy": {
             "mutates": d.policy.mutates,
@@ -134,9 +132,9 @@ fn descriptor_json(d: &MethodDescriptor) -> serde_json::Value {
 }
 
 /// `contract/methods.json` — the complete registry, deterministic domain order.
-fn methods_json() -> Vec<u8> {
+fn methods_json(catalog: &Catalog) -> Vec<u8> {
     let methods: Vec<_> = crate::method_descriptors()
-        .map(|d| descriptor_json(&d))
+        .map(|d| descriptor_json(&d, catalog))
         .collect();
     let doc = serde_json::json!({
         "contract_version": 1,
@@ -185,20 +183,29 @@ pub(crate) fn collect_files(path: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn result_census() -> (usize, usize) {
-    let typed = crate::method_descriptors()
-        .filter(|d| d.result_schema.is_typed())
-        .count();
-    (typed, crate::method_descriptors().count() - typed)
-}
-
-/// `(confirmed, dispatch-only, annotation-only, undeclared, contradicted)`.
-fn provenance_census() -> serde_json::Value {
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+/// Per method: every body schematized, every body declared caller-shaped, a mix of the
+/// two across ops, or no declared result at all.
+fn result_classification(catalog: &Catalog) -> serde_json::Value {
+    let mut counts: BTreeMap<&str, usize> = [
+        ("declared_dynamic", 0),
+        ("mixed", 0),
+        ("schematized", 0),
+        ("unclassified", 0),
+    ]
+    .into_iter()
+    .collect();
     for descriptor in crate::method_descriptors() {
-        *counts
-            .entry(descriptor.result_provenance.as_str())
-            .or_insert(0) += 1;
+        let key = match catalog
+            .methods
+            .get(descriptor.id.as_str())
+            .map(|d| d.class())
+        {
+            Some(ResultClass::Schematized) => "schematized",
+            Some(ResultClass::Dynamic) => "declared_dynamic",
+            Some(ResultClass::Mixed) => "mixed",
+            None => "unclassified",
+        };
+        *counts.entry(key).or_insert(0) += 1;
     }
     serde_json::json!(counts)
 }
@@ -229,9 +236,8 @@ fn contract_digest(source_tree_oid: &str, digests: &BTreeMap<&str, String>) -> S
 }
 
 /// `contract/receipt.json` — what AU pins.
-fn receipt_json(root: &Path, artifacts: &[Artifact]) -> Vec<u8> {
+fn receipt_json(root: &Path, artifacts: &[Artifact], catalog: &Catalog) -> Vec<u8> {
     let lock = std::fs::read(root.join("Cargo.lock")).unwrap_or_default();
-    let (typed, opaque) = result_census();
     let (python, internal) = consumer_census();
     let digests: BTreeMap<&str, String> = artifacts
         .iter()
@@ -263,9 +269,7 @@ fn receipt_json(root: &Path, artifacts: &[Artifact]) -> Vec<u8> {
         "source_tree_oid": source_oid,
         "cargo_lock_sha256": sha256_hex(&lock),
         "method_count": crate::method_descriptors().count(),
-        "typed_result_methods": typed,
-        "opaque_result_methods": opaque,
-        "result_provenance": provenance_census(),
+        "result_classification": result_classification(catalog),
         "python_client_methods": python,
         "internal_only_methods": internal,
         "format_identities": identities,
@@ -290,11 +294,11 @@ pub(crate) fn normalize(text: String) -> Vec<u8> {
 }
 
 /// Every generated artifact except the receipt, which digests them.
-fn body_artifacts(root: &Path) -> Vec<Artifact> {
+fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
     let mut out = vec![
         Artifact {
             path: "contract/methods.json".to_string(),
-            bytes: methods_json(),
+            bytes: methods_json(catalog),
         },
         Artifact {
             path: "docs/capabilities.generated.md".to_string(),
@@ -305,9 +309,8 @@ fn body_artifacts(root: &Path) -> Vec<Artifact> {
         path: "crates/eg-capabilities/generated/method_catalog.rs".to_string(),
         bytes: schema::method_catalog_source(),
     });
-    out.extend(schema::artifacts());
-    out.extend(python::artifacts());
-    let _ = root;
+    out.extend(schema::artifacts(catalog));
+    out.extend(python::artifacts(catalog));
     out
 }
 
@@ -319,8 +322,9 @@ fn body_artifacts(root: &Path) -> Vec<Artifact> {
 /// (a digest cannot contain itself); `--check` compares both against the tree, so the
 /// shipped copy can never drift from the root one.
 pub fn render_all(root: &Path) -> Vec<Artifact> {
-    let mut artifacts = body_artifacts(root);
-    let receipt = receipt_json(root, &artifacts);
+    let catalog = Catalog::collect();
+    let mut artifacts = body_artifacts(&catalog);
+    let receipt = receipt_json(root, &artifacts, &catalog);
     let digest = receipt_contract_digest(&receipt);
     artifacts.push(Artifact {
         path: "contract/receipt.json".to_string(),
@@ -383,10 +387,35 @@ pub fn write_all(root: &Path) -> std::io::Result<usize> {
     Ok(artifacts.len())
 }
 
+/// Directories whose every file is a generated artifact, so a file there that the
+/// generator no longer renders is drift -- a retired schema must not linger as if current.
+const GENERATED_DIRS: &[&str] = &["contract/schemas", "epistemic_graph/generated"];
+
+/// Files under [`GENERATED_DIRS`] that no artifact renders.
+fn orphaned_files(root: &Path, artifacts: &[Artifact]) -> Vec<String> {
+    let rendered: std::collections::BTreeSet<&str> =
+        artifacts.iter().map(|a| a.path.as_str()).collect();
+    let mut files = Vec::new();
+    for dir in GENERATED_DIRS {
+        collect_files(&root.join(dir), &mut files);
+    }
+    let mut orphans: Vec<String> = files
+        .iter()
+        .filter_map(|path| path.strip_prefix(root).ok())
+        .map(|path| path.to_string_lossy().to_string())
+        .filter(|path| !path.contains("__pycache__") && !rendered.contains(path.as_str()))
+        .collect();
+    orphans.sort();
+    orphans
+}
+
 /// Byte-diff every artifact against the committed tree. `Ok(())` means no drift.
 pub fn check(root: &Path) -> Result<usize, Vec<String>> {
     let artifacts = render_all(root);
-    let mut drift = Vec::new();
+    let mut drift: Vec<String> = orphaned_files(root, &artifacts)
+        .into_iter()
+        .map(|path| format!("{path}: no longer generated -- delete it"))
+        .collect();
     for artifact in &artifacts {
         let committed = std::fs::read(root.join(&artifact.path)).unwrap_or_default();
         if committed != artifact.bytes {

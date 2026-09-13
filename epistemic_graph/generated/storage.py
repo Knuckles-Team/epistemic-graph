@@ -33,7 +33,7 @@ async def send_to_msgpack(
 ) -> OpaqueResult:
     """ToMsgpack - graph:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ToMsgpackRequest.model_validate(params or {})
@@ -63,7 +63,7 @@ async def send_from_msgpack(
 ) -> str:
     """FromMsgpack - graph:admin, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.storage.json#/methods/FromMsgpack).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     FromMsgpackRequest.model_validate(params or {})
@@ -93,7 +93,7 @@ async def send_clear_ledger(
 ) -> str:
     """ClearLedger - ledger:admin, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.storage.json#/methods/ClearLedger).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ClearLedgerRequest.model_validate(params or {})
@@ -123,7 +123,7 @@ async def send_apply_ledger(
 ) -> str:
     """ApplyLedger - ledger:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.storage.json#/methods/ApplyLedger).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ApplyLedgerRequest.model_validate(params or {})
@@ -154,7 +154,7 @@ async def send_backup(
 ) -> OpaqueResult:
     """Backup - admin:backup, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     BackupRequest.model_validate(params or {})
@@ -185,7 +185,7 @@ async def send_restore(
 ) -> OpaqueResult:
     """Restore - admin:backup, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RestoreRequest.model_validate(params or {})
@@ -215,7 +215,7 @@ async def send_agent_library(
 ) -> OpaqueResult:
     """AgentLibrary - agent:library-write, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Raw) - the contract declares no result schema.
+    Result: one declared body per request op (contract/schemas/result.storage.json#/methods/AgentLibrary).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     AgentLibraryRequest.model_validate(params or {})
@@ -245,7 +245,7 @@ async def send_agent_graph(
 ) -> OpaqueResult:
     """AgentGraph - agent:graph-write, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Raw) - the contract declares no result schema.
+    Result: one declared body per request op (contract/schemas/result.storage.json#/methods/AgentGraph).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     AgentGraphRequest.model_validate(params or {})
@@ -275,7 +275,7 @@ async def send_agent_component(
 ) -> OpaqueResult:
     """AgentComponent - agent:component-write, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Raw) - the contract declares no result schema.
+    Result: one declared body per request op (contract/schemas/result.storage.json#/methods/AgentComponent).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     AgentComponentRequest.model_validate(params or {})
@@ -305,7 +305,7 @@ async def send_agent_template(
 ) -> OpaqueResult:
     """AgentTemplate - agent:template-write, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Raw) - the contract declares no result schema.
+    Result: one declared body per request op (contract/schemas/result.storage.json#/methods/AgentTemplate).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     AgentTemplateRequest.model_validate(params or {})
@@ -339,7 +339,7 @@ async def send_ts_append(
 ) -> int:
     """TsAppend - timeseries:write, SeriesRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.storage.json#/methods/TsAppend).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TsAppendRequest.model_validate(params or {})
@@ -371,7 +371,7 @@ async def send_ts_range(
 ) -> OpaqueResult:
     """TsRange - timeseries:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     TsRangeRequest.model_validate(params or {})
@@ -403,7 +403,7 @@ async def send_ts_asof_join(
 ) -> OpaqueResult:
     """TsAsofJoin - timeseries:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     TsAsofJoinRequest.model_validate(params or {})
@@ -437,7 +437,7 @@ async def send_ts_window(
 ) -> OpaqueResult:
     """TsWindow - timeseries:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     TsWindowRequest.model_validate(params or {})
@@ -470,7 +470,7 @@ async def send_ts_gap_fill(
 ) -> OpaqueResult:
     """TsGapFill - timeseries:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     TsGapFillRequest.model_validate(params or {})
@@ -501,7 +501,7 @@ async def send_ts_evict(
 ) -> int:
     """TsEvict - timeseries:write, SeriesRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.storage.json#/methods/TsEvict).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TsEvictRequest.model_validate(params or {})
@@ -531,7 +531,7 @@ async def send_ts_delete_series(
 ) -> int:
     """TsDeleteSeries - timeseries:write, SeriesRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.storage.json#/methods/TsDeleteSeries).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TsDeleteSeriesRequest.model_validate(params or {})
@@ -561,7 +561,7 @@ async def send_ts_list_series(
 ) -> OpaqueResult:
     """TsListSeries - timeseries:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     TsListSeriesRequest.model_validate(params or {})
@@ -591,7 +591,7 @@ async def send_blob_begin(
 ) -> int:
     """BlobBegin - blob:write, BlobRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.storage.json#/methods/BlobBegin).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BlobBeginRequest.model_validate(params or {})
@@ -622,7 +622,7 @@ async def send_blob_chunk_put(
 ) -> int:
     """BlobChunkPut - blob:write, BlobRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.storage.json#/methods/BlobChunkPut).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BlobChunkPutRequest.model_validate(params or {})
@@ -652,7 +652,7 @@ async def send_blob_commit(
 ) -> str:
     """BlobCommit - blob:write, BlobRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.storage.json#/methods/BlobCommit).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BlobCommitRequest.model_validate(params or {})
@@ -682,7 +682,7 @@ async def send_blob_fetch_begin(
 ) -> OpaqueResult:
     """BlobFetchBegin - blob:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     BlobFetchBeginRequest.model_validate(params or {})
@@ -713,7 +713,7 @@ async def send_blob_chunk_get(
 ) -> OpaqueResult:
     """BlobChunkGet - blob:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     BlobChunkGetRequest.model_validate(params or {})
@@ -743,7 +743,7 @@ async def send_blob_fetch_end(
 ) -> bool:
     """BlobFetchEnd - blob:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.storage.json#/methods/BlobFetchEnd).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     BlobFetchEndRequest.model_validate(params or {})
@@ -773,7 +773,7 @@ async def send_blob_ref(
 ) -> int:
     """BlobRef - blob:write, BlobRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.storage.json#/methods/BlobRef).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BlobRefRequest.model_validate(params or {})
@@ -803,7 +803,7 @@ async def send_blob_unref(
 ) -> int:
     """BlobUnref - blob:write, BlobRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.storage.json#/methods/BlobUnref).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BlobUnrefRequest.model_validate(params or {})
@@ -833,7 +833,7 @@ async def send_blob_gc(
 ) -> OpaqueResult:
     """BlobGc - blob:admin, BlobRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BlobGcRequest.model_validate(params or {})
@@ -863,7 +863,7 @@ async def send_import_sqlite_file(
 ) -> OpaqueResult:
     """ImportSqliteFile - admin:sqlite-file, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ImportSqliteFileRequest.model_validate(params or {})
@@ -894,7 +894,7 @@ async def send_export_sqlite_file(
 ) -> OpaqueResult:
     """ExportSqliteFile - admin:sqlite-file, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ExportSqliteFileRequest.model_validate(params or {})

@@ -1,5 +1,5 @@
 {
-  "$comment": "Carried as ResultPayload::Raw: a MessagePack `bin` holding the MessagePack encoding of exactly one of `bodies`, chosen by the request's `selected_by` tag (`result` when the method has a single body). The same MessagePack-vs-JSON caveat as method.request.json applies to byte fields.",
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
   "$defs": {
     "AgentGraphEntryRef": {
       "additionalProperties": false,
@@ -222,12 +222,19 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "bodies": {
-    "result": {
-      "$ref": "#/$defs/KgDelegateResult"
+  "methods": {
+    "KgDelegate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/KgDelegateResult"
+          }
+        }
+      },
+      "selected_by": null
     }
   },
-  "method": "KgDelegate",
-  "selected_by": null,
-  "title": "KgDelegate result body"
+  "title": "coordination method results"
 }

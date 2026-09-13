@@ -62,28 +62,44 @@ fn request_schema_covers_the_timeseries_op_variants() {
     }
 }
 
-/// A result DTO change must move a digest: every bound result-body schema is an
-/// `artifact_digests` entry, and every descriptor's pointer resolves to one.
+/// A result-type change must move a digest: every declared result points into a
+/// schema document that is an `artifact_digests` entry, and the receipt's classification
+/// accounts for every method exactly once.
 #[test]
-fn every_result_body_schema_is_digested() {
+fn every_declared_result_schema_is_digested() {
     let receipt = committed_json("contract/receipt.json");
     let digests = receipt["artifact_digests"]
         .as_object()
         .expect("the receipt carries artifact_digests");
     let methods = committed_json("contract/methods.json");
-    let bound: Vec<&str> = methods["methods"]
+    let methods = methods["methods"]
         .as_array()
-        .expect("methods.json lists methods")
-        .iter()
-        .filter_map(|method| method["result_body_schema"].as_str())
-        .collect();
-    assert!(!bound.is_empty(), "no method binds a result-body schema");
-    for path in bound {
+        .expect("methods.json lists methods");
+    let mut declared = 0;
+    for method in methods {
+        let result = &method["result_schema"];
+        if result["kind"] == "unclassified" {
+            continue;
+        }
+        declared += 1;
+        let document = result["schema"]
+            .as_str()
+            .and_then(|pointer| pointer.split('#').next())
+            .expect("a declared result names its schema document");
         assert!(
-            digests.contains_key(path),
-            "{path} is referenced by methods.json but not digested"
+            digests.contains_key(document),
+            "{document} is referenced by methods.json but not digested"
         );
     }
+    let classification = receipt["result_classification"]
+        .as_object()
+        .expect("the receipt classifies results");
+    let total: u64 = classification.values().filter_map(|n| n.as_u64()).sum();
+    assert_eq!(total as usize, methods.len());
+    assert_eq!(
+        classification["unclassified"].as_u64(),
+        Some((methods.len() - declared) as u64)
+    );
 }
 
 #[test]

@@ -31,7 +31,7 @@ async def send_get_context_view(
 ) -> OpaqueResult:
     """GetContextView - node:read, None, replay NotReplayable.
 
-    Result: opaque (Conflicting) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetContextViewRequest.model_validate(params or {})
@@ -62,7 +62,7 @@ async def send_get_change_envelope(
 ) -> OpaqueResult:
     """GetChangeEnvelope - ingest:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetChangeEnvelopeRequest.model_validate(params or {})
@@ -93,7 +93,7 @@ async def send_get_content_version(
 ) -> OpaqueResult:
     """GetContentVersion - ingest:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetContentVersionRequest.model_validate(params or {})
@@ -125,7 +125,7 @@ async def send_get_change_cursor(
 ) -> OpaqueResult:
     """GetChangeCursor - ingest:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetChangeCursorRequest.model_validate(params or {})
@@ -156,7 +156,7 @@ async def send_sql(
 ) -> OpaqueResult:
     """Sql - query:sql, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     SqlRequest.model_validate(params or {})
@@ -187,7 +187,7 @@ async def send_cypher_query(
 ) -> OpaqueResult:
     """CypherQuery - query:cypher, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CypherQueryRequest.model_validate(params or {})
@@ -218,7 +218,7 @@ async def send_graph_ql(
 ) -> OpaqueResult:
     """GraphQl - query:graphql, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     GraphQlRequest.model_validate(params or {})
@@ -248,7 +248,7 @@ async def send_knowledge_stream(
 ) -> OpaqueResult:
     """KnowledgeStream - query:stream, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     KnowledgeStreamRequest.model_validate(params or {})
@@ -278,7 +278,7 @@ async def send_unified_query(
 ) -> OpaqueResult:
     """UnifiedQuery - query:unified, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     UnifiedQueryRequest.model_validate(params or {})
@@ -308,7 +308,7 @@ async def send_unified_query_text(
 ) -> OpaqueResult:
     """UnifiedQueryText - query:unified, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     UnifiedQueryTextRequest.model_validate(params or {})
@@ -338,7 +338,7 @@ async def send_explain_plan(
 ) -> OpaqueResult:
     """ExplainPlan - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ExplainPlanRequest.model_validate(params or {})
@@ -368,7 +368,7 @@ async def send_explain_provenance(
 ) -> OpaqueResult:
     """ExplainProvenance - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ExplainProvenanceRequest.model_validate(params or {})
@@ -398,7 +398,7 @@ async def send_explain_provenance_by_ids(
 ) -> OpaqueResult:
     """ExplainProvenanceByIds - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ExplainProvenanceByIdsRequest.model_validate(params or {})
@@ -428,7 +428,7 @@ async def send_explain_policy(
 ) -> OpaqueResult:
     """ExplainPolicy - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ExplainPolicyRequest.model_validate(params or {})
@@ -459,7 +459,7 @@ async def send_explain_belief(
 ) -> OpaqueResult:
     """ExplainBelief - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ExplainBeliefRequest.model_validate(params or {})
@@ -489,7 +489,7 @@ async def send_epistemic_status(
 ) -> OpaqueResult:
     """EpistemicStatus - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     EpistemicStatusRequest.model_validate(params or {})
@@ -520,7 +520,7 @@ async def send_what_changed(
 ) -> OpaqueResult:
     """WhatChanged - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     WhatChangedRequest.model_validate(params or {})
@@ -551,7 +551,7 @@ async def send_recompute_materialization(
 ) -> OpaqueResult:
     """RecomputeMaterialization - reasoning:write, ReasoningProjection, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RecomputeMaterializationRequest.model_validate(params or {})
@@ -581,7 +581,7 @@ async def send_materialization_status(
 ) -> OpaqueResult:
     """MaterializationStatus - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     MaterializationStatusRequest.model_validate(params or {})
@@ -611,7 +611,7 @@ async def send_stale_materializations(
 ) -> OpaqueResult:
     """StaleMaterializations - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     StaleMaterializationsRequest.model_validate(params or {})
@@ -642,7 +642,7 @@ async def send_resolve_conflict(
 ) -> OpaqueResult:
     """ResolveConflict - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ResolveConflictRequest.model_validate(params or {})
@@ -672,7 +672,7 @@ async def send_explain_evidence(
 ) -> OpaqueResult:
     """ExplainEvidence - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ExplainEvidenceRequest.model_validate(params or {})
@@ -704,7 +704,7 @@ async def send_causal_estimate(
 ) -> OpaqueResult:
     """CausalEstimate - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     CausalEstimateRequest.model_validate(params or {})
@@ -736,7 +736,7 @@ async def send_causal_counterfactual(
 ) -> OpaqueResult:
     """CausalCounterfactual - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     CausalCounterfactualRequest.model_validate(params or {})
@@ -767,7 +767,7 @@ async def send_rank_by_provenance(
 ) -> OpaqueResult:
     """RankByProvenance - explain:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     RankByProvenanceRequest.model_validate(params or {})
@@ -798,7 +798,7 @@ async def send_nl_query(
 ) -> OpaqueResult:
     """NlQuery - query:nl, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     NlQueryRequest.model_validate(params or {})
@@ -829,7 +829,7 @@ async def send_txn_unified_query(
 ) -> OpaqueResult:
     """TxnUnifiedQuery - txn:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     TxnUnifiedQueryRequest.model_validate(params or {})
@@ -860,7 +860,7 @@ async def send_txn_unified_query_text(
 ) -> OpaqueResult:
     """TxnUnifiedQueryText - txn:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     TxnUnifiedQueryTextRequest.model_validate(params or {})

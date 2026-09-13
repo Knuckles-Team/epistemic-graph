@@ -1,0 +1,311 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {},
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "BindQueue": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BrokerAck": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BrokerAckTag": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BrokerNackTag": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BrokerReject": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BrokerRenewTag": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CepSubscribe": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CepUnsubscribe": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DeclareExchange": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DeclareQueue": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DeleteExchange": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DropContinuousQuery": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DropTrigger": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetChannelMembers": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Publish": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PublishEx": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RegisterContinuousQuery": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RegisterTrigger": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StreamCommitOffset": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StreamDeclare": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StreamPublish": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StreamTrim": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SweepExpired": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "UnbindQueue": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "messaging method results"
+}

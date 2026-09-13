@@ -114,6 +114,9 @@ pub mod protocol;
 #[cfg(feature = "quantum")]
 pub mod quantum;
 pub mod row_predicate;
+// F3: the typed result contract -- one marker per method result, compile-checked at every
+// handler site and walked by `eg-capabilities` to publish the result schemas.
+pub mod result_contract;
 // RF-019 — the sole transport-neutral semantic-index contract.  Runtime
 // storage, queues, handlers, and surface projections live in crates above this
 // bottom-of-DAG owner and must consume these exact operation and identity DTOs.

@@ -3,32 +3,21 @@
 //! The request side needs no separate DTO catalog: a `Method` variant's inline fields
 //! ARE its request schema, so one `schema_for!(Method)` pass covers all of them. The
 //! emitted document re-shapes schemars' variant list into a `methods` map keyed by the
-//! variant's own serde tag, which is what `SchemaRef::MethodVariant` points at — an
+//! variant's own serde tag, which is what a descriptor's request schema points at — an
 //! index into a positional array would silently re-target on any reorder.
 //!
-//! The result side has the seven typed `ResultPayload` variants, one file each. `Json` and
-//! `Raw` declare no `ResultPayload`-level shape (`SchemaRef::Opaque`), but a `Raw` result is
-//! the MessagePack encoding of a typed eg-types DTO -- `AgentComponentEntry`,
-//! `AgentComponentSearchPage`, `KgDelegateResult`, ... -- and those DTO shapes ARE the
-//! response contract a client decodes. [`RESULT_BODIES`] names them per method, keyed by
-//! the request op that selects each one, and each method gets a
-//! `contract/schemas/result.body.<Method>.json`, so a result-DTO change moves an
-//! `artifact_digests` entry exactly like a request-shape change does.
+//! The result side is one `contract/schemas/result.<domain>.json` per contract domain,
+//! rendered from the [`Catalog`] of `eg_types::result_contract` markers: for each method,
+//! its body (or one body per request op), the `ResultPayload` encoding, the schema of
+//! the Rust type the handler encodes, and -- for a caller-shaped body -- the declared
+//! reason. Every document is an `artifact_digests` entry, so a result-type change moves
+//! a digest exactly like a request-shape change does.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use eg_types::agent_component::{
-    AgentComponentCommittedResult, AgentComponentEntry, AgentComponentOp, AgentComponentSearchPage,
-};
-use eg_types::agent_graph::{AgentGraphCommittedResult, AgentGraphEntry, AgentGraphOp};
-use eg_types::agent_library::{
-    AgentLibraryEntry, AgentLibraryEntryDraft, AgentLibraryOp, AgentLibraryWriteResult,
-};
-use eg_types::agent_template::{AgentTemplateCommittedResult, AgentTemplateEntry, AgentTemplateOp};
-use eg_types::delegation::KgDelegateResult;
 use eg_types::protocol::{Method, ResultPayload};
-use schemars::{JsonSchema, Schema, SchemaGenerator};
 
+use super::results::{Catalog, Declared};
 use super::{normalize, pretty, Artifact};
 
 fn to_value(schema: schemars::Schema) -> serde_json::Value {
@@ -92,159 +81,141 @@ pub(super) fn method_request_document() -> serde_json::Value {
     })
 }
 
-/// Schema of one result body, registered into the method document's shared generator.
-type BodySchema = fn(&mut SchemaGenerator) -> Schema;
-
-fn body<T: JsonSchema>(generator: &mut SchemaGenerator) -> Schema {
-    generator.subschema_for::<T>()
+/// The `$defs` entry a `$ref` (possibly wrapped in `allOf`) names.
+fn referenced<'a>(
+    node: &serde_json::Value,
+    defs: &'a serde_json::Value,
+) -> Option<&'a serde_json::Value> {
+    let reference = node.get("$ref").or_else(|| {
+        node.get("allOf")
+            .and_then(|all| all.as_array())
+            .and_then(|all| all.first())
+            .and_then(|first| first.get("$ref"))
+    })?;
+    let name = reference.as_str()?.strip_prefix("#/$defs/")?;
+    defs.get(name)
 }
 
-fn root_schema<T: JsonSchema>() -> Schema {
-    schemars::schema_for!(T)
-}
-
-/// The request's op enum schema and the internal serde tag field that names its variant.
-type OpSelector = (fn() -> Schema, &'static str);
-
-/// One `ResultPayload::Raw` method whose bytes are the MessagePack encoding of a named
-/// eg-types DTO.
-struct ResultBody {
-    method: &'static str,
-    /// Present when the request's op selects the body; `None` when the method has
-    /// exactly one body.
-    selector: Option<OpSelector>,
-    /// `(op tag, body schema)`; a single-body method uses the key `result`.
-    bodies: &'static [(&'static str, BodySchema)],
-}
-
-/// The result DTO each op of a `Raw` method encodes.
-///
-/// Read off the dispatch arms, which live in the root package this crate cannot see:
-/// `src/server/handlers/admin.rs` (`handle_agent_component`/`_template`/`_graph`/
-/// `_library`, each `ResultPayload::raw(..)` of the persistence store's return) and
-/// `src/server/handlers/delegation.rs` (`ResultPayload::raw(&KgDelegateResult)`). What IS
-/// checked here is the key side: [`result_body_document`] asserts every op variant the
-/// request enum declares has exactly one body, so a new op cannot ship undocumented.
-/// `SemanticIndex`, `AnalyticsJob` and the other opaque results are not yet bound to a
-/// DTO and stay `SchemaRef::Opaque`.
-const RESULT_BODIES: &[ResultBody] = &[
-    ResultBody {
-        method: "AgentComponent",
-        selector: Some((root_schema::<AgentComponentOp>, "op")),
-        bodies: &[
-            ("current", body::<Option<AgentComponentEntry>>),
-            ("history", body::<Vec<AgentComponentEntry>>),
-            ("publish", body::<AgentComponentCommittedResult>),
-            ("retire", body::<AgentComponentCommittedResult>),
-            ("search", body::<AgentComponentSearchPage>),
-            ("status", body::<Option<AgentComponentCommittedResult>>),
-        ],
-    },
-    ResultBody {
-        method: "AgentGraph",
-        selector: Some((root_schema::<AgentGraphOp>, "op")),
-        bodies: &[
-            ("current", body::<Option<AgentGraphEntry>>),
-            ("history", body::<Vec<AgentGraphEntry>>),
-            ("publish", body::<AgentGraphCommittedResult>),
-            ("retire", body::<AgentGraphCommittedResult>),
-            ("status", body::<Option<AgentGraphCommittedResult>>),
-        ],
-    },
-    ResultBody {
-        method: "AgentLibrary",
-        selector: Some((root_schema::<AgentLibraryOp>, "operation")),
-        bodies: &[
-            ("current", body::<Option<AgentLibraryEntry>>),
-            ("history", body::<Vec<AgentLibraryEntry>>),
-            ("publish", body::<AgentLibraryWriteResult>),
-            ("retire", body::<AgentLibraryWriteResult>),
-            ("status", body::<Option<AgentLibraryWriteResult>>),
-        ],
-    },
-    ResultBody {
-        method: "AgentTemplate",
-        selector: Some((root_schema::<AgentTemplateOp>, "op")),
-        bodies: &[
-            ("current", body::<Option<AgentTemplateEntry>>),
-            ("history", body::<Vec<AgentTemplateEntry>>),
-            ("instantiate", body::<AgentLibraryEntryDraft>),
-            ("publish", body::<AgentTemplateCommittedResult>),
-            ("retire", body::<AgentTemplateCommittedResult>),
-            ("status", body::<Option<AgentTemplateCommittedResult>>),
-        ],
-    },
-    ResultBody {
-        method: "KgDelegate",
-        selector: None,
-        bodies: &[("result", body::<KgDelegateResult>)],
-    },
-];
-
-fn result_body_file(method: &str) -> String {
-    format!("contract/schemas/result.body.{method}.json")
-}
-
-/// The body-schema file for `method`, when [`RESULT_BODIES`] binds one.
-pub(super) fn result_body_path(method: &str) -> Option<String> {
-    RESULT_BODIES
-        .iter()
-        .any(|entry| entry.method == method)
-        .then(|| result_body_file(method))
-}
-
-fn result_body_document(entry: &ResultBody) -> serde_json::Value {
-    assert!(
-        crate::method_descriptors().any(|d| d.id.as_str() == entry.method),
-        "RESULT_BODIES names `{}`, which is not a contract method",
-        entry.method
-    );
-    let declared: BTreeSet<&str> = entry.bodies.iter().map(|(op, _)| *op).collect();
-    assert_eq!(
-        declared.len(),
-        entry.bodies.len(),
-        "{}: an op is bound to more than one result body",
-        entry.method
-    );
-    let selected_by = entry.selector.map(|(op_schema, field)| {
-        let root = to_value(op_schema());
-        let variants: BTreeSet<String> = variant_subschemas(&root)
+/// Every tag one op-enum variant subschema can carry: an internal tag field's value, a
+/// unit variant's string, or an externally tagged variant's single key.
+fn op_variant_tags(variant: &serde_json::Value) -> Vec<String> {
+    if let Some(values) = variant.get("enum").and_then(|e| e.as_array()) {
+        return values
             .iter()
-            .filter_map(|subschema| variant_tag(subschema, field))
+            .filter_map(|value| value.as_str().map(str::to_string))
             .collect();
-        let declared: BTreeSet<String> = declared.iter().map(|op| op.to_string()).collect();
+    }
+    if let Some(value) = variant.get("const").and_then(|c| c.as_str()) {
+        return vec![value.to_string()];
+    }
+    let properties = variant.get("properties").and_then(|p| p.as_object());
+    if let Some(tag) = properties.and_then(|properties| {
+        properties
+            .keys()
+            .find_map(|field| variant_tag(variant, field))
+    }) {
+        return vec![tag];
+    }
+    variant
+        .get("required")
+        .and_then(|r| r.as_array())
+        .filter(|required| required.len() == 1)
+        .and_then(|required| required[0].as_str())
+        .map(|key| vec![key.to_string()])
+        .unwrap_or_default()
+}
+
+/// The op tags the request of `method` can select, when its params carry an `op` enum.
+fn op_tags(request: &serde_json::Value, method: &str) -> Option<BTreeSet<String>> {
+    let op = request
+        .get("methods")?
+        .get(method)?
+        .get("properties")?
+        .get("params")?
+        .get("properties")?
+        .get("op")?;
+    let defs = request.get("$defs")?;
+    let op_enum = referenced(op, defs)?;
+    Some(
+        variant_subschemas(op_enum)
+            .iter()
+            .flat_map(op_variant_tags)
+            .collect(),
+    )
+}
+
+/// `contract/schemas/result.<domain>.json`.
+pub(super) fn result_document_path(domain: &str) -> String {
+    format!("contract/schemas/result.{domain}.json")
+}
+
+fn method_result_json(
+    id: &str,
+    declared: &Declared,
+    request: &serde_json::Value,
+) -> serde_json::Value {
+    let selected_by = declared.by_op.then(|| {
+        let tags = op_tags(request, id).unwrap_or_else(|| {
+            panic!("{id}: declares per-op results but its request has no op enum")
+        });
+        let ops: BTreeSet<String> = declared.bodies.keys().map(|op| op.to_string()).collect();
         assert_eq!(
-            variants, declared,
-            "{}: the result-body catalog and the request op enum disagree",
-            entry.method
+            tags, ops,
+            "{id}: the declared result ops and the request op enum disagree"
         );
-        field
+        "op"
     });
-    let mut generator = SchemaGenerator::default();
-    let bodies: BTreeMap<&str, serde_json::Value> = entry
+    let bodies: BTreeMap<&str, serde_json::Value> = declared
         .bodies
         .iter()
-        .map(|(op, schema)| (*op, to_value(schema(&mut generator))))
+        .map(|(key, body)| {
+            let dynamic = body.dynamic.map(|reason| {
+                serde_json::json!({"reason": reason.as_str(), "summary": reason.summary()})
+            });
+            (
+                *key,
+                serde_json::json!({
+                    "encoding": body.encoding,
+                    "dynamic": dynamic,
+                    "schema": body.schema,
+                }),
+            )
+        })
         .collect();
-    serde_json::json!({
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": format!("{} result body", entry.method),
-        "$comment": "Carried as ResultPayload::Raw: a MessagePack `bin` holding the \
-    MessagePack encoding of exactly one of `bodies`, chosen by the request's `selected_by` \
-    tag (`result` when the method has a single body). The same MessagePack-vs-JSON caveat \
-    as method.request.json applies to byte fields.",
-        "method": entry.method,
-        "selected_by": selected_by,
-        "bodies": bodies,
-        "$defs": serde_json::Value::Object(generator.take_definitions(true)),
-    })
+    serde_json::json!({"selected_by": selected_by, "bodies": bodies})
 }
 
-fn result_artifact(shape: &str, schema: serde_json::Value) -> Artifact {
-    Artifact {
-        path: format!("contract/schemas/result.{shape}.json"),
-        bytes: pretty(&schema),
+fn result_documents(catalog: &Catalog, request: &serde_json::Value) -> Vec<Artifact> {
+    let mut by_domain: BTreeMap<&str, BTreeMap<&str, serde_json::Value>> = BTreeMap::new();
+    for descriptor in crate::method_descriptors() {
+        let id = descriptor.id.as_str();
+        if let Some(declared) = catalog.methods.get(id) {
+            by_domain
+                .entry(descriptor.domain)
+                .or_default()
+                .insert(id, method_result_json(id, declared, request));
+        }
     }
+    by_domain
+        .into_iter()
+        .map(|(domain, methods)| {
+            let defs = catalog.definitions.get(domain).cloned().unwrap_or_default();
+            Artifact {
+                path: result_document_path(domain),
+                bytes: pretty(&serde_json::json!({
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "title": format!("{domain} method results"),
+                    "$comment": "One entry per method: its body, or one body per request op \
+    (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack \
+    `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON \
+    tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained \
+    schema `true`.",
+                    "methods": methods,
+                    "$defs": serde_json::Value::Object(defs),
+                })),
+            }
+        })
+        .collect()
 }
 
 /// `crates/eg-capabilities/generated/method_catalog.rs` -- the compile-time
@@ -299,34 +270,18 @@ fn hex_literal(digest: &str) -> String {
 }
 
 /// Every generated schema file, in deterministic path order.
-pub(super) fn artifacts() -> Vec<Artifact> {
-    let bodies = RESULT_BODIES.iter().map(|entry| Artifact {
-        path: result_body_file(entry.method),
-        bytes: pretty(&result_body_document(entry)),
-    });
+pub(super) fn artifacts(catalog: &Catalog) -> Vec<Artifact> {
+    let request = method_request_document();
     let mut out = vec![
         Artifact {
             path: "contract/schemas/method.request.json".to_string(),
-            bytes: pretty(&method_request_document()),
+            bytes: pretty(&request),
         },
         Artifact {
             path: "contract/schemas/result.payload.json".to_string(),
             bytes: pretty(&to_value(schemars::schema_for!(ResultPayload))),
         },
-        result_artifact("Bool", to_value(schemars::schema_for!(bool))),
-        result_artifact("Count", to_value(schemars::schema_for!(u64))),
-        result_artifact("Float", to_value(schemars::schema_for!(f64))),
-        result_artifact("String", to_value(schemars::schema_for!(String))),
-        result_artifact("Ids", to_value(schemars::schema_for!(Vec<String>))),
-        result_artifact(
-            "NodeList",
-            to_value(schemars::schema_for!(Vec<(String, serde_json::Value)>)),
-        ),
-        result_artifact(
-            "EdgeList",
-            to_value(schemars::schema_for!(Vec<(String, String, Vec<u8>)>)),
-        ),
     ];
-    out.extend(bodies);
+    out.extend(result_documents(catalog, &request));
     out
 }

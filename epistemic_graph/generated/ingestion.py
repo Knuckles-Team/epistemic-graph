@@ -31,7 +31,7 @@ async def send_served_modality(
 ) -> OpaqueResult:
     """ServedModality - modality:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ServedModalityRequest.model_validate(params or {})
@@ -62,7 +62,7 @@ async def send_parse_file(
 ) -> OpaqueResult:
     """ParseFile - compute:parse, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ParseFileRequest.model_validate(params or {})
@@ -92,7 +92,7 @@ async def send_parse_files(
 ) -> OpaqueResult:
     """ParseFiles - compute:parse, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ParseFilesRequest.model_validate(params or {})
@@ -122,7 +122,7 @@ async def send_index_repository(
 ) -> OpaqueResult:
     """IndexRepository - compute:parse, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     IndexRepositoryRequest.model_validate(params or {})
@@ -152,7 +152,7 @@ async def send_observe_screen(
 ) -> OpaqueResult:
     """ObserveScreen - compute:vision, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ObserveScreenRequest.model_validate(params or {})
@@ -183,7 +183,7 @@ async def send_add_embedding(
 ) -> str:
     """AddEmbedding - node:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.ingestion.json#/methods/AddEmbedding).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     AddEmbeddingRequest.model_validate(params or {})
@@ -213,7 +213,7 @@ async def send_semantic_index(
 ) -> OpaqueResult:
     """SemanticIndex - semantic:binding-write, SemanticIndexRedb, replay OperationIdentity.
 
-    Result: opaque (Raw) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     SemanticIndexRequest.model_validate(params or {})
@@ -244,7 +244,7 @@ async def send_semantic_search(
 ) -> OpaqueResult:
     """SemanticSearch - compute:semantic, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     SemanticSearchRequest.model_validate(params or {})
@@ -276,7 +276,7 @@ async def send_discover(
 ) -> OpaqueResult:
     """Discover - compute:semantic, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DiscoverRequest.model_validate(params or {})
@@ -306,7 +306,7 @@ async def send_quantum(
 ) -> OpaqueResult:
     """Quantum - quantum:run, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     QuantumRequest.model_validate(params or {})
@@ -336,7 +336,7 @@ async def send_asr(
 ) -> OpaqueResult:
     """Asr - asr:transcribe, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     AsrRequest.model_validate(params or {})
@@ -366,7 +366,7 @@ async def send_viz(
 ) -> OpaqueResult:
     """Viz - viz:render, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     VizRequest.model_validate(params or {})

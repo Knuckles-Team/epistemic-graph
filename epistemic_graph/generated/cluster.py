@@ -33,7 +33,7 @@ async def send_create_graph(
 ) -> OpaqueResult:
     """CreateGraph - graph:admin, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CreateGraphRequest.model_validate(params or {})
@@ -63,7 +63,7 @@ async def send_delete_graph(
 ) -> OpaqueResult:
     """DeleteGraph - graph:admin, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     DeleteGraphRequest.model_validate(params or {})
@@ -93,7 +93,7 @@ async def send_list_graphs(
 ) -> OpaqueResult:
     """ListGraphs - graph:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ListGraphsRequest.model_validate(params or {})
@@ -124,7 +124,7 @@ async def send_reshard(
 ) -> OpaqueResult:
     """Reshard - admin:cluster, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ReshardRequest.model_validate(params or {})
@@ -156,7 +156,7 @@ async def send_catalog_assign(
 ) -> bool:
     """CatalogAssign - admin:cluster, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.cluster.json#/methods/CatalogAssign).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CatalogAssignRequest.model_validate(params or {})
@@ -187,7 +187,7 @@ async def send_catalog_reassign(
 ) -> bool:
     """CatalogReassign - admin:cluster, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.cluster.json#/methods/CatalogReassign).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CatalogReassignRequest.model_validate(params or {})
@@ -217,7 +217,7 @@ async def send_catalog_remove(
 ) -> bool:
     """CatalogRemove - admin:cluster, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.cluster.json#/methods/CatalogRemove).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CatalogRemoveRequest.model_validate(params or {})
@@ -247,7 +247,7 @@ async def send_catalog_list(
 ) -> OpaqueResult:
     """CatalogList - admin:cluster-read, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     CatalogListRequest.model_validate(params or {})
@@ -278,7 +278,7 @@ async def send_rebalance_plan(
 ) -> OpaqueResult:
     """RebalancePlan - admin:cluster-read, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     RebalancePlanRequest.model_validate(params or {})
@@ -309,7 +309,7 @@ async def send_rebalance_execute(
 ) -> OpaqueResult:
     """RebalanceExecute - admin:cluster, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RebalanceExecuteRequest.model_validate(params or {})
@@ -339,7 +339,7 @@ async def send_placement_route(
 ) -> OpaqueResult:
     """PlacementRoute - cluster:placement-read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     PlacementRouteRequest.model_validate(params or {})
@@ -371,7 +371,7 @@ async def send_raft_add_learner(
 ) -> bool:
     """RaftAddLearner - admin:cluster, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.cluster.json#/methods/RaftAddLearner).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RaftAddLearnerRequest.model_validate(params or {})
@@ -402,7 +402,7 @@ async def send_raft_change_membership(
 ) -> bool:
     """RaftChangeMembership - admin:cluster, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.cluster.json#/methods/RaftChangeMembership).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RaftChangeMembershipRequest.model_validate(params or {})
@@ -432,7 +432,7 @@ async def send_cluster_members(
 ) -> OpaqueResult:
     """ClusterMembers - cluster:topology-read, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ClusterMembersRequest.model_validate(params or {})
@@ -465,7 +465,7 @@ async def send_register_server(
 ) -> OpaqueResult:
     """RegisterServer - registry:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RegisterServerRequest.model_validate(params or {})
@@ -495,7 +495,7 @@ async def send_placement_admin(
 ) -> OpaqueResult:
     """PlacementAdmin - admin:cluster, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     PlacementAdminRequest.model_validate(params or {})
@@ -525,7 +525,7 @@ async def send_ping(
 ) -> str:
     """Ping - service:control, None, replay NotReplayable.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.cluster.json#/methods/Ping).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     PingRequest.model_validate(params or {})
@@ -555,7 +555,7 @@ async def send_health(
 ) -> OpaqueResult:
     """Health - service:control, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     HealthRequest.model_validate(params or {})
@@ -585,7 +585,7 @@ async def send_shutdown(
 ) -> str:
     """Shutdown - service:admin, VolatileControl, replay NonceOnly.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.cluster.json#/methods/Shutdown).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT.
     """
     ShutdownRequest.model_validate(params or {})
@@ -615,7 +615,7 @@ async def send_cancel_request(
 ) -> bool:
     """CancelRequest - service:control, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.cluster.json#/methods/CancelRequest).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     CancelRequestRequest.model_validate(params or {})
@@ -646,7 +646,7 @@ async def send_register_foreign_source(
 ) -> str:
     """RegisterForeignSource - federation:admin, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.cluster.json#/methods/RegisterForeignSource).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RegisterForeignSourceRequest.model_validate(params or {})
@@ -678,7 +678,7 @@ async def send_plan_mat_view_define(
 ) -> OpaqueResult:
     """PlanMatViewDefine - matview:admin, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     PlanMatViewDefineRequest.model_validate(params or {})
@@ -708,7 +708,7 @@ async def send_plan_mat_view_get(
 ) -> OpaqueResult:
     """PlanMatViewGet - matview:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     PlanMatViewGetRequest.model_validate(params or {})
@@ -738,7 +738,7 @@ async def send_plan_mat_view_refresh(
 ) -> OpaqueResult:
     """PlanMatViewRefresh - matview:admin, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     PlanMatViewRefreshRequest.model_validate(params or {})
@@ -768,7 +768,7 @@ async def send_plan_mat_view_drop(
 ) -> OpaqueResult:
     """PlanMatViewDrop - matview:admin, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     PlanMatViewDropRequest.model_validate(params or {})

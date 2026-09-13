@@ -10,9 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ._runtime import (
     OpaqueResult,
-    expect_count,
     expect_float,
-    expect_ids,
 )
 
 
@@ -30,10 +28,10 @@ async def send_topological_sort(
     graph: str | None = None,
     *,
     idempotency_key: str | None = None,
-) -> list[str]:
+) -> OpaqueResult:
     """TopologicalSort - compute:graph-algo, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Ids (contract/schemas/result.Ids.json).
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     TopologicalSortRequest.model_validate(params or {})
@@ -43,7 +41,7 @@ async def send_topological_sort(
         graph,
         idempotency_key=idempotency_key,
     )
-    return expect_ids("TopologicalSort", payload)
+    return OpaqueResult("TopologicalSort", payload)
 
 
 class FindCycleRequest(BaseModel):
@@ -63,7 +61,7 @@ async def send_find_cycle(
 ) -> OpaqueResult:
     """FindCycle - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FindCycleRequest.model_validate(params or {})
@@ -94,7 +92,7 @@ async def send_get_shortest_path(
 ) -> OpaqueResult:
     """GetShortestPath - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetShortestPathRequest.model_validate(params or {})
@@ -125,7 +123,7 @@ async def send_get_blast_radius(
 ) -> OpaqueResult:
     """GetBlastRadius - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Conflicting) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetBlastRadiusRequest.model_validate(params or {})
@@ -155,7 +153,7 @@ async def send_degree_centrality(
 ) -> float:
     """DegreeCentrality - compute:graph-algo, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/DegreeCentrality).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DegreeCentralityRequest.model_validate(params or {})
@@ -185,7 +183,7 @@ async def send_degree_centrality_all(
 ) -> OpaqueResult:
     """DegreeCentralityAll - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DegreeCentralityAllRequest.model_validate(params or {})
@@ -215,7 +213,7 @@ async def send_betweenness_centrality(
 ) -> OpaqueResult:
     """BetweennessCentrality - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     BetweennessCentralityRequest.model_validate(params or {})
@@ -246,7 +244,7 @@ async def send_page_rank(
 ) -> OpaqueResult:
     """PageRank - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     PageRankRequest.model_validate(params or {})
@@ -278,7 +276,7 @@ async def send_personalized_page_rank(
 ) -> OpaqueResult:
     """PersonalizedPageRank - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     PersonalizedPageRankRequest.model_validate(params or {})
@@ -308,7 +306,7 @@ async def send_connected_components(
 ) -> OpaqueResult:
     """ConnectedComponents - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ConnectedComponentsRequest.model_validate(params or {})
@@ -338,7 +336,7 @@ async def send_strongly_connected_components(
 ) -> OpaqueResult:
     """StronglyConnectedComponents - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     StronglyConnectedComponentsRequest.model_validate(params or {})
@@ -368,7 +366,7 @@ async def send_minimum_spanning_tree(
 ) -> OpaqueResult:
     """MinimumSpanningTree - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     MinimumSpanningTreeRequest.model_validate(params or {})
@@ -398,7 +396,7 @@ async def send_community_detection(
 ) -> OpaqueResult:
     """CommunityDetection - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     CommunityDetectionRequest.model_validate(params or {})
@@ -430,7 +428,7 @@ async def send_community_detect_ephemeral(
 ) -> OpaqueResult:
     """CommunityDetectEphemeral - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     CommunityDetectEphemeralRequest.model_validate(params or {})
@@ -460,7 +458,7 @@ async def send_graph_coloring(
 ) -> OpaqueResult:
     """GraphColoring - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GraphColoringRequest.model_validate(params or {})
@@ -487,10 +485,10 @@ async def send_compute_similarity_edges(
     graph: str | None = None,
     *,
     idempotency_key: str | None = None,
-) -> int:
+) -> OpaqueResult:
     """ComputeSimilarityEdges - compute:graph-algo, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ComputeSimilarityEdgesRequest.model_validate(params or {})
@@ -500,7 +498,7 @@ async def send_compute_similarity_edges(
         graph,
         idempotency_key=idempotency_key,
     )
-    return expect_count("ComputeSimilarityEdges", payload)
+    return OpaqueResult("ComputeSimilarityEdges", payload)
 
 
 class ResolveCandidatesRequest(BaseModel):
@@ -522,7 +520,7 @@ async def send_resolve_candidates(
 ) -> OpaqueResult:
     """ResolveCandidates - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ResolveCandidatesRequest.model_validate(params or {})
@@ -554,7 +552,7 @@ async def send_cluster_hierarchy_refresh(
 ) -> OpaqueResult:
     """ClusterHierarchyRefresh - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ClusterHierarchyRefreshRequest.model_validate(params or {})
@@ -585,7 +583,7 @@ async def send_cluster_hierarchy_clusters(
 ) -> OpaqueResult:
     """ClusterHierarchyClusters - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ClusterHierarchyClustersRequest.model_validate(params or {})
@@ -615,7 +613,7 @@ async def send_cluster_hierarchy_expand(
 ) -> OpaqueResult:
     """ClusterHierarchyExpand - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ClusterHierarchyExpandRequest.model_validate(params or {})
@@ -647,7 +645,7 @@ async def send_vf2_subgraph_match(
 ) -> OpaqueResult:
     """Vf2SubgraphMatch - compute:graph-algo, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     Vf2SubgraphMatchRequest.model_validate(params or {})
@@ -677,7 +675,7 @@ async def send_match_ontology_terms(
 ) -> OpaqueResult:
     """MatchOntologyTerms - compute:semantic, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     MatchOntologyTermsRequest.model_validate(params or {})
@@ -707,7 +705,7 @@ async def send_batch_l2_normalize(
 ) -> OpaqueResult:
     """BatchL2Normalize - compute:semantic, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     BatchL2NormalizeRequest.model_validate(params or {})
@@ -741,7 +739,7 @@ async def send_finance_optimize_portfolio(
 ) -> OpaqueResult:
     """FinanceOptimizePortfolio - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceOptimizePortfolioRequest.model_validate(params or {})
@@ -771,7 +769,7 @@ async def send_finance_risk_parity(
 ) -> OpaqueResult:
     """FinanceRiskParity - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceRiskParityRequest.model_validate(params or {})
@@ -806,7 +804,7 @@ async def send_finance_black_litterman(
 ) -> OpaqueResult:
     """FinanceBlackLitterman - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceBlackLittermanRequest.model_validate(params or {})
@@ -838,7 +836,7 @@ async def send_finance_efficient_frontier(
 ) -> OpaqueResult:
     """FinanceEfficientFrontier - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceEfficientFrontierRequest.model_validate(params or {})
@@ -869,7 +867,7 @@ async def send_ds_linear_regression(
 ) -> OpaqueResult:
     """DsLinearRegression - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsLinearRegressionRequest.model_validate(params or {})
@@ -901,7 +899,7 @@ async def send_ds_k_means(
 ) -> OpaqueResult:
     """DsKMeans - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsKMeansRequest.model_validate(params or {})
@@ -932,7 +930,7 @@ async def send_ds_pca(
 ) -> OpaqueResult:
     """DsPca - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsPcaRequest.model_validate(params or {})
@@ -962,7 +960,7 @@ async def send_ds_compute_stats(
 ) -> OpaqueResult:
     """DsComputeStats - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsComputeStatsRequest.model_validate(params or {})
@@ -996,7 +994,7 @@ async def send_ds_train_test_split(
 ) -> OpaqueResult:
     """DsTrainTestSplit - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsTrainTestSplitRequest.model_validate(params or {})
@@ -1029,7 +1027,7 @@ async def send_ds_fit_estimator(
 ) -> OpaqueResult:
     """DsFitEstimator - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsFitEstimatorRequest.model_validate(params or {})
@@ -1060,7 +1058,7 @@ async def send_ds_predict_estimator(
 ) -> OpaqueResult:
     """DsPredictEstimator - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsPredictEstimatorRequest.model_validate(params or {})
@@ -1091,7 +1089,7 @@ async def send_ds_softmax(
 ) -> OpaqueResult:
     """DsSoftmax - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsSoftmaxRequest.model_validate(params or {})
@@ -1121,7 +1119,7 @@ async def send_ds_log_softmax(
 ) -> OpaqueResult:
     """DsLogSoftmax - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsLogSoftmaxRequest.model_validate(params or {})
@@ -1152,7 +1150,7 @@ async def send_ds_cross_entropy(
 ) -> OpaqueResult:
     """DsCrossEntropy - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsCrossEntropyRequest.model_validate(params or {})
@@ -1186,7 +1184,7 @@ async def send_ds_dpo_loss(
 ) -> OpaqueResult:
     """DsDpoLoss - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsDpoLossRequest.model_validate(params or {})
@@ -1219,7 +1217,7 @@ async def send_ds_grpo_surrogate(
 ) -> OpaqueResult:
     """DsGrpoSurrogate - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsGrpoSurrogateRequest.model_validate(params or {})
@@ -1250,7 +1248,7 @@ async def send_ds_kl_divergence(
 ) -> float:
     """DsKlDivergence - compute:datascience, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/DsKlDivergence).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsKlDivergenceRequest.model_validate(params or {})
@@ -1288,7 +1286,7 @@ async def send_ds_adam_step(
 ) -> OpaqueResult:
     """DsAdamStep - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsAdamStepRequest.model_validate(params or {})
@@ -1320,7 +1318,7 @@ async def send_ds_sgd_step(
 ) -> OpaqueResult:
     """DsSgdStep - compute:datascience, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DsSgdStepRequest.model_validate(params or {})
@@ -1351,7 +1349,7 @@ async def send_finance_var(
 ) -> float:
     """FinanceVar - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceVar).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceVarRequest.model_validate(params or {})
@@ -1382,7 +1380,7 @@ async def send_finance_cvar(
 ) -> float:
     """FinanceCvar - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceCvar).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceCvarRequest.model_validate(params or {})
@@ -1412,7 +1410,7 @@ async def send_finance_max_drawdown(
 ) -> float:
     """FinanceMaxDrawdown - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceMaxDrawdown).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceMaxDrawdownRequest.model_validate(params or {})
@@ -1442,7 +1440,7 @@ async def send_finance_drawdown_series(
 ) -> OpaqueResult:
     """FinanceDrawdownSeries - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceDrawdownSeriesRequest.model_validate(params or {})
@@ -1473,7 +1471,7 @@ async def send_finance_downside_deviation(
 ) -> float:
     """FinanceDownsideDeviation - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceDownsideDeviation).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceDownsideDeviationRequest.model_validate(params or {})
@@ -1504,7 +1502,7 @@ async def send_finance_risk_metrics(
 ) -> OpaqueResult:
     """FinanceRiskMetrics - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceRiskMetricsRequest.model_validate(params or {})
@@ -1537,7 +1535,7 @@ async def send_finance_monte_carlo_var(
 ) -> float:
     """FinanceMonteCarloVar - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceMonteCarloVar).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceMonteCarloVarRequest.model_validate(params or {})
@@ -1570,7 +1568,7 @@ async def send_finance_stress_test(
 ) -> OpaqueResult:
     """FinanceStressTest - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceStressTestRequest.model_validate(params or {})
@@ -1603,7 +1601,7 @@ async def send_finance_detect_regimes(
 ) -> OpaqueResult:
     """FinanceDetectRegimes - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceDetectRegimesRequest.model_validate(params or {})
@@ -1634,7 +1632,7 @@ async def send_finance_rolling_zscore(
 ) -> OpaqueResult:
     """FinanceRollingZscore - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceRollingZscoreRequest.model_validate(params or {})
@@ -1665,7 +1663,7 @@ async def send_finance_ewma(
 ) -> OpaqueResult:
     """FinanceEwma - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceEwmaRequest.model_validate(params or {})
@@ -1696,7 +1694,7 @@ async def send_finance_signal_decay(
 ) -> OpaqueResult:
     """FinanceSignalDecay - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceSignalDecayRequest.model_validate(params or {})
@@ -1727,7 +1725,7 @@ async def send_finance_combine_alphas(
 ) -> OpaqueResult:
     """FinanceCombineAlphas - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceCombineAlphasRequest.model_validate(params or {})
@@ -1757,7 +1755,7 @@ async def send_finance_cross_sectional_rank(
 ) -> OpaqueResult:
     """FinanceCrossSectionalRank - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceCrossSectionalRankRequest.model_validate(params or {})
@@ -1788,7 +1786,7 @@ async def send_finance_momentum(
 ) -> OpaqueResult:
     """FinanceMomentum - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceMomentumRequest.model_validate(params or {})
@@ -1819,7 +1817,7 @@ async def send_finance_mean_reversion(
 ) -> OpaqueResult:
     """FinanceMeanReversion - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceMeanReversionRequest.model_validate(params or {})
@@ -1850,7 +1848,7 @@ async def send_finance_information_coefficient(
 ) -> float:
     """FinanceInformationCoefficient - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceInformationCoefficient).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceInformationCoefficientRequest.model_validate(params or {})
@@ -1883,7 +1881,7 @@ async def send_finance_twap(
 ) -> OpaqueResult:
     """FinanceTwap - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceTwapRequest.model_validate(params or {})
@@ -1916,7 +1914,7 @@ async def send_finance_vwap(
 ) -> OpaqueResult:
     """FinanceVwap - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceVwapRequest.model_validate(params or {})
@@ -1949,7 +1947,7 @@ async def send_finance_market_impact(
 ) -> float:
     """FinanceMarketImpact - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceMarketImpact).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceMarketImpactRequest.model_validate(params or {})
@@ -1981,7 +1979,7 @@ async def send_finance_pairs_trading(
 ) -> OpaqueResult:
     """FinancePairsTrading - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinancePairsTradingRequest.model_validate(params or {})
@@ -2011,7 +2009,7 @@ async def send_finance_match_orders(
 ) -> OpaqueResult:
     """FinanceMatchOrders - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceMatchOrdersRequest.model_validate(params or {})
@@ -2046,7 +2044,7 @@ async def send_finance_avellaneda_stoikov(
 ) -> OpaqueResult:
     """FinanceAvellanedaStoikov - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceAvellanedaStoikovRequest.model_validate(params or {})
@@ -2081,7 +2079,7 @@ async def send_finance_glt_quotes(
 ) -> OpaqueResult:
     """FinanceGltQuotes - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceGltQuotesRequest.model_validate(params or {})
@@ -2117,7 +2115,7 @@ async def send_finance_logit_quotes(
 ) -> OpaqueResult:
     """FinanceLogitQuotes - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceLogitQuotesRequest.model_validate(params or {})
@@ -2148,7 +2146,7 @@ async def send_finance_glosten_milgrom_spread(
 ) -> float:
     """FinanceGlostenMilgromSpread - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceGlostenMilgromSpread).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceGlostenMilgromSpreadRequest.model_validate(params or {})
@@ -2184,7 +2182,7 @@ async def send_finance_expected_pnl_rate(
 ) -> float:
     """FinanceExpectedPnlRate - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceExpectedPnlRate).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceExpectedPnlRateRequest.model_validate(params or {})
@@ -2217,7 +2215,7 @@ async def send_finance_breakeven_alpha(
 ) -> float:
     """FinanceBreakevenAlpha - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceBreakevenAlpha).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceBreakevenAlphaRequest.model_validate(params or {})
@@ -2252,7 +2250,7 @@ async def send_finance_ofi_series(
 ) -> OpaqueResult:
     """FinanceOfiSeries - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceOfiSeriesRequest.model_validate(params or {})
@@ -2285,7 +2283,7 @@ async def send_finance_microprice_series(
 ) -> OpaqueResult:
     """FinanceMicropriceSeries - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceMicropriceSeriesRequest.model_validate(params or {})
@@ -2317,7 +2315,7 @@ async def send_finance_vpin_pm(
 ) -> float:
     """FinanceVpinPm - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceVpinPm).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceVpinPmRequest.model_validate(params or {})
@@ -2349,7 +2347,7 @@ async def send_finance_hawkes_mle(
 ) -> OpaqueResult:
     """FinanceHawkesMle - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceHawkesMleRequest.model_validate(params or {})
@@ -2381,7 +2379,7 @@ async def send_finance_hardiman_bouchaud(
 ) -> float:
     """FinanceHardimanBouchaud - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceHardimanBouchaud).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceHardimanBouchaudRequest.model_validate(params or {})
@@ -2412,7 +2410,7 @@ async def send_finance_kyle_lambda(
 ) -> float:
     """FinanceKyleLambda - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceKyleLambda).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceKyleLambdaRequest.model_validate(params or {})
@@ -2447,7 +2445,7 @@ async def send_finance_surveillance_risk(
 ) -> OpaqueResult:
     """FinanceSurveillanceRisk - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceSurveillanceRiskRequest.model_validate(params or {})
@@ -2479,7 +2477,7 @@ async def send_finance_kelly_fraction(
 ) -> float:
     """FinanceKellyFraction - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceKellyFraction).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceKellyFractionRequest.model_validate(params or {})
@@ -2512,7 +2510,7 @@ async def send_finance_bayesian_kelly(
 ) -> float:
     """FinanceBayesianKelly - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceBayesianKelly).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceBayesianKellyRequest.model_validate(params or {})
@@ -2544,7 +2542,7 @@ async def send_finance_posterior_credible_interval(
 ) -> OpaqueResult:
     """FinancePosteriorCredibleInterval - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinancePosteriorCredibleIntervalRequest.model_validate(params or {})
@@ -2578,7 +2576,7 @@ async def send_finance_purged_cpcv(
 ) -> OpaqueResult:
     """FinancePurgedCpcv - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinancePurgedCpcvRequest.model_validate(params or {})
@@ -2610,7 +2608,7 @@ async def send_finance_deflated_sharpe(
 ) -> float:
     """FinanceDeflatedSharpe - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceDeflatedSharpe).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceDeflatedSharpeRequest.model_validate(params or {})
@@ -2641,7 +2639,7 @@ async def send_finance_probability_backtest_overfit(
 ) -> float:
     """FinanceProbabilityBacktestOverfit - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceProbabilityBacktestOverfit).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceProbabilityBacktestOverfitRequest.model_validate(params or {})
@@ -2673,7 +2671,7 @@ async def send_finance_diebold_mariano(
 ) -> OpaqueResult:
     """FinanceDieboldMariano - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceDieboldMarianoRequest.model_validate(params or {})
@@ -2704,7 +2702,7 @@ async def send_finance_forensic_report(
 ) -> OpaqueResult:
     """FinanceForensicReport - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceForensicReportRequest.model_validate(params or {})
@@ -2740,7 +2738,7 @@ async def send_finance_kalman_filter1d(
 ) -> OpaqueResult:
     """FinanceKalmanFilter1d - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceKalmanFilter1dRequest.model_validate(params or {})
@@ -2775,7 +2773,7 @@ async def send_finance_kalman_beta(
 ) -> OpaqueResult:
     """FinanceKalmanBeta - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceKalmanBetaRequest.model_validate(params or {})
@@ -2810,7 +2808,7 @@ async def send_finance_kalman_volatility(
 ) -> OpaqueResult:
     """FinanceKalmanVolatility - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceKalmanVolatilityRequest.model_validate(params or {})
@@ -2841,7 +2839,7 @@ async def send_finance_adf_test(
 ) -> OpaqueResult:
     """FinanceAdfTest - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceAdfTestRequest.model_validate(params or {})
@@ -2872,7 +2870,7 @@ async def send_finance_ou_calibrate(
 ) -> OpaqueResult:
     """FinanceOuCalibrate - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceOuCalibrateRequest.model_validate(params or {})
@@ -2906,7 +2904,7 @@ async def send_finance_ou_optimal_thresholds(
 ) -> OpaqueResult:
     """FinanceOuOptimalThresholds - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceOuOptimalThresholdsRequest.model_validate(params or {})
@@ -2937,7 +2935,7 @@ async def send_finance_markov_transition_matrix(
 ) -> OpaqueResult:
     """FinanceMarkovTransitionMatrix - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceMarkovTransitionMatrixRequest.model_validate(params or {})
@@ -2968,7 +2966,7 @@ async def send_finance_order_book_imbalance(
 ) -> OpaqueResult:
     """FinanceOrderBookImbalance - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceOrderBookImbalanceRequest.model_validate(params or {})
@@ -3001,7 +2999,7 @@ async def send_finance_queue_imbalance(
 ) -> OpaqueResult:
     """FinanceQueueImbalance - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceQueueImbalanceRequest.model_validate(params or {})
@@ -3032,7 +3030,7 @@ async def send_finance_realized_vol_tick(
 ) -> OpaqueResult:
     """FinanceRealizedVolTick - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceRealizedVolTickRequest.model_validate(params or {})
@@ -3064,7 +3062,7 @@ async def send_finance_spread_reversion(
 ) -> OpaqueResult:
     """FinanceSpreadReversion - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceSpreadReversionRequest.model_validate(params or {})
@@ -3095,7 +3093,7 @@ async def send_finance_information_ratio(
 ) -> float:
     """FinanceInformationRatio - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceInformationRatio).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceInformationRatioRequest.model_validate(params or {})
@@ -3125,7 +3123,7 @@ async def send_finance_effective_independent_n(
 ) -> float:
     """FinanceEffectiveIndependentN - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceEffectiveIndependentN).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceEffectiveIndependentNRequest.model_validate(params or {})
@@ -3156,7 +3154,7 @@ async def send_finance_alpha_combination_engine(
 ) -> OpaqueResult:
     """FinanceAlphaCombinationEngine - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceAlphaCombinationEngineRequest.model_validate(params or {})
@@ -3187,7 +3185,7 @@ async def send_finance_brier_score(
 ) -> float:
     """FinanceBrierScore - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceBrierScore).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceBrierScoreRequest.model_validate(params or {})
@@ -3219,7 +3217,7 @@ async def send_finance_convergence_gate(
 ) -> OpaqueResult:
     """FinanceConvergenceGate - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceConvergenceGateRequest.model_validate(params or {})
@@ -3253,7 +3251,7 @@ async def send_finance_empirical_kelly(
 ) -> float:
     """FinanceEmpiricalKelly - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceEmpiricalKelly).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceEmpiricalKellyRequest.model_validate(params or {})
@@ -3289,7 +3287,7 @@ async def send_finance_sabr_implied_vol(
 ) -> float:
     """FinanceSabrImpliedVol - compute:finance, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.compute.json#/methods/FinanceSabrImpliedVol).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceSabrImpliedVolRequest.model_validate(params or {})
@@ -3325,7 +3323,7 @@ async def send_finance_sabr_smile(
 ) -> OpaqueResult:
     """FinanceSabrSmile - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceSabrSmileRequest.model_validate(params or {})
@@ -3359,7 +3357,7 @@ async def send_finance_sabr_calibrate(
 ) -> OpaqueResult:
     """FinanceSabrCalibrate - compute:finance, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FinanceSabrCalibrateRequest.model_validate(params or {})
@@ -3395,7 +3393,7 @@ async def send_mine_associate(
 ) -> OpaqueResult:
     """MineAssociate - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineAssociateRequest.model_validate(params or {})
@@ -3436,7 +3434,7 @@ async def send_mine_cluster(
 ) -> OpaqueResult:
     """MineCluster - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineClusterRequest.model_validate(params or {})
@@ -3480,7 +3478,7 @@ async def send_mine_anomaly(
 ) -> OpaqueResult:
     """MineAnomaly - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineAnomalyRequest.model_validate(params or {})
@@ -3520,7 +3518,7 @@ async def send_mine_classify_fit(
 ) -> OpaqueResult:
     """MineClassifyFit - mining:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     MineClassifyFitRequest.model_validate(params or {})
@@ -3555,7 +3553,7 @@ async def send_mine_classify_predict(
 ) -> OpaqueResult:
     """MineClassifyPredict - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineClassifyPredictRequest.model_validate(params or {})
@@ -3598,7 +3596,7 @@ async def send_mine_reduce(
 ) -> OpaqueResult:
     """MineReduce - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineReduceRequest.model_validate(params or {})
@@ -3630,7 +3628,7 @@ async def send_graph_learn_fit(
 ) -> OpaqueResult:
     """GraphLearnFit - graphlearn:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     GraphLearnFitRequest.model_validate(params or {})
@@ -3664,7 +3662,7 @@ async def send_graph_learn_predict(
 ) -> OpaqueResult:
     """GraphLearnPredict - graphlearn:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     GraphLearnPredictRequest.model_validate(params or {})
@@ -3699,7 +3697,7 @@ async def send_mining_pipeline_train(
 ) -> OpaqueResult:
     """MiningPipelineTrain - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MiningPipelineTrainRequest.model_validate(params or {})
@@ -3730,7 +3728,7 @@ async def send_mining_pipeline_serve(
 ) -> OpaqueResult:
     """MiningPipelineServe - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MiningPipelineServeRequest.model_validate(params or {})
@@ -3764,7 +3762,7 @@ async def send_mining_pipeline_predict(
 ) -> OpaqueResult:
     """MiningPipelinePredict - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MiningPipelinePredictRequest.model_validate(params or {})
@@ -3798,7 +3796,7 @@ async def send_mining_pipeline_evaluate(
 ) -> OpaqueResult:
     """MiningPipelineEvaluate - mining:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     MiningPipelineEvaluateRequest.model_validate(params or {})
@@ -3830,7 +3828,7 @@ async def send_mining_pipeline_compare(
 ) -> OpaqueResult:
     """MiningPipelineCompare - mining:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     MiningPipelineCompareRequest.model_validate(params or {})
@@ -3865,7 +3863,7 @@ async def send_mine_sequence(
 ) -> OpaqueResult:
     """MineSequence - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineSequenceRequest.model_validate(params or {})
@@ -3908,7 +3906,7 @@ async def send_mine_forecast(
 ) -> OpaqueResult:
     """MineForecast - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineForecastRequest.model_validate(params or {})
@@ -3948,7 +3946,7 @@ async def send_mine_text(
 ) -> OpaqueResult:
     """MineText - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineTextRequest.model_validate(params or {})
@@ -3983,7 +3981,7 @@ async def send_mine_subgraph(
 ) -> OpaqueResult:
     """MineSubgraph - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineSubgraphRequest.model_validate(params or {})
@@ -4021,7 +4019,7 @@ async def send_mine_entity_resolve(
 ) -> OpaqueResult:
     """MineEntityResolve - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineEntityResolveRequest.model_validate(params or {})
@@ -4056,7 +4054,7 @@ async def send_mine_causal_impact(
 ) -> OpaqueResult:
     """MineCausalImpact - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineCausalImpactRequest.model_validate(params or {})
@@ -4089,7 +4087,7 @@ async def send_mine_process(
 ) -> OpaqueResult:
     """MineProcess - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineProcessRequest.model_validate(params or {})
@@ -4126,7 +4124,7 @@ async def send_mine_root_cause(
 ) -> OpaqueResult:
     """MineRootCause - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineRootCauseRequest.model_validate(params or {})
@@ -4163,7 +4161,7 @@ async def send_mine_risk_propagation(
 ) -> OpaqueResult:
     """MineRiskPropagation - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineRiskPropagationRequest.model_validate(params or {})
@@ -4195,7 +4193,7 @@ async def send_mine_ontology_gap(
 ) -> OpaqueResult:
     """MineOntologyGap - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineOntologyGapRequest.model_validate(params or {})
@@ -4229,7 +4227,7 @@ async def send_mine_retrieval_quality(
 ) -> OpaqueResult:
     """MineRetrievalQuality - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineRetrievalQualityRequest.model_validate(params or {})
@@ -4266,7 +4264,7 @@ async def send_mine_community(
 ) -> OpaqueResult:
     """MineCommunity - mining:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MineCommunityRequest.model_validate(params or {})

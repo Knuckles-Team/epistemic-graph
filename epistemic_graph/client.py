@@ -6362,7 +6362,7 @@ class GraphOperationsClient:
         ).payload
 
     async def topological_sort(self) -> list[str]:
-        return await _gen.compute.send_topological_sort(self._client)
+        return (await _gen.compute.send_topological_sort(self._client)).payload
 
     async def find_cycle(self) -> list[str] | None:
         return (await _gen.compute.send_find_cycle(self._client)).payload
@@ -6435,10 +6435,13 @@ class GraphOperationsClient:
     async def graph_coloring(self) -> list[tuple[str, int]]:
         return (await _gen.compute.send_graph_coloring(self._client)).payload
 
-    async def compute_similarity_edges(self, threshold: float) -> int:
-        return await _gen.compute.send_compute_similarity_edges(
-            self._client, {"threshold": threshold}
-        )
+    async def compute_similarity_edges(self, threshold: float) -> list[list[Any]]:
+        """`(source, target, cosine)` rows for every pair at or above ``threshold``."""
+        return (
+            await _gen.compute.send_compute_similarity_edges(
+                self._client, {"threshold": threshold}
+            )
+        ).payload
 
     async def resolve_candidates(
         self,
@@ -11541,7 +11544,7 @@ class TxnClient:
 
     async def materialize_belief(
         self, txn_id: str, node_id: str, graph: str | None = None
-    ) -> bool:
+    ) -> dict[str, Any]:
         """Stage a MATERIALIZE-BELIEF op into the txn (CONCEPT:EG-KG.epistemic.epistemic-substrate,
         D5 — the explicit, AUDITED "materialize belief" op). Computes the propagated
         belief for ``node_id`` over the graph's SUPPORTS/CONTRADICTS/ATTACKS evidence
@@ -11555,7 +11558,9 @@ class TxnClient:
             "node_id": node_id,
             "graph": graph,
         }
-        return await _gen.transactions.send_txn_materialize_belief(self._client, params)
+        return (
+            await _gen.transactions.send_txn_materialize_belief(self._client, params)
+        ).payload
 
     async def unified_query(
         self,
@@ -11933,7 +11938,7 @@ class RdfClient:
     async def get_rdf(self) -> str:
         """Serialize the connection's graph back OUT to N-Triples (datatype/lang
         faithful — the inverse of :meth:`add_triples`)."""
-        return await _gen.reasoning.send_get_rdf(self._client)
+        return (await _gen.reasoning.send_get_rdf(self._client)).payload
 
     async def remove_triples(
         self,
@@ -15226,10 +15231,13 @@ class EpistemicGraphClient:
     async def shutdown(self) -> str:
         return await _gen.cluster.send_shutdown(self)
 
-    async def apply_mutation(self, event_type: str, query: str) -> str:
-        return await _gen.graph.send_apply_mutation(
-            self, {"event_type": event_type, "query": query}
-        )
+    async def apply_mutation(self, event_type: str, query: str) -> dict[str, Any]:
+        """The SPARQL Update report: operation and inserted/deleted counts."""
+        return (
+            await _gen.graph.send_apply_mutation(
+                self, {"event_type": event_type, "query": query}
+            )
+        ).payload
 
 
 class SyncEpistemicGraphClient:
