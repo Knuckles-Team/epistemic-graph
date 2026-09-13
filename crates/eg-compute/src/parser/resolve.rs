@@ -19,53 +19,9 @@
 use super::tree_sitter::{
     decode_call_sites, DecodedSite, ExtractedEdge, ExtractedNode, ParseResult,
 };
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-/// Resolved, cross-file symbol graph for a batch of files — the response shape
-/// of the `IndexRepository` RPC. Unlike `ParseFiles` (one raw `ParseResult` per
-/// file), this is a SINGLE merged graph whose `calls`/`inherits`/`realizes`/
-/// `depends_on` edges point at real node ids.
-#[derive(Serialize, Deserialize, Debug, Default)]
-pub struct IndexResult {
-    /// Every SYMBOL node across all files — ONE row per declaration site, never
-    /// deduplicated. The doc used to claim "deduplicated by node id" and
-    /// `collect_result_nodes` never did it; the DOC was the wrong half. Under the
-    /// old content-addressed id, deduplicating would have been a data-loss bug:
-    /// byte-identical declarations shared an id but not their facts (`file_path`,
-    /// `line`, byte range), so collapsing them would have thrown away every
-    /// occurrence but the first. Ids are now per-occurrence
-    /// (CONCEPT:EG-KG.compute.symbol-occurrence-id), so uniqueness holds by
-    /// construction and there is nothing left to dedupe — provided the batch
-    /// carries each file path once, which is the caller's contract (a path
-    /// repeated in `files` is parsed twice and would repeat its ids). The
-    /// internal `call_sites` resolution-input property is stripped before return.
-    pub nodes: Vec<ExtractedNode>,
-    /// `IMPLEMENTS` (file→symbol) + resolved `calls` (symbol→symbol) + `inherits`/
-    /// `realizes` (class→class) + resolved `depends_on` (file→file). Raw unresolved
-    /// `calls_raw`/`depends_on_raw` edges are dropped — they're superseded here.
-    pub edges: Vec<ExtractedEdge>,
-    pub symbols_extracted: usize,
-    pub files_parsed: usize,
-    /// Call sites bound to a definition (numerator of call-resolution coverage).
-    pub calls_resolved: usize,
-    /// Call sites seen but not bound (external/stdlib/ambiguous) — the remainder.
-    pub calls_unresolved: usize,
-    /// Of `calls_resolved`, those bound by receiver/class scope (CONCEPT:EG-KG.compute.type-scope-resolved-call).
-    pub calls_scope_resolved: usize,
-    /// Of `calls_resolved`, those disambiguated by argument-count match.
-    pub calls_type_resolved: usize,
-    /// Class→base `inherits` edges emitted.
-    pub inherits_edges: usize,
-    /// Class→interface `realizes` edges emitted.
-    pub realizes_edges: usize,
-    /// Model-free `similar_to` edges emitted (CONCEPT:EG-KG.compute.model-free-similar-code).
-    pub similar_edges: usize,
-    /// Import statements bound to an in-batch file.
-    pub imports_resolved: usize,
-    /// Import statements seen but not bound (external packages, unknown layout).
-    pub imports_unresolved: usize,
-}
+pub use eg_types::ingestion_wire::IndexResult;
 
 /// A symbol definition site, indexed by bare name for call resolution.
 struct Def {

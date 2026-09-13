@@ -65,6 +65,7 @@ pub mod epistemic_operations;
 // exactly generator-clean; see the module doc comment for the full finding.
 pub mod epistemic_operations_ext;
 pub mod epistemic_operations_manifest;
+pub mod ingestion_wire;
 // CONCEPT:INT-P2-1 — the durable analytics-job plane's wire op (`JobOp`), gated
 // `jobs`. Lives here (not in `eg-jobs`, which sits ABOVE eg-core in the DAG) for the
 // SAME reason `acl::RbacAdminOp` does: `protocol::Method::AnalyticsJob` carries it

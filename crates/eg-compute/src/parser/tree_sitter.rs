@@ -12,27 +12,7 @@ pub struct SymbolMetadata {
     pub args: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ExtractedNode {
-    pub node_id: String,
-    pub node_type: String,
-    pub properties: HashMap<String, String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ExtractedEdge {
-    pub source: String,
-    pub target: String,
-    pub edge_type: String,
-    pub properties: HashMap<String, String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ParseResult {
-    pub nodes: Vec<ExtractedNode>,
-    pub edges: Vec<ExtractedEdge>,
-    pub symbols_extracted: usize,
-}
+pub use eg_types::ingestion_wire::{ExtractedEdge, ExtractedNode, ParseResult};
 
 /// Resolve a file path to its tree-sitter grammar plus a stable language label
 /// (the label is stamped on every extracted symbol so the graph can answer

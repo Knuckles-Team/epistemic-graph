@@ -151,23 +151,23 @@ fn discover(
     });
     ranked.truncate(k);
 
-    let results: Vec<serde_json::Value> = ranked
+    let results: Vec<eg_types::ingestion_wire::DiscoverHit> = ranked
         .into_iter()
         .map(|(id, score)| {
-            let (name, description, ntype) = node_text(core, &id);
-            serde_json::json!({
-                "id": id,
-                "name": name,
-                "description": description,
-                "type": ntype,
-                "score": score,
-            })
+            let (name, description, node_type) = node_text(core, &id);
+            eg_types::ingestion_wire::DiscoverHit {
+                id,
+                name,
+                description,
+                node_type,
+                score,
+            }
         })
         .collect();
 
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::Value::Array(results)),
+        ResultPayload::of::<eg_types::result_contract::ingestion::Discover>(results),
     )
 }
 
@@ -213,7 +213,12 @@ async fn handle_semantic_search(
     })
     .await
     {
-        Ok(weighted_results) => Response::ok(req_id, ResultPayload::raw(&weighted_results)),
+        Ok(weighted_results) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::ingestion::SemanticSearch>(
+                &weighted_results,
+            ),
+        ),
         Err(resp) => resp,
     }
 }

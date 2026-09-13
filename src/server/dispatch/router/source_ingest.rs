@@ -1,5 +1,7 @@
 use super::*;
 
+use eg_types::result_contract::ingestion as ingestion_results;
+
 /// Source ingestion: parse a file or a batch of files, index a repository,
 /// observe a screen. All are stateless parses that never touch `state`.
 ///
@@ -38,10 +40,10 @@ pub(super) async fn dispatch_source_ingest_methods(
                     match input_check
                         .and_then(|()| crate::parser::tree_sitter::parse_file(&file_path, &source))
                     {
-                        Ok(result) => match serde_json::to_value(&result) {
-                            Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                            Err(e) => Response::err(req_id, format!("Serialization error: {}", e)),
-                        },
+                        Ok(result) => Response::ok(
+                            req_id,
+                            ResultPayload::of::<ingestion_results::ParseFile>(result),
+                        ),
                         Err(e) => Response::err(req_id, e),
                     }
                     #[cfg(not(feature = "ast"))]
@@ -76,10 +78,10 @@ pub(super) async fn dispatch_source_ingest_methods(
                             Ok(r) => r,
                             Err(resp) => return resp,
                         };
-                        match serde_json::to_value(&results) {
-                            Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                            Err(e) => Response::err(req_id, format!("Serialization error: {}", e)),
-                        }
+                        Response::ok(
+                            req_id,
+                            ResultPayload::of::<ingestion_results::ParseFiles>(results),
+                        )
                     }
                     #[cfg(not(feature = "ast"))]
                     {
@@ -113,10 +115,10 @@ pub(super) async fn dispatch_source_ingest_methods(
                             Ok(r) => r,
                             Err(resp) => return resp,
                         };
-                        match serde_json::to_value(&result) {
-                            Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                            Err(e) => Response::err(req_id, format!("Serialization error: {}", e)),
-                        }
+                        Response::ok(
+                            req_id,
+                            ResultPayload::of::<ingestion_results::IndexRepository>(result),
+                        )
                     }
                     #[cfg(not(feature = "ast"))]
                     {
@@ -141,10 +143,10 @@ pub(super) async fn dispatch_source_ingest_methods(
                     // Inline: PNG hashing + node/edge build over the element set is
                     // microsecond-cheap (no AST parse), so it doesn't need the blocking pool.
                     let result = crate::screen::observe_screen(&input);
-                    match serde_json::to_value(&result) {
-                        Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                        Err(e) => Response::err(req_id, format!("Serialization error: {}", e)),
-                    }
+                    Response::ok(
+                        req_id,
+                        ResultPayload::of::<ingestion_results::ObserveScreen>(result),
+                    )
                 }
             })
             .await

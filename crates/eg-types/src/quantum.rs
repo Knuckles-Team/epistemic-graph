@@ -149,3 +149,110 @@ pub enum QuantumOp {
         backend_id: Option<String>,
     },
 }
+
+/// Which [`QuantumOp`] produced a result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum QuantumOperationKind {
+    Rank,
+    OptimizeQaoa,
+    Expectation,
+}
+
+/// The run metadata every quantum result carries unconditionally (the Q9 observability
+/// contract).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct QuantumRunMetadata {
+    pub backend_id: String,
+    /// The backend's simulation formalism, as its `snake_case` name.
+    pub formalism: Option<String>,
+    pub seed: Option<u64>,
+    pub shots: Option<u64>,
+    /// Hex digest of the executed circuit.
+    pub circuit_hash: String,
+    /// The backend's own exactness verdict for the raw run.
+    pub exact: bool,
+    /// Always true at this surface: a result is a proposal, never a hard constraint.
+    pub proposal: bool,
+    pub noise_model_id: Option<String>,
+    pub fidelity_hint: Option<f64>,
+    pub wall_time_ms: u64,
+    pub peak_memory_bytes: u64,
+}
+
+/// One rule the backend planner evaluated, with its note.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct QuantumPlannerAuditEntry {
+    pub rule: String,
+    pub note: String,
+}
+
+/// The backend planner's decision for a run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct QuantumPlannerReport {
+    pub chosen_backend: String,
+    /// The chosen backend's family, as its `snake_case` name.
+    pub chosen_family: Option<String>,
+    /// The rule that decided.
+    pub rule: String,
+    /// Every rule considered, in evaluation order.
+    pub audit_trail: Vec<QuantumPlannerAuditEntry>,
+    pub backend_override_requested: Option<String>,
+}
+
+/// One candidate of [`QuantumOp::Rank`], scored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct QuantumRankedCandidate {
+    pub id: String,
+    pub weight: f64,
+    /// Marginal probability of the candidate's qubit measuring 1.
+    pub probability: f64,
+    /// Zero-based position, best first.
+    pub rank: usize,
+}
+
+/// Result of [`QuantumOp::Rank`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct QuantumRankResult {
+    #[serde(flatten)]
+    pub run: QuantumRunMetadata,
+    pub operation: QuantumOperationKind,
+    pub planner: QuantumPlannerReport,
+    pub ranked_candidates: Vec<QuantumRankedCandidate>,
+}
+
+/// Result of [`QuantumOp::OptimizeQaoa`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct QuantumQaoaResult {
+    #[serde(flatten)]
+    pub run: QuantumRunMetadata,
+    pub operation: QuantumOperationKind,
+    pub planner: QuantumPlannerReport,
+    /// Node id -> the side (0 or 1) of the best sampled cut.
+    pub partition: std::collections::BTreeMap<String, u8>,
+    pub cut_value: f64,
+    pub p_layers: u32,
+    /// The fixed angle schedule used (no variational loop runs).
+    pub variational_optimizer: String,
+}
+
+/// Result of [`QuantumOp::Expectation`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct QuantumExpectationResult {
+    #[serde(flatten)]
+    pub run: QuantumRunMetadata,
+    pub operation: QuantumOperationKind,
+    pub planner: QuantumPlannerReport,
+    pub observable_qubits: Vec<u32>,
+    /// Sample-mean estimate of the Z-parity observable.
+    pub expectation_value: f64,
+    pub stderr: f64,
+}

@@ -14,26 +14,9 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-/// An extracted graph node. Mirrors the AST enrichment's node shape
-/// (`node_id`/`node_type`/`properties`) so the Python persist path is shared, but
-/// is defined locally to keep this module decoupled from the `ast`-gated parser.
-#[derive(Serialize, Debug)]
-pub struct ExtractedNode {
-    pub node_id: String,
-    pub node_type: String,
-    pub properties: HashMap<String, String>,
-}
-
-/// An extracted graph edge (same shape as the AST enrichment's edges).
-#[derive(Serialize, Debug)]
-pub struct ExtractedEdge {
-    pub source: String,
-    pub target: String,
-    pub edge_type: String,
-    pub properties: HashMap<String, String>,
-}
+pub use eg_types::ingestion_wire::{ExtractedEdge, ExtractedNode, ScreenObservationResult};
 
 /// One accessible element from the in-sandbox `a11y-dump` (AT-SPI) capture.
 #[derive(Deserialize, Default, Clone, Debug)]
@@ -55,23 +38,6 @@ pub struct ScreenObservationInput {
     pub prev_hash: u64,
     pub png: Vec<u8>,
     pub elements: Vec<UiElementInput>,
-}
-
-#[derive(Serialize, Debug)]
-pub struct ScreenObservationResult {
-    /// The session node + the frame node + one node per UI element.
-    pub nodes: Vec<ExtractedNode>,
-    /// session-`hasObservation`->frame, frame-`hasElement`->element, and
-    /// prevframe-`succeededBy`->frame (only when the frame actually changed).
-    pub edges: Vec<ExtractedEdge>,
-    pub frame_id: String,
-    pub width: u32,
-    pub height: u32,
-    /// FNV-1a hash of the PNG bytes — the caller passes it back as `prev_hash`.
-    pub hash: u64,
-    /// False when the frame is byte-identical to the previous one (no visual change).
-    pub changed: bool,
-    pub element_count: usize,
 }
 
 /// Read width/height from a PNG IHDR (the first chunk). Returns (0, 0) if not a PNG.
