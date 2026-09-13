@@ -831,7 +831,7 @@ async fn scram_client(secret: &str, addr: &str, user: &str) -> tokio_postgres::C
 /// SCRAM login SUCCEEDS with the derived password and a post-login query runs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn scram_login_succeeds_with_correct_password() {
-    let secret = "dummy-pg-test-secret";
+    let secret = "dummy-pg-test-secret"; // sanitizer:ignore
     let state = scram_state(secret);
     let addr = spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await;
 
@@ -856,7 +856,7 @@ async fn scram_login_succeeds_with_correct_password() {
 /// SCRAM login is REJECTED with the wrong password.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn scram_login_rejected_with_wrong_password() {
-    let secret = "dummy-pg-test-secret";
+    let secret = "dummy-pg-test-secret"; // sanitizer:ignore
     let state = scram_state(secret);
     let addr = spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await;
 
@@ -881,7 +881,7 @@ async fn scram_login_rejected_with_wrong_password() {
 /// pg user → engine AgentIdentity mapping flows into `IsolationLayer::check_access`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn scram_identity_drives_acl() {
-    let secret = "dummy-pg-test-secret";
+    let secret = "dummy-pg-test-secret"; // sanitizer:ignore
     let state = scram_state(secret);
     let addr = spawn_listener_mode(state, pgwire::PgWireAuthMode::Scram).await;
 

@@ -233,7 +233,7 @@ def test_token_header_enforced(kv_server):
         assert rejected.get("k") is None
         assert rejected.contains("k") is False
     # With the right token → success.
-    with _connector(base_url, token="s3cr3t") as authed:
+    with _connector(base_url, token="s3cr3t") as authed:  # sanitizer:ignore
         assert authed.put("k", b"v") is True
         assert authed.get("k") == b"v"
 

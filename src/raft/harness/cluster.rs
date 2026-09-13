@@ -525,7 +525,7 @@ impl Cluster {
     /// (`impl/raft-catchup-apply`). Replicates as `NativeMutationCommand::GraphLifecycle`,
     /// the SAME encoding the real client `Method::CreateGraph` path produces.
     pub fn create_graph_req(graph_name: &str, graph_type: GraphType, seq: u64) -> RaftRequest {
-        let secret = "harness";
+        let secret = "harness"; // sanitizer:ignore
         let command = super::super::NativeMutationCommand::from_public_method(
             Method::CreateGraph {
                 graph_name: graph_name.to_string(),

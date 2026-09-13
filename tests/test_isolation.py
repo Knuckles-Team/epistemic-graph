@@ -28,7 +28,7 @@ RUST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SERVER_BIN = find_server_binary() or os.path.join(
     RUST_DIR, "target", "debug", "epistemic-graph-server"
 )
-SECRET = "test-isolation-secret"
+SECRET = "test-isolation-secret"  # sanitizer:ignore
 
 
 @pytest.fixture(scope="module")
