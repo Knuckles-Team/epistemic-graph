@@ -37,6 +37,7 @@ use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::mutation_batch::COMPILED_BATCH_INCARNATION;
+use eg_types::result_contract::storage as results;
 
 /// The single KV table: `(namespace, key) -> value bytes`. Composite key so one file
 /// holds every namespace and a prefix scan of one is a contiguous range. `eg-storage`
@@ -689,8 +690,10 @@ pub(crate) async fn try_handle(
         Method::KvGet { namespace, key } => {
             let namespace = authority.namespace("kv-namespace", &namespace);
             match store.get(&namespace, &key) {
-                Ok(Some(v)) => Response::ok(req_id, ResultPayload::Raw(v)),
-                Ok(None) => Response::ok(req_id, ResultPayload::Json(serde_json::Value::Null)),
+                Ok(value) => Response::ok(
+                    req_id,
+                    ResultPayload::of_encoded_or_null::<results::KvGet>(value),
+                ),
                 Err(e) => Response::err(req_id, format!("KvGet error: {e}")),
             }
         }
@@ -703,7 +706,10 @@ pub(crate) async fn try_handle(
             match compile_kv_batch(&store, req_id, authority, &namespace, &original_method)
                 .and_then(|(batch, now)| store.put_batch(&namespace, &key, value, &batch, now))
             {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
+                Ok(()) => Response::ok(
+                    req_id,
+                    ResultPayload::scalar::<results::KvPut>("ok".to_string()),
+                ),
                 Err(e) => Response::err(req_id, format!("KvPut error: {e}")),
             }
         }
@@ -712,7 +718,9 @@ pub(crate) async fn try_handle(
             match compile_kv_batch(&store, req_id, authority, &namespace, &original_method)
                 .and_then(|(batch, now)| store.delete_batch(&namespace, &key, &batch, now))
             {
-                Ok(existed) => Response::ok(req_id, ResultPayload::Bool(existed)),
+                Ok(existed) => {
+                    Response::ok(req_id, ResultPayload::scalar::<results::KvDelete>(existed))
+                }
                 Err(e) => Response::err(req_id, format!("KvDelete error: {e}")),
             }
         }
@@ -729,7 +737,10 @@ pub(crate) async fn try_handle(
                         .into_iter()
                         .map(|(k, v)| (k, serde_bytes::ByteBuf::from(v)))
                         .collect();
-                    Response::ok(req_id, ResultPayload::raw(&wire))
+                    Response::ok(
+                        req_id,
+                        ResultPayload::of_dynamic::<results::KvScan, _>(&wire),
+                    )
                 }
                 Err(e) => Response::err(req_id, format!("KvScan error: {e}")),
             }
@@ -745,7 +756,9 @@ pub(crate) async fn try_handle(
                 .and_then(|(batch, now)| {
                     store.cas_batch(&namespace, &key, expected.as_deref(), new, &batch, now)
                 }) {
-                Ok(swapped) => Response::ok(req_id, ResultPayload::Bool(swapped)),
+                Ok(swapped) => {
+                    Response::ok(req_id, ResultPayload::scalar::<results::KvCas>(swapped))
+                }
                 Err(e) => Response::err(req_id, format!("KvCas error: {e}")),
             }
         }

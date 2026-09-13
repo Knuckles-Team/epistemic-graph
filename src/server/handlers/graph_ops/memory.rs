@@ -6,10 +6,11 @@ use super::terminal::GraphOpsContext;
 /// behaviour, no signature change.
 fn handle_to_msgpack(req_id: u64, core: &Arc<GraphCore>) -> Response {
     let g = &**core;
-    match g.to_msgpack() {
-        Ok(json) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(json))),
-        Err(e) => Response::err(req_id, e.to_string()),
-    }
+    Response::ok(
+        req_id,
+        g.to_msgpack()
+            .and_then(ResultPayload::of::<eg_types::result_contract::storage::ToMsgpack>),
+    )
 }
 
 /// Route memory maintenance operations.

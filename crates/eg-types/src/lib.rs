@@ -123,6 +123,7 @@ pub mod result_contract;
 pub mod semantic_index;
 #[cfg(feature = "statechart")]
 pub mod statechart;
+pub mod storage_wire;
 pub mod types;
 // GOC-19 — the WorkItem submission command-log admission core (tenant-scoped
 // idempotency replay + per-authority fencing), built on GOC-03's

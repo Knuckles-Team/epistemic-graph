@@ -62,6 +62,7 @@ use eg_tsdb::point::Point;
 use eg_tsdb::query::{asof_join_backward, gap_fill_locf, time_bucket, Agg};
 use eg_tsdb::store::{ScopedAppendBatch, SeriesKey, SeriesStore};
 use eg_types::contract::Nonce;
+use eg_types::result_contract::storage as results;
 
 const MAX_POINTS_MSGPACK_BYTES: usize = 32 * 1024 * 1024;
 const MAX_POINTS_MSGPACK_ITEMS: usize = 1_000_000;
@@ -287,7 +288,10 @@ pub(crate) async fn try_handle_with_nonce(
             })
             .await
             {
-                Ok(Ok(committed_n)) => Response::ok(req_id, ResultPayload::Count(committed_n)),
+                Ok(Ok(committed_n)) => Response::ok(
+                    req_id,
+                    ResultPayload::scalar::<results::TsAppend>(committed_n),
+                ),
                 Ok(Err(e)) => Response::err(req_id, e.to_string()),
                 Err(resp) => resp,
             };
@@ -316,7 +320,7 @@ pub(crate) async fn try_handle_with_nonce(
                 Ok(Ok(points)) => {
                     let wire: Vec<(i64, Vec<f64>)> =
                         points.into_iter().map(|p| (p.ts, p.values)).collect();
-                    Response::ok(req_id, ResultPayload::raw(&wire))
+                    Response::ok(req_id, ResultPayload::of_ref::<results::TsRange>(&wire))
                 }
                 Ok(Err(e)) => Response::err(req_id, e.to_string()),
                 Err(resp) => resp,
@@ -380,7 +384,9 @@ pub(crate) async fn try_handle_with_nonce(
             })
             .await
             {
-                Ok(Ok(out)) => Response::ok(req_id, ResultPayload::raw(&out)),
+                Ok(Ok(out)) => {
+                    Response::ok(req_id, ResultPayload::of_ref::<results::TsAsofJoin>(&out))
+                }
                 Ok(Err(e)) => Response::err(req_id, e.to_string()),
                 Err(resp) => resp,
             };
@@ -418,7 +424,9 @@ pub(crate) async fn try_handle_with_nonce(
             })
             .await
             {
-                Ok(Ok(wire)) => Response::ok(req_id, ResultPayload::raw(&wire)),
+                Ok(Ok(wire)) => {
+                    Response::ok(req_id, ResultPayload::of_ref::<results::TsWindow>(&wire))
+                }
                 Ok(Err(e)) => Response::err(req_id, e.to_string()),
                 Err(resp) => resp,
             };
@@ -452,7 +460,9 @@ pub(crate) async fn try_handle_with_nonce(
             })
             .await
             {
-                Ok(Ok(wire)) => Response::ok(req_id, ResultPayload::raw(&wire)),
+                Ok(Ok(wire)) => {
+                    Response::ok(req_id, ResultPayload::of_ref::<results::TsGapFill>(&wire))
+                }
                 Ok(Err(e)) => Response::err(req_id, e.to_string()),
                 Err(resp) => resp,
             };
@@ -482,7 +492,10 @@ pub(crate) async fn try_handle_with_nonce(
             })
             .await
             {
-                Ok(Ok(dropped)) => Response::ok(req_id, ResultPayload::Count(dropped as u64)),
+                Ok(Ok(dropped)) => Response::ok(
+                    req_id,
+                    ResultPayload::scalar::<results::TsEvict>(dropped as u64),
+                ),
                 Ok(Err(e)) => Response::err(req_id, e.to_string()),
                 Err(resp) => resp,
             };
@@ -502,7 +515,10 @@ pub(crate) async fn try_handle_with_nonce(
             })
             .await
             {
-                Ok(Ok(dropped)) => Response::ok(req_id, ResultPayload::Count(dropped as u64)),
+                Ok(Ok(dropped)) => Response::ok(
+                    req_id,
+                    ResultPayload::scalar::<results::TsDeleteSeries>(dropped as u64),
+                ),
                 Ok(Err(e)) => Response::err(req_id, e.to_string()),
                 Err(resp) => resp,
             };
@@ -540,7 +556,10 @@ pub(crate) async fn try_handle_with_nonce(
             })
             .await
             {
-                Ok(Ok(series_ids)) => Response::ok(req_id, ResultPayload::raw(&series_ids)),
+                Ok(Ok(series_ids)) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<results::TsListSeries>(&series_ids),
+                ),
                 Ok(Err(e)) => Response::err(req_id, e.to_string()),
                 Err(resp) => resp,
             };

@@ -22,6 +22,7 @@ use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::blob::{store, BlobCursors};
 use eg_types::contract::Nonce;
+use eg_types::result_contract::storage as results;
 
 /// Handle the blob methods. Returns `Err(method)` for any non-blob method so the
 /// dispatch chain falls through (routing convention). When the engine is built
@@ -121,7 +122,10 @@ pub(crate) async fn try_handle(
                 }
                 Err(error) => return Ok(Response::err(req_id, error)),
             }
-            Ok(Response::ok(req_id, ResultPayload::Count(id)))
+            Ok(Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::BlobBegin>(id),
+            ))
         }
 
         Method::BlobChunkPut { cursor, data } => {
@@ -150,7 +154,10 @@ pub(crate) async fn try_handle(
             };
             match cursors.store.load_upload(cursor) {
                 Ok(Some(manifest)) => match cursors.restore_upload_manifest(cursor, manifest) {
-                    Ok(()) => Ok(Response::ok(req_id, ResultPayload::Count(count as u64))),
+                    Ok(()) => Ok(Response::ok(
+                        req_id,
+                        ResultPayload::scalar::<results::BlobChunkPut>(count as u64),
+                    )),
                     Err(error) => Ok(Response::err(req_id, error)),
                 },
                 Ok(None) => Ok(Response::err(req_id, "durable upload cursor is missing")),
@@ -180,7 +187,10 @@ pub(crate) async fn try_handle(
             match put {
                 Ok(Ok(digest)) => {
                     cursors.finish_upload(cursor);
-                    Ok(Response::ok(req_id, ResultPayload::String(digest)))
+                    Ok(Response::ok(
+                        req_id,
+                        ResultPayload::scalar::<results::BlobCommit>(digest),
+                    ))
                 }
                 Ok(Err(e)) => Ok(Response::err(req_id, e)),
                 Err(resp) => Ok(resp),
@@ -198,7 +208,7 @@ pub(crate) async fn try_handle(
                         req_id,
                         // (cursor, n_chunks) as a 2-element id list keeps the wire
                         // simple — the client splits it.
-                        ResultPayload::raw(&(cursor, n)),
+                        ResultPayload::of_ref::<results::BlobFetchBegin>(&(cursor, n)),
                     ))
                 }
                 Ok(Ok(Some(_))) | Ok(Ok(None)) => {
@@ -229,7 +239,9 @@ pub(crate) async fn try_handle(
                 // exact original bytes.
                 Ok(Ok(Some(bytes))) => Ok(Response::ok(
                     req_id,
-                    ResultPayload::raw(&serde_bytes::Bytes::new(&bytes)),
+                    ResultPayload::of_dynamic::<results::BlobChunkGet, _>(
+                        &serde_bytes::Bytes::new(&bytes),
+                    ),
                 )),
                 Ok(Ok(None)) => Ok(Response::err(req_id, "chunk missing from CAS")),
                 Ok(Err(e)) => Ok(Response::err(req_id, e)),
@@ -242,7 +254,10 @@ pub(crate) async fn try_handle(
                 return Ok(Response::err(req_id, error));
             }
             cursors.close_fetch(cursor);
-            Ok(Response::ok(req_id, ResultPayload::Bool(true)))
+            Ok(Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::BlobFetchEnd>(true),
+            ))
         }
 
         Method::BlobRef { digest } => {
@@ -260,7 +275,7 @@ pub(crate) async fn try_handle(
                 Err(error) => return Ok(Response::err(req_id, error)),
             };
             let store = cursors.store.clone();
-            ref_op(req_id, move || {
+            ref_op::<results::BlobRef, _>(req_id, move || {
                 store.adjust_ref_batch(&digest, 1, &batch, now)
             })
             .await
@@ -281,7 +296,7 @@ pub(crate) async fn try_handle(
                 Err(error) => return Ok(Response::err(req_id, error)),
             };
             let store = cursors.store.clone();
-            ref_op(req_id, move || {
+            ref_op::<results::BlobUnref, _>(req_id, move || {
                 store.adjust_ref_batch(&digest, -1, &batch, now)
             })
             .await
@@ -306,7 +321,10 @@ pub(crate) async fn try_handle(
             match swept {
                 Ok(Ok(stats)) => Ok(Response::ok(
                     req_id,
-                    ResultPayload::raw(&(stats.blobs_reclaimed, stats.chunks_reclaimed)),
+                    ResultPayload::of_ref::<results::BlobGc>(&(
+                        stats.blobs_reclaimed,
+                        stats.chunks_reclaimed,
+                    )),
                 )),
                 Ok(Err(e)) => Ok(Response::err(req_id, e)),
                 Err(resp) => Ok(resp),
@@ -457,13 +475,16 @@ fn compile_blob_batch_at_with_nonce(
     Ok((batch, now))
 }
 
-/// Run a refcount adjustment on the blocking pool, returning the new count.
-async fn ref_op<F>(req_id: u64, f: F) -> Result<Response, Method>
+/// Run a refcount adjustment on the blocking pool, returning the new count as `M`'s
+/// declared result.
+async fn ref_op<M, F>(req_id: u64, f: F) -> Result<Response, Method>
 where
+    M: eg_types::result_contract::MethodResult<Body = u64>,
+    M::Encoding: eg_types::result_contract::EncodeScalar<u64>,
     F: FnOnce() -> Result<u64, String> + Send + 'static,
 {
     match run_blocking(req_id, f).await {
-        Ok(Ok(n)) => Ok(Response::ok(req_id, ResultPayload::Count(n))),
+        Ok(Ok(n)) => Ok(Response::ok(req_id, ResultPayload::scalar::<M>(n))),
         Ok(Err(e)) => Ok(Response::err(req_id, e)),
         Err(resp) => Ok(resp),
     }

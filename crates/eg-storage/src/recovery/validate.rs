@@ -19,26 +19,9 @@ use crate::StorageKernel;
 use eg_types::{MutationBatchRecord, MutationBatchStatus};
 use redb::{ReadTransaction, ReadableDatabase, ReadableTable, TableHandle};
 
-type PrivateAuthenticator<'a> = dyn Fn(&[u8], &str) -> Result<(), String> + 'a;
+pub use eg_types::storage_wire::RecoveryStoreCounts;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RecoveryStoreCounts {
-    pub store_roots: u64,
-    pub scope_bindings: u64,
-    pub batches: u64,
-    pub prepared: u64,
-    pub committed: u64,
-    pub aborted: u64,
-    pub maintenance_claims: u64,
-    pub versions: u64,
-    pub fences: u64,
-    pub outbox: u64,
-    pub encrypted_private_payloads: u64,
-    pub replay_nonces: u64,
-    pub replay_operations: u64,
-    pub maintenance: u64,
-}
+type PrivateAuthenticator<'a> = dyn Fn(&[u8], &str) -> Result<(), String> + 'a;
 
 /// Validate a LIVE, read-write-capable owner file: proves the physical file has
 /// not been substituted since it was opened, then runs the same content checks

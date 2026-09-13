@@ -721,7 +721,11 @@ pub(super) async fn try_handle(
             let msgpack = msgpack.clone();
             commit_gateway(ctx, plan, method, move |core| {
                 core.from_msgpack(&msgpack)
-                    .map(|()| ResultPayload::String("ok".to_string()))
+                    .map(|()| {
+                        ResultPayload::scalar::<eg_types::result_contract::storage::FromMsgpack>(
+                            "ok".to_string(),
+                        )
+                    })
                     .map_err(|e| e.to_string())
             })
             .await
@@ -832,15 +836,20 @@ pub(super) async fn try_handle(
         Method::ClearLedger => {
             commit_gateway(ctx, plan, method, move |core| {
                 core.clear_ledger();
-                Ok(ResultPayload::String("ok".to_string()))
+                Ok(ResultPayload::scalar::<
+                    eg_types::result_contract::storage::ClearLedger,
+                >("ok".to_string()))
             })
             .await
         }
         Method::ApplyLedger { transactions } => {
             let transactions = transactions.clone();
             commit_gateway(ctx, plan, method, move |core| {
-                core.apply_ledger(transactions)
-                    .map(|()| ResultPayload::String("ok".to_string()))
+                core.apply_ledger(transactions).map(|()| {
+                    ResultPayload::scalar::<eg_types::result_contract::storage::ApplyLedger>(
+                        "ok".to_string(),
+                    )
+                })
             })
             .await
         }

@@ -438,19 +438,20 @@ pub(crate) async fn try_handle(
                             ),
                         ));
                     }
+                    let receipt = eg_types::storage_wire::BackupReceipt {
+                        shards: r.shards,
+                        graph_scopes: r.graph_scopes(),
+                        shard_counts: r.shard_counts,
+                        xshard_prepares: r.xshard_prepares,
+                        xshard_decisions: r.xshard_decisions,
+                        bundled_stores: r.bundled_stores,
+                        admin_batches: r.admin_mutations.batches,
+                        prepared_parents: r.admin_mutations.prepared,
+                        encrypted_recovery_plans: r.admin_mutations.encrypted_private_payloads,
+                    };
                     Ok(Response::ok(
                         req_id,
-                        ResultPayload::Json(serde_json::json!({
-                            "shards": r.shards,
-                            "graph_scopes": r.graph_scopes(),
-                            "shard_counts": r.shard_counts,
-                            "xshard_prepares": r.xshard_prepares,
-                            "xshard_decisions": r.xshard_decisions,
-                            "bundled_stores": r.bundled_stores,
-                            "admin_batches": r.admin_mutations.batches,
-                            "prepared_parents": r.admin_mutations.prepared,
-                            "encrypted_recovery_plans": r.admin_mutations.encrypted_private_payloads,
-                        })),
+                        ResultPayload::of::<eg_types::result_contract::storage::Backup>(receipt),
                     ))
                 }
                 Err(e) => {
@@ -539,24 +540,29 @@ pub(crate) async fn try_handle(
                     // The receipt is portable and contains no local username or
                     // filesystem reference. The deterministic stage token is
                     // sufficient for an operator-side swap workflow.
-                    let durable = ResultPayload::Json(serde_json::json!({
-                        "stage_ref": stage_token,
-                        "restored_shards": r.restored_shards,
-                        "graphs": r.migration.graphs,
-                        "nodes": r.migration.nodes,
-                        "edges": r.migration.edges,
-                        "ledger": r.migration.ledger,
-                        "semantic": r.migration.semantic,
-                        "audit": r.migration.audit,
-                        "auxiliary": r.migration.auxiliary,
-                        "global": r.migration.global,
-                        "xshard_prepares": r.manifest.xshard_prepares,
-                        "xshard_decisions": r.manifest.xshard_decisions,
-                        "admin_batches": r.admin_mutations.batches,
-                        "prepared_parents": r.admin_mutations.prepared,
-                        "encrypted_recovery_plans": r.admin_mutations.encrypted_private_payloads,
-                    }));
-                    match finish_admin_saga(backend, saga.batch, saga.created_at_ms, durable) {
+                    let receipt = eg_types::storage_wire::RestoreReceipt {
+                        stage_ref: stage_token,
+                        restored_shards: r.restored_shards,
+                        graphs: r.migration.graphs,
+                        nodes: r.migration.nodes,
+                        edges: r.migration.edges,
+                        ledger: r.migration.ledger,
+                        semantic: r.migration.semantic,
+                        audit: r.migration.audit,
+                        auxiliary: r.migration.auxiliary,
+                        global: r.migration.global,
+                        xshard_prepares: r.manifest.xshard_prepares,
+                        xshard_decisions: r.manifest.xshard_decisions,
+                        admin_batches: r.admin_mutations.batches,
+                        prepared_parents: r.admin_mutations.prepared,
+                        encrypted_recovery_plans: r.admin_mutations.encrypted_private_payloads,
+                    };
+                    let committed =
+                        ResultPayload::of::<eg_types::result_contract::storage::Restore>(receipt)
+                            .and_then(|durable| {
+                                finish_admin_saga(backend, saga.batch, saga.created_at_ms, durable)
+                            });
+                    match committed {
                         // Return the same portable receipt on first execution and
                         // replay. The local staging path is intentionally neither
                         // persisted nor exposed through the protocol.
@@ -702,10 +708,12 @@ pub(crate) async fn handle_agent_component(
             request.component.policy_digest = context.policy_digest.clone();
             request.context = context;
             match store.publish_component(*request) {
-                Ok(result) => match ResultPayload::raw(&result.result) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<
+                        eg_types::result_contract::storage::AgentComponentPublish,
+                    >(&result.result),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -723,10 +731,12 @@ pub(crate) async fn handle_agent_component(
             };
             request.context = context;
             match store.retire_component(request) {
-                Ok(result) => match ResultPayload::raw(&result.result) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentRetire>(
+                        &result.result,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -734,20 +744,24 @@ pub(crate) async fn handle_agent_component(
             tenant_id,
             component_id,
         } => match store.current_component(&tenant_id, &component_id) {
-            Ok(entry) => match ResultPayload::raw(&entry) {
-                Ok(payload) => Response::ok(req_id, payload),
-                Err(error) => Response::err(req_id, error),
-            },
+            Ok(entry) => Response::ok(
+                req_id,
+                ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentCurrent>(
+                    &entry,
+                ),
+            ),
             Err(error) => Response::err(req_id, error),
         },
         AgentComponentOp::History {
             tenant_id,
             component_id,
         } => match store.component_revisions(&tenant_id, &component_id) {
-            Ok(entries) => match ResultPayload::raw(&entries) {
-                Ok(payload) => Response::ok(req_id, payload),
-                Err(error) => Response::err(req_id, error),
-            },
+            Ok(entries) => Response::ok(
+                req_id,
+                ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentHistory>(
+                    &entries,
+                ),
+            ),
             Err(error) => Response::err(req_id, error),
         },
         AgentComponentOp::Status { mut request } => {
@@ -772,10 +786,12 @@ pub(crate) async fn handle_agent_component(
             };
             request.context = context;
             match store.component_status(request) {
-                Ok(result) => match ResultPayload::raw(&result.map(|result| result.result)) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentStatus>(
+                        &result.map(|result| result.result),
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -784,10 +800,12 @@ pub(crate) async fn handle_agent_component(
         // result grows with the tenant), and an array could only grow a cursor
         // by breaking every reader.
         AgentComponentOp::Search { request } => match store.search_components(&request) {
-            Ok(page) => match ResultPayload::raw(&page) {
-                Ok(payload) => Response::ok(req_id, payload),
-                Err(error) => Response::err(req_id, error),
-            },
+            Ok(page) => Response::ok(
+                req_id,
+                ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentSearch>(
+                    &page,
+                ),
+            ),
             Err(error) => Response::err(req_id, error),
         },
     }
@@ -853,10 +871,12 @@ pub(crate) async fn handle_agent_template(
             request.template.policy_digest = context.policy_digest.clone();
             request.context = context;
             match store.publish_template(*request) {
-                Ok(result) => match ResultPayload::raw(&result.result) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplatePublish>(
+                        &result.result,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -874,10 +894,12 @@ pub(crate) async fn handle_agent_template(
             };
             request.context = context;
             match store.retire_template(request) {
-                Ok(result) => match ResultPayload::raw(&result.result) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplateRetire>(
+                        &result.result,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -885,20 +907,24 @@ pub(crate) async fn handle_agent_template(
             tenant_id,
             template_id,
         } => match store.current_template(&tenant_id, &template_id) {
-            Ok(entry) => match ResultPayload::raw(&entry) {
-                Ok(payload) => Response::ok(req_id, payload),
-                Err(error) => Response::err(req_id, error),
-            },
+            Ok(entry) => Response::ok(
+                req_id,
+                ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplateCurrent>(
+                    &entry,
+                ),
+            ),
             Err(error) => Response::err(req_id, error),
         },
         AgentTemplateOp::History {
             tenant_id,
             template_id,
         } => match store.template_revisions(&tenant_id, &template_id) {
-            Ok(entries) => match ResultPayload::raw(&entries) {
-                Ok(payload) => Response::ok(req_id, payload),
-                Err(error) => Response::err(req_id, error),
-            },
+            Ok(entries) => Response::ok(
+                req_id,
+                ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplateHistory>(
+                    &entries,
+                ),
+            ),
             Err(error) => Response::err(req_id, error),
         },
         AgentTemplateOp::Status { mut request } => {
@@ -923,18 +949,22 @@ pub(crate) async fn handle_agent_template(
             };
             request.context = context;
             match store.template_status(request) {
-                Ok(result) => match ResultPayload::raw(&result.map(|result| result.result)) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplateStatus>(
+                        &result.map(|result| result.result),
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
         AgentTemplateOp::Instantiate { request } => match store.instantiate_template(&request) {
-            Ok(draft) => match ResultPayload::raw(&draft) {
-                Ok(payload) => Response::ok(req_id, payload),
-                Err(error) => Response::err(req_id, error),
-            },
+            Ok(draft) => Response::ok(
+                req_id,
+                ResultPayload::of_ref::<eg_types::result_contract::storage::AgentTemplateInstantiate>(
+                    &draft,
+                ),
+            ),
             Err(error) => Response::err(req_id, error),
         },
     }
@@ -989,10 +1019,12 @@ pub(crate) async fn handle_agent_graph(
             request.graph.policy_digest = context.policy_digest.clone();
             request.context = context;
             match store.publish_graph(*request) {
-                Ok(result) => match ResultPayload::raw(&result.result) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentGraphPublish>(
+                        &result.result,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -1010,10 +1042,12 @@ pub(crate) async fn handle_agent_graph(
             };
             request.context = context;
             match store.retire_graph(request) {
-                Ok(result) => match ResultPayload::raw(&result.result) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentGraphRetire>(
+                        &result.result,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -1028,10 +1062,12 @@ pub(crate) async fn handle_agent_graph(
                 );
             }
             match store.current_graph(&tenant_id, &graph_id) {
-                Ok(entry) => match ResultPayload::raw(&entry) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(entry) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentGraphCurrent>(
+                        &entry,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -1046,10 +1082,12 @@ pub(crate) async fn handle_agent_graph(
                 );
             }
             match store.graph_revisions(&tenant_id, &graph_id) {
-                Ok(entries) => match ResultPayload::raw(&entries) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(entries) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentGraphHistory>(
+                        &entries,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -1071,10 +1109,12 @@ pub(crate) async fn handle_agent_graph(
             };
             request.context = context;
             match store.graph_status(request) {
-                Ok(result) => match ResultPayload::raw(&result.map(|result| result.result)) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentGraphStatus>(
+                        &result.map(|result| result.result),
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -1115,10 +1155,12 @@ pub(crate) async fn handle_agent_library(
                 Err(error) => return Response::err(req_id, error),
             };
             match store.publish(*request) {
-                Ok(result) => match ResultPayload::raw(&result) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentLibraryPublish>(
+                        &result,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -1136,10 +1178,12 @@ pub(crate) async fn handle_agent_library(
             };
             request.context = context;
             match store.retire(request) {
-                Ok(result) => match ResultPayload::raw(&result) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentLibraryRetire>(
+                        &result,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -1154,10 +1198,12 @@ pub(crate) async fn handle_agent_library(
                 );
             }
             match store.current(&tenant_id, &agent_id) {
-                Ok(result) => match ResultPayload::raw(&result) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentLibraryCurrent>(
+                        &result,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -1172,10 +1218,12 @@ pub(crate) async fn handle_agent_library(
                 );
             }
             match store.revisions(&tenant_id, &agent_id) {
-                Ok(result) => match ResultPayload::raw(&result) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentLibraryHistory>(
+                        &result,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
@@ -1198,10 +1246,12 @@ pub(crate) async fn handle_agent_library(
             };
             request.context = context;
             match store.status(request) {
-                Ok(result) => match ResultPayload::raw(&result) {
-                    Ok(payload) => Response::ok(req_id, payload),
-                    Err(error) => Response::err(req_id, error),
-                },
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<eg_types::result_contract::storage::AgentLibraryStatus>(
+                        &result,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             }
         }
