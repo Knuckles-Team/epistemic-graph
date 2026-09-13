@@ -3820,6 +3820,7 @@ components:
       - "tests/test_bounded_test_runner_contract.py"
       - "tests/test_build_backend.py"
       - "tests/test_cep_standing_queries.py"
+      - "tests/test_check_complexity_staged.py"
       - "tests/test_check_wheel_completeness.py"
       - "tests/test_check_registry_test_ownership.py"
       - "tests/test_ci_gate_replica_consistency_check.py"
