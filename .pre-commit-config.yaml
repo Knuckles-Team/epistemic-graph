@@ -454,6 +454,13 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [pre-commit, pre-push, manual]
+  - id: registry-test-ownership
+    name: Every tracked tests/ file is owned in the component registry
+    entry: python3 scripts/check_registry_test_ownership.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit, pre-push, manual]
   - id: contract-method-reachability
     name: Every contract method reaches a dispatch arm, and its digests round-trip
     entry: python3 scripts/check_contract_method_reachability.py

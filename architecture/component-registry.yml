@@ -377,6 +377,105 @@ reverifications:
       resolved by this pass; (4) every OTHER architecture claim/count elsewhere in this file
       not touched by this pass's mechanical path fixes.
 
+  - reverification_id: 3
+    performed_on: '2026-09-13'
+    repository_head: 3243c3e222b133396010cb573b803d9298a717aa
+    lane: refactor/eg-f56-registry-kiss (F5/F6 second follow-up)
+    method: wiring_decision_path_currency_plus_whole_file_path_existence_audit
+    scope: >-
+      Two operator follow-ups: (1) update every wiring_decisions/claims-table reference to
+      the deleted `crates/eg-mutation-store/...` paths to their current owners, recording the
+      retirement via lineage rather than rewriting the original evidence text; script a
+      whole-file audit that every repo-relative path string in this file exists at HEAD except
+      explicitly historical/lineage content, and fix everything real the audit finds. (2)
+      determine exactly what `validate_layout_records` does with a tracked `tests/` file no
+      component lists, and close the gap if it is a silent one.
+    wiring_decision_path_currency: >-
+      Item (2) of reverification_id 2's `still_not_reverified` is CLOSED, not by rewriting the
+      original evidence (which was accurate against its own cited historical HEAD, mostly
+      1d83cf4b), but by adding an adjacent `path_currency_note`/`current_location` field at
+      every site that cited a `crates/eg-mutation-store/...` path: D-EG-001, D-EG-008, the
+      LV-04 edge, and the two `corrections_to_upstream_claims`/claims-table entries repeating
+      eg-jobs' dependency list. Each maps the old path to its exact current location via the
+      verified `git show --name-status -M` rename table already in
+      `eg.mutation-store.migration_lineage` (corrected in the same edit: the FIRST version of
+      that migration_lineage entry, written 2026-09-12, had listed eg-storage's TARGET
+      filenames as if they were eg-mutation-store's SOURCE filenames -- caught only because
+      this follow-up required actually running the rename-tracking command instead of
+      re-describing the earlier commit-stat summary). Two decisions turned out to be
+      SUBSTANTIVELY, not just texturally, affected: D-EG-001's proposed `database()` ->
+      `pub(crate)` narrowing has ALREADY LANDED (crates/eg-storage/src/physical/root.rs:89,
+      confirmed by direct read) under a different method shape (`begin_write`/`begin_read`
+      wrapping revalidation, not the literal `owner_write`/`owner_read` names proposed); and
+      D-EG-008's entire finding (`verify_replay_identity`'s whole-batch comparison) is
+      SUPERSEDED, not relocated -- the function was deleted by commit 064f2d04 (confirmed an
+      ancestor of this lane's HEAD) before the crate rename even happened, replaced by
+      `crates/eg-transaction/src/replay.rs`'s two-identity design, and its proposed
+      compensation deletions have also already happened (`src/server/handlers/admin.rs:1301`
+      literally reads `// `admin_saga_request_stamp` is DELETED, not moved.`, citing
+      `OperationReplayIdentity` as the replacement). NEITHER decision's `status` was changed
+      (`proposed` stays `proposed`) -- matching a fix's SHAPE by reading source is not the
+      same as running the acceptance test each decision itself calls for, which this pass did
+      not do.
+    whole_file_path_existence_audit: >-
+      Scripted (`/var/tmp/l9/eg-f56/path_audit_final.py`: parse this file with `yaml.safe_load`,
+      walk every string value, regex-extract repo-relative-path-shaped substrings, check
+      `os.path.exists` for each against this lane's HEAD) rather than grepped, because a naive
+      per-line grep both misses paths a YAML folded scalar wraps across two source lines and
+      can invent false negatives from the SAME wrapping (both failure modes were hit and fixed
+      while building this: an early per-line version reported false positives for
+      `src/commit.rs`/`src/ledger.rs`/`tests/ledger.rs` that turned out to be real formatting
+      defects in this pass's OWN newly-added prose -- a line break landing exactly on a `/`
+      folds to a stray SPACE, e.g. 'eg-transaction/ src/ledger.rs' -- fixed by rewording, not
+      by excusing the script). RESULT: 782 unique path-like strings, 7 flagged as not existing
+      at HEAD, ALL SEVEN in explicitly-excluded categories, zero real unaddressed false
+      claims: (a) `crates/X/src/lib.rs` -- a generic documentation placeholder ("X" is a
+      variable name, not a crate), not a path claim; (b) the five preserved
+      `crates/eg-mutation-store/...` evidence citations (identity.rs, ledger.rs, recovery.rs,
+      tests.rs, lib.rs), each now carrying an adjacent currency note per the item above --
+      deliberately left as historical text, not an oversight; (c)
+      `scripts/check_crate_layer_direction.py`, a PROSPECTIVE file a `concrete_change` entry
+      proposes adding ("Add scripts/check_crate_layer_direction.py: ..."), not a claim that it
+      exists today. Two genuine pre-existing false claims (present since the original
+      2026-09-04 authoring, NOT introduced by this lane) were found and fixed along the way,
+      caught only because the audit checks EVERY path rather than the specific ones named by
+      either operator follow-up: `src/cost.rs` never existed (only `src/cost/mod.rs`, the
+      2015-style dir-module form -- `eg.observability`'s `owned_source_roots` entry for it is
+      removed, `src/cost` -- the directory, added in reverification_id 2 -- already covers the
+      real file); and a decision's TCK citation read `tests/fleet_tck.rs` (repo-root, which
+      does not exist) when the real file is `crates/eg-modality/tests/fleet_tck.rs` -- reworded
+      to the full path.
+    test_ownership_coverage_hole: >-
+      Read `validate_layout_records` end to end (`_layout_path`, `_paths_overlap`,
+      `_require_architecture_label`, and the function itself): NONE of them call
+      `os.path`/`pathlib.Path.exists`/`.is_file` or enumerate a directory anywhere. The checker
+      validates path STRINGS against EACH OTHER (lexical form, pairwise overlap) and never
+      reads this repository's filesystem at all -- confirmed both by reading the source and
+      behaviorally, by running it unchanged before and after adding a real, untracked file
+      under `tests/`: byte-identical PASS both times. A tracked `tests/` file no component
+      lists is therefore SILENTLY IGNORED, not failed -- a real coverage hole, exactly because
+      `eg.binary-composition`'s `test_roots` (added in reverification_id 2) is an explicit,
+      static enumeration of what existed at edit time, not a live query. CLOSED with a new,
+      small, EG-repo-local gate (not a workspace-checker edit): `scripts/
+      check_registry_test_ownership.py`, wired as pre-commit hook `registry-test-ownership`
+      (`.pre-commit-config.yaml`, same `stages`/`always_run` shape as the existing
+      `orphan-modules` hook it sits beside -- there was no existing EG gate that already read
+      this registry file to extend). It parses the registry, unions every path-bearing field
+      across every implementation_component (plus `owned_source_roots_omissions`, so the
+      `model.rs` omissions from reverification_id 2 correctly count as owned), enumerates
+      `git ls-files -- tests`, and fails listing any file not covered. PROVEN against a planted
+      file, twice: once manually (`echo ... > tests/planted_unowned_test_zzz.rs; git add`; the
+      gate reported exactly that one path and exited 1; removed, gate returned to exit 0 with
+      the prior count) and once in `tests/test_check_registry_test_ownership.py` (7 tests, a
+      synthetic throwaway git repo per test -- never the real one -- so the fixture's pass/fail
+      assertions hold regardless of what the real registry claims on any future day; one test
+      drives the actual CLI entry point end-to-end via subprocess, matching the pattern
+      `tests/test_kiss_staged.py` already uses for its own hook). The new script's own test
+      file (`tests/test_check_registry_test_ownership.py`) was, fittingly, caught by its own
+      gate the first time it was staged -- added to `eg.binary-composition`'s `test_roots`
+      enumeration like any other new root test file, which is exactly the previously-silent
+      step this gate now enforces.
+
 layer_model:
   authority: plans/refactor/inventory.yml -> inventory.repositories.epistemic-graph.target_layers
   target_layers: [types, core, storage-transaction, query-reasoning, server-protocol, composition]
@@ -1138,32 +1237,68 @@ components:
     merged_from: []
     migration_lineage:
       - "RETIRED 2026-09-06 (commit a4faec53, 'create eg-storage and relocate the
-         physical-authority sources'): crates/eg-mutation-store/src/store/{owner.rs,
-         manifest.rs, root.rs, authority.rs, backup.rs, evidence.rs, validate.rs, adopt.rs,
-         tests.rs} moved byte-for-byte into the new crates/eg-storage (owner/, physical/,
-         recovery/ submodules), under RF-RULING-004's 'exactly two dependency-ordered
-         authorities' split."
+         physical-authority sources'): EXACT renames, per `git show a4faec53 --name-status -M`
+         (R100 = 100% content-identical rename, verified, not inferred):
+         store/blob_shared_access.rs->eg-storage/src/owner/blob_shared.rs;
+         store/owner.rs->eg-storage/src/owner/contract.rs;
+         store/owner_registry.rs->eg-storage/src/owner/registry.rs;
+         store/owner_table_api.rs->eg-storage/src/owner/table_api.rs;
+         store/owner_tests.rs->eg-storage/src/owner/tests.rs;
+         store/owner_manifest_types.rs->eg-storage/src/physical/manifest.rs;
+         store/identity.rs->eg-storage/src/physical/root.rs;
+         store/tests.rs->eg-storage/src/physical/tests.rs (a LATER, different store/tests.rs
+         was independently renamed again by b90e42a7 below -- git's rename detection is
+         correct on both; the path was reused for new content in between the two commits);
+         store/recovery_authority.rs->eg-storage/src/recovery/adopt.rs;
+         store/authority.rs->eg-storage/src/recovery/authority.rs;
+         store/recovery.rs->eg-storage/src/recovery/backup.rs;
+         store/strict_recovery.rs->eg-storage/src/recovery/evidence.rs;
+         store/persist.rs->eg-storage/src/recovery/validate.rs.
+         (Corrects an inaccurate first-pass version of this same entry, made 2026-09-12 before
+         `git show --name-status -M` was actually run against both commits: that version listed
+         eg-storage's TARGET filenames as if they were eg-mutation-store's SOURCE filenames --
+         e.g. claimed a source `manifest.rs`/`root.rs`/`backup.rs`/`evidence.rs`/`validate.rs`/
+         `adopt.rs`, none of which ever existed in eg-mutation-store. Caught and fixed
+         2026-09-13 while responding to the operator's instruction to make every wiring_decision
+         path reference verified-current rather than silently stale.)"
       - "RETIRED 2026-09-06 (commit b90e42a7, 'land MutationKernelV1 and retire
-         eg-mutation-store'): crates/eg-mutation-store's REMAINING content (ledger, admission,
-         commit/apply, saga, outbox, replay, plus store/identity.rs's write-authority surface)
-         moved into the new crates/eg-transaction behind one MutationKernelV1, which obtains
-         write authority only through StorageKernelV1::into_read_and_mutation_authority's
-         move-once MutationOwnerAuthority. crates/eg-mutation-store itself was then DELETED
+         eg-mutation-store'): EXACT renames, per `git show b90e42a7 --name-status -M`:
+         Cargo.toml->eg-transaction/Cargo.toml (R061); store/admission.rs->
+         eg-transaction/src/admission.rs; store/write.rs->eg-transaction/src/admitted.rs;
+         store/apply.rs->eg-transaction/src/commit.rs; store/ledger.rs->
+         eg-transaction/src/ledger.rs; store/saga.rs->eg-transaction/src/saga.rs;
+         store/tests.rs (the SECOND one, recreated after a4faec53 moved the first)->
+         eg-transaction/src/tests/ledger.rs. `crates/eg-mutation-store/src/lib.rs` and
+         `store/ledger_tables.rs`/`store/read.rs` were DELETED outright by this same commit
+         (git-confirmed, not renamed elsewhere). MutationKernelV1 obtains write authority only
+         through StorageKernelV1::into_read_and_mutation_authority's move-once
+         MutationOwnerAuthority. crates/eg-mutation-store itself was then fully removed
          (git-confirmed: the directory does not exist at this lane's base commit 3243c3e2).
          This component's identity (eg.mutation-store) and its five capability_ids are kept
          UNCHANGED across the split -- RF-RULING-004 replaces one crate with two
          dependency-ordered crates implementing the SAME capabilities, not a new capability
          set, so re-identifying the component would break continuity for no benefit."
-      - "NOT RE-VERIFIED in this pass: the wiring_decision_refs D-EG-001/D-EG-008 below (and
-         the standalone wiring_decisions entries elsewhere in this file that analyze
-         `.database()` call sites) still cite the OLD path
-         crates/eg-mutation-store/src/store/identity.rs and related pre-split paths as
-         evidence. Those citations are now STALE -- the file no longer exists at that path --
-         but re-deriving each decision's prose against the post-split eg-transaction/eg-storage
-         module layout is a substantially larger textual-evidence pass than this
-         registry-currency/path-canonicalization follow-up, and was not attempted. Treat every
-         `crates/eg-mutation-store/...` path elsewhere in this file's wiring_decisions section
-         as UNVERIFIED against current HEAD."
+      - "UPDATED 2026-09-13 (operator follow-up): every `crates/eg-mutation-store/...` path cited
+         as evidence inside wiring_decisions D-EG-001 and D-EG-008, plus the LV-04 edge note and
+         the two `corrections_to_upstream_claims`/`claims`-table entries repeating the same
+         'eg-jobs' path deps are eg-core, eg-mutation-store and eg-types' line, now carry an
+         inline `path_currency_note`/`current_location` field mapping the cited old path to its
+         exact current location (via the rename table above) or stating precisely why no exact
+         line-for-line mapping could be verified. The ORIGINAL evidence prose in each is left
+         UNCHANGED (it was an accurate historical analysis against its own cited HEAD, most of
+         them 1d83cf4b, predating both retirement commits by weeks) -- only a pointer to current
+         reality was added beside it, per this lineage entry, rather than silently rewriting
+         history. D-EG-008's finding (`verify_replay_identity`'s whole-batch-equality replay
+         check) was found to be COMPLETELY SUPERSEDED, not merely relocated: commit 064f2d04
+         ('make StorageKernelV1 the sole physical authority', 2026-09-06, same RF-RULING-004
+         program, ANCESTOR of this lane's HEAD -- confirmed via `git merge-base --is-ancestor`)
+         deleted the function's body (91 lines to 9, per `git show 064f2d04 -- '*ledger*'`)
+         before the crate rename even happened; the current replay mechanism is
+         `crates/eg-transaction/src/replay.rs`'s two-identity design
+         (`mutation_replay_nonces_v1`/`mutation_replay_operations_v1`). Whether THAT mechanism
+         has an analogous issue is a fresh question this pass did not investigate -- D-EG-008's
+         `status` is left `proposed` (not resolved, not closed) because superseded is not the
+         same as fixed."
     test_mirrors_component_id: eg.mutation-store
     acceptance_gates:
       reexport_tiny_facade_file_explosion: not_run
@@ -3534,7 +3669,6 @@ components:
       - "src/metrics.rs"
       - "src/otel.rs"
       - "src/slow_query.rs"
-      - "src/cost.rs"
       - "src/cost"
       - "src/performance_probe.rs"
       - "src/performance_probe"
@@ -3687,6 +3821,7 @@ components:
       - "tests/test_build_backend.py"
       - "tests/test_cep_standing_queries.py"
       - "tests/test_check_wheel_completeness.py"
+      - "tests/test_check_registry_test_ownership.py"
       - "tests/test_ci_gate_replica_consistency_check.py"
       - "tests/test_client_capability_contract.py"
       - "tests/test_cluster_hierarchy_client.py"
@@ -3936,6 +4071,15 @@ declared_layer_violations:
       the crate's own Cargo.toml documents it as deliberate: the edge is dev-only
       "precisely so the crate itself (and any default/normal build of it) never links
       eg-jobs, eg-types, eg-core, eg-mutation-store, or redb".
+    path_currency_note: >-
+      UPDATED 2026-09-13: `crates/eg-mutation-store` no longer exists (see
+      eg.mutation-store.migration_lineage). Re-checked crates/eg-jobs/Cargo.toml directly:
+      its `[dependencies]` are now `eg-types`, `eg-core`, `eg-storage`, `eg-transaction` --
+      the same relationship this correction describes (a normal, non-dev dependency on the
+      storage-authority layer), just through the two successor crates instead of one. The
+      correction's SUBSTANCE (this is a one-way layer inversion permitted by the restated
+      rule, not a cycle) is unaffected. Text above left as originally written, since it was
+      accurate against its own cited HEAD.
     disposition: permitted_by_the_restated_rule
     decision_ref: D-EG-003
 
@@ -4106,6 +4250,40 @@ wiring_decisions:
       NOTHING in the current gate suite. `persisted-mutation-contract` checks the method/projection
       persistence inventory, not the transaction-minting route. This is a coverage hole, not a
       failing gate.
+    path_currency_note: >-
+      UPDATED 2026-09-13: `crates/eg-mutation-store` no longer exists (see
+      eg.mutation-store.migration_lineage for the verified rename table). Current locations,
+      re-checked directly against source (not inferred from the rename table alone):
+      `identity.rs:142`'s `pub fn database` -> `crates/eg-storage/src/physical/root.rs:89`,
+      now ALREADY `pub(crate) fn database` -- the exact narrowing this decision's `decision`
+      field calls for has already landed, independent of this decision's `status` (still
+      `proposed` below; narrowing the visibility is not the same as auditing that every
+      external call site was migrated, which this pass did not redo). `identity.rs:150`'s
+      `write()` (first statement `validate_physical_root()?`) -> root.rs's `begin_write()` at
+      root.rs:103, which calls `validate_physical_root()` at root.rs:111 as its first
+      substantive statement (after the read-only guard) -- same revalidate-before-write shape,
+      different method name. `validate_physical_root()` itself is at root.rs:136.
+      `identity.rs:220`'s `pub(crate) fn database(&self) -> &ReadOnlyDatabase` accessor was
+      NOT found at the same location -- `ReadOnlyDatabase` usage in eg-storage is now split
+      across `crates/eg-storage/src/physical/read_only.rs` (a dedicated file) and
+      `crates/eg-storage/src/recovery/adopt.rs`; which one is the direct successor of the old
+      accessor was not traced with certainty and is left unverified rather than guessed.
+      `recovery.rs:131` (the one in-crate `.database().begin_write()` site) ->
+      `crates/eg-storage/src/recovery/backup.rs`, which still calls `.begin_write()` (now at
+      backup.rs:65) inside `backup_recovery_store_of`. `store/tests.rs:196` (the test-only
+      exclusion) is AMBIGUOUS post-split: `git show --name-status -M` shows TWO different
+      `store/tests.rs` renames at two different commits (a4faec53 ->
+      `crates/eg-storage/src/physical/tests.rs`; b90e42a7, a later file at the same path ->
+      `crates/eg-transaction/src/tests/ledger.rs`) -- which one held line 196 at the
+      historical HEAD this census was run
+      against (1d83cf4b, well before either rename) was not re-derived; both files are named
+      here as the candidate current locations rather than asserting one with false certainty.
+      The five EXTERNAL bypass sites this decision's `corrected_census.breakdown` lists
+      (src/server/kv.rs, src/server/blob/store.rs, crates/eg-jobs/src/store.rs,
+      crates/eg-statechart/src/store.rs, crates/eg-tsdb/src/store.rs) are unaffected by the
+      eg-mutation-store retirement -- none of those paths changed -- so they are NOT
+      re-verified here beyond confirming their paths still exist (see the whole-file
+      path-existence sweep this same commit records).
 
   - decision_id: D-EG-002
     title: "Crate-DAG layer violations: eg-tsdb -> eg-compute, eg-kvcache -> eg-compute, eg-tensor -> eg-tsdb"
@@ -4202,7 +4380,7 @@ wiring_decisions:
            If this workspace ever moves to a resolver where dev features unify, this decision
            must be re-taken.
       Inverting them would cost real architecture for no safety: the eg-modality cycle exists so
-      the ModalityContract TCK (`tests/fleet_tck.rs`) can run the CONTRACT against its six real
+      the ModalityContract TCK (`crates/eg-modality/tests/fleet_tck.rs`) can run the CONTRACT against its six real
       implementations. Inverting it means either duplicating six pilot implementations inside
       eg-modality, or moving the TCK up into a seventh crate that depends on all seven -- both
       strictly worse than a dev edge that never ships.
@@ -4605,6 +4783,35 @@ wiring_decisions:
          later created_at_ms, and assert it REPLAYS rather than conflicting. No such test exists
          -- both compensations exist precisely because nothing at the store level covers this."
     acceptance_evidence: []
+    path_currency_note: >-
+      UPDATED 2026-09-13: `crates/eg-mutation-store` no longer exists (see
+      eg.mutation-store.migration_lineage). `store/ledger.rs` ->
+      `crates/eg-transaction/src/ledger.rs` (verified rename), `store/apply.rs` ->
+      `crates/eg-transaction/src/commit.rs`, `store/saga.rs` ->
+      `crates/eg-transaction/src/saga.rs` (unchanged name). BUT `verify_replay_identity`
+      itself is not merely relocated: it was DELETED
+      before the crate rename even happened, by commit 064f2d04 ('make StorageKernelV1 the
+      sole physical authority', 2026-09-06, confirmed an ancestor of this lane's HEAD via
+      `git merge-base --is-ancestor`, and confirmed via `git show 064f2d04 -- '*ledger*'`
+      showing the function's body cut from 91 lines to 9). `grep -rn
+      verify_replay_identity` across the whole tree today finds it ONLY inside a comment
+      in `src/redb_store/development_lane/test_fixture.rs:137` -- zero live call sites.
+      SUBSTANTIVELY, this decision's finding and fix APPEAR ALREADY LANDED, verified by
+      direct reading, not inference: `src/server/handlers/admin.rs:1301` now reads
+      literally `// `admin_saga_request_stamp` is DELETED, not moved.`, with a comment
+      explaining the replacement is `OperationReplayIdentity`, which 'structurally
+      excludes' timestamp/request-id/OCC-expectation -- the exact shape this decision's
+      `concrete_change` asked for (a differently-named type, not the literal
+      `MutationBatch::operation_identity_digest()` method proposed, but the same
+      contract). `src/redb_store/development_lane.rs` is now 181 lines (was 6553+ at the
+      time of this finding) and no longer contains the second compensation site by that
+      description -- it appears to have been removed in the same restructuring, not
+      independently re-verified line-by-line. THIS PASS DOES NOT CHANGE `status`
+      (`proposed`) or `evidence_status` (`not_run`) below: matching the SHAPE of the fix by
+      reading source is not the same as running the store-level replay test this decision
+      itself calls for and confirming no regression, which was not done here. Recorded so
+      the next reader does not re-derive the same finding from scratch, not as a claim of
+      acceptance.
 
   - decision_id: D-EG-009
     title: "The `security` feature is a second, unauthenticated architecture"
@@ -4742,6 +4949,10 @@ corrections_to_upstream_claims:
     source: source_finding_1
     verdict: stale
     actual: "crates/eg-mutation-store/src/store/identity.rs:142"
+    current_location: >-
+      UPDATED 2026-09-13: crates/eg-mutation-store no longer exists. `database()` is now at
+      crates/eg-storage/src/physical/root.rs:89, and is already `pub(crate)` (D-EG-001's
+      proposed narrowing has already landed). See D-EG-001.path_currency_note.
 
   - claim: "12 production sites bypass write()"
     source: source_finding_1
@@ -4772,6 +4983,12 @@ corrections_to_upstream_claims:
       Not a cycle. eg-jobs' path dependencies are eg-core, eg-mutation-store and eg-types; it
       does not depend on eg-viz-core. It is a one-way dev-time layer inversion, documented as
       deliberate in crates/eg-viz-core/Cargo.toml:50-58.
+    current_location: >-
+      UPDATED 2026-09-13: eg-mutation-store retired into eg-transaction + eg-storage (see
+      eg.mutation-store.migration_lineage). crates/eg-jobs/Cargo.toml's `[dependencies]` are
+      now eg-types, eg-core, eg-storage, eg-transaction (re-checked directly). Same
+      relationship, same verdict -- see LV-04.path_currency_note for the identical fix
+      applied there.
 
   - claim: "the dev-dependency cycles are eg-modality's six and eg-viz-core's one"
     source: source_finding_3
