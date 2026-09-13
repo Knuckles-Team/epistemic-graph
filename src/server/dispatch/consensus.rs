@@ -182,18 +182,46 @@ pub(super) async fn handle_register_server(
         }
     };
 
-    dispatch_graph_op(
-        state,
-        "__commons__",
-        req_id,
-        caller,
-        verified_context,
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        },
+    register_server_response(
+        dispatch_graph_op(
+            state,
+            "__commons__",
+            req_id,
+            caller,
+            verified_context,
+            Method::AddNode {
+                node_id,
+                properties_msgpack,
+            },
+        )
+        .await,
     )
-    .await
+}
+
+/// `RegisterServer` answers with the acknowledgement of the `AddNode` server-row
+/// write it performs, declared under its own marker.
+fn register_server_response(response: Response) -> Response {
+    match response {
+        Response {
+            id,
+            error: Some(error),
+            ..
+        } => Response::err(id, error),
+        Response {
+            id,
+            result: Some(ResultPayload::String(acknowledgement)),
+            ..
+        } => Response::ok(
+            id,
+            ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterServer>(
+                acknowledgement,
+            ),
+        ),
+        Response { id, .. } => Response::err(
+            id,
+            "RegisterServer: the server-row write answered no acknowledgement",
+        ),
+    }
 }
 
 #[cfg(feature = "raft")]

@@ -85,6 +85,14 @@ async fn read_committed_graph_version(
     }
 }
 
+/// The caller identity a graph lifecycle request commits under.
+struct GraphLifecycleRequest {
+    req_id: u64,
+    req_agent_id: Option<String>,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
+    idempotency_key: String,
+}
+
 async fn create_graph(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -94,6 +102,39 @@ async fn create_graph(
     graph_name: String,
     graph_type: crate::protocol::GraphType,
 ) -> Response {
+    let request = GraphLifecycleRequest {
+        req_id,
+        req_agent_id,
+        attempt_nonce,
+        idempotency_key,
+    };
+    match ResultPayload::of::<eg_types::result_contract::cluster::CreateGraph>(
+        eg_types::result_contract::cluster::GraphCreated {
+            created: graph_name.clone(),
+        },
+    ) {
+        Ok(created_result) => {
+            create_declared_graph(state, request, graph_name, graph_type, created_result).await
+        }
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
+/// `CreateGraph` once its declared result is encoded: the durable registration,
+/// then the resident incarnation.
+async fn create_declared_graph(
+    state: &Arc<RwLock<ServerState>>,
+    request: GraphLifecycleRequest,
+    graph_name: String,
+    graph_type: crate::protocol::GraphType,
+    created_result: ResultPayload,
+) -> Response {
+    let GraphLifecycleRequest {
+        req_id,
+        req_agent_id,
+        attempt_nonce,
+        idempotency_key,
+    } = request;
     // Lifecycle shares the same per-graph serialization lane as ordinary
     // MutationBatch/txn writes.  The durable identity must land before the
     // registry publishes this incarnation.
@@ -105,9 +146,6 @@ async fn create_graph(
     let Some(backend) = backend else {
         return Response::err(req_id, "graph creation requires durable persistence");
     };
-    let created_result = ResultPayload::Json(serde_json::json!({
-        "created": graph_name.clone()
-    }));
     let incarnation_id = crate::server::mutation_batch::lifecycle_batch_id(
         "create",
         &graph_name,
@@ -250,6 +288,46 @@ async fn delete_graph(
     state_machine_authorized: bool,
     graph_name: &str,
 ) -> Response {
+    let request = GraphLifecycleRequest {
+        req_id,
+        req_agent_id,
+        attempt_nonce,
+        idempotency_key,
+    };
+    match ResultPayload::of::<eg_types::result_contract::cluster::DeleteGraph>(
+        eg_types::result_contract::cluster::GraphDeleted {
+            deleted: graph_name.to_string(),
+        },
+    ) {
+        Ok(deleted_result) => {
+            delete_declared_graph(
+                state,
+                request,
+                state_machine_authorized,
+                graph_name,
+                deleted_result,
+            )
+            .await
+        }
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
+/// `DeleteGraph` once its declared result is encoded: the access gate, the durable
+/// purge, then the in-memory teardown.
+async fn delete_declared_graph(
+    state: &Arc<RwLock<ServerState>>,
+    request: GraphLifecycleRequest,
+    state_machine_authorized: bool,
+    graph_name: &str,
+    deleted_result: ResultPayload,
+) -> Response {
+    let GraphLifecycleRequest {
+        req_id,
+        req_agent_id,
+        attempt_nonce,
+        idempotency_key,
+    } = request;
     // Fence gateway/txn writes for this graph across durable purge and RAM
     // teardown.  A retry after a crash at that boundary reconciles from the
     // durable batch record.
@@ -282,9 +360,6 @@ async fn delete_graph(
     let Some(backend) = backend else {
         return Response::err(req_id, "graph deletion requires durable persistence");
     };
-    let deleted_result = ResultPayload::Json(serde_json::json!({
-        "deleted": graph_name
-    }));
     if !exists {
         return reconcile_missing_graph_delete(
             &backend,

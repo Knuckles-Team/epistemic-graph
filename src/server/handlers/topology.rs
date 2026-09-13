@@ -43,21 +43,23 @@ fn sha256_ref(value: &str) -> String {
     format!("sha256:{}", hex::encode(Sha256::digest(value.as_bytes())))
 }
 
-fn context_binding(context: &VerifiedRequestContext) -> Value {
-    serde_json::json!({
-        "tenant_digest": sha256_ref(context.tenant()),
-        "principal_digest": sha256_ref(context.principal()),
-        "agent_digest": sha256_ref(context.agent_id()),
-    })
+fn context_binding(
+    context: &VerifiedRequestContext,
+) -> eg_types::result_contract::cluster::DiscoveryAuthBinding {
+    eg_types::result_contract::cluster::DiscoveryAuthBinding {
+        tenant_digest: sha256_ref(context.tenant()),
+        principal_digest: sha256_ref(context.principal()),
+        agent_digest: sha256_ref(context.agent_id()),
+    }
 }
 
 /// The three parallel topology projections a signed snapshot carries. Grouped so
 /// the signing function keeps a readable arity (clippy::too_many_arguments) and
 /// so the three can never be passed in the wrong order.
 struct SnapshotProjections {
-    groups: Vec<Value>,
+    groups: Vec<eg_types::result_contract::cluster::ClusterGroup>,
     canonical_groups: Vec<Value>,
-    leaders: Vec<Value>,
+    leaders: Vec<eg_types::result_contract::cluster::ClusterLeader>,
 }
 
 fn signed_snapshot(
@@ -67,7 +69,7 @@ fn signed_snapshot(
     placement_epoch: u64,
     context: &VerifiedRequestContext,
     projections: SnapshotProjections,
-) -> Result<Value, String> {
+) -> Result<eg_types::result_contract::cluster::ClusterDiscoverySnapshot, String> {
     let SnapshotProjections {
         groups,
         canonical_groups,
@@ -83,7 +85,7 @@ fn signed_snapshot(
     {
         return Err("cluster discovery has an invalid cluster identity".to_string());
     }
-    let leader = leaders.first().cloned();
+    let leader = leaders.first().copied();
     let payload = serde_json::to_string(&serde_json::json!([
         "cluster-discovery-v1",
         cluster_id,
@@ -100,17 +102,19 @@ fn signed_snapshot(
     mac.update(DISCOVERY_DOMAIN);
     mac.update(payload.as_bytes());
     let signature = format!("hmac-sha256:{}", hex::encode(mac.finalize().into_bytes()));
-    Ok(serde_json::json!({
-        "schema_version": DISCOVERY_SCHEMA_VERSION,
-        "cluster_id": cluster_id,
-        "membership_epoch": membership_epoch,
-        "placement_epoch": placement_epoch,
-        "leader": leader,
-        "leaders": leaders,
-        "groups": groups,
-        "auth_binding": context_binding(context),
-        "signature": signature,
-    }))
+    Ok(
+        eg_types::result_contract::cluster::ClusterDiscoverySnapshot {
+            schema_version: DISCOVERY_SCHEMA_VERSION,
+            cluster_id: cluster_id.to_string(),
+            membership_epoch,
+            placement_epoch,
+            leader,
+            leaders,
+            groups,
+            auth_binding: context_binding(context),
+            signature,
+        },
+    )
 }
 
 #[cfg(feature = "raft")]
@@ -170,13 +174,15 @@ fn member_role(
 }
 
 #[cfg(feature = "raft")]
-fn certificate_value(info: &crate::server::persistence::node_info_store::NodeInfo) -> Value {
-    serde_json::json!({
-        "id": info.certificate_id,
-        "rotation_epoch": info.certificate_rotation_epoch,
-        "not_before_ms": info.certificate_not_before_ms,
-        "not_after_ms": info.certificate_not_after_ms,
-    })
+fn certificate_value(
+    info: &crate::server::persistence::node_info_store::NodeInfo,
+) -> eg_types::result_contract::cluster::ClusterMemberCertificate {
+    eg_types::result_contract::cluster::ClusterMemberCertificate {
+        id: info.certificate_id.clone(),
+        rotation_epoch: info.certificate_rotation_epoch,
+        not_before_ms: info.certificate_not_before_ms,
+        not_after_ms: info.certificate_not_after_ms,
+    }
 }
 
 #[cfg(feature = "raft")]
@@ -235,7 +241,10 @@ async fn handle_cluster_members(
                 leaders: Vec::new(),
             },
         ) {
-            Ok(snapshot) => Response::ok(req_id, ResultPayload::Json(snapshot)),
+            Ok(snapshot) => Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::cluster::ClusterMembers>(snapshot),
+            ),
             Err(error) => Response::err(req_id, error),
         };
     };
@@ -287,10 +296,7 @@ async fn handle_cluster_members(
             }
         };
         if let Some(node_id) = leader_id {
-            leaders.push(serde_json::json!({
-                "group_id": group_id,
-                "node_id": node_id,
-            }));
+            leaders.push(eg_types::result_contract::cluster::ClusterLeader { group_id, node_id });
         }
 
         let mut ids = voters.clone();
@@ -343,23 +349,23 @@ async fn handle_cluster_members(
                 info.certificate_not_before_ms,
                 info.certificate_not_after_ms,
             ]));
-            members.push(serde_json::json!({
-                "node_id": node_id,
-                "member_identity": info.member_identity,
-                "role": role,
-                "client_endpoint": info.advertised_client_addr,
-                "tls_name": info.tls_server_name,
-                "health": health,
-                "certificate": certificate,
-            }));
+            members.push(eg_types::result_contract::cluster::ClusterMember {
+                node_id,
+                member_identity: info.member_identity.clone(),
+                role: role.to_string(),
+                client_endpoint: info.advertised_client_addr.clone(),
+                tls_name: info.tls_server_name.clone(),
+                health: health.to_string(),
+                certificate,
+            });
             member_count += 1;
         }
         canonical_groups.push(serde_json::json!([group_id, leader_id, canonical_members,]));
-        groups.push(serde_json::json!({
-            "group_id": group_id,
-            "leader_id": leader_id,
-            "members": members,
-        }));
+        groups.push(eg_types::result_contract::cluster::ClusterGroup {
+            group_id,
+            leader_id,
+            members,
+        });
     }
 
     match signed_snapshot(
@@ -374,7 +380,10 @@ async fn handle_cluster_members(
             leaders,
         },
     ) {
-        Ok(snapshot) => Response::ok(req_id, ResultPayload::Json(snapshot)),
+        Ok(snapshot) => Response::ok(
+            req_id,
+            ResultPayload::of::<eg_types::result_contract::cluster::ClusterMembers>(snapshot),
+        ),
         Err(error) => Response::err(req_id, error),
     }
 }
@@ -415,7 +424,12 @@ pub(crate) async fn try_handle(
                 },
             );
             Ok(match snapshot {
-                Ok(snapshot) => Response::ok(req_id, ResultPayload::Json(snapshot)),
+                Ok(snapshot) => Response::ok(
+                    req_id,
+                    ResultPayload::of::<eg_types::result_contract::cluster::ClusterMembers>(
+                        snapshot,
+                    ),
+                ),
                 Err(error) => Response::err(req_id, error),
             })
         }

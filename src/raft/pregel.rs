@@ -232,30 +232,9 @@ pub type ScoreRows = Vec<(String, f64)>;
 /// A labeled result row `(vertex_id, label)` for CC (component id) / BFS (hop level).
 pub type LabelRows = Vec<(String, i64)>;
 
-/// The result of a distributed computation, in a wire-ready form. Serialized to
-/// `ResultPayload::Raw` by the handler.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub enum DistResult {
-    /// PageRank: `(id, score)` rows, sorted by id (deterministic).
-    Scores(ScoreRows),
-    /// Connected components: `(id, component_repr_index)` rows, sorted by id. The
-    /// component label is the index of the component's representative in the sorted
-    /// vertex list (a stable small int), so it round-trips losslessly.
-    Labels(LabelRows),
-}
-
-impl DistResult {
-    /// The number of result rows.
-    pub fn len(&self) -> usize {
-        match self {
-            DistResult::Scores(v) => v.len(),
-            DistResult::Labels(v) => v.len(),
-        }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
+/// The result of a distributed computation, in a wire-ready form: the declared
+/// `GetMatView` body, serialized to `ResultPayload::Raw` by the handler.
+use eg_types::result_contract::cluster::DistResult;
 
 /// Run a distributed graph algorithm across `graphs` (each a shard), returning the
 /// per-vertex result over the UNION. The cross-shard superstep coordinator: gather the

@@ -31,7 +31,10 @@ pub(crate) async fn try_handle(
             })
             .await;
             Ok(match res {
-                Ok(Ok(())) => Response::ok(req_id, ResultPayload::String(id)),
+                Ok(Ok(())) => Response::ok(
+                    req_id,
+                    ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterUdf>(id),
+                ),
                 Ok(Err(e)) => Response::err(req_id, e.to_string()),
                 Err(join) => Response::err(req_id, format!("RegisterUdf task error: {join}")),
             })

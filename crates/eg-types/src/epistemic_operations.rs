@@ -242,6 +242,7 @@ pub enum TraceOutcomePolicyDecision {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum PlacementRouteSchemaVersion {
     #[serde(rename = "1")]
     V1,

@@ -86,6 +86,7 @@ pub(crate) async fn try_handle(
         ));
     }
 
+    let declared = raft_admin_result(&op);
     let result = match op {
         RaftAdminOp::AddLearner { node_id, addr } => {
             multi.add_group_learner(group, node_id, addr).await
@@ -96,8 +97,21 @@ pub(crate) async fn try_handle(
         }
     };
     match result {
-        Ok(()) => Ok(Response::ok(req_id, ResultPayload::Bool(true))),
+        Ok(()) => Ok(Response::ok(req_id, declared(true))),
         Err(e) => Ok(Response::err(req_id, e)),
+    }
+}
+
+/// The declared result a successful membership change answers with.
+#[cfg(feature = "raft")]
+fn raft_admin_result(op: &RaftAdminOp) -> fn(bool) -> ResultPayload {
+    match op {
+        RaftAdminOp::AddLearner { .. } => {
+            ResultPayload::scalar::<eg_types::result_contract::cluster::RaftAddLearner>
+        }
+        RaftAdminOp::ChangeMembership { .. } => {
+            ResultPayload::scalar::<eg_types::result_contract::cluster::RaftChangeMembership>
+        }
     }
 }
 

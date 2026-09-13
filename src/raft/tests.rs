@@ -1162,7 +1162,7 @@ mod placement_admin_wire_rpc {
         // A-W1.2-2: the route response is the ADR-1 wire superset (extra
         // `endpoints` key); the canonical deny_unknown_fields DTO rejects it,
         // so the wire type is the ONLY correct reader for a route response.
-        let route: crate::server::handlers::placement::PlacementRouteWire = match route_resp.result
+        let route: eg_types::result_contract::cluster::PlacementRouteWire = match route_resp.result
         {
             Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice(&bytes).unwrap(),
             other => panic!("expected a typed PlacementRouteWire, got {other:?}"),
@@ -2602,8 +2602,9 @@ mod dist_compute {
     use super::*;
     use crate::isolation::{AgentIdentity, AgentRole};
     use crate::protocol::{DistAlgo, GraphType};
-    use crate::raft::pregel::{self, DistResult};
+    use crate::raft::pregel;
     use crate::server::access::GraphReadAuthority;
+    use eg_types::result_contract::cluster::DistResult;
 
     fn props(n: &str) -> Vec<u8> {
         rmp_serde::to_vec_named(&serde_json::json!({"type": "N", "id": n})).unwrap()
@@ -2905,7 +2906,8 @@ mod dist_compute {
 mod matview {
     use super::*;
     use crate::protocol::DistAlgo;
-    use crate::raft::pregel::{DistResult, MatView};
+    use crate::raft::pregel::MatView;
+    use eg_types::result_contract::cluster::DistResult;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn matview_persists_and_reloads_from_redb() {

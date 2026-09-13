@@ -6905,7 +6905,10 @@ class MultiTenantClient:
     async def delete(self, graph_name: str) -> None:
         await _gen.cluster.send_delete_graph(self._client, {"graph_name": graph_name})
 
-    async def list(self) -> list[dict[str, str]]:
+    async def list(self) -> list[dict[str, Any]]:
+        """Readable graphs: ``name``, ``type``, ``materialization``,
+        ``source_snapshot_version``, ``completeness_cursor``, ``valid`` and
+        ``index_manifests``."""
         return (await _gen.cluster.send_list_graphs(self._client)).payload
 
 

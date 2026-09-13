@@ -219,19 +219,23 @@ pub(crate) async fn try_handle(
             }
             let fname = crate::persist::sanitize(&graph);
             match backend.reshard_graph(&fname, to_shard).await {
-                Ok(report) => match finish_admin_saga(
-                    backend,
-                    saga.batch,
-                    saga.created_at_ms,
-                    ResultPayload::Json(report_json(&report)),
-                ) {
-                    Ok(result) => Ok(Response::ok(req_id, result)),
-                    Err(error) => Ok(Response::err(req_id, error)),
-                },
+                Ok(report) => {
+                    match ResultPayload::of::<eg_types::result_contract::cluster::Reshard>(
+                        reshard_report(&report),
+                    )
+                    .and_then(|result| {
+                        finish_admin_saga(backend, saga.batch, saga.created_at_ms, result)
+                    }) {
+                        Ok(result) => Ok(Response::ok(req_id, result)),
+                        Err(error) => Ok(Response::err(req_id, error)),
+                    }
+                }
                 Err(e) => Ok(Response::err(req_id, format!("Reshard failed: {e}"))),
             }
         }
-        Method::CatalogAssign { graph, shard, node } => Ok(catalog_saga(
+        Method::CatalogAssign { graph, shard, node } => Ok(catalog_saga::<
+            eg_types::result_contract::cluster::CatalogAssign,
+        >(
             req_id,
             caller,
             backend,
@@ -239,7 +243,9 @@ pub(crate) async fn try_handle(
             attempt_nonce,
             |catalog| catalog.assign(&crate::persist::sanitize(&graph), shard, node),
         )),
-        Method::CatalogReassign { graph, shard } => Ok(catalog_saga(
+        Method::CatalogReassign { graph, shard } => Ok(catalog_saga::<
+            eg_types::result_contract::cluster::CatalogReassign,
+        >(
             req_id,
             caller,
             backend,
@@ -247,7 +253,9 @@ pub(crate) async fn try_handle(
             attempt_nonce,
             |catalog| catalog.reassign(&crate::persist::sanitize(&graph), shard),
         )),
-        Method::CatalogRemove { graph } => Ok(catalog_saga(
+        Method::CatalogRemove { graph } => Ok(catalog_saga::<
+            eg_types::result_contract::cluster::CatalogRemove,
+        >(
             req_id,
             caller,
             backend,
@@ -259,16 +267,22 @@ pub(crate) async fn try_handle(
             let Some(cat) = backend.catalog() else {
                 return Ok(no_catalog(req_id));
             };
-            let entries: Vec<serde_json::Value> = cat
+            let placements = cat
                 .entries()
                 .into_iter()
-                .map(|(graph, a)| {
-                    serde_json::json!({"graph": graph, "shard": a.shard, "node": a.node})
-                })
+                .map(
+                    |(graph, assignment)| eg_types::result_contract::cluster::CatalogPlacement {
+                        graph,
+                        shard: assignment.shard,
+                        node: assignment.node,
+                    },
+                )
                 .collect();
             Ok(Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!({"placements": entries})),
+                ResultPayload::of::<eg_types::result_contract::cluster::CatalogList>(
+                    eg_types::result_contract::cluster::CatalogListing { placements },
+                ),
             ))
         }
         Method::RebalancePlan {
@@ -296,7 +310,9 @@ pub(crate) async fn try_handle(
             let plan = plan_rebalance(&shards, rebalance_opts(tolerance, max_moves));
             Ok(Response::ok(
                 req_id,
-                ResultPayload::Json(plan_json(&plan, &shards)),
+                ResultPayload::of::<eg_types::result_contract::cluster::RebalancePlan>(
+                    rebalance_plan_report(&plan, &shards),
+                ),
             ))
         }
         Method::RebalanceExecute {
@@ -325,13 +341,13 @@ pub(crate) async fn try_handle(
             let plan = plan_rebalance(&shards, rebalance_opts(tolerance, max_moves));
             match backend.rebalance_execute(&plan).await {
                 Ok(reports) => {
-                    let moves: Vec<serde_json::Value> = reports.iter().map(report_json).collect();
-                    match finish_admin_saga(
-                        backend,
-                        saga.batch,
-                        saga.created_at_ms,
-                        ResultPayload::Json(serde_json::json!({"executed": moves})),
-                    ) {
+                    let executed = reports.iter().map(reshard_report).collect();
+                    match ResultPayload::of::<eg_types::result_contract::cluster::RebalanceExecute>(
+                        eg_types::result_contract::cluster::RebalanceExecution { executed },
+                    )
+                    .and_then(|result| {
+                        finish_admin_saga(backend, saga.batch, saga.created_at_ms, result)
+                    }) {
                         Ok(result) => Ok(Response::ok(req_id, result)),
                         Err(error) => Ok(Response::err(req_id, error)),
                     }
@@ -1588,14 +1604,20 @@ fn decode_admin_commit(
 }
 
 #[cfg(feature = "redb")]
-fn catalog_saga(
+fn catalog_saga<M>(
     req_id: u64,
     caller: Option<&str>,
     backend: &crate::server::persistence::redb_backend::RedbBackend,
     method: &Method,
     attempt_nonce: Option<Nonce>,
     apply: impl FnOnce(&crate::server::persistence::tenant_catalog::TenantCatalog) -> Result<(), String>,
-) -> Response {
+) -> Response
+where
+    M: eg_types::result_contract::MethodResult<
+        Body = bool,
+        Encoding = eg_types::result_contract::encoding::Bool,
+    >,
+{
     let saga = match begin_admin_saga_with_nonce(
         backend,
         req_id,
@@ -1620,7 +1642,7 @@ fn catalog_saga(
         backend,
         saga.batch,
         saga.created_at_ms,
-        crate::protocol::ResultPayload::Bool(true),
+        crate::protocol::ResultPayload::scalar::<M>(true),
     ) {
         Ok(result) => Response::ok(req_id, result),
         Err(error) => Response::err(req_id, error),
@@ -1628,47 +1650,52 @@ fn catalog_saga(
 }
 
 #[cfg(feature = "redb")]
-fn report_json(
+fn reshard_report(
     report: &crate::server::persistence::online_reshard::ReshardReport,
-) -> serde_json::Value {
-    serde_json::json!({
-        "graph": report.graph,
-        "from_shard": report.from_shard,
-        "to_shard": report.to_shard,
-        "nodes": report.nodes,
-        "edges": report.edges,
-        "ledger": report.ledger,
-        "semantic": report.semantic,
-        "audit": report.audit,
-        "delta_nodes": report.delta_nodes,
-        "delta_edges": report.delta_edges,
-        "no_op": report.no_op,
-    })
+) -> eg_types::result_contract::cluster::ShardReshardReport {
+    eg_types::result_contract::cluster::ShardReshardReport {
+        graph: report.graph.clone(),
+        from_shard: report.from_shard as u64,
+        to_shard: report.to_shard as u64,
+        nodes: report.nodes,
+        edges: report.edges,
+        ledger: report.ledger,
+        semantic: report.semantic,
+        audit: report.audit,
+        delta_nodes: report.delta_nodes,
+        delta_edges: report.delta_edges,
+        no_op: report.no_op,
+    }
 }
 
 #[cfg(feature = "redb")]
-fn plan_json(
+fn rebalance_plan_report(
     plan: &crate::server::persistence::rebalance::RebalancePlan,
     shards: &[crate::server::persistence::rebalance::ShardLoad],
-) -> serde_json::Value {
-    let moves: Vec<serde_json::Value> = plan
-        .moves
-        .iter()
-        .map(|m| {
-            serde_json::json!({
-                "graph": m.graph,
-                "from_shard": m.from_shard,
-                "to_shard": m.to_shard,
-            })
-        })
-        .collect();
-    let loads: Vec<serde_json::Value> = shards
-        .iter()
-        .map(
-            |s| serde_json::json!({"shard": s.shard, "total": s.total(), "graphs": s.graphs.len()}),
-        )
-        .collect();
-    serde_json::json!({"moves": moves, "shards": loads})
+) -> eg_types::result_contract::cluster::RebalancePlanReport {
+    eg_types::result_contract::cluster::RebalancePlanReport {
+        moves: plan
+            .moves
+            .iter()
+            .map(
+                |planned| eg_types::result_contract::cluster::RebalanceMove {
+                    graph: planned.graph.clone(),
+                    from_shard: planned.from_shard,
+                    to_shard: planned.to_shard,
+                },
+            )
+            .collect(),
+        shards: shards
+            .iter()
+            .map(
+                |shard| eg_types::result_contract::cluster::ShardLoadSummary {
+                    shard: shard.shard,
+                    total: shard.total(),
+                    graphs: shard.graphs.len() as u64,
+                },
+            )
+            .collect(),
+    }
 }
 
 #[cfg(feature = "redb")]
