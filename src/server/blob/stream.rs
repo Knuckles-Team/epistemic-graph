@@ -241,23 +241,6 @@ mod tests {
         assert!(stream_blob_get(&store, "deadbeef", &mut sink).is_err());
     }
 
-    /// Peak RSS of this process in MB (Linux VmHWM), for the bounded-memory assert.
-    fn peak_rss_mb() -> u64 {
-        let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
-        for line in s.lines() {
-            if let Some(rest) = line.strip_prefix("VmHWM:") {
-                if let Some(kb) = rest
-                    .split_whitespace()
-                    .next()
-                    .and_then(|n| n.parse::<u64>().ok())
-                {
-                    return kb / 1024;
-                }
-            }
-        }
-        0
-    }
-
     /// A `Read` that GENERATES `total` bytes of distinct (offset-seeded) data on the
     /// fly — never holding the source blob in RAM, so the test proves the FACADE is
     /// what bounds memory (not a pre-buffered input).
@@ -318,7 +301,7 @@ mod tests {
         let total = total_mb * 1024 * 1024;
         let chunk_size = 2 * 1024 * 1024usize; // 2 MiB
         let store = RedbChunkStore::open_temp().unwrap();
-        let rss_before = peak_rss_mb();
+        let rss = crate::server::blob::store::peak_rss::PeakRssWindow::open();
 
         // Upload: re-hash the generated source as we go for the integrity check.
         let mut src_hash = Sha256::new();
@@ -352,7 +335,7 @@ mod tests {
             "round-trip integrity over the streamed large blob"
         );
 
-        let growth = peak_rss_mb().saturating_sub(rss_before);
+        let growth = rss.growth_mb();
         assert!(
             growth < 320,
             "peak RSS growth {growth}MB for a {total_mb}MB streamed blob must be bounded \

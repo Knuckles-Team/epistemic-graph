@@ -245,23 +245,6 @@ fn shared_blob_survives_until_last_reference_drops() {
     assert_eq!(stats.chunks_reclaimed, 2);
 }
 
-/// Peak RSS of this process, MB (Linux VmHWM). Used to assert bounded memory.
-fn peak_rss_mb() -> u64 {
-    let s = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
-    for line in s.lines() {
-        if let Some(rest) = line.strip_prefix("VmHWM:") {
-            if let Some(kb) = rest
-                .split_whitespace()
-                .next()
-                .and_then(|n| n.parse::<u64>().ok())
-            {
-                return kb / 1024;
-            }
-        }
-    }
-    0
-}
-
 /// Fill a chunk with offset-seeded pseudo-random bytes (xorshift) so chunks are
 /// DISTINCT (worst case for dedup — proves real storage) without holding the file.
 fn fill_chunk(buf: &mut [u8], idx: u64) {
@@ -296,7 +279,7 @@ fn bounded_memory_large_blob_group_commit() {
     let n_chunks = (total_mb * 1024 * 1024).div_ceil(chunk_size as u64);
     let store = RedbChunkStore::open_temp().unwrap();
 
-    let rss_before = peak_rss_mb();
+    let rss = super::peak_rss::PeakRssWindow::open();
 
     // Upload streaming — one chunk resident at a time.
     let mut digests = Vec::with_capacity(n_chunks as usize);
@@ -339,8 +322,7 @@ fn bounded_memory_large_blob_group_commit() {
     // group window (32×2MiB = 64MiB) plus the redb page cache and transient
     // buffers — NOT the blob size. A regression that stopped bounding the staged
     // group would track the file size (1GB blob → ~1GB RSS) and blow past this.
-    let peak = peak_rss_mb();
-    let growth = peak.saturating_sub(rss_before);
+    let growth = rss.growth_mb();
     assert!(
         growth < 320,
         "peak RSS growth {growth}MB for a {total_mb}MB blob must be bounded by the \
