@@ -87,6 +87,52 @@ pub fn bucket_indices_scalar(
     }
 }
 
+/// Process one complete four-lane block after the public wrapper has checked
+/// slice lengths and the caller has established AVX2 support.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn bucket_indices_avx2_block(
+    xs: &[f64],
+    base: usize,
+    domain_min: f64,
+    inv_domain_range: f64,
+    cols: usize,
+    out_idx: &mut [u32],
+    out_finite: &mut [bool],
+) {
+    use std::arch::x86_64::*;
+
+    let x = _mm256_loadu_pd(xs.as_ptr().add(base));
+    let not_nan = _mm256_cmp_pd(x, x, _CMP_ORD_Q);
+    let abs_x = _mm256_andnot_pd(_mm256_set1_pd(-0.0), x);
+    let finite_range = _mm256_cmp_pd(abs_x, _mm256_set1_pd(f64::INFINITY), _CMP_LT_OQ);
+    let finite_mask = _mm256_and_pd(not_nan, finite_range);
+    let t_raw = _mm256_mul_pd(
+        _mm256_sub_pd(x, _mm256_set1_pd(domain_min)),
+        _mm256_set1_pd(inv_domain_range),
+    );
+    let t_clamped = _mm256_min_pd(
+        _mm256_max_pd(t_raw, _mm256_set1_pd(0.0)),
+        _mm256_set1_pd(1.0),
+    );
+    let col_i = _mm256_cvttpd_epi32(_mm256_mul_pd(t_clamped, _mm256_set1_pd(cols as f64)));
+    let mut col_arr = [0i32; 4];
+    _mm_storeu_si128(col_arr.as_mut_ptr() as *mut __m128i, col_i);
+    let mut finite_arr = [0f64; 4];
+    _mm256_storeu_pd(finite_arr.as_mut_ptr(), finite_mask);
+    let cols_max_idx = cols.saturating_sub(1) as i32;
+
+    for lane in 0..4 {
+        let is_finite = finite_arr[lane].to_bits() != 0;
+        out_finite[base + lane] = is_finite;
+        out_idx[base + lane] = if is_finite {
+            col_arr[lane].clamp(0, cols_max_idx.max(0)) as u32
+        } else {
+            0
+        };
+    }
+}
+
 /// AVX2 batch path for [`bucket_indices_scalar`] — processes `xs` (any length)
 /// four lanes at a time, falling back to the scalar loop for the `len % 4`
 /// remainder.
@@ -111,55 +157,21 @@ pub unsafe fn bucket_indices_avx2(
     out_idx: &mut [u32],
     out_finite: &mut [bool],
 ) {
-    use std::arch::x86_64::*;
-
     debug_assert_eq!(xs.len(), out_idx.len());
     debug_assert_eq!(xs.len(), out_finite.len());
-
-    let domain_min_v = _mm256_set1_pd(domain_min);
-    let inv_range_v = _mm256_set1_pd(inv_domain_range);
-    let cols_f_v = _mm256_set1_pd(cols as f64);
-    let zero_v = _mm256_set1_pd(0.0);
-    let one_v = _mm256_set1_pd(1.0);
-    let cols_max_idx = cols.saturating_sub(1) as i32;
 
     let chunks = xs.len() / 4;
     for c in 0..chunks {
         let base = c * 4;
-        let x = _mm256_loadu_pd(xs.as_ptr().add(base));
-
-        // Ordered compare (x == x) is false only for NaN.
-        let not_nan = _mm256_cmp_pd(x, x, _CMP_ORD_Q);
-        // |x| < +inf, via clearing the sign bit then comparing.
-        let sign_mask = _mm256_set1_pd(-0.0);
-        let abs_x = _mm256_andnot_pd(sign_mask, x);
-        let inf_v = _mm256_set1_pd(f64::INFINITY);
-        let finite_range = _mm256_cmp_pd(abs_x, inf_v, _CMP_LT_OQ);
-        let finite_mask = _mm256_and_pd(not_nan, finite_range);
-
-        let t_raw = _mm256_mul_pd(_mm256_sub_pd(x, domain_min_v), inv_range_v);
-        let t_clamped = _mm256_min_pd(_mm256_max_pd(t_raw, zero_v), one_v);
-        let col_f = _mm256_mul_pd(t_clamped, cols_f_v);
-
-        // Truncate toward zero (t_clamped >= 0 always, so this is floor) into
-        // 4x i32 lanes (the low 128 bits of the result; f64x4 -> i32x4 is a
-        // natural AVX narrowing conversion).
-        let col_i = _mm256_cvttpd_epi32(col_f);
-        let mut col_arr = [0i32; 4];
-        _mm_storeu_si128(col_arr.as_mut_ptr() as *mut __m128i, col_i);
-
-        let mut finite_arr = [0f64; 4];
-        _mm256_storeu_pd(finite_arr.as_mut_ptr(), finite_mask);
-
-        for lane in 0..4 {
-            let is_finite = finite_arr[lane].to_bits() != 0; // all-1s bits if true, 0 if false
-            out_finite[base + lane] = is_finite;
-            out_idx[base + lane] = if is_finite {
-                col_arr[lane].clamp(0, cols_max_idx.max(0)) as u32
-            } else {
-                0
-            };
-        }
+        bucket_indices_avx2_block(
+            xs,
+            base,
+            domain_min,
+            inv_domain_range,
+            cols,
+            out_idx,
+            out_finite,
+        );
     }
 
     let rem_start = chunks * 4;
@@ -307,19 +319,17 @@ mod tests {
         assert!(!finite[3] && !finite[4]);
     }
 
-    /// Guard for hosts without the opt-in: the AVX2 parity tests below are compiled only
-    /// under `--cfg eg_avx2_tests`, because the fleet's Westmere hosts have no AVX2 and
-    /// the kernels cannot execute there. Without the opt-in this host must lack AVX2 (so
-    /// nothing runnable is being left out) and the public entry points must take the
-    /// scalar path.
+    /// The ordinary test profile must work on both pre-AVX2 fleet hosts and AVX2
+    /// GitHub runners. Prove runtime detection reflects the executing CPU and the
+    /// public dispatcher remains scalar-equivalent for whichever path it selects.
     #[cfg(not(eg_avx2_tests))]
     #[test]
-    fn without_avx2_opt_in_the_host_lacks_avx2_and_dispatch_is_scalar() {
-        assert!(
-            !avx2_available(),
-            "this CPU has AVX2, so the AVX2 parity tests must run: \
-             RUSTFLAGS=\"--cfg eg_avx2_tests\" cargo test -p eg-viz-kernels"
-        );
+    fn runtime_dispatch_matches_scalar_for_detected_capability() {
+        #[cfg(target_arch = "x86_64")]
+        assert_eq!(avx2_available(), std::is_x86_feature_detected!("avx2"));
+        #[cfg(not(target_arch = "x86_64"))]
+        assert!(!avx2_available());
+
         let cx: Vec<f64> = (0..9).map(|i| i as f64 * 1.3).collect();
         let cy: Vec<f64> = (0..9).map(|i| (i as f64 * 0.7).sin()).collect();
         let mut scalar_out = vec![0.0; cx.len()];

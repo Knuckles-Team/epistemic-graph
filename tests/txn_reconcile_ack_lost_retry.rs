@@ -400,14 +400,13 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
 /// process makes the abort an actual restart boundary rather than a private
 /// helper-level simulation.
 ///
-/// Not a standalone test: without the parent's environment there is nothing to run,
-/// so it is `#[ignore]`d (listed as ignored rather than passing vacuously) and the
-/// parent selects it with `--ignored --exact`.
-#[tokio::test]
-#[ignore = "child-process entrypoint; spawned by signed_dispatch_commit_fault_windows_recover_parent_once"]
+/// Not a test: the parent test re-executes its own test binary with
+/// `FAULT_CHILD_ENV` set, and that run of the parent enters here instead of the
+/// parent body (the `src/raft/xshard_harness.rs` pattern). It never returns: the
+/// armed boundary aborts the process, and anything else panics.
 async fn signed_dispatch_commit_fault_child() {
     let dir_s = std::env::var(FAULT_DIR_ENV)
-        .expect("fault dir from parent harness; run signed_dispatch_commit_fault_windows_recover_parent_once instead of this child");
+        .expect("fault dir from parent harness; run signed_dispatch_commit_fault_windows_recover_parent_once instead of setting the child env by hand");
     let phase = std::env::var(FAULT_PHASE_ENV).expect("fault phase from parent harness");
     std::env::set_var(
         epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
@@ -540,12 +539,23 @@ async fn signed_dispatch_commit_fault_child() {
     panic!("certification fault {phase} did not abort the signed Commit child");
 }
 
+/// Enter the child-process path when this test binary was re-executed by the
+/// parent. Keeping the environment branch here leaves the already-complex
+/// behavioral test unchanged under the diff-scoped complexity gate.
+async fn enter_signed_dispatch_commit_fault_child_if_requested() {
+    if std::env::var_os(FAULT_CHILD_ENV).is_some() {
+        signed_dispatch_commit_fault_child().await;
+        unreachable!("the signed Commit fault child aborts or panics");
+    }
+}
+
 /// Drive the real signed dispatch route through both durable commit fault
 /// windows. A fresh retry must recover the prepared parent, produce exactly one
 /// child effect, and then replay the same terminal receipt; reusing the original
 /// commit nonce must still be rejected by the kernel.
 #[tokio::test]
 async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
+    enter_signed_dispatch_commit_fault_child_if_requested().await;
     let _env_lock = TEST_ENV_LOCK.lock().await;
     for (label, phase, replayed_on_recovery) in [
         ("before-child", "before_commit", false),
@@ -558,9 +568,8 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
         let dir = test_support::fresh_dir(&format!("eg-txn-signed-fault-{label}"));
         let dir_s = dir.to_string_lossy().into_owned();
         let child = Command::new(std::env::current_exe().expect("integration test executable"))
-            .arg("--ignored")
             .arg("--exact")
-            .arg("signed_dispatch_commit_fault_child")
+            .arg("signed_dispatch_commit_fault_windows_recover_parent_once")
             .arg("--nocapture")
             .env(FAULT_CHILD_ENV, "1")
             .env(FAULT_PHASE_ENV, phase)
@@ -765,14 +774,13 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
 /// The dedicated lifecycle hook aborts after the signed Begin/Stage volatile
 /// effect and before the saga terminal receipt, leaving a real Prepared row.
 ///
-/// Not a standalone test: without the parent's environment there is nothing to run,
-/// so it is `#[ignore]`d (listed as ignored rather than passing vacuously) and the
-/// parent selects it with `--ignored --exact`.
-#[tokio::test]
-#[ignore = "child-process entrypoint; spawned by signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay"]
+/// Not a test: the parent test re-executes its own test binary with
+/// `LIFECYCLE_CHILD_ENV` set, and that run of the parent enters here instead of
+/// the parent body (the `src/raft/xshard_harness.rs` pattern). It never returns:
+/// the armed boundary aborts the process, and anything else panics.
 async fn signed_dispatch_lifecycle_fault_child() {
     let dir_s = std::env::var(LIFECYCLE_DIR_ENV)
-        .expect("lifecycle fault dir from parent harness; run signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay instead of this child");
+        .expect("lifecycle fault dir from parent harness; run signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay instead of setting the child env by hand");
     let mode = std::env::var(LIFECYCLE_MODE_ENV).expect("lifecycle fault mode from parent harness");
     std::env::set_var(
         epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
@@ -878,20 +886,29 @@ async fn signed_dispatch_lifecycle_fault_child() {
     panic!("lifecycle effect fault did not abort the signed {mode} dispatch");
 }
 
+/// Enter the lifecycle child-process path when selected by the parent test.
+/// The normal parent path returns immediately and acquires the shared env lock.
+async fn enter_signed_dispatch_lifecycle_fault_child_if_requested() {
+    if std::env::var_os(LIFECYCLE_CHILD_ENV).is_some() {
+        signed_dispatch_lifecycle_fault_child().await;
+        unreachable!("the signed lifecycle fault child aborts or panics");
+    }
+}
+
 /// Drive signed Begin and Stage through the real prepare → volatile effect →
 /// finish boundary. After the child aborts, a fresh nonce must refuse the
 /// ambiguous Prepared saga and the consumed original nonce must still fail in
 /// the kernel; neither retry may silently repeat a volatile effect.
 #[tokio::test]
 async fn signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay() {
+    enter_signed_dispatch_lifecycle_fault_child_if_requested().await;
     let _env_lock = TEST_ENV_LOCK.lock().await;
     for mode in ["begin", "stage"] {
         let dir = test_support::fresh_dir(&format!("eg-txn-signed-lifecycle-fault-{mode}"));
         let dir_s = dir.to_string_lossy().into_owned();
         let child = Command::new(std::env::current_exe().expect("integration test executable"))
-            .arg("--ignored")
             .arg("--exact")
-            .arg("signed_dispatch_lifecycle_fault_child")
+            .arg("signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay")
             .arg("--nocapture")
             .env(LIFECYCLE_CHILD_ENV, "1")
             .env(LIFECYCLE_MODE_ENV, mode)
