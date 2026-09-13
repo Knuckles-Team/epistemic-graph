@@ -9722,7 +9722,8 @@ mod tests {
                     // "converts into a test failure" the serial-impl regression
                     // this barrier exists to detect. A second deadline inside
                     // the closure could only fire after the outer one already
-                    // failed the test.
+                    // failed the test. Invariant `enclosing-deadline`:
+                    // docs/architecture/liveness_invariants.md.
                     #[allow(clippy::disallowed_methods)]
                     b.wait();
                     Ok(i)

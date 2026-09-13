@@ -2334,7 +2334,8 @@ fn tensor_op(
                         // precedent). What the rule actually forbids is recovering
                         // SILENTLY; the report below is what makes this a decision.
                         // The CAS is a content-addressed store, so a half-applied
-                        // `put` is re-derivable rather than corrupting.
+                        // `put` is re-derivable rather than corrupting. Invariant
+                        // `reporting-recovery`: docs/architecture/liveness_invariants.md.
                         #[allow(clippy::disallowed_methods)]
                         store
                             .lock()

@@ -30,6 +30,7 @@ fn join_probe_worker<T: Send + 'static>(
     what: &str,
 ) -> Result<T, ProbeError> {
     let (finished, waiting) = std::sync::mpsc::sync_channel(1);
+    // Invariant `helper-confined-wait`: docs/architecture/liveness_invariants.md.
     #[allow(clippy::disallowed_methods)]
     let joiner = std::thread::spawn(move || {
         let value = worker.join();
@@ -40,6 +41,7 @@ fn join_probe_worker<T: Send + 'static>(
         return Err(format!("{what}: the worker thread did not finish").into());
     }
     // The helper already signalled, so neither join can block.
+    // Invariant `helper-confined-wait`: docs/architecture/liveness_invariants.md.
     #[allow(clippy::disallowed_methods)]
     match joiner.join() {
         Ok(Ok(value)) => Ok(value),

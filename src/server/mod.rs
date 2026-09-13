@@ -53,6 +53,7 @@ pub fn join_engine_driver<T>(driver: std::thread::JoinHandle<T>) -> std::io::Res
     // than a wait for a concurrent party to arrive. Any deadline here would
     // mean "stop serving after N seconds", and there is no bounded replacement
     // for "run until the server is asked to stop".
+    // Invariant `process-lifetime-join`: docs/architecture/liveness_invariants.md.
     #[allow(clippy::disallowed_methods)]
     driver
         .join()

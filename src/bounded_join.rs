@@ -28,7 +28,8 @@ pub(crate) fn join_within<T: Send + 'static>(
     let (finished, waiting) = sync_channel(1);
     // The unbounded join is confined to this helper thread; the caller's
     // deadline is the `recv_timeout` below. This IS the bounded join the
-    // `JoinHandle::join` entry points callers at.
+    // `JoinHandle::join` entry points callers at. Invariant
+    // `helper-confined-wait`: docs/architecture/liveness_invariants.md.
     //
     // `Builder::spawn` rather than `thread::spawn` because this runs on
     // shutdown and from `Drop`, where `thread::spawn`'s panic-on-failure would
@@ -40,6 +41,7 @@ pub(crate) fn join_within<T: Send + 'static>(
     let joiner = match std::thread::Builder::new()
         .name("eg-bounded-join".to_string())
         .spawn(move || {
+            // Invariant `helper-confined-wait`: docs/architecture/liveness_invariants.md.
             #[allow(clippy::disallowed_methods)]
             let value = handle.join();
             let _ = finished.send(());
@@ -56,6 +58,7 @@ pub(crate) fn join_within<T: Send + 'static>(
     match waiting.recv_timeout(timeout) {
         Ok(()) => {
             // The helper already signalled, so this join cannot block.
+            // Invariant `helper-confined-wait`: docs/architecture/liveness_invariants.md.
             #[allow(clippy::disallowed_methods)]
             match joiner.join() {
                 Ok(Ok(value)) => Ok(value),
