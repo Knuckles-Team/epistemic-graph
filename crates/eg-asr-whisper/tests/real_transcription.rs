@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! export $(scripts/fetch_whisper_test_fixture.sh)   # pinned, sha256-verified
-//! cargo test -p eg-asr-whisper --test real_transcription -- --nocapture
+//! cargo test -p eg-asr-whisper -- --nocapture
 //! ```
 
 use eg_asr_whisper::{
@@ -13,8 +13,6 @@ use eg_asr_whisper::{
 };
 use eg_audio::asr::AsrError;
 use sha2::{Digest, Sha256};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 struct Fixture {
     model_path: String,
@@ -96,44 +94,33 @@ fn transcribes_real_audio_and_produces_provider_derived_timing_and_quality() {
 }
 
 #[test]
-fn native_poll_cancellation_yields_a_typed_error_never_a_truncated_success() {
+fn cancellation_between_windows_yields_a_typed_error_never_a_truncated_success() {
     let fixture = fixture();
     let provider = load_provider(&fixture);
     let wav_bytes = std::fs::read(&fixture.wav_path).expect("read test wav");
     let audio = decode_wav_16k_mono(&wav_bytes).expect("fixture wav decodes");
 
-    // Keep the fixture in one window. The test hook runs from whisper.cpp's
-    // real abort callback, so cancellation occurs INSIDE `full()`, without a
-    // sleeping helper thread or a scheduler/load-dependent race. If the
-    // `abort_bridge::install` call is removed, the hook is never polled and
-    // both the typed-result and poll-count assertions below fail: that is the
-    // perturbation proof that this test covers the native bridge rather than
-    // only the between-window check.
+    // A short window produces progressive output. Cancelling from the first
+    // partial callback deterministically stops before the next window without
+    // a sleeping helper thread or scheduler/load-dependent race. The private
+    // native callback checkpoint has its own real-fixture unit proof.
     let opts = TranscribeOptions {
         language: Some("en".to_string()),
         translate: false,
         word_timing: false,
-        window_ms: 30_000,
+        window_ms: 2_000,
     };
     let cancel = CancelFlag::new();
-    let polls = Arc::new(AtomicUsize::new(0));
-    let polled = Arc::clone(&polls);
     let cancel_inner = cancel.clone();
-    cancel.set_poll_hook(move || {
-        polled.fetch_add(1, Ordering::Relaxed);
+    let result = provider.transcribe_streaming(&audio, &opts, &cancel, |_partial| {
         cancel_inner.cancel();
     });
-    let result = provider.transcribe_streaming(&audio, &opts, &cancel, |_partial| {});
 
     assert_eq!(
         result.err(),
         Some(AsrError::Cancelled),
         "a request cancelled mid-stream must surface as a distinct typed Cancelled error, \
          never as a silently truncated 'success'"
-    );
-    assert!(
-        polls.load(Ordering::Relaxed) > 0,
-        "a real native abort poll must trigger the cancellation bound"
     );
 }
 

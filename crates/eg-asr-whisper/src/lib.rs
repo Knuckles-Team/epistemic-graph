@@ -181,13 +181,14 @@
 //! deliberately NOT `eg_audio::asr` itself, which stays dependency-light and
 //! I/O-free per its own module doc. [`WhisperAsrProvider::transcribe_streaming`]
 //! processes bounded audio windows sequentially, invoking `on_partial` after
-//! each window and honoring cancellation between AND (via whisper.cpp's abort
-//! callback) *during* a window — see that method's doc for exactly what
-//! "streaming-capable" means here versus GOC-35's future full-duplex
-//! low-latency path. Every constructed [`eg_audio::asr::AsrSegment`] is passed
-//! through the frozen contract's own `AsrSegment::validate()` before being
-//! accepted, so a whisper.cpp bug that emitted an inconsistent timestamp
-//! would be caught here rather than silently propagated. This crate does
+//! each window and honoring cancellation between windows and at whisper.cpp
+//! callback checkpoints between native graph/decode steps — see that method's
+//! doc for exactly what "streaming-capable" means here versus GOC-35's future
+//! full-duplex low-latency path. Every constructed
+//! [`eg_audio::asr::AsrSegment`] is passed through the frozen contract's own
+//! `AsrSegment::validate()` before being accepted, so a whisper.cpp bug that
+//! emitted an inconsistent timestamp would be caught here rather than silently
+//! propagated. This crate does
 //! **not** call `eg_audio::asr::finalize_result`/`authorize_carrier`: those
 //! require a governed `CarrierRef` (tenant/actor/consent/purpose/trace) bound
 //! to a real GOC-15/16 authorization decision and a GOC-32 `AudioSourceRef`,
@@ -201,7 +202,7 @@ mod model;
 mod wav;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use eg_audio::asr::{
     AsrBoundedId, AsrError, AsrSegment, AsrTask, LanguageTag, ModelManifestRef, Quality,
@@ -215,42 +216,26 @@ use whisper_rs::{
 pub use model::{verify_model, VerifiedModel};
 pub use wav::{decode_wav_16k_mono, DecodedAudio};
 
-/// Shared state behind a [`CancelFlag`]: the flag itself, plus an optional
-/// poll hook invoked on every native whisper.cpp abort-callback poll (see
-/// `abort_bridge::trampoline`). Kept as its own type (rather than a bare
-/// `Arc<AtomicBool>`) purely so `abort_bridge::install` has a single,
-/// precisely-typed pointee to derive its raw pointer from and cast it back
-/// to — see that module's doc for why matching this type exactly (never
-/// reinterpreting through a generic parameter) is the whole fix.
+/// Shared state behind a [`CancelFlag`]. Kept as its own type (rather than a
+/// bare `Arc<AtomicBool>`) so `abort_bridge::install` has one precisely typed
+/// pointee to derive its raw pointer from and cast back to. The test-only flag
+/// deterministically arms one native callback checkpoint without exposing a
+/// caller-supplied closure across the FFI boundary.
 #[derive(Default)]
 pub(crate) struct CancelState {
     cancelled: AtomicBool,
-    poll_hook: Mutex<Option<Box<dyn FnMut() + Send>>>,
+    #[cfg(test)]
+    cancel_on_next_poll: AtomicBool,
 }
 
 impl CancelState {
-    /// Invoked by `abort_bridge::trampoline` on every native abort-callback
-    /// poll whisper.cpp performs during a `full()` call: runs the
-    /// instrumentation hook (if any — see [`CancelFlag::set_poll_hook`])
-    /// THEN reports the current cancellation state, so a hook that itself
-    /// calls [`CancelFlag::cancel`] takes effect starting with the SAME poll
-    /// that invoked it.
+    /// Report cancellation at a native checkpoint. Unit tests may atomically
+    /// arm the next checkpoint itself as the cancellation event; production
+    /// builds contain only the caller-controlled cancellation flag.
     fn poll(&self) -> bool {
-        match self.poll_hook.lock() {
-            Ok(mut hook) => {
-                if let Some(hook) = hook.as_mut() {
-                    hook();
-                }
-            }
-            Err(_poisoned) => {
-                // The hook is observability/test instrumentation, but losing
-                // it must not silently allow native work to continue. Fail
-                // closed by turning a poisoned hook into cancellation. A hook
-                // panic cannot normally reach this arm because unwinding over
-                // the native callback boundary aborts the process; this still
-                // gives every reachable poison state explicit semantics.
-                self.cancelled.store(true, Ordering::Relaxed);
-            }
+        #[cfg(test)]
+        if self.cancel_on_next_poll.swap(false, Ordering::Relaxed) {
+            self.cancelled.store(true, Ordering::Relaxed);
         }
         self.cancelled.load(Ordering::Relaxed)
     }
@@ -259,8 +244,9 @@ impl CancelState {
 /// Cooperative cancellation flag shared between a caller and an in-flight
 /// [`WhisperAsrProvider::transcribe_streaming`] call. Checked between every
 /// window AND wired into whisper.cpp's own abort callback (`abort_bridge`)
-/// so a long window can be interrupted mid-decode, not only at the next
-/// window boundary.
+/// so a long window can stop at whisper.cpp's callback checkpoints between
+/// graph-compute or decode steps, without waiting for the next window. The
+/// callback cannot preempt a graph step that is already executing.
 #[derive(Clone, Default)]
 pub struct CancelFlag(Arc<CancelState>);
 
@@ -277,27 +263,22 @@ impl CancelFlag {
         self.0.cancelled.load(Ordering::Relaxed)
     }
 
-    /// Registers `hook` to run on every native whisper.cpp abort-callback
-    /// poll during the NEXT `transcribe_streaming` window this flag is
-    /// passed to. Production callers never need this: `transcribe_streaming`
-    /// already checks `is_cancelled()` between windows AND wires this flag
-    /// straight into whisper.cpp's real abort callback for the
-    /// during-a-window case. It exists so tests can prove that native wiring
-    /// is actually live -- by cancelling FROM a real native poll,
-    /// deterministically, with no sleep or timing guess -- rather than only
-    /// exercising the window-boundary check, which would keep passing even
-    /// if the native wiring were deleted entirely. See
-    /// `tests/real_transcription.rs`.
-    pub fn set_poll_hook(&self, hook: impl FnMut() + Send + 'static) {
-        match self.0.poll_hook.lock() {
-            Ok(mut guard) => *guard = Some(Box::new(hook)),
-            Err(_poisoned) => {
-                // A caller requested a deterministic native-poll action. If
-                // it cannot be installed, cancel instead of silently running
-                // the transcription without that requested bound.
-                self.cancel();
-            }
-        }
+    /// Arm a deterministic cancellation at the next native callback checkpoint.
+    /// Private test instrumentation: no user closure can run across the FFI boundary.
+    #[cfg(test)]
+    fn cancel_on_next_native_poll(&self) {
+        self.0.cancel_on_next_poll.store(true, Ordering::Relaxed);
+    }
+
+    /// Disarm test instrumentation when its one window ends before a callback.
+    #[cfg(test)]
+    fn clear_native_poll_arm(&self) {
+        self.0.cancel_on_next_poll.store(false, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    fn native_poll_is_armed(&self) -> bool {
+        self.0.cancel_on_next_poll.load(Ordering::Relaxed)
     }
 }
 
@@ -431,9 +412,10 @@ impl WhisperAsrProvider {
     /// bounded windows of `opts.window_ms`. `on_partial` is invoked once per
     /// newly produced segment, immediately after the window that produced it
     /// completes — this is the "streaming-capable" contract: a caller gets
-    /// progressive output as bounded windows complete, and MAY cancel between
-    /// (or, via whisper.cpp's own abort callback, during) any window rather
-    /// than only ever seeing output after a complete-file transcode. Returns
+    /// progressive output as bounded windows complete. A caller MAY cancel at
+    /// a window boundary or at whisper.cpp's callback checkpoints between
+    /// native graph/decode steps; cancellation cannot preempt a graph step
+    /// already executing. Returns
     /// `Err(AsrError::Cancelled)` — never a partial success dressed as
     /// complete — if `cancel` was set before every segment finished.
     pub fn transcribe_streaming(
@@ -506,6 +488,8 @@ fn transcribe_window(
     let mut params = window_params(options);
     abort_bridge::install(&mut params, cancel);
     let result = state.full(params, samples);
+    #[cfg(test)]
+    cancel.clear_native_poll_arm();
     if result.is_ok() {
         return ensure_active(cancel);
     }

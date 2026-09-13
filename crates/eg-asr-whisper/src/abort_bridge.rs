@@ -51,10 +51,10 @@ use std::sync::Arc;
 
 use crate::CancelState;
 
-/// The `extern "C"` callback whisper.cpp polls periodically during
-/// `WhisperState::full` — both inside the encoder's graph compute and inside
-/// the per-token decode loop — to decide whether to abort. Returning `true`
-/// aborts; whisper.cpp then returns `WhisperError::FailedToEncode` /
+/// The `extern "C"` callback whisper.cpp polls during `WhisperState::full`
+/// between encoder graph executions and at checkpoints in the per-token
+/// decode loop. It cannot preempt a graph step already executing. Returning
+/// `true` aborts; whisper.cpp then returns `WhisperError::FailedToEncode` /
 /// `FailedToDecode` from `full()`, indistinguishable at that point from a
 /// genuine provider failure, so `transcribe_streaming` must check its own
 /// cancellation flag itself to tell the two apart (see its handling of
@@ -82,12 +82,15 @@ unsafe extern "C" fn trampoline(user_data: *mut c_void) -> bool {
     // exists to avoid — see the module doc), and the `Arc` it points into is
     // kept alive by `install`'s caller for the full duration of the one
     // `full()` call whisper.cpp invokes this trampoline during. The
-    // resulting `&CancelState` is a shared borrow that only loads an atomic
-    // and locks a `Mutex` internally (`CancelState::poll`), never mutating
-    // through this raw pointer directly, so it does not alias against the
-    // live `Arc`'s other shared access.
+    // resulting `&CancelState` is a shared borrow that only performs atomic
+    // operations in `CancelState::poll`. It invokes no caller-controlled
+    // code and never mutates through this raw pointer directly, so it does
+    // not alias against the live `Arc`'s shared access. The unwind barrier is
+    // defensive: even if `poll` changes later, a Rust panic cannot cross the
+    // native callback boundary and abort the process. Its fail-closed value
+    // asks whisper.cpp to stop.
     let state = unsafe { &*(user_data.cast::<CancelState>()) };
-    state.poll()
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| state.poll())).unwrap_or(true)
 }
 
 /// Wires `flag`'s shared state into `params` as whisper.cpp's abort callback
@@ -117,5 +120,58 @@ pub(crate) fn install(params: &mut whisper_rs::FullParams, flag: &crate::CancelF
     unsafe {
         params.set_abort_callback(Some(trampoline));
         params.set_abort_callback_user_data(ptr);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sha2::{Digest, Sha256};
+
+    use crate::{
+        decode_wav_16k_mono, verify_model, CancelFlag, TranscribeOptions, WhisperAsrProvider,
+    };
+    use eg_audio::asr::AsrError;
+
+    fn required_fixture(name: &str) -> String {
+        std::env::var(name).unwrap_or_else(|_| {
+            panic!("{name} is not set: run `export $(scripts/fetch_whisper_test_fixture.sh)`")
+        })
+    }
+
+    /// A real native checkpoint drives this cancellation. No thread scheduling,
+    /// sleep, public hook, mutex, or caller-controlled FFI callback is involved.
+    /// Removing `abort_bridge::install` makes transcription complete and this
+    /// assertion fail, which is the bridge's perturbation proof.
+    #[test]
+    fn native_callback_checkpoint_cancels_a_running_window() {
+        let model_path = required_fixture("EG_ASR_TEST_MODEL_PATH");
+        let model_bytes = std::fs::read(&model_path).expect("read test model");
+        let digest = format!("{:x}", Sha256::digest(model_bytes));
+        let model = verify_model(&model_path, &digest).expect("verify test model");
+        let provider = WhisperAsrProvider::load(&model, "eg-asr-whisper-test-model", false)
+            .expect("load test model");
+        let wav_path = required_fixture("EG_ASR_TEST_WAV_PATH");
+        let wav = std::fs::read(wav_path).expect("read test wav");
+        let audio = decode_wav_16k_mono(&wav).expect("decode 16 kHz mono fixture");
+        let options = TranscribeOptions {
+            language: Some("en".to_string()),
+            translate: false,
+            word_timing: false,
+            window_ms: 30_000,
+        };
+        let cancel = CancelFlag::new();
+        cancel.cancel_on_next_native_poll();
+
+        let result = provider.transcribe_streaming(&audio, &options, &cancel, |_| {});
+
+        assert_eq!(result.err(), Some(AsrError::Cancelled));
+        assert!(
+            cancel.is_cancelled(),
+            "the native checkpoint must trip the flag"
+        );
+        assert!(
+            !cancel.native_poll_is_armed(),
+            "the one-window test arm must be cleared"
+        );
     }
 }

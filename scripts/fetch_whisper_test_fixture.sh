@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Fetch the model and speech sample that eg-asr-whisper's real-model tests
-# (`crates/eg-asr-whisper/tests/real_transcription.rs`) need, and print the two
-# environment assignments those tests read.
+# Fetch the model and speech sample that eg-asr-whisper's real-model unit and
+# integration tests need, and print the two environment assignments they read.
 #
 #   export $(scripts/fetch_whisper_test_fixture.sh)
-#   cargo test -p eg-asr-whisper --test real_transcription
+#   cargo test -p eg-asr-whisper -- --nocapture
 #
 # When the variables are unset the tests FAIL; they never skip.
 #
