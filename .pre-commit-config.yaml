@@ -45,10 +45,8 @@ repos:
   rev: 6fec9b7edb08fd9989088709d864a7826dc74e80 # v0.15.12
   hooks:
   - id: ruff-check
-    args: ["--fix", "--ignore=E402,B008,E501"]
-    exclude: ^(tests/|test/|scripts/|script/)
+    args: ["--fix"]
   - id: ruff-format
-    exclude: ^(tests/|test/|scripts/|script/)
 - repo: https://github.com/pre-commit/mirrors-mypy
   rev: fc0f09a29bb495f4a91f00266155d6282d52485d # v1.20.2
   hooks:
