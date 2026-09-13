@@ -27,10 +27,12 @@ use eg_types::semantic_index::{
 use sha2::{Digest, Sha256};
 
 use super::semantic::SemanticGenerationImage;
+use super::semantic_ann_codes::reconciliation::{
+    SemanticSourceReconciliationCheckpoint, SemanticSourceReconciliationPhase,
+};
 use super::semantic_ann_codes::{
     semantic_contract_error, OperationAttribution, SemanticCodeError, SemanticCodeStore,
-    SemanticMutationReceipt, SemanticSourceReconciliationCheckpoint,
-    SemanticSourceReconciliationPhase,
+    SemanticMutationReceipt,
 };
 
 /// Construct the canonical tenant-wide SQL source revision returned by E3.

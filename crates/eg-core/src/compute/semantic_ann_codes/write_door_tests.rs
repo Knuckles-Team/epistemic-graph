@@ -36,18 +36,21 @@ use eg_types::contract::Nonce;
 use eg_types::semantic_index::{SemanticBindingState, SemanticDigest};
 use eg_types::MutationScopeIdentity;
 
+use super::batch::MetadataMutation;
+use super::door::{scope_identity, serving_identity};
 use super::tests::{binding_for_generation, open_store, pending_binding, tmp_dir, BINDING, TENANT};
-use super::{
-    scope_identity, serving_identity, MetadataMutation, SemanticCodeError, SemanticCodeStore,
-    SemanticMutationReceipt,
-};
+use super::{SemanticCodeError, SemanticCodeStore, SemanticMutationReceipt};
 use crate::test_scope_grant::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};
 
 /// Every use of kernel write or scope vocabulary, paired with the ONE function
 /// allowed to make it. The observed pairs must equal this table exactly: an
 /// extra pair is a second write door, a missing pair is a table that no longer
 /// describes the code.
-const WRITE_DOOR: [(&str, &str); 19] = [
+///
+/// The door's outbox wrappers carry the kernel method's own name, so the four
+/// stage-port rows at the end record their only callers: another caller of
+/// outbox delivery is a finding, exactly as a direct kernel call would be.
+const WRITE_DOOR: [(&str, &str); 23] = [
     ("open", "MutationKernel"),
     ("open", "into_read_and_mutation_authority"),
     ("bind_scope", "authenticate_scope"),
@@ -63,6 +66,10 @@ const WRITE_DOOR: [(&str, &str); 19] = [
     ("commit_metadata_fenced", "outbox_ack_in"),
     ("replay_operation_if_recorded", "admit_current"),
     ("replay_operation_if_recorded", "commit"),
+    ("outbox_subscribe", "outbox_subscribe"),
+    ("outbox_claim", "outbox_claim"),
+    ("outbox_ack", "outbox_ack"),
+    ("outbox_release", "outbox_release"),
     ("subscribe_stage_consumer", "outbox_subscribe"),
     ("claim_stage_leases", "outbox_claim"),
     ("ack_stage_lease", "outbox_ack"),
@@ -461,7 +468,8 @@ fn is_vocabulary_use(masked: &[u8], at: usize, word: &str) -> bool {
     path_or_method && followed_by_call(masked, at + word.len())
 }
 
-fn module_sources() -> Vec<String> {
+/// Every non-test source file of this module, as `(file name, source)`.
+fn module_files() -> Vec<(String, String)> {
     let compute = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")
         .join("compute");
@@ -475,10 +483,77 @@ fn module_sources() -> Vec<String> {
     paths
         .iter()
         .map(|path| {
-            std::fs::read_to_string(path)
-                .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()))
+            let name = path
+                .file_name()
+                .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+            let source = std::fs::read_to_string(path)
+                .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+            (name, source)
         })
         .collect()
+}
+
+fn module_sources() -> Vec<String> {
+    module_files()
+        .into_iter()
+        .map(|(_, source)| source)
+        .collect()
+}
+
+/// The text between the braces of the first item whose masked head is `head`.
+fn braced_body<'a>(masked: &'a str, head: &str) -> &'a str {
+    let at = masked
+        .find(head)
+        .unwrap_or_else(|| panic!("`{head}` is not in door.rs"));
+    let open = at + masked[at..].find('{').expect("an item body");
+    let close = matching_brace(masked.as_bytes(), open).expect("a closed item body");
+    &masked[open + 1..close]
+}
+
+/// The chokepoint is a visibility boundary, not a convention: the kernels are
+/// private fields of `ServingDoor`, the two test-seeding accessors exist only
+/// under `cfg(test)`, and no other file of this module names a kernel type.
+#[test]
+fn only_the_door_module_can_reach_a_kernel() {
+    let files = module_files();
+    let door = files
+        .iter()
+        .find(|(name, _)| name == "door.rs")
+        .map(|(_, source)| String::from_utf8_lossy(&mask(source)).into_owned())
+        .expect("door.rs is part of the module");
+    let fields = braced_body(&door, "pub(super) struct ServingDoor");
+    for field in ["kernel:", "mutations:", "serving:"] {
+        assert!(
+            fields.contains(field),
+            "ServingDoor lost its `{field}` field"
+        );
+    }
+    assert!(
+        !fields.contains("pub"),
+        "a ServingDoor field is visible outside door.rs: {fields}"
+    );
+    for accessor in ["fn storage_kernel", "fn mutation_kernel"] {
+        let at = door
+            .find(accessor)
+            .unwrap_or_else(|| panic!("`{accessor}` is not in door.rs"));
+        let head_start = door[..at].rfind('}').unwrap_or(0);
+        assert!(
+            door[head_start..at].contains("#[cfg(test)]"),
+            "`{accessor}` hands out a kernel outside test builds"
+        );
+    }
+    for (name, source) in files.iter().filter(|(name, _)| name != "door.rs") {
+        let masked = mask(source);
+        let kernels: Vec<String> = identifiers(&masked)
+            .into_iter()
+            .map(|(_, word)| word)
+            .filter(|word| word == "StorageKernel" || word == "MutationKernel")
+            .collect();
+        assert!(
+            kernels.is_empty(),
+            "{name} names {kernels:?}: only door.rs may hold a kernel"
+        );
+    }
 }
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -652,7 +727,8 @@ fn nonce(seed: u8) -> Nonce {
 
 fn scope_is_bound(codes: &SemanticCodeStore, identity: &MutationScopeIdentity) -> bool {
     codes
-        .kernel
+        .door
+        .storage_kernel()
         .scope_binding_exists(identity)
         .expect("scope binding lookup")
 }
@@ -707,7 +783,7 @@ fn one_store_authenticates_only_its_serving_scope_across_a_lifecycle() {
         "a store authenticates exactly one scope, its serving scope, once at open; \
          a second grant is a second ledger scope"
     );
-    let read = codes.serving_read().expect("serving read");
+    let read = codes.door.serving_read().expect("serving read");
     for receipt in &receipts {
         let record = eg_transaction::read_ledger(&read, &receipt.batch_id)
             .expect("ledger read")
@@ -744,10 +820,10 @@ fn commit_probe(
         subject: "write-door-probe",
         mutation_digest: digest,
     };
-    codes.commit_metadata(
+    codes.door.commit_metadata(
         |version| {
             let mut batch =
-                codes.metadata_batch(&codes.serving, version, mutation, Vec::new(), 1)?;
+                codes.metadata_batch(codes.door.owner(), version, mutation, Vec::new(), 1)?;
             if let Some(identity) = identity {
                 batch.identity = identity;
             }
@@ -782,7 +858,7 @@ fn assert_refused_without_effect(
         !scope_is_bound(codes, &identity),
         "{label}: a refused write bound its scope"
     );
-    let read = codes.serving_read().expect("serving read");
+    let read = codes.door.serving_read().expect("serving read");
     let row = eg_transaction::read_ledger(&read, batch_id).expect("ledger read");
     assert!(row.is_none(), "{label}: a refused write left a ledger row");
 }
