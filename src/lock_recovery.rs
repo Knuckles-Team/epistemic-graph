@@ -67,6 +67,7 @@ impl<'a, T> LockRecovery<'a, MutexGuard<'a, T>> for Mutex<T> {
         // The one sanctioned call site: `into_inner` is disallowed so that
         // recovery is never silent, and this function IS the reporting
         // recovery the rule points every other caller at.
+        // Invariant `reporting-recovery`: docs/architecture/liveness_invariants.md.
         #[allow(clippy::disallowed_methods)]
         self.lock().unwrap_or_else(|poison| {
             note_recovered(what);
@@ -85,6 +86,7 @@ impl<'a, T> LockRecovery<'a, RwLockReadGuard<'a, T>> for RwLock<T> {
     fn lock_recovering(&'a self, what: &str) -> RwLockReadGuard<'a, T> {
         // See the `Mutex` impl above: this is the reporting recovery the
         // `disallowed_methods` entry exists to route callers to.
+        // Invariant `reporting-recovery`: docs/architecture/liveness_invariants.md.
         #[allow(clippy::disallowed_methods)]
         self.read().unwrap_or_else(|poison| {
             note_recovered(what);
@@ -110,6 +112,7 @@ impl<'a, T> WriteRecovery<'a, T> for RwLock<T> {
     fn write_recovering(&'a self, what: &str) -> RwLockWriteGuard<'a, T> {
         // See the `Mutex` impl above: this is the reporting recovery the
         // `disallowed_methods` entry exists to route callers to.
+        // Invariant `reporting-recovery`: docs/architecture/liveness_invariants.md.
         #[allow(clippy::disallowed_methods)]
         self.write().unwrap_or_else(|poison| {
             note_recovered(what);
@@ -139,6 +142,7 @@ mod tests {
         // fixture -- it is how the mutex gets poisoned. The wait also cannot
         // hang: the closure panics unconditionally, with nothing between spawn
         // and `panic!` that could block.
+        // Invariant `panic-fixture-join`: docs/architecture/liveness_invariants.md.
         #[allow(clippy::disallowed_methods)]
         let _ = std::thread::spawn(move || {
             let _guard = poisoner.lock().unwrap();
@@ -162,6 +166,7 @@ mod tests {
         // fixture -- it is how the mutex gets poisoned. The wait also cannot
         // hang: the closure panics unconditionally, with nothing between spawn
         // and `panic!` that could block.
+        // Invariant `panic-fixture-join`: docs/architecture/liveness_invariants.md.
         #[allow(clippy::disallowed_methods)]
         let _ = std::thread::spawn(move || {
             let _guard = poisoner.lock().unwrap();

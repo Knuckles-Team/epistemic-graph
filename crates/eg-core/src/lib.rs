@@ -13,8 +13,15 @@ pub use eg_types::{acl, protocol, types, wire};
 /// The `graph` property-index tests AND the `index` manager cap test both mutate these
 /// globals, so both acquire THIS one lock — otherwise a cap-mutating test races a
 /// default-cap test under parallel `--all-features` (a torn `nodes_by_property` read).
+///
+/// Non-poisoning on purpose: it guards `()`, so a test that panicked while holding it
+/// leaves no state behind to distrust, and std's poison would carry no information.
 #[cfg(test)]
-pub(crate) static PROP_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static PROP_ENV_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
+/// Bounded thread fan-out and start gates for this crate's concurrency tests.
+#[cfg(test)]
+pub(crate) mod test_threads;
 
 /// CONCEPT:EG-KG.storage.bloom-negative-lookup-guard — lock-free per-graph Bloom
 /// filter guarding the durable read-through negative-lookup path. Pure-Rust,

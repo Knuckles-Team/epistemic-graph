@@ -2967,6 +2967,7 @@ dependencies = [
  "hex",
  "hmac 0.12.1",
  "insta",
+ "parking_lot",
  "petgraph 0.6.5",
  "proptest",
  "rayon",

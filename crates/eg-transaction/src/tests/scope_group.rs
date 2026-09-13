@@ -876,8 +876,8 @@ impl Shard {
     ) {
         let refs: Vec<&MutationBatch> = batches.iter().collect();
         self.write_raft_row(&group, &batches[0], 1);
-        for index in 1..batches.len() {
-            self.write_graph_row(&group, index, &batches[index], "node-1");
+        for (index, batch) in batches.iter().enumerate().skip(1) {
+            self.write_graph_row(&group, index, batch, "node-1");
         }
         self.finish(&group, &refs);
         self.fixture.mutations.commit_group(group, &refs).unwrap();

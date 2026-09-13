@@ -216,7 +216,8 @@ fn sensor_align_emits_rows_at_grid_instants_not_source_instants() {
 ///   * `Linear`   → 0 + (20-0) * 0.75 = 15
 ///   * `Nearest`  → the 2s sample (0.5s away, vs 1.5s) = 20
 ///   * `AsofHold` → the last value at-or-before 1.5s, i.e. the 0s sample = 0
-/// and at 3.0s (equidistant between 2s and 4s) `Nearest` must resolve the tie to the EARLIER
+///
+/// And at 3.0s (equidistant between 2s and 4s) `Nearest` must resolve the tie to the EARLIER
 /// sample (20), which `Linear` (30) and `AsofHold` (20, but for a different reason) do not.
 /// A build that dropped the mode on the floor would return one column three times.
 #[test]

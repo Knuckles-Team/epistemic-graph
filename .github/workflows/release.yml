@@ -288,6 +288,55 @@ jobs:
           PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -c \
             "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
 
+  # ── eg-tts-piper synthesis against a REAL onnxruntime.
+  #
+  # `--all-features` builds eg-tts-piper with `ort-load-dynamic`, so `ort` dlopens
+  # onnxruntime from ORT_DYLIB_PATH. These tests used to print SKIP and return when
+  # it was unset; libtest hides stderr for passing tests, so 10 of 13 "passed" in
+  # 0.00s without loading a model. They now FAIL without a runtime, so this job must
+  # provide one: scripts/fetch_onnxruntime.sh downloads the pinned official release
+  # (sha256-checked) and exits non-zero on any fetch or checksum failure. There is
+  # deliberately no fallback. A missing runtime fails this job.
+  #
+  # Native build dependencies, by exact apt package name. espeak-rs-sys builds
+  # espeak-ng with CMake and generates its bindings with bindgen, which loads
+  # libclang. Measured against R820 (Ubuntu 26.04), where this job's steps were run
+  # verbatim in a clean tree with a fresh target dir:
+  #   * build-essential, cmake, clang, pkg-config, curl, ca-certificates: already
+  #     on R820, and on the ubuntu-24.04 image (CMake 3.31, clang 16/17/18, g++ 13,
+  #     pkg-config 1.8, curl 8.5). Installed explicitly anyway so the job does not
+  #     depend on the image's tool list.
+  #   * libclang-dev: NOT on R820 (bindgen found libclang-21.so.1 from
+  #     libclang1-21, which `clang` pulls in), and libclang is not listed on the
+  #     runner image. Installed so bindgen's libclang lookup does not depend on
+  #     which clang packages the image happens to ship.
+  tts-piper-inference:
+    name: eg-tts-piper real-inference tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Install espeak-ng / bindgen native build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake clang libclang-dev pkg-config curl ca-certificates
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Test eg-tts-piper against the pinned onnxruntime (fails, never skips, without it)
+        run: |
+          set -euo pipefail
+          # A failed fetch or checksum fails this assignment, and `set -e` stops here.
+          ORT_DYLIB_PATH="$(scripts/fetch_onnxruntime.sh "$RUNNER_TEMP/eg-onnxruntime")"
+          export ORT_DYLIB_PATH
+          test -f "$ORT_DYLIB_PATH"
+          echo "ORT_DYLIB_PATH=$ORT_DYLIB_PATH"
+          cargo test --locked -p eg-tts-piper --all-features --no-fail-fast
+
   # ── STAGE 1b: architecture/documentation-contract gates + lint. Folded in
   # from the former advisory.yml `lint-and-architecture` job (wD9-CIGATE,
   # 2026-08-28): every step below was measured green against this commit

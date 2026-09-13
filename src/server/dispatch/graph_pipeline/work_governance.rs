@@ -299,16 +299,22 @@ pub(super) async fn dispatch_op_workitem_claim_capability(
     }
 }
 
+/// Submission and resource-reservation methods, under the same already-authorized
+/// graph and placement context the WorkItem lifecycle handler receives.
 pub(super) async fn dispatch_op_workitem_submission_or_resources(
-    req_id: u64,
-    graph_name: &str,
-    caller: Option<&str>,
-    verified_context: &VerifiedRequestContext,
-    core: Arc<crate::graph::GraphCore>,
-    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    #[cfg(feature = "raft")] routed_raft: Option<crate::raft::multi::RoutedRaftHandle>,
+    ctx: crate::server::handlers::work_item::HandleContext<'_>,
     method: Method,
 ) -> Response {
+    let crate::server::handlers::work_item::HandleContext {
+        req_id,
+        graph_name,
+        caller,
+        verified_context,
+        core,
+        persistence,
+        #[cfg(feature = "raft")]
+        routed_raft,
+    } = ctx;
     #[cfg(feature = "raft")]
     let (placement_epoch, placement_fence) = if let Some(routed) = routed_raft.as_ref() {
         let leader = routed.handle.current_leader().await;
@@ -331,7 +337,7 @@ pub(super) async fn dispatch_op_workitem_submission_or_resources(
 
     return match crate::server::mutation_batch::commit_work_item(
         persistence.as_ref(),
-        &core,
+        core,
         req_id,
         verified_context.attempt_nonce(),
         Some(verified_context.idempotency_key()),

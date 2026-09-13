@@ -340,6 +340,7 @@ mod parking_lot_lite {
             // SILENTLY hides a broken invariant. The report below is what makes
             // this a decision rather than the reflex the rule forbids; stderr is
             // the only channel available without taking a logging dependency.
+            // Invariant `reporting-recovery`: docs/architecture/liveness_invariants.md.
             #[allow(clippy::disallowed_methods)]
             self.0.lock().unwrap_or_else(|poisoned| {
                 eprintln!(

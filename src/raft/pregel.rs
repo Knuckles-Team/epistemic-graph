@@ -378,7 +378,7 @@ fn distributed_pagerank(part: &Partitioning, damping: f64, iterations: usize) ->
 
 // ── Connected components — label propagation supersteps to a fixpoint ──────────
 
-fn vertex_indices<'a>(vertices: &'a [VertexId]) -> HashMap<&'a str, i64> {
+fn vertex_indices(vertices: &[VertexId]) -> HashMap<&str, i64> {
     vertices
         .iter()
         .enumerate()

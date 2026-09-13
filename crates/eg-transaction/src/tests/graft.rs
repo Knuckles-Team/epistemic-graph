@@ -290,7 +290,6 @@ fn a_restart_after_destination_reservation_resumes_without_an_unfenced_window() 
     };
     assert!(error.starts_with("STALE_FENCE"), "{error}");
 
-    drop(target);
     drop(source_owner);
     drop(destination_owner);
     drop(source);
@@ -312,7 +311,6 @@ fn a_restart_after_destination_reservation_resumes_without_an_unfenced_window() 
 
     // Lose the process again after the source marker but before the copy.
     // Exact target-format re-entry must replay the marker and reservation.
-    drop(target);
     drop(source_owner);
     drop(destination_owner);
     drop(source);
@@ -385,7 +383,6 @@ fn a_crash_between_the_copy_and_the_retirement_recovers_to_one_authority() {
 
     // Drop both kernels and all opaque handles. Reopening the two files is the
     // process-boundary state the recovery contract must actually survive.
-    drop(target);
     drop(source_owner);
     drop(destination_owner);
     drop(source);
@@ -611,7 +608,6 @@ fn recovery_after_retirement_needs_no_source_handle_or_rebind() {
         )
         .unwrap();
 
-    drop(target);
     drop(source_owner);
     drop(destination_owner);
     drop(source);

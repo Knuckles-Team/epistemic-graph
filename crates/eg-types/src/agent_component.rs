@@ -1341,6 +1341,9 @@ impl AgentComponentEntry {
 mod tests {
     use super::*;
 
+    /// One named edit to a definition, for the digest-binding table below.
+    type NamedMutation<T> = (&'static str, fn(&mut T));
+
     fn digest(seed: char) -> String {
         format!("sha256:{}", seed.to_string().repeat(64))
     }
@@ -1521,7 +1524,7 @@ mod tests {
             .unwrap()
             .definition_digest;
 
-        let mutations: Vec<(&str, fn(&mut AgentComponentDraft))> = vec![
+        let mutations: Vec<NamedMutation<AgentComponentDraft>> = vec![
             ("version", |d| d.version = "2.0.0".into()),
             ("content_digest", |d| d.content_digest = digest('2')),
             ("content_ref", |d| d.content_ref = Some("artifact:x".into())),

@@ -69,8 +69,7 @@ use super::cross_shard_txn::{CrossShardCoordinator, CrossShardTxn, GraphSlice, T
 use super::multi::MultiRaft;
 use crate::protocol::{GraphType, Method};
 
-#[path = "harness/fixture.rs"]
-pub(crate) mod fixture;
+use super::fixture;
 
 /// Group + graph names for the two modalities the cross-shard txn spans.
 const GROUP_A: u64 = 100;
@@ -568,6 +567,7 @@ async fn scenario_stale_fenced_participant_rejected() -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_rendezvous::meet;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Barrier;
 
@@ -584,8 +584,8 @@ mod tests {
             tokio::spawn(async move {
                 run_scenario_cleanup("barrier-probe", move |_| {
                     calls.fetch_add(1, Ordering::SeqCst);
-                    entered.wait();
-                    release.wait();
+                    meet(&entered, "cleanup reached its blocking work");
+                    meet(&release, "cleanup released by the test");
                     Ok(())
                 })
                 .await;
@@ -593,7 +593,7 @@ mod tests {
         };
 
         let entered_wait = entered.clone();
-        ::tokio::task::spawn_blocking(move || entered_wait.wait())
+        ::tokio::task::spawn_blocking(move || meet(&entered_wait, "test saw cleanup enter"))
             .await
             .expect("barrier entry wait joins");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -602,7 +602,7 @@ mod tests {
             "cleanup must await its blocking work"
         );
 
-        ::tokio::task::spawn_blocking(move || release.wait())
+        ::tokio::task::spawn_blocking(move || meet(&release, "test released cleanup"))
             .await
             .expect("barrier release wait joins");
         cleanup.await.expect("cleanup task joins");

@@ -45,6 +45,7 @@ pub(crate) fn meet(barrier: &Arc<Barrier>, what: &str) {
     // confined to a throwaway helper thread, and the CALLER's deadline is the
     // `recv_timeout` below. That indirection is the whole mechanism -- there is
     // no bounded `Barrier::wait` to delegate to.
+    // Invariant `helper-confined-wait`: docs/architecture/liveness_invariants.md.
     #[allow(clippy::disallowed_methods)]
     std::thread::spawn(move || {
         other.wait();
@@ -95,6 +96,7 @@ pub(crate) fn join_bounded<T: Send + 'static>(handle: JoinHandle<T>, what: &str)
     // unbounded join is confined to a helper thread and the caller's deadline
     // is the `recv_timeout` below. This IS the bounded join the rule points
     // other callers at.
+    // Invariant `helper-confined-wait`: docs/architecture/liveness_invariants.md.
     #[allow(clippy::disallowed_methods)]
     let joiner = std::thread::spawn(move || {
         let value = handle.join();
@@ -104,6 +106,7 @@ pub(crate) fn join_bounded<T: Send + 'static>(handle: JoinHandle<T>, what: &str)
     match waiting.recv_timeout(RENDEZVOUS_TIMEOUT) {
         // The helper has already signalled completion, so this join is
         // guaranteed not to block -- it only collects the payload.
+        // Invariant `helper-confined-wait`: docs/architecture/liveness_invariants.md.
         #[allow(clippy::disallowed_methods)]
         Ok(()) => match joiner.join() {
             Ok(Ok(value)) => value,

@@ -216,8 +216,9 @@ struct SpillIoHooks {
     worker_entries: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     completed_appends: std::sync::atomic::AtomicUsize,
+    /// Holds the worker at entry until the test sends on the paired sender.
     #[cfg(test)]
-    start_barrier: Option<Arc<std::sync::Barrier>>,
+    start_release: Option<Mutex<std::sync::mpsc::Receiver<()>>>,
     #[cfg(test)]
     corrupt_before_read: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -311,6 +312,7 @@ fn run_spill_worker(
     // dropping, which `recv` reports promptly as `Err`; swapping in
     // `recv_timeout` inside `while let Ok(..)` would instead make the worker
     // exit the first time the query paused, silently losing the spill writer.
+    // Invariant `idle-worker-receive`: docs/architecture/liveness_invariants.md.
     #[allow(clippy::disallowed_methods)]
     while let Ok(command) = receiver.recv() {
         match command {
@@ -367,8 +369,14 @@ fn observe_worker_entry(_hooks: Option<&Arc<SpillIoHooks>>) {
         if let Some(entered) = hooks.worker_entered.as_ref() {
             entered.send(()).expect("worker entry receiver was dropped");
         }
-        if let Some(barrier) = hooks.start_barrier.as_ref() {
-            barrier.wait();
+        if let Some(release) = hooks.start_release.as_ref() {
+            // Same 5s bound as the test side's `await_signal`: a test that never
+            // releases the worker fails here instead of parking the blocking pool.
+            release
+                .lock()
+                .expect("spill start-release lock")
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("the test never released the spill worker from its entry hook");
         }
     }
 }
@@ -752,7 +760,6 @@ mod streaming_tests {
     use arrow::datatypes::{DataType, Field, Schema};
     use futures_util::StreamExt;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::Barrier;
 
     fn batch(vals: &[i32]) -> arrow::record_batch::RecordBatch {
         let schema = Arc::new(Schema::new(vec![Field::new("v", DataType::Int32, false)]));
@@ -802,15 +809,15 @@ mod streaming_tests {
         assert!(received.is_ok(), "timed out waiting for {description}");
     }
 
-    /// The worker blocks on a real barrier while this single-thread executor keeps
-    /// scheduling async work. This is deterministic proof that spill file I/O is
+    /// The worker blocks on a real release signal while this single-thread executor
+    /// keeps scheduling async work. This is deterministic proof that spill file I/O is
     /// owned by the blocking pool rather than the current-thread query executor.
     #[tokio::test(flavor = "current_thread")]
     async fn spill_io_never_blocks_the_current_thread_executor() {
-        let release = Arc::new(Barrier::new(2));
+        let (release, release_receiver) = std::sync::mpsc::sync_channel(1);
         let (entered, entered_receiver) = std::sync::mpsc::sync_channel(1);
         let hooks = Arc::new(SpillIoHooks {
-            start_barrier: Some(Arc::clone(&release)),
+            start_release: Some(Mutex::new(release_receiver)),
             worker_entered: Some(entered),
             ..SpillIoHooks::default()
         });
@@ -832,9 +839,9 @@ mod streaming_tests {
         heartbeat_task.await.unwrap();
         assert_eq!(heartbeat.load(Ordering::SeqCst), 1);
 
-        tokio::task::spawn_blocking(move || release.wait())
-            .await
-            .unwrap();
+        release
+            .send(())
+            .expect("the blocked spill worker is still waiting for its release");
         let recovered = spill_task.await.unwrap().unwrap();
         assert_eq!(flatten_i32(&recovered), vec![1, 2, 3]);
         assert_eq!(hooks.completed_appends.load(Ordering::SeqCst), 1);

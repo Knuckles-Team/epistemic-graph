@@ -58,6 +58,8 @@ pub(crate) mod test_env {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Mutex, MutexGuard};
 
+    use crate::lock_recovery::LockRecovery;
+
     static AUTH_ENV_LOCK: Mutex<()> = Mutex::new(());
     static AUTH_ENV_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -81,9 +83,7 @@ pub(crate) mod test_env {
         tenant: &str,
         state_dir_tag: &str,
     ) -> AuthEnvGuard {
-        let lock = AUTH_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let lock = AUTH_ENV_LOCK.lock_recovering("raft harness auth env guard");
         let names = [
             "EPISTEMIC_GRAPH_AUDIENCE",
             "EPISTEMIC_GRAPH_TENANT",

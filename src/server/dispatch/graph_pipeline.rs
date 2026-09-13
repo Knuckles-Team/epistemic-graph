@@ -1645,14 +1645,16 @@ async fn route_native_store_ops(
     ) || crate::server::mutation_batch::is_resource_reservation_method(&method)
     {
         return Ok(dispatch_op_workitem_submission_or_resources(
-            req_id,
-            graph_name,
-            caller,
-            verified_context,
-            core.clone(),
-            persistence.clone(),
-            #[cfg(feature = "raft")]
-            routed_raft.clone(),
+            handlers::work_item::HandleContext {
+                req_id,
+                graph_name,
+                caller,
+                verified_context,
+                core,
+                persistence,
+                #[cfg(feature = "raft")]
+                routed_raft,
+            },
             method,
         )
         .await);

@@ -199,6 +199,7 @@ where
     // a stalled iceberg call a DataFusion error with a cause, and leaves this
     // join prompt in every case -- which a deadline on the join itself could
     // not do, since it would abandon a live runtime thread holding the scan.
+    // Invariant `deadline-on-the-operation`: docs/architecture/liveness_invariants.md.
     #[allow(clippy::disallowed_methods)]
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_multi_thread()
