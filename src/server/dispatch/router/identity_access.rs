@@ -64,7 +64,12 @@ pub(super) async fn dispatch_identity_and_access_methods(
                         return Response::err(req_id, message);
                     }
                     info!("RegisterIdentity committed");
-                    Response::ok(req_id, ResultPayload::String("registered".to_string()))
+                    Response::ok(
+                        req_id,
+                        ResultPayload::scalar::<
+                            eg_types::result_contract::security::RegisterIdentity,
+                        >("registered".to_string()),
+                    )
                 }
             })
             .await

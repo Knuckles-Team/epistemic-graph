@@ -791,7 +791,10 @@ async fn dispatch_op_audit_verify(
     let fname = crate::persist::sanitize(graph_name);
     match persistence.as_ref().and_then(|p| p.as_redb()) {
         Some(redb) => match redb.audit_verify_blocking(&fname) {
-            Ok(report) => Response::ok(req_id, ResultPayload::raw(&report)),
+            Ok(report) => Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::security::AuditVerify>(report),
+            ),
             Err(e) => Response::err(req_id, format!("AuditVerify error: {e}")),
         },
         None => Response::err(
@@ -812,7 +815,12 @@ async fn prove_audit_inclusion(
     let fname = crate::persist::sanitize(graph_name);
     match persistence.as_ref().and_then(|p| p.as_redb()) {
         Some(redb) => match redb.audit_prove_inclusion_blocking(&fname, &node_id, anchor_seq) {
-            Ok(report) => Response::ok(req_id, ResultPayload::raw(&report)),
+            Ok(report) => Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::security::AuditProveInclusion>(
+                    report,
+                ),
+            ),
             Err(e) => Response::err(req_id, format!("AuditProveInclusion error: {e}")),
         },
         None => Response::err(

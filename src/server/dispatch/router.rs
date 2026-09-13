@@ -437,21 +437,31 @@ async fn dispatch_get_identity(
             // `null`, never to an empty object.
             let identity = s.isolation.get_identity(&agent_id);
             drop(s);
-            match serde_json::to_value(&identity) {
-                Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
-                Err(e) => Response::err(req_id, format!("Serialization error: {}", e)),
-            }
+            Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::security::GetIdentity>(identity),
+            )
         }
         Err(error) => Response::err(req_id, error),
     }
 }
 
 /// A unit-returning RBAC admin mutation answers with a fixed acknowledgement
-/// string on success and the store's own message on failure.
+/// string on success and the store's own message on failure; `M` is the op's
+/// declared result.
 #[cfg(feature = "security")]
-fn rbac_admin_ack(req_id: u64, outcome: Result<(), String>, acknowledgement: &str) -> Response {
+fn rbac_admin_ack<M>(req_id: u64, outcome: Result<(), String>, acknowledgement: &str) -> Response
+where
+    M: eg_types::result_contract::MethodResult<
+        Body = String,
+        Encoding = eg_types::result_contract::encoding::Text,
+    >,
+{
     match outcome {
-        Ok(()) => Response::ok(req_id, ResultPayload::String(acknowledgement.to_string())),
+        Ok(()) => Response::ok(
+            req_id,
+            ResultPayload::scalar::<M>(acknowledgement.to_string()),
+        ),
         Err(message) => Response::err(req_id, message),
     }
 }
@@ -465,31 +475,42 @@ async fn apply_rbac_admin(
     use crate::acl::RbacAdminOp;
     let mut s = timed_write(state).await;
     match op {
-        RbacAdminOp::AddRole(role) => {
-            rbac_admin_ack(req_id, s.isolation.try_add_role(role), "role_added")
-        }
+        RbacAdminOp::AddRole(role) => rbac_admin_ack::<
+            eg_types::result_contract::security::RbacAddRole,
+        >(
+            req_id, s.isolation.try_add_role(role), "role_added"
+        ),
         RbacAdminOp::RemoveRole(name) => {
-            rbac_admin_ack(req_id, s.isolation.try_remove_role(&name), "role_removed")
+            rbac_admin_ack::<eg_types::result_contract::security::RbacRemoveRole>(
+                req_id,
+                s.isolation.try_remove_role(&name),
+                "role_removed",
+            )
         }
-        RbacAdminOp::AddGrant(grant) => {
-            rbac_admin_ack(req_id, s.isolation.try_add_grant(grant), "grant_added")
-        }
+        RbacAdminOp::AddGrant(grant) => rbac_admin_ack::<
+            eg_types::result_contract::security::RbacAddGrant,
+        >(
+            req_id, s.isolation.try_add_grant(grant), "grant_added"
+        ),
         RbacAdminOp::RemoveGrant(grant) => match s.isolation.try_remove_grant(&grant) {
             Ok(removed) => Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!({ "removed": removed })),
+                ResultPayload::of::<eg_types::result_contract::security::RbacRemoveGrant>(
+                    eg_types::result_contract::security::RbacGrantRemoval { removed },
+                ),
             ),
             Err(message) => Response::err(req_id, message),
         },
         RbacAdminOp::List => {
             let policy = s.isolation.rbac();
-            let roles: Vec<_> = policy.roles().cloned().collect();
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!({
-                    "roles": roles,
-                    "grants": policy.grants(),
-                })),
+                ResultPayload::of::<eg_types::result_contract::security::RbacList>(
+                    eg_types::result_contract::security::RbacPolicyListing {
+                        roles: policy.roles().cloned().collect(),
+                        grants: policy.grants().to_vec(),
+                    },
+                ),
             )
         }
     }

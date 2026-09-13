@@ -5554,6 +5554,7 @@ pub enum DistAlgo {
 /// `first_broken_seq` carries the position of the first detected break.
 #[cfg(feature = "security")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct AuditReport {
     pub graph: String,
     pub ok: bool,
@@ -5568,6 +5569,7 @@ pub struct AuditReport {
 /// semantics.
 #[cfg(feature = "security")]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum MerkleSide {
     Left,
     Right,
@@ -5577,6 +5579,7 @@ pub enum MerkleSide {
 /// plus which side it sits on. See [`MerkleInclusionReport`].
 #[cfg(feature = "security")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MerkleProofStep {
     pub sibling_sha256: String,
     pub side: MerkleSide,
@@ -5593,6 +5596,7 @@ pub struct MerkleProofStep {
 /// after this anchor ran) — not itself evidence of tampering.
 #[cfg(feature = "security")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MerkleInclusionReport {
     pub graph: String,
     pub node_id: String,
@@ -5649,6 +5653,7 @@ pub struct Vf2MatchResult {
 /// that explicit branch is what stops this exact regression from shipping silent
 /// a second time.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct LedgerReadResult {
     pub populated: bool,
     pub entries: Vec<String>,
