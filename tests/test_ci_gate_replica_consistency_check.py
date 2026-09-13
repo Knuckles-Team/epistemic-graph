@@ -133,8 +133,10 @@ def test_gates_job_run_steps_include_the_numeric_kernel_parity_chain():
 
 
 CAPABILITY_GATE_NAME = "Test (canonical capability policy and generated ledger)"
+# `contract` = `canonical-ledger` + `contract-schema`: it also compiles and runs
+# `tests/contract_generated.rs`, which requires both, so it is the complete profile.
 CAPABILITY_GATE_COMMAND = (
-    "cargo test -p eg-capabilities --features canonical-ledger --no-fail-fast"
+    "cargo test --locked -p eg-capabilities --features contract --no-fail-fast"
 )
 
 
@@ -202,7 +204,7 @@ def test_capability_gate_contract_rejects_a_single_selected_target(selected_targ
     doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
     _set_capability_gate_command(
         doc,
-        f"cargo test -p eg-capabilities --features canonical-ledger "
+        f"cargo test --locked -p eg-capabilities --features contract "
         f"--test {selected_target} --no-fail-fast",
     )
     with pytest.raises(AssertionError):

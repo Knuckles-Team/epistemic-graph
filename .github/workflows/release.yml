@@ -300,13 +300,13 @@ jobs:
   #
   # Native build dependencies, by exact apt package name. espeak-rs-sys builds
   # espeak-ng with CMake and generates its bindings with bindgen, which loads
-  # libclang. Measured against R820 (Ubuntu 26.04), where this job's steps were run
+  # libclang. Measured on an Ubuntu 26.04 build host, where this job's steps were run
   # verbatim in a clean tree with a fresh target dir:
   #   * build-essential, cmake, clang, pkg-config, curl, ca-certificates: already
-  #     on R820, and on the ubuntu-24.04 image (CMake 3.31, clang 16/17/18, g++ 13,
-  #     pkg-config 1.8, curl 8.5). Installed explicitly anyway so the job does not
-  #     depend on the image's tool list.
-  #   * libclang-dev: NOT on R820 (bindgen found libclang-21.so.1 from
+  #     on that host, and on the ubuntu-24.04 image (CMake 3.31, clang 16/17/18,
+  #     g++ 13, pkg-config 1.8, curl 8.5). Installed explicitly anyway so the job does
+  #     not depend on the image's tool list.
+  #   * libclang-dev: NOT on that host (bindgen found libclang-21.so.1 from
   #     libclang1-21, which `clang` pulls in), and libclang is not listed on the
   #     runner image. Installed so bindgen's libclang lookup does not depend on
   #     which clang packages the image happens to ship.
@@ -664,7 +664,7 @@ jobs:
   # change this job's build/determinism logic here).
   build:
     name: wheel ${{ matrix.name }}
-    needs: [gates, lint-and-architecture, scanner-quality]
+    needs: [gates, lint-and-architecture, scanner-quality, tts-piper-inference]
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
     # An OPTIONAL leg must not hold the whole run open. Measured on run

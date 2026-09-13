@@ -52,6 +52,6 @@ A missing or unreadable runtime FAILS every inference test. It never skips them.
 The script downloads the official ONNX Runtime 1.24.2 release, the version
 `ort-sys` 2.0.0-rc.12 pins (api-24), and checks its sha256.
 
-Measured on 2026-09-13 on R820, which has no AVX2: all synthesis tests pass
+Measured on 2026-09-13 on a build host without AVX2: all synthesis tests pass
 with this library. Debian's `libonnxruntime1.23` package does not work, because
 its API version is older than the pin.
