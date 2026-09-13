@@ -10,7 +10,22 @@
 # the complete compiler-declared module closure in the staged index; otherwise
 # a newly split private child makes KISS report a false missing-module failure.
 #
-# Exit 0 = clean/no applicable source, 1 = KISS findings, 2 = cannot run.
+# BUG-CX-136 diff-scoping (F6): a raw `kiss check <file>` re-reports every
+# violation the WHOLE file carries, so a one-line comment added to a large
+# pre-existing file used to fail the commit for debt the commit never
+# touched. This wrapper now also runs KISS on the HEAD blob of each changed
+# file (a second ephemeral tree, `HEAD_ROOT`, materialized once via
+# `git archive HEAD`) and hands both reports to `scripts/kiss_diff_scope.py`,
+# which keeps only the findings the staged diff actually caused: a NEW or
+# MODIFIED function/item (matched by the enclosing item's SOURCE CONTENT, not
+# by line number or bare symbol name -- both shift under extraction/merges),
+# or a file-level/whole-type count the diff newly crosses or makes worse.
+# Untouched pre-existing debt elsewhere in the same file no longer fails the
+# commit. NO baseline file and NO self-updating count are involved: both
+# reports are computed fresh, from the two Git blobs, on every run.
+#
+# Exit 0 = clean/no applicable source (or every finding was pre-existing and
+# untouched), 1 = attributable KISS findings, 2 = cannot run.
 set -uo pipefail
 
 # A real git hook inherits repository-selector variables from git itself.  In
@@ -74,12 +89,27 @@ cd "$ROOT" || die "could not enter repository root"
 SCRATCH_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/eg-kiss-staged.XXXXXX")" || \
   die "could not create staged-source directory"
 STAGED_ROOT="$SCRATCH_ROOT/index"
+HEAD_ROOT="$SCRATCH_ROOT/head"
 CHANGED_PATHS="$SCRATCH_ROOT/changed-paths"
 mkdir -- "$STAGED_ROOT" || die "could not create staged-index directory"
+mkdir -- "$HEAD_ROOT" || die "could not create head-tree directory"
 cleanup() {
   rm -rf -- "$SCRATCH_ROOT"
 }
 trap cleanup EXIT HUP INT TERM
+
+# BUG-CX-136 diff-scoping (F6): materialize the complete HEAD tree once, so a
+# finding can be compared against what HEAD actually contained -- a commit
+# fails only for KISS findings the staged diff is responsible for, never for
+# untouched pre-existing debt elsewhere in a changed file. A repository with
+# no commits yet (first-ever commit) has no HEAD; every finding is then
+# attributable by construction, so HEAD_ROOT is simply left empty.
+HAVE_HEAD=0
+if git_cmd rev-parse --verify -q HEAD >/dev/null 2>&1; then
+  git_cmd archive HEAD | tar -x -C "$HEAD_ROOT" 2>/dev/null || \
+    die "could not materialize the HEAD tree"
+  HAVE_HEAD=1
+fi
 
 # Pre-commit normally exports GIT_INDEX_FILE. Read only that index, and keep
 # path records NUL-delimited because newlines are legal Git pathname bytes.
@@ -187,7 +217,7 @@ symlink="$(find "${source_roots[@]}" -type l -print -quit 2>/dev/null)" || die \
   "could not inspect staged Rust roots for symlinks"
 [ -z "$symlink" ] || die "staged Rust tree contains a symlink: $symlink"
 
-for authority in scripts/rust_module_tree.py scripts/rust_lexer.py; do
+for authority in scripts/rust_module_tree.py scripts/rust_lexer.py scripts/kiss_diff_scope.py; do
   staged_authority="$STAGED_ROOT/$authority"
   [ -f "$staged_authority" ] && [ ! -L "$staged_authority" ] || die \
     "missing staged $authority module-closure authority"
@@ -273,11 +303,49 @@ for path in "${files[@]}"; do
     printf '%s\n' "$output" >&2
     die "KISS exit status and violation report disagree for $path"
   fi
-  total=$((total + count))
-  printf 'kiss(staged): %s violation(s) in %s\n' "$count" "$path"
-  grep '^VIOLATION:' <<< "$output" || true
-  [ "$count" -eq 0 ] || rc=1
+  # BUG-CX-136 diff-scoping (F6): a raw KISS report covers the WHOLE file, so
+  # it re-reports every pre-existing violation a changed file already
+  # carried, not just what this diff touched. Narrow it: re-run KISS on the
+  # HEAD blob of the same file (when one exists) and keep only the findings
+  # `kiss_diff_scope.py` attributes to the staged diff -- a NEW or MODIFIED
+  # function/item, or a file-level (or whole-type methods_per_class) count
+  # this diff newly crosses or worsens. Untouched pre-existing debt
+  # elsewhere in the same file never fails the commit.
+  attributable_count="$count"
+  attributable_output="$output"
+  if [ "$count" -gt 0 ]; then
+    head_file="$HEAD_ROOT/$path"
+    head_args=()
+    if [ "$HAVE_HEAD" -eq 1 ] && [ -f "$head_file" ] && [ ! -L "$head_file" ]; then
+      head_output="$(cd "$HEAD_ROOT" && \
+        scanner_cmd "$KISS" check --config "$cfg_resolved" --lang rust "$path" 2>&1)"
+      head_status=$?
+      if [ "$head_status" -ne 0 ] && [ "$head_status" -ne 1 ]; then
+        printf '%s\n' "$head_output" >&2
+        die "KISS failed on the HEAD version of $path with exit $head_status"
+      fi
+      printf '%s' "$head_output" > "$SCRATCH_ROOT/head-report"
+      head_args=(--head-source "$head_file" --head-report "$SCRATCH_ROOT/head-report")
+    fi
+    printf '%s' "$output" > "$SCRATCH_ROOT/staged-report"
+    attributable_output="$(scanner_cmd python3 -I "$STAGED_ROOT/scripts/kiss_diff_scope.py" \
+      --staged-source "$staged_path" --staged-report "$SCRATCH_ROOT/staged-report" \
+      "${head_args[@]}")" || die "kiss_diff_scope.py failed for $path"
+    attributable_count="$(grep -c '^VIOLATION:' <<< "$attributable_output" || true)"
+    [ -n "$attributable_output" ] || attributable_count=0
+  fi
+  total=$((total + attributable_count))
+  if [ "$attributable_count" -eq "$count" ]; then
+    printf 'kiss(staged): %s violation(s) in %s\n' "$attributable_count" "$path"
+  else
+    printf 'kiss(staged): %s attributable violation(s) in %s (%s pre-existing, untouched by this change, not counted)\n' \
+      "$attributable_count" "$path" "$((count - attributable_count))"
+  fi
+  if [ "$attributable_count" -ne 0 ]; then
+    printf '%s\n' "$attributable_output"
+    rc=1
+  fi
 done
 
-printf 'kiss(staged): %s violation(s) across %s changed file(s)\n' "$total" "${#files[@]}"
+printf 'kiss(staged): %s attributable violation(s) across %s changed file(s)\n' "$total" "${#files[@]}"
 exit "$rc"

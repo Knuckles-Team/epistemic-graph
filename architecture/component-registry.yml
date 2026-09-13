@@ -18,6 +18,19 @@
 # `verified_against` on 2026-09-04. Where a claim in the source finding or in the
 # `epistemic-graph-development` skill did not survive verification, the corrected value is
 # recorded and the stale claim is named explicitly in `corrections_to_upstream_claims`.
+#
+# F5 targeted re-verification (2026-09-12, `reverifications[0]` below, lane
+# refactor/eg-f56-registry-kiss): `verified_against` above is left INTACT as the original
+# 2026-09-04 provenance record (this file's `history_policy` is append-only). A second,
+# NARROWER pass re-checked this file against HEAD `3243c3e2` for exactly three adversarial
+# findings -- the stale head/date, the Agent Library capabilities wrongly marked
+# UNCLAIMED, and two superseded-code deletions missing their lineage record -- plus ran the
+# owner-manifest layout checker (`registry.validate_layout_records`, the function the
+# proposal checker at `plans/refactor/scripts/architecture_component_registry.py` exposes
+# for exactly this file's future role) against the current `components:` list. It did
+# **NOT** re-run arch-lint, the AL002 sync-IO scan, or any cargo/pytest command, so every
+# `al002_no_sync_io` block and `measured_at_head: "5523859a..."` stamp below remains an
+# UNCHANGED 2026-09-04 measurement, not a claim about HEAD `3243c3e2`.
 
 schema: eg-architecture-component-registry/v1
 supersedes_fragment_schema: au-eg-architecture-component-fragment/v1
@@ -88,6 +101,123 @@ verified_against:
     - "the six heavy hooks (cargo-clippy, cargo-clippy-all-features, cargo-deny-advisories,
        wheel-smoke, pytest, constrained-parallelism) remain UNMEASURED"
 
+reverifications:
+  - reverification_id: 1
+    performed_on: '2026-09-12'
+    repository_head: 3243c3e222b133396010cb573b803d9298a717aa
+    lane: refactor/eg-f56-registry-kiss (F5)
+    method: read_only_inspection_plus_layout_checker_invocation
+    scope: >-
+      Targeted re-check of three adversarial findings against `5523859a`'s claims, NOT a
+      full re-verification of every crate/path/line/count in this file (those remain as
+      measured 2026-09-04 -- see the note above `layer_model`). `git rev-parse HEAD` in the
+      lane worktree equals `git merge-base HEAD 3243c3e2`, i.e. HEAD IS the lane's base
+      commit with no further commits yet, so `repository_head` here is exact, not
+      approximate.
+    commands_run:
+      - "git rev-parse HEAD ; git log -1 --format=%cI (repository_head + date)"
+      - "find src crates -iname 'agent_library*' -o -iname 'agent_component*' -o -iname
+         'agent_graph*' -o -iname 'agent_template*' -o -iname 'agent_pin_resolution*'"
+      - "grep -rn '(struct|fn) AgentLibraryEntry' plus wc -l on each matched file"
+      - "grep -rln 'bind_for_write|LivePointer|GenerationRetirement' over crates/ and src/
+         (whole tree, not just eg-core) -- zero matches at HEAD"
+      - "git log --oneline -S<symbol> --all for bind_for_write / LivePointer /
+         GenerationRetirement / read_sql_source_page -- confirms each was deleted, not
+         merely renamed, and identifies the deleting commit"
+      - "git show --stat <commit> for db5ff7f3 and 427b1f77 (the two deleting commits)"
+      - "grep -n 'struct SemanticIndexServerAdapter|impl SemanticIndexServerAdapter'
+         src/server/semantic_index.rs -- confirms the type still exists; only the one
+         method was deleted"
+      - "python3 -c invocation of
+         plans/refactor/scripts/architecture_component_registry.py's
+         `validate_layout_records` against this file's `components:` list, split into
+         `layer_boundary_root_seam` (-> boundary_parents) and `implementation_component`
+         (-> layout records) -- see `layout_checker_result` below"
+    findings:
+      - "Confirmed and fixed: `verified_against.repository_head`/`verified_on` described
+         5523859a/2026-09-04 as current; HEAD had moved to 3243c3e2/2026-09-12 with two
+         intervening deletion commits this file did not yet record."
+      - "Confirmed and fixed: `eg.agent-library-entry` and `eg.agent-library-table` were
+         marked UNCLAIMED with the stated reason 'no source implements a typed
+         AgentLibraryEntry today' / 'the durable Agent Library table ... do not exist in
+         this repository yet'. FALSE at HEAD: crates/eg-types/src/agent_library.rs (1912
+         lines, `AgentLibraryEntry`/`AgentLibraryLifecycle`/schema-versioned digest
+         domains) plus its siblings agent_component.rs (1969 lines),
+         agent_graph.rs (2534 lines), agent_template.rs (1343 lines), all under
+         eg.wire-contracts' existing `crates/eg-types/src/` root; and
+         src/server/persistence/agent_library.rs (3061 lines) plus
+         agent_component.rs (2064), agent_graph.rs (1907), agent_template.rs (1463),
+         agent_pin_resolution.rs (570), all under eg.persistence's existing
+         `src/server/persistence/` root -- both roots were ALREADY owned before this
+         edit; only the capability_ids/delegation entries were stale. See the two
+         components' updated `capability_ids` and summaries below."
+      - "Confirmed and fixed: the dead binding-authority layer (`bind_for_write`,
+         `LivePointer`, `GenerationRetirement`) and
+         `SemanticIndexServerAdapter::read_sql_source_page` are gone from HEAD (zero
+         grep hits repo-wide) but this file recorded no lineage for either deletion.
+         Both were deliberate supersession deletions (commits db5ff7f3 and 427b1f77,
+         both already on this lane's base -- not speculative future work), now recorded
+         as `migration_lineage` entries on eg.graph-core and eg.server-dispatch
+         respectively."
+      - "Noted, not corrected (out of scope for a registry-currency pass, and would
+         require inventing test-path claims this pass did not verify per-crate): the
+         layout checker also fails structurally on `source and test roots must exist
+         together` for eg.mutation-store, eg.persistence, eg.cluster-replication,
+         eg.server-dispatch and eg.observability -- each declares `owned_source_roots`
+         with an empty `test_roots`. This predates this pass and is independent of the
+         path-form issue below."
+      - "Noted: `crates/eg-core/src/compute/semantic_ann_codes.rs` (6480 lines) now
+         coexists with a `semantic_ann_codes/` subdirectory (`rows.rs`, `tests.rs`)
+         already present at this lane's base commit -- a submodule split is in progress
+         (concurrent lane F4/F7a per the program brief). The migration_lineage entry
+         below cites the logical module path
+         `eg-core::compute::semantic_ann_codes` rather than a byte offset, and notes the
+         split explicitly, per `symbol-keyed-baselines-break-under-extraction` /
+         `architecture-gates-key-on-byte-offsets` lessons: a line-number or single-file
+         citation here would go stale the moment F4/F7a lands its split."
+    layout_checker_result: >-
+      RAN `registry.validate_layout_records` (the exact function
+      `plans/refactor/scripts/architecture_component_registry.py` exports for validating a
+      future owner-manifest's implementation-component rows) against this file's live 23
+      `implementation_component` records and 6 `layer_boundary_root_seam` records (as
+      `boundary_parents`), with `fleet_dependency_edges={}` (inventory.yml:fleet_graph is
+      status:not_started, so no edges exist to pass) and no `shared_exceptions` (this file
+      declares none). REJECTED, and REJECTED FOR REAL, VERIFIED REASONS -- this is not the
+      generic "proposal checker refuses implementation-component rows" posture the header
+      comment describes for the DIFFERENT, unrelated `plans/refactor` proposal-fixture
+      validator; it is this exact file failing this exact function's structural checks:
+      (1) `layout.records/0.owned_source_roots: must use canonical lexical path form` --
+      every directory root in this file is written with a trailing `/` (e.g.
+      `"crates/eg-types/src/"`) to mean "the whole subtree"; `_layout_path` normalizes by
+      joining `_relative_parts(value)` with `/` and requires `value == normalized`, so ANY
+      trailing slash fails on the FIRST record checked (`eg.wire-contracts`). Every one of
+      the 23 implementation components uses this convention, so this is a whole-file,
+      pre-existing path-notation mismatch with the checker's canonical form, not a defect
+      introduced by this pass. Fixing it means either (a) the checker learns a
+      directory-root path form, or (b) every owned_source_roots/public_contract_roots/
+      test_roots/generated_roots entry in this ~3700-line file is rewritten to enumerate
+      files instead of directories, losing the "whole subtree" meaning the summaries rely
+      on -- neither is an F5 registry-currency edit, so this pass records the exact
+      failure rather than papering over it with an unreviewed mass rewrite.
+      (2) Stripping trailing slashes ONLY inside this diagnostic's throwaway copy (never
+      in the committed file) to see past finding (1): the NEXT failure is
+      `layout.records/1: source and test roots must exist together` --
+      `eg.mutation-store` (and, confirmed by iterating past it the same way,
+      eg.persistence/eg.cluster-replication/eg.server-dispatch/eg.observability too)
+      declares `owned_source_roots` with `test_roots: []`. Real gap, not re-fabricated:
+      these crates carry inline `#[cfg(test)]` modules rather than a `tests/` directory,
+      which this file's existing convention (one `test_roots` entry per component,
+      already inconsistently populated even before this pass -- e.g. eg.wire-contracts
+      lists only `crates/eg-capabilities/tests/` although it also owns eg-types/
+      eg-durable/eg-resource) does not have a way to represent honestly without
+      inventing a claim this pass did not verify per-crate.
+      HONEST BOTTOM LINE: this file is NOT layout-checker-clean, for the two concrete,
+      reproducible reasons above (script: `/var/tmp/l9/eg-f56/run_layout_check.py`,
+      `run_layout_check2.py`), and closing either gap is a larger, separately-scoped
+      edit than this lane's brief (agent-library claims, deletion lineage, staleness).
+      No gate or component status below is marked passed/accepted on the strength of
+      this run; both remain `not_run`/`proposed` exactly as before.
+
 layer_model:
   authority: plans/refactor/inventory.yml -> inventory.repositories.epistemic-graph.target_layers
   target_layers: [types, core, storage-transaction, query-reasoning, server-protocol, composition]
@@ -125,21 +255,50 @@ capability_authority_model:
     this file, and is preserved deliberately rather than renamed -- renaming would break the
     identity continuity the transition depends on. The capability and the component are distinct
     objects in distinct namespaces; the delegation map disambiguates which is meant.
-  unclaimed_capabilities:
+  unclaimed_capabilities: []
+  previously_unclaimed_now_claimed:
     - capability: eg.agent-library-entry
       seam: eg.types
       target_record: contract:rf-020/agent-library-entry/v1
-      state: no_implementation_component_declares_it
-      reason: >-
-        RF-020 created the target record; no source implements a typed AgentLibraryEntry today.
-        Claiming it for a component would be inventing coverage. Left UNCLAIMED on purpose.
+      claimed_by: eg.wire-contracts
+      claimed_on: '2026-09-12'
+      state: implementation_component_declares_it
+      evidence:
+        - "crates/eg-types/src/agent_library.rs (1912 lines) -- AgentLibraryEntry,
+           AgentLibraryLifecycle, AGENT_LIBRARY_ENTRY_SCHEMA_VERSION (currently 5),
+           AGENT_LIBRARY_DEFINITION_DIGEST_DOMAIN / AGENT_LIBRARY_TOOL_SURFACE_DIGEST_DOMAIN"
+        - "crates/eg-types/src/agent_component.rs (1969 lines), agent_graph.rs (2534
+           lines), agent_template.rs (1343 lines) -- the identity contract's supporting
+           component/graph/template types"
+      reason_superseded: >-
+        Was correctly UNCLAIMED at 5523859a/2026-09-04 (the fixture predates these files).
+        FALSE at HEAD 3243c3e2/2026-09-12: a typed AgentLibraryEntry identity contract
+        exists, entirely within eg.wire-contracts' pre-existing `crates/eg-types/src/`
+        owned_source_root, so no new owned_source_roots entry was needed -- only the
+        capability_id and delegation were stale. See eg.wire-contracts.capability_ids and
+        eg.types.capability_delegation below.
     - capability: eg.agent-library-table
       seam: eg.storage-transaction
       target_record: data:rf-020/agent-library-entry-table/v1
-      state: no_implementation_component_declares_it
-      reason: >-
-        Same. The durable Agent Library table, its revisions, outbox, tombstones, replay and
-        reconciliation do not exist in this repository yet.
+      claimed_by: eg.persistence
+      claimed_on: '2026-09-12'
+      state: implementation_component_declares_it
+      evidence:
+        - "src/server/persistence/agent_library.rs (3061 lines)"
+        - "src/server/persistence/agent_component.rs (2064 lines),
+           agent_graph.rs (1907 lines), agent_template.rs (1463 lines),
+           agent_pin_resolution.rs (570 lines) -- 9,065 lines total across the five files"
+      reason_superseded: >-
+        Was correctly UNCLAIMED at 5523859a/2026-09-04 ("do not exist in this repository
+        yet"). FALSE at HEAD 3243c3e2/2026-09-12: the durable Agent Library table now has
+        a real persistence implementation, entirely within eg.persistence's pre-existing
+        `src/server/persistence/` owned_source_root -- again, only the capability_id and
+        delegation were stale, not the owned_source_roots. Whether this persistence layer
+        satisfies EVERY behavior RF-020's target record lists (revisions, outbox,
+        tombstones, replay, reconciliation) was NOT independently re-verified line-by-line
+        in this pass -- the claim made here is "a real, substantial implementation exists
+        and has a named owner", not "the target record's acceptance criteria are met";
+        that remains `evidence_status: not_run` on both components below.
 
 components:
   - component_id: eg.types
@@ -165,7 +324,7 @@ components:
       nothing. See capability_delegation below.
     capability_delegation:
       - "eg.contracts -> eg.wire-contracts"
-      - "eg.agent-library-entry -> UNCLAIMED (no implementation component declares it; RF-020 target record exists but no source owner has been identified)"
+      - "eg.agent-library-entry -> eg.wire-contracts (claimed 2026-09-12: crates/eg-types/src/agent_library.rs + agent_component.rs/agent_graph.rs/agent_template.rs; see capability_authority_model.previously_unclaimed_now_claimed)"
     target_item_refs:
       - "tgt:contract:v1:be004ea258853b8df307958d8d3b68f8b2508665a2208df94597035b5ba8a14c"
     contract_state: target_inventory_bound
@@ -305,7 +464,7 @@ components:
       nothing. See capability_delegation below.
     capability_delegation:
       - "eg.storage-transaction -> eg.persistence"
-      - "eg.agent-library-table -> UNCLAIMED (no implementation component declares it; RF-020 target record exists but no source owner has been identified)"
+      - "eg.agent-library-table -> eg.persistence (claimed 2026-09-12: src/server/persistence/agent_library.rs + agent_component.rs/agent_graph.rs/agent_template.rs/agent_pin_resolution.rs; see capability_authority_model.previously_unclaimed_now_claimed)"
     target_item_refs:
       - "tgt:data:v1:970cee140bbe9696f255e2bbe5d32962eb421209b78b3ab9d2841756fd11aaf7"
     contract_state: target_inventory_bound
@@ -565,6 +724,7 @@ components:
       - "eg.method-policy-ledger"
       - "eg.durable-execution-routing"
       - "eg.host-resource-capacity"
+      - "eg.agent-library-entry"
     target_item_refs: []
     contract_state: unknown_not_inventory_complete
     owned_crates:
@@ -651,7 +811,7 @@ components:
     acceptance_evidence: []
     evidence_status: not_run
     summary: >-
-      The zero- and one-edge contract leaves every other component imports. eg-types is the BOTTOM of the DAG and the only crate the whole workspace can see: protocol.rs (Request/Response/Method/ResultPayload), types.rs, wire.rs, acl.rs and the MutationBatch v1 contract itself (mutation_batch/, incl. MutationScope, MutationScopeIdentity, PRIVATE_PAYLOAD_EVENT_TYPES, COMPILED_BATCH_INCARNATION and the three domain predicates). eg-capabilities is the machine-checked MethodPolicy projection of eg_types::protocol::Method (deps = eg-types only). eg-durable carries routing contracts only (CallShape/WorkShape/DurableBackendKind) with no journal, lease or 2PC. eg-resource is dependency-free cgroup-aware capacity resolution. Grouped as one seam because all four are contract-only, are consumed workspace-wide, and splitting them would produce exactly the tiny-facade pattern the layout contract forbids.
+      The zero- and one-edge contract leaves every other component imports. eg-types is the BOTTOM of the DAG and the only crate the whole workspace can see: protocol.rs (Request/Response/Method/ResultPayload), types.rs, wire.rs, acl.rs and the MutationBatch v1 contract itself (mutation_batch/, incl. MutationScope, MutationScopeIdentity, PRIVATE_PAYLOAD_EVENT_TYPES, COMPILED_BATCH_INCARNATION and the three domain predicates). eg-capabilities is the machine-checked MethodPolicy projection of eg_types::protocol::Method (deps = eg-types only). eg-durable carries routing contracts only (CallShape/WorkShape/DurableBackendKind) with no journal, lease or 2PC. eg-resource is dependency-free cgroup-aware capacity resolution. Grouped as one seam because all four are contract-only, are consumed workspace-wide, and splitting them would produce exactly the tiny-facade pattern the layout contract forbids. ADDED 2026-09-12 (F5): the RF-020 Agent Library identity contract also lives here, still within the existing `crates/eg-types/src/` root -- `agent_library.rs` (`AgentLibraryEntry`, `AgentLibraryLifecycle`, the schema-versioned definition/tool-surface digest domains, currently v5), `agent_component.rs`, `agent_graph.rs`, and `agent_template.rs`. This was UNCLAIMED as recently as the 5523859a/2026-09-04 verification; see `capability_authority_model.previously_unclaimed_now_claimed` for the correction record.
   - component_id: eg.mutation-store
     component_kind: implementation_component
     parent_component_id: eg.types
@@ -1194,7 +1354,24 @@ components:
     aliases: []
     replaces: []
     merged_from: []
-    migration_lineage: []
+    migration_lineage:
+      - "DELETED 2026-09-12 (commit db5ff7f3, already on this lane's base 3243c3e2, NOT
+         speculative): the duplicated binding-authority / live-pointer / generation-
+         retirement block inside module eg-core::compute::semantic_ann_codes
+         (`bind_for_write`, `LivePointer { generation }`, `GenerationRetirement`) --
+         a pre-contract-era decoder for `semantic_active_pointers` via rmp_serde that
+         could never parse the row format the live path actually writes. Zero grep hits
+         for any of the three symbols anywhere in src/ or crates/ at HEAD; this is a
+         superseded-code deletion, not a missing capability, and needs no replacement
+         component or capability entry. REPLACED BY (already live, not new): the
+         SemanticActivePointer::to_canonical_cbor / from_canonical_cbor path in
+         `finalize_generation` / `live_generation_in`, same module. NOTE: at this lane's
+         base commit, eg-core::compute::semantic_ann_codes exists both as
+         crates/eg-core/src/compute/semantic_ann_codes.rs (6480 lines) and a sibling
+         crates/eg-core/src/compute/semantic_ann_codes/ directory (rows.rs, tests.rs) --
+         a submodule split is in progress on a concurrent lane (F4/F7a per the program
+         brief), so this entry cites the logical module path rather than a line range or
+         single file, to avoid going stale when that split lands."
     test_mirrors_component_id: eg.graph-core
     acceptance_gates:
       reexport_tiny_facade_file_explosion: not_run
@@ -1536,6 +1713,7 @@ components:
       - "eg.backup-restore"
       - "eg.cold-tier-offload"
       - "eg.write-coalescing"
+      - "eg.agent-library-table"
     target_item_refs: []
     contract_state: unknown_not_inventory_complete
     owned_crates: []
@@ -1606,7 +1784,7 @@ components:
     acceptance_evidence: []
     evidence_status: not_run
     summary: >-
-      The facade's own durable persistence and transaction layer: the 20,818-line src/redb_store.rs graph store plus its submodules (capacity leases, development lane, work-item capability, resource reservations), the redb physical layout, persist locking, durability, mutation apply, the write coalescer, graph deltas, at-rest crypto, and src/server/persistence/ (redb_backend, shard_migrate, backup, cold_offload). This component is NOT modelled anywhere in the epistemic-graph-development skill's layer table and owns the single largest AL002 burden in the repository.
+      The facade's own durable persistence and transaction layer: the 20,818-line src/redb_store.rs graph store plus its submodules (capacity leases, development lane, work-item capability, resource reservations), the redb physical layout, persist locking, durability, mutation apply, the write coalescer, graph deltas, at-rest crypto, and src/server/persistence/ (redb_backend, shard_migrate, backup, cold_offload). This component is NOT modelled anywhere in the epistemic-graph-development skill's layer table and owns the single largest AL002 burden in the repository. ADDED 2026-09-12 (F5): the RF-020 Agent Library's durable table also lives here, within the existing `src/server/persistence/` root -- agent_library.rs (3061 lines), agent_component.rs (2064), agent_graph.rs (1907), agent_template.rs (1463), and agent_pin_resolution.rs (570). This was UNCLAIMED as recently as the 5523859a/2026-09-04 verification ("do not exist in this repository yet"); see `capability_authority_model.previously_unclaimed_now_claimed` for the correction record. Whether the implementation covers every RF-020 behavior (revisions/outbox/tombstones/replay/reconciliation) is NOT independently re-verified here -- `evidence_status` stays `not_run`.
   - component_id: eg.cluster-replication
     component_kind: implementation_component
     parent_component_id: eg.storage-transaction
@@ -2344,7 +2522,21 @@ components:
     aliases: []
     replaces: []
     merged_from: []
-    migration_lineage: []
+    migration_lineage:
+      - "DELETED 2026-09-12 (commit 427b1f77, already on this lane's base 3243c3e2, NOT
+         speculative): `SemanticIndexServerAdapter::read_sql_source_page`
+         (src/server/semantic_index.rs) -- a superseded page-read wrapper. The two
+         properties it added over calling the read port directly (`compute_off_lock`
+         and an opaque logged refusal) are already supplied at a coarser, mandatory
+         boundary: every op needing a page read (AdmitSourceRecord, AdmitSourcePage,
+         AdmitSourceReconcile, AdmitSourceReplacement) hands the whole service call to
+         `blocking()` -- the same `spawn_blocking` -- and the service maps the read
+         port's error in `read_reconciliation_page` before `blocking` renders it. No
+         `SemanticIndexOp` returns a source page by design. `SemanticIndexServerAdapter`
+         ITSELF still exists (src/server/semantic_index.rs:208/212/690, confirmed at
+         HEAD) -- only this one method was deleted, not the type. Zero grep hits for
+         `read_sql_source_page` anywhere in src/ or crates/ at HEAD. Needs no
+         replacement component or capability entry."
     test_mirrors_component_id: eg.server-dispatch
     acceptance_gates:
       reexport_tiny_facade_file_explosion: not_run
