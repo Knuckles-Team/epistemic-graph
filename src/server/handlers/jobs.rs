@@ -2819,7 +2819,7 @@ pub(crate) async fn apply_consensus_job_publication_commit(
             plan.prepared.methods,
             &result,
             identity,
-            authority.attempt_nonce.clone(),
+            authority.attempt_nonce,
         )
         .await?
     } else {
@@ -2832,7 +2832,7 @@ pub(crate) async fn apply_consensus_job_publication_commit(
             &plan.prepared.batch_id,
             plan.prepared.methods,
             &result,
-            authority.attempt_nonce.clone(),
+            authority.attempt_nonce,
         )
         .await?
     };
