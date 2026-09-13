@@ -47,19 +47,7 @@ pub struct Topology {
 /// an outer lock. Single-op convenience methods open a one-shot txn. Properties are
 /// `Arc<Vec<u8>>` (Phase C-A) so they move into/out of the DashMap and snapshots
 /// without copying the bytes.
-/// One capability term found in a query by the ontology lexical gate
-/// (CONCEPT:EG-ORCH.routing.lexical-capability-escalation). `term` is the matched alias/name, `node_type` its capability
-/// class (Tool/Skill/MCPServer/…), `label` the owning node's display name,
-/// `mcp_server` the owning fleet server (so a caller can bind that server's
-/// toolset directly), and `score` the matched term's character length.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct OntologyMatch {
-    pub term: String,
-    pub node_type: String,
-    pub label: String,
-    pub mcp_server: String,
-    pub score: f64,
-}
+pub use eg_types::compute_result::algorithms::OntologyMatch;
 
 /// A built aho-corasick automaton over capability terms plus the per-pattern
 /// metadata (parallel to the automaton's pattern ids). Cached on [`GraphCore`]

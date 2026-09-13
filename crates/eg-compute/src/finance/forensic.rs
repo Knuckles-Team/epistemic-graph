@@ -5,8 +5,6 @@
 // "half the M-Score code on GitHub is subtly wrong"). Inputs are two consecutive
 // fiscal years of standardized financial-statement line items.
 
-use serde::{Deserialize, Serialize};
-
 /// One fiscal year of standardized financial-statement inputs. Defined in
 /// `eg-types::wire` (the `protocol` enum embeds it); re-exported here so the
 /// scoring code below is unchanged.
@@ -21,16 +19,7 @@ fn d(a: f64, b: f64) -> f64 {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ForensicReport {
-    pub m_score: f64,
-    pub z_score: f64,
-    pub f_score: i32,
-    pub accruals_ratio: f64,
-    /// Human-readable flags that crossed a threshold.
-    pub flags: Vec<String>,
-    pub verdict: String, // "INVESTIGATE" | "CLEAN"
-}
+pub use eg_types::compute_result::finance::ForensicReport;
 
 /// Beneish M-Score (8 components). Above ≈ −1.78 (classic cutoff −2.22) flags
 /// possible earnings manipulation. `t` = this year, `p` = prior year.

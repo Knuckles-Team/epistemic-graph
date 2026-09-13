@@ -1,29 +1,220 @@
 //! Declared results of the `compute` contract domain.
 
+use super::Dynamic;
+use crate::compute_result::algorithms;
+#[cfg(feature = "datascience")]
+use crate::compute_result::datascience;
+#[cfg(feature = "compute-dist")]
+use crate::compute_result::distributed;
+#[cfg(feature = "finance")]
+use crate::compute_result::finance;
+#[cfg(feature = "graphlearn")]
+use crate::compute_result::graphlearn;
+#[cfg(feature = "mining")]
+use crate::compute_result::mining;
+#[cfg(feature = "ml-pipeline")]
+use crate::compute_result::pipeline;
+use crate::protocol::Vf2MatchResult;
+#[cfg(feature = "datascience")]
+use crate::wire::FittedModel;
+
 method_results! {
     visit_compute;
+    // ── graph algorithms ──
+    TopologicalSort(TopologicalSort) => Raw<Vec<String>>;
+    FindCycle(FindCycle) => Json<Option<Vec<String>>>;
+    GetShortestPath(GetShortestPath) => Json<Option<Vec<String>>>;
+    GetBlastRadius(GetBlastRadius) => Json<Vec<String>>;
+    DegreeCentrality(DegreeCentrality) => Float<f64>;
+    DegreeCentralityAll(DegreeCentralityAll) => Json<Vec<(String, f64)>>;
+    BetweennessCentrality(BetweennessCentrality) => Raw<Vec<(String, f64)>>;
+    PageRank(PageRank) => Raw<Vec<(String, f64)>>;
+    PersonalizedPageRank(PersonalizedPageRank) => Raw<Vec<(String, f64)>>;
+    ConnectedComponents(ConnectedComponents) => Json<Vec<Vec<String>>>;
+    StronglyConnectedComponents(StronglyConnectedComponents) => Json<Vec<Vec<String>>>;
+    MinimumSpanningTree(MinimumSpanningTree) => Raw<Vec<(String, String, f64)>>;
+    CommunityDetection(CommunityDetection) => Raw<Vec<Vec<String>>>;
+    CommunityDetectEphemeral(CommunityDetectEphemeral) => Raw<Vec<Vec<String>>>;
+    GraphColoring(GraphColoring) => Json<Vec<(String, usize)>>;
+    ComputeSimilarityEdges(ComputeSimilarityEdges) => Raw<Vec<(String, String, f64)>>;
+    ClusterHierarchyRefresh(ClusterHierarchyRefresh) => Json<algorithms::ClusterHierarchySummary>;
+    ClusterHierarchyClusters(ClusterHierarchyClusters) => Json<algorithms::ClusterLevelView>;
+    ClusterHierarchyExpand(ClusterHierarchyExpand) => Json<algorithms::ClusterExpansion>;
+    Vf2SubgraphMatch(Vf2SubgraphMatch) => Raw<Vf2MatchResult>;
+    MatchOntologyTerms(MatchOntologyTerms) => Raw<Vec<algorithms::OntologyMatch>>;
+    BatchL2Normalize(BatchL2Normalize) => Raw<Vec<Vec<f64>>>;
+    RunUdf(RunUdf) => Raw<Dynamic> dynamic CallerBytes;
+    #[cfg(feature = "compute-dist")]
+    DistributedCompute(DistributedCompute) => Raw<distributed::DistResult>;
+    // ── data science ──
+    #[cfg(feature = "datascience")]
+    DsLinearRegression(DsLinearRegression) => Json<datascience::RegressionResult>;
+    #[cfg(feature = "datascience")]
+    DsKMeans(DsKMeans) => Json<datascience::KMeansResult>;
+    #[cfg(feature = "datascience")]
+    DsPca(DsPca) => Json<datascience::PCAResult>;
+    #[cfg(feature = "datascience")]
+    DsComputeStats(DsComputeStats) => Json<datascience::DatasetStats>;
+    #[cfg(feature = "datascience")]
+    DsTrainTestSplit(DsTrainTestSplit) => Json<datascience::TrainTestSplitResult>;
+    #[cfg(feature = "datascience")]
+    DsFitEstimator(DsFitEstimator) => Json<FittedModel>;
+    DsPredictEstimator(DsPredictEstimator) => Json<Vec<f64>>;
+    DsSoftmax(DsSoftmax) => Json<Vec<f64>>;
+    DsLogSoftmax(DsLogSoftmax) => Json<Vec<f64>>;
+    #[cfg(feature = "datascience")]
+    DsCrossEntropy(DsCrossEntropy) => Json<datascience::CrossEntropyResult>;
+    #[cfg(feature = "datascience")]
+    DsDpoLoss(DsDpoLoss) => Json<datascience::DpoResult>;
+    #[cfg(feature = "datascience")]
+    DsGrpoSurrogate(DsGrpoSurrogate) => Json<datascience::GrpoResult>;
     DsKlDivergence(DsKlDivergence) => Float<f64>;
+    #[cfg(feature = "datascience")]
+    DsAdamStep(DsAdamStep) => Json<datascience::AdamResult>;
+    DsSgdStep(DsSgdStep) => Json<Vec<f64>>;
+    // ── finance ──
+    #[cfg(feature = "finance")]
+    FinanceOptimizePortfolio(FinanceOptimizePortfolio) => Json<finance::OptimizationResult>;
+    #[cfg(feature = "finance")]
+    FinanceRiskParity(FinanceRiskParity) => Json<finance::OptimizationResult>;
+    #[cfg(feature = "finance")]
+    FinanceBlackLitterman(FinanceBlackLitterman) => Json<finance::OptimizationResult>;
+    #[cfg(feature = "finance")]
+    FinanceEfficientFrontier(FinanceEfficientFrontier) => Json<finance::OptimizationResult>;
     FinanceVar(FinanceVar) => Float<f64>;
     FinanceCvar(FinanceCvar) => Float<f64>;
     FinanceMaxDrawdown(FinanceMaxDrawdown) => Float<f64>;
+    FinanceDrawdownSeries(FinanceDrawdownSeries) => Raw<Vec<f64>>;
     FinanceDownsideDeviation(FinanceDownsideDeviation) => Float<f64>;
+    #[cfg(feature = "finance")]
+    FinanceRiskMetrics(FinanceRiskMetrics) => Json<finance::RiskMetrics>;
     FinanceMonteCarloVar(FinanceMonteCarloVar) => Float<f64>;
+    FinanceStressTest(FinanceStressTest) => Raw<Vec<f64>>;
+    #[cfg(feature = "finance")]
+    FinanceDetectRegimes(FinanceDetectRegimes) => Json<finance::RegimeResult>;
+    FinanceRollingZscore(FinanceRollingZscore) => Raw<Vec<f64>>;
+    FinanceEwma(FinanceEwma) => Raw<Vec<f64>>;
+    FinanceSignalDecay(FinanceSignalDecay) => Raw<Vec<f64>>;
+    FinanceCombineAlphas(FinanceCombineAlphas) => Raw<Vec<f64>>;
+    FinanceCrossSectionalRank(FinanceCrossSectionalRank) => Raw<Vec<Vec<f64>>>;
+    FinanceMomentum(FinanceMomentum) => Raw<Vec<f64>>;
+    FinanceMeanReversion(FinanceMeanReversion) => Raw<Vec<f64>>;
     FinanceInformationCoefficient(FinanceInformationCoefficient) => Float<f64>;
+    FinanceTwap(FinanceTwap) => Raw<Vec<(u64, f64)>>;
+    FinanceVwap(FinanceVwap) => Raw<Vec<(u64, f64)>>;
     FinanceMarketImpact(FinanceMarketImpact) => Float<f64>;
+    FinancePairsTrading(FinancePairsTrading) => Raw<Vec<f64>>;
+    #[cfg(feature = "finance")]
+    FinanceMatchOrders(FinanceMatchOrders) => Raw<Vec<finance::Fill>>;
+    #[cfg(feature = "finance")]
+    FinanceAvellanedaStoikov(FinanceAvellanedaStoikov) => Raw<finance::Quote>;
+    #[cfg(feature = "finance")]
+    FinanceGltQuotes(FinanceGltQuotes) => Raw<finance::Quote>;
+    #[cfg(feature = "finance")]
+    FinanceLogitQuotes(FinanceLogitQuotes) => Raw<finance::Quote>;
     FinanceGlostenMilgromSpread(FinanceGlostenMilgromSpread) => Float<f64>;
     FinanceExpectedPnlRate(FinanceExpectedPnlRate) => Float<f64>;
     FinanceBreakevenAlpha(FinanceBreakevenAlpha) => Float<f64>;
+    FinanceOfiSeries(FinanceOfiSeries) => Raw<Vec<f64>>;
+    FinanceMicropriceSeries(FinanceMicropriceSeries) => Raw<Vec<f64>>;
     FinanceVpinPm(FinanceVpinPm) => Float<f64>;
+    #[cfg(feature = "finance")]
+    FinanceHawkesMle(FinanceHawkesMle) => Raw<finance::HawkesFit>;
     FinanceHardimanBouchaud(FinanceHardimanBouchaud) => Float<f64>;
     FinanceKyleLambda(FinanceKyleLambda) => Float<f64>;
+    #[cfg(feature = "finance")]
+    FinanceSurveillanceRisk(FinanceSurveillanceRisk) => Raw<finance::SurveillanceRisk>;
     FinanceKellyFraction(FinanceKellyFraction) => Float<f64>;
     FinanceBayesianKelly(FinanceBayesianKelly) => Float<f64>;
+    #[cfg(feature = "finance")]
+    FinancePosteriorCredibleInterval(FinancePosteriorCredibleInterval) => Json<finance::PosteriorCredibleInterval>;
+    #[cfg(feature = "finance")]
+    FinancePurgedCpcv(FinancePurgedCpcv) => Raw<Vec<finance::CvSplit>>;
     FinanceDeflatedSharpe(FinanceDeflatedSharpe) => Float<f64>;
     FinanceProbabilityBacktestOverfit(FinanceProbabilityBacktestOverfit) => Float<f64>;
+    #[cfg(feature = "finance")]
+    FinanceDieboldMariano(FinanceDieboldMariano) => Raw<finance::DieboldMariano>;
+    #[cfg(feature = "finance")]
+    FinanceForensicReport(FinanceForensicReport) => Raw<finance::ForensicReport>;
+    #[cfg(feature = "finance")]
+    FinanceKalmanFilter1d(FinanceKalmanFilter1d) => Raw<finance::KalmanState>;
+    #[cfg(feature = "finance")]
+    FinanceKalmanBeta(FinanceKalmanBeta) => Raw<finance::KalmanState>;
+    FinanceKalmanVolatility(FinanceKalmanVolatility) => Raw<Vec<f64>>;
+    #[cfg(feature = "finance")]
+    FinanceAdfTest(FinanceAdfTest) => Raw<finance::AdfResult>;
+    #[cfg(feature = "finance")]
+    FinanceOuCalibrate(FinanceOuCalibrate) => Raw<finance::OuParams>;
+    #[cfg(feature = "finance")]
+    FinanceOuOptimalThresholds(FinanceOuOptimalThresholds) => Raw<finance::OuThresholds>;
+    FinanceMarkovTransitionMatrix(FinanceMarkovTransitionMatrix) => Raw<Vec<Vec<f64>>>;
+    FinanceOrderBookImbalance(FinanceOrderBookImbalance) => Raw<Vec<f64>>;
+    #[cfg(feature = "finance")]
+    FinanceQueueImbalance(FinanceQueueImbalance) => Raw<finance::QueueSignal>;
+    FinanceRealizedVolTick(FinanceRealizedVolTick) => Raw<Vec<f64>>;
+    #[cfg(feature = "finance")]
+    FinanceSpreadReversion(FinanceSpreadReversion) => Raw<finance::SpreadReversion>;
     FinanceInformationRatio(FinanceInformationRatio) => Float<f64>;
     FinanceEffectiveIndependentN(FinanceEffectiveIndependentN) => Float<f64>;
+    FinanceAlphaCombinationEngine(FinanceAlphaCombinationEngine) => Raw<Vec<f64>>;
     FinanceBrierScore(FinanceBrierScore) => Float<f64>;
+    #[cfg(feature = "finance")]
+    FinanceConvergenceGate(FinanceConvergenceGate) => Raw<finance::ConvergenceGate>;
     FinanceEmpiricalKelly(FinanceEmpiricalKelly) => Float<f64>;
     FinanceSabrImpliedVol(FinanceSabrImpliedVol) => Float<f64>;
-    DegreeCentrality(DegreeCentrality) => Float<f64>;
+    FinanceSabrSmile(FinanceSabrSmile) => Raw<Vec<f64>>;
+    #[cfg(feature = "finance")]
+    FinanceSabrCalibrate(FinanceSabrCalibrate) => Raw<finance::SabrFit>;
+    // ── data mining ──
+    #[cfg(feature = "mining")]
+    MineAssociate(MineAssociate) => Json<mining::AssociationMiningResult>;
+    #[cfg(feature = "mining")]
+    MineCluster(MineCluster) => Json<mining::ClusterMiningResult>;
+    #[cfg(feature = "mining")]
+    MineAnomaly(MineAnomaly) => Json<mining::AnomalyMiningResult>;
+    #[cfg(feature = "mining")]
+    MineClassifyFit(MineClassifyFit) => Json<mining::ClassifierFitResult>;
+    #[cfg(feature = "mining")]
+    MineClassifyPredict(MineClassifyPredict) => Json<mining::ClassificationMiningResult>;
+    #[cfg(feature = "mining")]
+    MineReduce(MineReduce) => Json<mining::ReductionMiningResult>;
+    #[cfg(feature = "mining")]
+    MineSequence(MineSequence) => Json<mining::SequenceMiningResult>;
+    #[cfg(feature = "mining")]
+    MineForecast(MineForecast) => Json<mining::ForecastMiningResult>;
+    #[cfg(feature = "mining")]
+    MineText(MineText) => Json<mining::TextMiningResult>;
+    #[cfg(feature = "mining")]
+    MineSubgraph(MineSubgraph) => Json<mining::SubgraphMiningResult>;
+    #[cfg(feature = "mining")]
+    MineEntityResolve(MineEntityResolve) => Json<mining::EntityResolutionMiningResult>;
+    #[cfg(feature = "mining")]
+    MineCausalImpact(MineCausalImpact) => Json<mining::CausalImpactMiningResult>;
+    #[cfg(feature = "mining")]
+    MineProcess(MineProcess) => Json<mining::ProcessMiningResult>;
+    #[cfg(feature = "mining")]
+    MineRootCause(MineRootCause) => Json<mining::RootCauseMiningResult>;
+    #[cfg(feature = "mining")]
+    MineRiskPropagation(MineRiskPropagation) => Json<mining::RiskPropagationMiningResult>;
+    #[cfg(feature = "mining")]
+    MineOntologyGap(MineOntologyGap) => Json<mining::OntologyGapMiningResult>;
+    #[cfg(feature = "mining")]
+    MineRetrievalQuality(MineRetrievalQuality) => Json<mining::RetrievalQualityMiningResult>;
+    #[cfg(feature = "mining")]
+    MineCommunity(MineCommunity) => Json<mining::CommunityMiningResult>;
+    // ── graph learning + ML pipeline ──
+    #[cfg(feature = "graphlearn")]
+    GraphLearnFit(GraphLearnFit) => Json<graphlearn::LinkPredictorFit>;
+    #[cfg(feature = "graphlearn")]
+    GraphLearnPredict(GraphLearnPredict) => Json<graphlearn::LinkPrediction>;
+    #[cfg(feature = "ml-pipeline")]
+    MiningPipelineTrain(MiningPipelineTrain) => Json<pipeline::PipelineTrainResult>;
+    #[cfg(feature = "ml-pipeline")]
+    MiningPipelineServe(MiningPipelineServe) => Json<pipeline::PipelineServeResult>;
+    #[cfg(feature = "ml-pipeline")]
+    MiningPipelinePredict(MiningPipelinePredict) => Json<pipeline::PipelinePrediction>;
+    #[cfg(feature = "ml-pipeline")]
+    MiningPipelineEvaluate(MiningPipelineEvaluate) => Json<pipeline::PipelineEvaluation>;
+    #[cfg(feature = "ml-pipeline")]
+    MiningPipelineCompare(MiningPipelineCompare) => Json<pipeline::PipelineComparison>;
 }

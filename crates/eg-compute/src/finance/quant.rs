@@ -15,8 +15,6 @@
 //   - Kelly (1956) + Bayesian (Beta-posterior) Kelly
 //   - López de Prado: purged combinatorial CV, Deflated Sharpe, PBO; Diebold-Mariano
 
-use serde::{Deserialize, Serialize};
-
 // ════════════════════════════════════════════════════════════════════════
 //  Special functions (self-contained — no scipy on the wire)
 // ════════════════════════════════════════════════════════════════════════
@@ -298,15 +296,7 @@ fn sigmoid(x: f64) -> f64 {
 //  Market making: Avellaneda-Stoikov, GLT, logit-space
 // ════════════════════════════════════════════════════════════════════════
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Quote {
-    pub bid: f64,
-    pub ask: f64,
-    pub reservation: f64,
-    pub half_spread: f64,
-    /// True when an inventory / boundary cap says "withdraw, do not quote".
-    pub withdraw: bool,
-}
+pub use eg_types::compute_result::finance::Quote;
 
 /// Avellaneda-Stoikov (2008) optimal quotes around a freely-drifting mid.
 ///   r = S − q·γ·σ²·(T−t);  δ* = γ·σ²·(T−t) + (2/γ)·ln(1+γ/κ)
@@ -496,16 +486,7 @@ pub fn vpin_pm(buy_vol: &[f64], sell_vol: &[f64], p_mean: &[f64]) -> f64 {
 //  Hawkes process: MLE (exponential kernel) + Hardiman-Bouchaud
 // ════════════════════════════════════════════════════════════════════════
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct HawkesFit {
-    pub mu: f64,
-    pub alpha: f64,
-    pub beta: f64,
-    pub branching_ratio: f64,
-    pub half_life_seconds: f64,
-    pub log_likelihood: f64,
-    pub converged: bool,
-}
+pub use eg_types::compute_result::finance::HawkesFit;
 
 /// Negative log-likelihood for an exponential-kernel Hawkes process with the
 /// stationarity constraint α/β < 1 (returns +∞-ish penalty when violated).
@@ -803,11 +784,7 @@ pub fn posterior_credible_interval(alpha: f64, beta: f64, level: f64) -> (f64, f
 //  Backtest validation: purged CPCV, Deflated Sharpe, PBO, Diebold-Mariano
 // ════════════════════════════════════════════════════════════════════════
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CvSplit {
-    pub train: Vec<usize>,
-    pub test: Vec<usize>,
-}
+pub use eg_types::compute_result::finance::CvSplit;
 
 /// Purged combinatorial CV splits with purge window + embargo (López de Prado).
 pub fn purged_cpcv_splits(
@@ -950,12 +927,7 @@ fn is_split_below_median_rank(
     (rank as f64) < median_rank
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DieboldMariano {
-    pub statistic: f64,
-    pub p_value: f64,
-    pub a_better: bool,
-}
+pub use eg_types::compute_result::finance::DieboldMariano;
 
 /// Diebold-Mariano test of equal predictive accuracy (Newey-West HAC for h>1).
 pub fn diebold_mariano(losses_a: &[f64], losses_b: &[f64], h: usize) -> DieboldMariano {
@@ -1019,22 +991,7 @@ pub fn order_book_imbalance(v_bid: &[f64], v_ask: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-/// Queue-position / time-to-fill signal at the best bid/ask, batched over
-/// snapshots. `bid_q`/`ask_q` are the resting sizes ahead in each best-level
-/// queue; `bid_rate`/`ask_rate` are recent fill/arrival rates (size per unit
-/// time) on each side (pass uniform 1.0 rates when unknown).
-///
-/// `skew` = (ask_q − bid_q)/(ask_q + bid_q) ∈ [−1, 1] — deliberately the inverse
-/// sign of `order_book_imbalance` (which is volume pressure) so the two stay
-/// complementary: positive `skew` ⇒ the ask queue is heavier, so a resting bid
-/// fills relatively faster. `*_fill_time` = queue_ahead / arrival_rate (larger ⇒
-/// slower fill ⇒ more adverse-selection exposure while resting).
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct QueueSignal {
-    pub skew: Vec<f64>,
-    pub bid_fill_time: Vec<f64>,
-    pub ask_fill_time: Vec<f64>,
-}
+pub use eg_types::compute_result::finance::QueueSignal;
 
 pub fn queue_imbalance(
     bid_q: &[f64],
@@ -1092,16 +1049,7 @@ pub fn realized_vol_tick(mid: &[f64], window: usize) -> Vec<f64> {
     out
 }
 
-/// Spread mean-reversion feature, batched over snapshots. The spread
-/// (ask − bid) is z-scored against its trailing rolling mean/std over `window`
-/// ticks; `signal = −zscore` (a wide spread is expected to tighten). This is a
-/// lightweight rolling-statistic feature — NOT the parametric Ornstein-Uhlenbeck
-/// calibration in `statespace.rs`.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SpreadReversion {
-    pub zscore: Vec<f64>,
-    pub signal: Vec<f64>,
-}
+pub use eg_types::compute_result::finance::SpreadReversion;
 
 pub fn spread_reversion(bid_px: &[f64], ask_px: &[f64], window: usize) -> SpreadReversion {
     let n = bid_px.len().min(ask_px.len());
@@ -1389,14 +1337,7 @@ pub fn brier_score(forecasts: &[f64], outcomes: &[f64]) -> f64 {
         / n as f64
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ConvergenceGate {
-    pub agree: usize,
-    pub total: usize,
-    pub fraction: f64,
-    pub direction: i32, // +1 up, -1 down, 0 none
-    pub pass: bool,
-}
+pub use eg_types::compute_result::finance::ConvergenceGate;
 
 /// Conviction gate: require ≥ `min_agree` of N signals to STRONGLY agree on a
 /// direction (|strength| ≥ `strong_threshold`) before trading. This is the
@@ -1526,15 +1467,7 @@ pub fn kyle_lambda(price_changes: &[f64], signed_order_flow: &[f64]) -> f64 {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SurveillanceRisk {
-    pub kyle_lambda: f64,
-    pub informed_share: f64,
-    pub detection_hazard: f64,
-    pub cumulative_suspicion: f64,
-    pub stealth_ratio: f64,
-    pub legal_risk_score: f64,
-}
+pub use eg_types::compute_result::finance::SurveillanceRisk;
 
 /// Continuous-time-Kyle surveillance estimator over a trailing book/flow
 /// window. Reuses the existing microstructure primitives and combines:

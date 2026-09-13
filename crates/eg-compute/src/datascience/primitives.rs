@@ -4,46 +4,13 @@
 // These replace scipy/sklearn hot paths and are served over the Tokio
 // service protocol (no in-process Python extension).
 
-use serde::{Deserialize, Serialize};
+pub use eg_types::compute_result::datascience::RegressionResult;
 
-/// Result of a linear regression fit.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RegressionResult {
-    pub coefficients: Vec<f64>,
-    pub intercept: f64,
-    pub r_squared: f64,
-    pub residuals: Vec<f64>,
-}
+pub use eg_types::compute_result::datascience::KMeansResult;
 
-/// Result of K-means clustering.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct KMeansResult {
-    pub labels: Vec<usize>,
-    pub centroids: Vec<Vec<f64>>,
-    pub inertia: f64,
-    pub n_iterations: usize,
-}
+pub use eg_types::compute_result::datascience::PCAResult;
 
-/// Result of PCA dimensionality reduction.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PCAResult {
-    pub components: Vec<Vec<f64>>,
-    pub explained_variance: Vec<f64>,
-    pub explained_variance_ratio: Vec<f64>,
-    pub transformed: Vec<Vec<f64>>,
-}
-
-/// Dataset statistics.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DatasetStats {
-    pub means: Vec<f64>,
-    pub stds: Vec<f64>,
-    pub mins: Vec<f64>,
-    pub maxs: Vec<f64>,
-    pub correlation_matrix: Vec<Vec<f64>>,
-    pub n_samples: usize,
-    pub n_features: usize,
-}
+pub use eg_types::compute_result::datascience::DatasetStats;
 
 // ── Ordinary Least Squares Regression ─────────────────────────────────
 

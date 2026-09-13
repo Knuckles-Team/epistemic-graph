@@ -4,20 +4,11 @@
 // and pairs trading signal computation. Complements the existing
 // simulate_order_matching in algorithms.rs.
 
-use serde::{Deserialize, Serialize};
-
 /// A single order in the book. Defined in `eg-types::wire` (the `protocol`
 /// enum embeds it); re-exported here so the matching code below is unchanged.
 pub use crate::wire::Order;
 
-/// Fill result from order matching.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Fill {
-    pub order_id: String,
-    pub fill_price: f64,
-    pub fill_quantity: f64,
-    pub side: String,
-}
+pub use eg_types::compute_result::finance::Fill;
 
 /// TWAP execution schedule — split a large order into N equal time slices.
 pub fn twap_schedule(

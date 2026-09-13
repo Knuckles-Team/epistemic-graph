@@ -11,7 +11,6 @@
 //   - Ornstein-Uhlenbeck mean reversion; MFPT-optimal entry/exit thresholds
 
 use nalgebra::{DMatrix, DVector};
-use serde::{Deserialize, Serialize};
 
 // ════════════════════════════════════════════════════════════════════════
 //  OLS with standard errors (shared helper for ADF / OU)
@@ -46,11 +45,7 @@ fn ols_with_se(x: &[Vec<f64>], y: &[f64]) -> Option<(Vec<f64>, Vec<f64>, f64)> {
 //  Kalman filters
 // ════════════════════════════════════════════════════════════════════════
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct KalmanState {
-    pub states: Vec<f64>,
-    pub variances: Vec<f64>,
-}
+pub use eg_types::compute_result::finance::KalmanState;
 
 /// Scalar Kalman filter with constant matrices: x_t = F x_{t-1} + w (Q);
 /// z_t = H x_t + v (R). Returns the filtered state + variance at each step.
@@ -155,21 +150,7 @@ pub fn kalman_volatility(
 //  Cointegration: Augmented Dickey-Fuller
 // ════════════════════════════════════════════════════════════════════════
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct AdfResult {
-    pub statistic: f64,
-    pub used_lag: usize,
-    pub n_obs: usize,
-    /// Finite-sample-interpolated MacKinnon critical values (constant, no trend).
-    pub crit_1pct: f64,
-    pub crit_5pct: f64,
-    pub crit_10pct: f64,
-    /// Approximate p-value (monotone interpolation across the critical points).
-    pub p_value_approx: f64,
-    pub stationary_1pct: bool,
-    pub stationary_5pct: bool,
-    pub stationary_10pct: bool,
-}
+pub use eg_types::compute_result::finance::AdfResult;
 
 /// Finite-sample MacKinnon critical value for the ADF "constant, no trend" case:
 /// CV(T) = β∞ + β1/T + β2/T² (MacKinnon 1991 response-surface coefficients).
@@ -269,14 +250,7 @@ pub fn adf_test(series: &[f64], max_lag: usize) -> AdfResult {
 //  Ornstein-Uhlenbeck: calibration + MFPT-optimal thresholds
 // ════════════════════════════════════════════════════════════════════════
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OuParams {
-    pub theta: f64,     // mean-reversion rate
-    pub mu: f64,        // long-run mean
-    pub sigma: f64,     // instantaneous volatility
-    pub half_life: f64, // ln(2)/theta
-    pub sigma_eq: f64,  // equilibrium std σ/√(2θ)
-}
+pub use eg_types::compute_result::finance::OuParams;
 
 /// Calibrate an OU process dS = θ(μ−S)dt + σ dW from a discretely-sampled spread
 /// via the exact AR(1) discretisation S_t = a + b·S_{t-1} + ε (Euler-Maruyama /
@@ -329,14 +303,7 @@ pub fn ou_calibrate(spread: &[f64], dt: f64) -> OuParams {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OuThresholds {
-    pub entry_long: f64,  // enter long below this (μ − z·σ_eq)
-    pub entry_short: f64, // enter short above this (μ + z·σ_eq)
-    pub exit: f64,        // exit at the mean
-    pub z: f64,           // optimal entry deviation in σ_eq units
-    pub expected_return_per_unit_time: f64,
-}
+pub use eg_types::compute_result::finance::OuThresholds;
 
 /// Expected first-passage time (in σ_eq units) of a normalised OU from deviation
 /// `b` back to the mean (0), solved from the backward-Kolmogorov MFPT ODE

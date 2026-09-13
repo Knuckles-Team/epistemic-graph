@@ -10,8 +10,6 @@
 // the optimizer steps (Adam / SGD). Pure Rust — no candle/torch, no GPU — matching
 // the rest of `datascience::primitives`; unit-tested on toy tensors below.
 
-use serde::{Deserialize, Serialize};
-
 /// Numerically-stable softmax with temperature.
 pub fn softmax(logits: &[f64], temperature: f64) -> Vec<f64> {
     let t = if temperature.abs() < 1e-12 {
@@ -36,12 +34,7 @@ pub fn log_softmax(logits: &[f64]) -> Vec<f64> {
     logits.iter().map(|&x| (x - max) - log_sum).collect()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrossEntropyResult {
-    pub loss: f64,
-    /// dL/dlogits, shape == logits (softmax - one_hot, averaged over the batch).
-    pub grad: Vec<Vec<f64>>,
-}
+pub use eg_types::compute_result::datascience::CrossEntropyResult;
 
 /// Mean categorical cross-entropy over a batch of rows with integer labels,
 /// returning the loss and the analytic gradient w.r.t. the logits.
@@ -74,12 +67,7 @@ pub fn cross_entropy(logits: &[Vec<f64>], labels: &[usize]) -> CrossEntropyResul
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DpoResult {
-    pub loss: f64,
-    pub grad_chosen: Vec<f64>,
-    pub grad_rejected: Vec<f64>,
-}
+pub use eg_types::compute_result::datascience::DpoResult;
 
 fn sigmoid(x: f64) -> f64 {
     1.0 / (1.0 + (-x).exp())
@@ -122,11 +110,7 @@ pub fn dpo_loss(
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GrpoResult {
-    pub loss: f64,
-    pub grad: Vec<f64>,
-}
+pub use eg_types::compute_result::datascience::GrpoResult;
 
 /// PPO/GRPO clipped surrogate (loss to minimise = negated objective), mean over
 /// elements, with the analytic gradient w.r.t. `logprob`. In the clipped (saturated)
@@ -178,12 +162,7 @@ pub fn kl_divergence(logprob: &[f64], ref_logprob: &[f64]) -> f64 {
     acc / n as f64
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdamResult {
-    pub params: Vec<f64>,
-    pub m: Vec<f64>,
-    pub v: Vec<f64>,
-}
+pub use eg_types::compute_result::datascience::AdamResult;
 
 /// One Adam optimizer step with bias correction at step `t` (1-based).
 #[allow(clippy::too_many_arguments)]

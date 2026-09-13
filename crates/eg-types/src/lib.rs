@@ -124,6 +124,9 @@ pub mod semantic_index;
 #[cfg(feature = "statechart")]
 pub mod statechart;
 pub mod types;
+// Result bodies of the `compute` contract domain, declared by
+// `result_contract::compute`; gated per compute family like `wire`.
+pub mod compute_result;
 // GOC-19 — the WorkItem submission command-log admission core (tenant-scoped
 // idempotency replay + per-authority fencing), built on GOC-03's
 // `commit_descriptor::CommitDescriptor` currency. Unconditional, pure

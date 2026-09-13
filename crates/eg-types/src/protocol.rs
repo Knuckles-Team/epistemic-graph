@@ -5615,6 +5615,7 @@ pub struct MerkleInclusionReport {
 /// `max_results`/`max_steps` explicitly on the request to see more. The matcher
 /// and its budget live in eg-core; this is the wire projection.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct Vf2MatchResult {
     pub matches: Vec<std::collections::HashMap<String, String>>,
     pub truncated: bool,
