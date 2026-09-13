@@ -1103,7 +1103,6 @@ pub async fn serve_tcp(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_rendezvous::{join_bounded, meet};
 
     #[test]
     fn conn_guard_refcounts() {
@@ -1276,6 +1275,8 @@ mod tests {
     #[cfg(all(unix, feature = "server-tls"))]
     #[test]
     fn tls_prepare_keeps_a_current_thread_runtime_responsive() {
+        use crate::test_rendezvous::{join_bounded, meet};
+
         let root = unique_socket_path("tls-offload");
         std::fs::create_dir(&root).expect("create TLS test directory");
         let cert_path = root.join("certificate.pipe");

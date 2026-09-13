@@ -129,19 +129,12 @@ pub fn describe(method: &Method) -> Option<SlowQuery> {
     }
 }
 
-/// Describe a raw SQL statement on a wire path for slow-query timing (CONCEPT:EG-OS.observability.slow-query-descriptor).
-/// `None` when logging is disabled. Gated on `wire` (the module that calls it) rather
-/// than `pgwire` specifically, so EVERY wire consumer (pgwire, sqlite-wire EG-075, and
-/// the later mysql/mssql wires) links it — `pgwire` implies `wire`, so pg builds are
-/// unchanged.
-/// Describe a raw SQL statement on a wire path (pgwire / mysql-wire / …) for
-/// slow-query timing (CONCEPT:EG-OS.observability.slow-query-descriptor). `None` when logging is disabled. Gated on the
-/// shared `wire` core (CONCEPT:EG-KG.compute.subsystems-reference) — the `wire::WireSession::execute` path calls it,
-/// so it must exist for EVERY wire, not only pgwire (CONCEPT:EG-KG.query.kg-2).
-/// Describe a raw SQL statement on a wire (pgwire / TDS / …) path for slow-query
-/// timing (CONCEPT:EG-OS.observability.slow-query-descriptor). Gated on the shared `wire` core (CONCEPT:EG-KG.compute.subsystems-reference) that
-/// calls it, so ANY wire adapter builds it — not just pgwire. `None` when disabled.
-#[cfg(feature = "wire")]
+/// Describe a raw SQL statement on a wire path (pgwire / mysql-wire / TDS / …) for
+/// slow-query timing (CONCEPT:EG-OS.observability.slow-query-descriptor). `None` when
+/// logging is disabled. Gated with the shared `server::wire` core
+/// (CONCEPT:EG-KG.compute.subsystems-reference) whose `WireSession::execute` path calls
+/// it, so every wire adapter links it (CONCEPT:EG-KG.query.kg-2).
+#[cfg(feature = "query")]
 pub fn describe_sql(sql: &str) -> Option<SlowQuery> {
     if !enabled() {
         return None;

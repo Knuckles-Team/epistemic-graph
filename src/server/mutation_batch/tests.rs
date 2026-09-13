@@ -818,6 +818,7 @@ fn owner_store_batch_names_the_serving_principal_and_carries_the_caller_actor() 
     );
 }
 
+#[cfg(feature = "redb")]
 fn compile_sql_source_dirty_batch(
     request_id: u64,
     attempt_nonce: eg_types::contract::Nonce,
@@ -852,6 +853,7 @@ fn compile_sql_source_dirty_batch(
     (method, batch)
 }
 
+#[cfg(feature = "redb")]
 #[test]
 fn sql_catalog_compile_declares_one_retry_stable_typed_source_dirty_intent() {
     use sha2::Digest as _;

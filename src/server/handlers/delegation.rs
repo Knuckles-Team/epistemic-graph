@@ -12,9 +12,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use eg_types::agent_library::AgentLibraryEntry;
-use eg_types::delegation::{
-    AgentLibraryEntryRef, KgDelegateDecision, KgDelegateRequest, KgDelegateResult,
-};
+#[cfg(feature = "redb")]
+use eg_types::delegation::AgentLibraryEntryRef;
+use eg_types::delegation::{KgDelegateDecision, KgDelegateRequest, KgDelegateResult};
 use eg_types::epistemic_operations::RequestContext;
 #[cfg(feature = "redb")]
 use eg_types::mutation_batch::MutationBatchStatus;
@@ -391,6 +391,7 @@ fn retained_graph(
         })
 }
 
+#[cfg(feature = "redb")]
 fn retained_agent(
     store: &AgentLibraryStore,
     tenant_id: &str,
@@ -477,6 +478,7 @@ fn decode_submit_result(payload: ResultPayload) -> Result<SubmitWorkItemResult, 
 /// uses `verified_context`, and the retained Agent Library entry is supplied by
 /// its owner.  A forged nested context therefore cannot become a trusted
 /// `VerifiedRequestContext` through deserialization.
+#[cfg(feature = "redb")]
 pub(crate) fn bind_request(
     request: KgDelegateRequest,
     verified_context: &VerifiedRequestContext,
@@ -980,7 +982,9 @@ fn context_scopes_within_authority(
         .all(|scope| !scope.trim().is_empty() && verified_context.allows_action(scope))
 }
 
-#[cfg(test)]
+// Every admission under test resolves a retained definition through the
+// `redb`-backed Agent Library owner.
+#[cfg(all(test, feature = "redb"))]
 mod tests {
     use super::*;
     use eg_types::agent_library::{AgentLibraryEntryDraft, AgentLibraryLifecycle};

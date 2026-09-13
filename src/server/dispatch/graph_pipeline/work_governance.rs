@@ -292,10 +292,10 @@ pub(super) async fn dispatch_op_workitem_claim_capability(
         // the author's own idiom three lines up -- rather than with
         // `#[allow(unused_variables)]`, which would also hide a genuinely dead binding.
         let _ = (backend, graph_name, verified_context, method);
-        return Response::err(
+        Response::err(
             req_id,
             "native WorkItem claim capability requires redb persistence",
-        );
+        )
     }
 }
 

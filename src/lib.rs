@@ -68,14 +68,16 @@ pub(crate) mod redb_layout;
 // on which of them (RF-RULING-004).
 #[cfg(feature = "redb")]
 pub mod store_authority;
-// The one shape every small kernel-owned sidecar file in this binary takes.
+// Bounded production thread joins; every caller is a redb writer shutdown path.
 #[cfg(feature = "redb")]
+pub(crate) mod bounded_join;
 /// Taking a lock whose previous holder panicked, without turning one bug into a
 /// permanent outage. A bare `.unwrap()` on a poisoned lock is the absence of a
 /// decision; these make the decision explicit and visible.
-pub(crate) mod bounded_join;
 pub(crate) mod lock_recovery;
+#[cfg(feature = "redb")]
 pub mod redb_store;
+// The one shape every small kernel-owned sidecar file in this binary takes.
 #[cfg(feature = "redb")]
 pub mod sidecar_store;
 /// Bounded rendezvous and joins for concurrency tests. A test that hangs takes

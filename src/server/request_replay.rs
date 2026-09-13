@@ -13,6 +13,7 @@
 //! answer different questions over different identities, so they are not two
 //! authorities over one decision (RF-RULING-004).
 
+#[cfg(any(test, feature = "security"))]
 use crate::lock_recovery::LockRecovery;
 
 /// Replay ledger used after a request MAC, time window, and policy claims have

@@ -945,6 +945,7 @@ pub(crate) async fn handle_agent_template(
 /// Routed to the SAME store as [`handle_agent_library`]: a graph is published
 /// into the agent-library owner alongside the entries it composes, so there is
 /// one `ensure_agent_library` and one physical authority (RF-RULING-004).
+#[cfg(feature = "redb")]
 pub(crate) async fn handle_agent_graph(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
@@ -1081,6 +1082,7 @@ pub(crate) async fn handle_agent_graph(
     }
 }
 
+#[cfg(feature = "redb")]
 pub(crate) async fn handle_agent_library(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
