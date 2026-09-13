@@ -16,7 +16,7 @@ use super::super::persistence::PersistenceBackend;
 use super::super::state::{max_response_edges, max_response_nodes, ServerState, MAX_BATCH_IDS};
 use crate::graph::GraphCore;
 use crate::isolation::AccessLevel;
-use crate::protocol::{LedgerReadResult, Method, Response, ResultPayload, Vf2MatchResult};
+use crate::protocol::{LedgerReadResult, Method, Response, ResultPayload};
 
 mod algorithms;
 mod broker;

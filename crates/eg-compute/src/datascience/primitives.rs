@@ -4,46 +4,13 @@
 // These replace scipy/sklearn hot paths and are served over the Tokio
 // service protocol (no in-process Python extension).
 
-use serde::{Deserialize, Serialize};
+pub use eg_types::compute_result::datascience::RegressionResult;
 
-/// Result of a linear regression fit.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RegressionResult {
-    pub coefficients: Vec<f64>,
-    pub intercept: f64,
-    pub r_squared: f64,
-    pub residuals: Vec<f64>,
-}
+pub use eg_types::compute_result::datascience::KMeansResult;
 
-/// Result of K-means clustering.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct KMeansResult {
-    pub labels: Vec<usize>,
-    pub centroids: Vec<Vec<f64>>,
-    pub inertia: f64,
-    pub n_iterations: usize,
-}
+pub use eg_types::compute_result::datascience::PCAResult;
 
-/// Result of PCA dimensionality reduction.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PCAResult {
-    pub components: Vec<Vec<f64>>,
-    pub explained_variance: Vec<f64>,
-    pub explained_variance_ratio: Vec<f64>,
-    pub transformed: Vec<Vec<f64>>,
-}
-
-/// Dataset statistics.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DatasetStats {
-    pub means: Vec<f64>,
-    pub stds: Vec<f64>,
-    pub mins: Vec<f64>,
-    pub maxs: Vec<f64>,
-    pub correlation_matrix: Vec<Vec<f64>>,
-    pub n_samples: usize,
-    pub n_features: usize,
-}
+pub use eg_types::compute_result::datascience::DatasetStats;
 
 // ── Ordinary Least Squares Regression ─────────────────────────────────
 
@@ -121,6 +88,66 @@ pub fn linear_regression(x: &[Vec<f64>], y: &[f64]) -> RegressionResult {
 
 // ── K-Means Clustering ───────────────────────────────────────────────
 
+fn squared_distance(left: &[f64], right: &[f64]) -> f64 {
+    left.iter()
+        .zip(right.iter())
+        .map(|(a, b)| (a - b).powi(2))
+        .sum()
+}
+
+fn nearest_centroid(row: &[f64], centroids: &[Vec<f64>]) -> usize {
+    let mut best_dist = f64::INFINITY;
+    let mut best_label = 0;
+    for (c_idx, centroid) in centroids.iter().enumerate() {
+        let dist = squared_distance(row, centroid);
+        if dist < best_dist {
+            best_dist = dist;
+            best_label = c_idx;
+        }
+    }
+    best_label
+}
+
+fn assign_labels(data: &[Vec<f64>], centroids: &[Vec<f64>], labels: &mut [usize]) -> bool {
+    let mut changed = false;
+    for (row, label) in data.iter().zip(labels.iter_mut()) {
+        let best_label = nearest_centroid(row, centroids);
+        if *label != best_label {
+            *label = best_label;
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn update_centroids(data: &[Vec<f64>], labels: &[usize], k: usize, dim: usize) -> Vec<Vec<f64>> {
+    let mut centroids = vec![vec![0.0; dim]; k];
+    let mut counts = vec![0usize; k];
+    for i in 0..data.len() {
+        let label = labels[i];
+        counts[label] += 1;
+        for d in 0..dim {
+            centroids[label][d] += data[i][d];
+        }
+    }
+    for c in 0..k {
+        if counts[c] > 0 {
+            for d in 0..dim {
+                centroids[c][d] /= counts[c] as f64;
+            }
+        }
+    }
+    centroids
+}
+
+fn cluster_inertia(data: &[Vec<f64>], labels: &[usize], centroids: &[Vec<f64>]) -> f64 {
+    let mut inertia = 0.0;
+    for i in 0..data.len() {
+        inertia += squared_distance(&data[i], &centroids[labels[i]]);
+    }
+    inertia
+}
+
 /// K-means clustering using Lloyd's algorithm.
 pub fn kmeans(data: &[Vec<f64>], k: usize, max_iter: usize) -> KMeansResult {
     let n = data.len();
@@ -144,66 +171,13 @@ pub fn kmeans(data: &[Vec<f64>], k: usize, max_iter: usize) -> KMeansResult {
 
     for iter in 0..max_iter {
         n_iter = iter + 1;
-        let mut changed = false;
-
-        // Assignment step
-        for i in 0..n {
-            let mut best_dist = f64::INFINITY;
-            let mut best_label = 0;
-            for (c_idx, centroid) in centroids.iter().enumerate() {
-                let dist: f64 = data[i]
-                    .iter()
-                    .zip(centroid.iter())
-                    .map(|(a, b)| (a - b).powi(2))
-                    .sum();
-                if dist < best_dist {
-                    best_dist = dist;
-                    best_label = c_idx;
-                }
-            }
-            if labels[i] != best_label {
-                labels[i] = best_label;
-                changed = true;
-            }
-        }
-
-        if !changed {
+        if !assign_labels(data, &centroids, &mut labels) {
             break;
         }
-
-        // Update step
-        let mut new_centroids = vec![vec![0.0; dim]; k];
-        let mut counts = vec![0usize; k];
-
-        for i in 0..n {
-            let label = labels[i];
-            counts[label] += 1;
-            for d in 0..dim {
-                new_centroids[label][d] += data[i][d];
-            }
-        }
-
-        for c in 0..k {
-            if counts[c] > 0 {
-                for d in 0..dim {
-                    new_centroids[c][d] /= counts[c] as f64;
-                }
-            }
-        }
-
-        centroids = new_centroids;
+        centroids = update_centroids(data, &labels, k, dim);
     }
 
-    // Compute inertia
-    let mut inertia = 0.0;
-    for i in 0..n {
-        let dist: f64 = data[i]
-            .iter()
-            .zip(centroids[labels[i]].iter())
-            .map(|(a, b)| (a - b).powi(2))
-            .sum();
-        inertia += dist;
-    }
+    let inertia = cluster_inertia(data, &labels, &centroids);
 
     KMeansResult {
         labels,
@@ -214,6 +188,94 @@ pub fn kmeans(data: &[Vec<f64>], k: usize, max_iter: usize) -> KMeansResult {
 }
 
 // ── PCA (Power Iteration Method) ─────────────────────────────────────
+
+fn column_means(data: &[Vec<f64>], n: usize, dim: usize) -> Vec<f64> {
+    (0..dim)
+        .map(|d| data.iter().map(|row| row[d]).sum::<f64>() / n as f64)
+        .collect()
+}
+
+fn center_row(row: &[f64], means: &[f64]) -> Vec<f64> {
+    row.iter()
+        .zip(means.iter())
+        .map(|(value, mean)| value - mean)
+        .collect()
+}
+
+fn centered_data(data: &[Vec<f64>], means: &[f64]) -> Vec<Vec<f64>> {
+    data.iter().map(|row| center_row(row, means)).collect()
+}
+
+fn covariance_matrix(centered: &[Vec<f64>], n: usize, dim: usize) -> Vec<Vec<f64>> {
+    let mut covariance = vec![vec![0.0; dim]; dim];
+    for row in centered {
+        for i in 0..dim {
+            for j in i..dim {
+                covariance[i][j] += row[i] * row[j];
+            }
+        }
+    }
+    for i in 0..dim {
+        for j in i..dim {
+            covariance[i][j] /= (n - 1).max(1) as f64;
+            covariance[j][i] = covariance[i][j];
+        }
+    }
+    covariance
+}
+
+fn principal_components(
+    covariance: &[Vec<f64>],
+    n_components: usize,
+    dim: usize,
+) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let mut components = Vec::with_capacity(n_components);
+    let mut eigenvalues = Vec::with_capacity(n_components);
+    let mut deflated_covariance = covariance.to_vec();
+    for _ in 0..n_components {
+        let (eigenvalue, eigenvector) = power_iteration(&deflated_covariance, 200);
+        eigenvalues.push(eigenvalue);
+        components.push(eigenvector.clone());
+        for i in 0..dim {
+            for j in 0..dim {
+                deflated_covariance[i][j] -= eigenvalue * eigenvector[i] * eigenvector[j];
+            }
+        }
+    }
+    (components, eigenvalues)
+}
+
+fn explained_variance_ratios(eigenvalues: &[f64], total_variance: f64) -> Vec<f64> {
+    eigenvalues
+        .iter()
+        .map(|&eigenvalue| {
+            if total_variance > 0.0 {
+                eigenvalue / total_variance
+            } else {
+                0.0
+            }
+        })
+        .collect()
+}
+
+fn project_row(row: &[f64], components: &[Vec<f64>]) -> Vec<f64> {
+    let mut projections = Vec::with_capacity(components.len());
+    for component in components {
+        let mut projection = 0.0;
+        for (value, component_value) in row.iter().zip(component.iter()) {
+            projection += value * component_value;
+        }
+        projections.push(projection);
+    }
+    projections
+}
+
+fn transformed_data(centered: &[Vec<f64>], components: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    centered
+        .iter()
+        .map(|row| project_row(row, components))
+        .collect()
+}
 
 /// PCA via iterative eigendecomposition of the covariance matrix.
 pub fn pca(data: &[Vec<f64>], n_components: usize) -> PCAResult {
@@ -231,72 +293,14 @@ pub fn pca(data: &[Vec<f64>], n_components: usize) -> PCAResult {
 
     let n_comp = n_components.min(dim);
 
-    // Center data
-    let means: Vec<f64> = (0..dim)
-        .map(|d| data.iter().map(|row| row[d]).sum::<f64>() / n as f64)
-        .collect();
-
-    let centered: Vec<Vec<f64>> = data
-        .iter()
-        .map(|row| row.iter().zip(means.iter()).map(|(x, m)| x - m).collect())
-        .collect();
-
-    // Covariance matrix
-    let mut cov = vec![vec![0.0; dim]; dim];
-    for row in &centered {
-        for i in 0..dim {
-            for j in i..dim {
-                cov[i][j] += row[i] * row[j];
-            }
-        }
-    }
-    for i in 0..dim {
-        for j in i..dim {
-            cov[i][j] /= (n - 1).max(1) as f64;
-            cov[j][i] = cov[i][j];
-        }
-    }
-
-    // Power iteration for top eigenvectors
-    let mut components = Vec::with_capacity(n_comp);
-    let mut eigenvalues = Vec::with_capacity(n_comp);
-    let mut deflated_cov = cov.clone();
-
-    for _ in 0..n_comp {
-        let (eigenvalue, eigenvector) = power_iteration(&deflated_cov, 200);
-        eigenvalues.push(eigenvalue);
-        components.push(eigenvector.clone());
-
-        // Deflate: C = C - λ * v * v^T
-        for i in 0..dim {
-            for j in 0..dim {
-                deflated_cov[i][j] -= eigenvalue * eigenvector[i] * eigenvector[j];
-            }
-        }
-    }
+    let means = column_means(data, n, dim);
+    let centered = centered_data(data, &means);
+    let covariance = covariance_matrix(&centered, n, dim);
+    let (components, eigenvalues) = principal_components(&covariance, n_comp, dim);
 
     let total_variance: f64 = eigenvalues.iter().sum();
-    let explained_variance_ratio: Vec<f64> = eigenvalues
-        .iter()
-        .map(|&ev| {
-            if total_variance > 0.0 {
-                ev / total_variance
-            } else {
-                0.0
-            }
-        })
-        .collect();
-
-    // Transform data
-    let transformed: Vec<Vec<f64>> = centered
-        .iter()
-        .map(|row| {
-            components
-                .iter()
-                .map(|comp| row.iter().zip(comp.iter()).map(|(x, c)| x * c).sum::<f64>())
-                .collect()
-        })
-        .collect();
+    let explained_variance_ratio = explained_variance_ratios(&eigenvalues, total_variance);
+    let transformed = transformed_data(&centered, &components);
 
     PCAResult {
         components,

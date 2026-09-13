@@ -19,6 +19,10 @@ use std::sync::Arc;
 use eg_compute::graph_algos::AdjacencyGraph;
 use eg_compute::graphlearn::edge_fn::Basis;
 use eg_compute::graphlearn::link_predict::{self, FeatureCtx, KanLinkConfig, KanLinkModel};
+use eg_types::compute_result::graphlearn::{
+    EdgeFunctionRow, LinkPrediction, LinkPredictorFit, PredictedLink,
+};
+use eg_types::result_contract::compute as results;
 
 use crate::graph::GraphCore;
 use crate::protocol::{GraphLearnParams, GraphSource, Method, Response, ResultPayload};
@@ -167,20 +171,20 @@ pub(crate) fn handle_fit(
     };
 
     // Summarise the learned per-feature edge functions for the caller.
-    let edge_fns: Vec<serde_json::Value> = edge_function_rows(&model);
+    let edge_functions = edge_function_rows(&model);
 
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "model": model_json,
-            "n_nodes": graph.node_count(),
-            "n_edges": positives.len(),
-            "train_auc": model.train_auc,
-            "basis": basis_name(model.basis),
-            "degree": model.degree,
-            "edge_functions": edge_fns,
-            "edge_functions_written": written,
-        })),
+        ResultPayload::of::<results::GraphLearnFit>(LinkPredictorFit {
+            model: model_json,
+            n_nodes: graph.node_count(),
+            n_edges: positives.len(),
+            train_auc: model.train_auc,
+            basis: basis_name(model.basis).to_string(),
+            degree: model.degree,
+            edge_functions,
+            edge_functions_written: written,
+        }),
     )
 }
 
@@ -224,7 +228,7 @@ fn materialize_edge_functions(core: &GraphCore, node_label: &str, model: &KanLin
     written
 }
 
-fn edge_function_rows(model: &KanLinkModel) -> Vec<serde_json::Value> {
+fn edge_function_rows(model: &KanLinkModel) -> Vec<EdgeFunctionRow> {
     let basis = basis_name(model.basis);
     let mut rows = Vec::new();
     if let Some(layer0) = model.layers.first() {
@@ -235,12 +239,12 @@ fn edge_function_rows(model: &KanLinkModel) -> Vec<serde_json::Value> {
                     .get(i)
                     .cloned()
                     .unwrap_or_else(|| format!("f{i}"));
-                rows.push(serde_json::json!({
-                    "feature": feature,
-                    "hidden_output": j,
-                    "basis": basis,
-                    "coefficients": f.coeffs,
-                }));
+                rows.push(EdgeFunctionRow {
+                    feature,
+                    hidden_output: j,
+                    basis: basis.to_string(),
+                    coefficients: f.coeffs.clone(),
+                });
             }
         }
     }
@@ -297,19 +301,20 @@ pub(crate) fn handle_predict(
         0
     };
 
-    let rows: Vec<serde_json::Value> = predicted
-        .iter()
-        .map(|(s, d, score)| serde_json::json!({ "src": s, "dst": d, "score": score }))
+    let n_predicted = predicted.len();
+    let links: Vec<PredictedLink> = predicted
+        .into_iter()
+        .map(|(src, dst, score)| PredictedLink { src, dst, score })
         .collect();
 
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "predicted": rows,
-            "n_predicted": predicted.len(),
-            "model": model_id,
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::GraphLearnPredict>(LinkPrediction {
+            predicted: links,
+            n_predicted,
+            model: model_id,
+            written_back: written,
+        }),
     )
 }
 

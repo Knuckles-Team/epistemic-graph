@@ -536,7 +536,7 @@ def _check_broker_fencing(broker: str, graph: str) -> None:
     if "broker_lease_extends(" in renewal:
         lease_extension_guard += "\n" + delimited_body(
             graph,
-            "    fn broker_lease_extends(",
+            "    pub(super) fn broker_lease_extends(",
             "\n    /// Return an expired delivery to pending",
         )
     require(
@@ -883,7 +883,10 @@ def main() -> None:
         )
     )
     acl = read("crates/eg-types/src/acl.rs")
-    graph = read("crates/eg-core/src/graph.rs")
+    # GraphCore's public implementation is split across compiler-declared child
+    # modules. Read that complete production closure so fencing checks continue
+    # to follow the code when a method moves out of the facade.
+    graph = read_module_tree("crates/eg-core/src/graph.rs", root_dir=ROOT)
     registry = read("crates/eg-core/src/registry.rs")
     owl = read("crates/eg-rdf/src/owl.rs")
     geometry = read("crates/eg-geo/src/geometry.rs")

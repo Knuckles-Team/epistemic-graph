@@ -9,6 +9,7 @@
 // boxing the Err would allocate per non-pipeline request (see mining.rs / graphlearn.rs).
 #![allow(clippy::result_large_err)]
 
+mod features;
 mod pipeline_model;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,15 +17,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::graph::GraphCore;
 use crate::protocol::{GraphSource, Method, Response, ResultPayload};
 use eg_compute::datascience::estimators;
-use eg_compute::graph_algos::AdjacencyGraph;
 use eg_compute::graphlearn::edge_fn::Basis;
-use eg_compute::graphlearn::embeddings::{
-    fastrp, node2vec, to_f64_rows, FastRpConfig, Node2VecConfig,
-};
 use eg_compute::graphlearn::link_predict::{self, FeatureCtx, KanLinkConfig, KanLinkModel};
 use eg_compute::mining::classify;
+use eg_types::compute_result::graphlearn::PredictedLink;
+use eg_types::compute_result::pipeline::{
+    ClassifyPrediction, EstimatorPrediction, GraphlearnPrediction, PipelineClassifiedRow,
+    PipelineComparison, PipelineEvaluation, PipelinePrediction, PipelineServeResult,
+    PipelineTrainResult, PipelineValueRow,
+};
+use eg_types::result_contract::compute::{self as results, MiningPipelinePredict};
 use eg_types::wire::{FeatureStep, ModelSpec, PipelineSpec};
 use serde_json::{json, Value};
+
+use self::features::{build_features, compute_embedding_rows, first_embedding};
 
 /// Handles read-only Evaluate/Compare and returns other methods to dispatch.
 /// BUG-034: both read paths scan graph labels or model nodes, so the caller's
@@ -94,9 +100,15 @@ pub(crate) fn handle_train(
     let family = normalize_family(&spec.model.family);
     match family.as_str() {
         "graphlearn" => handle_train_graphlearn(req_id, core, &name, source, &spec, writeback),
-        "classify" | "estimator" => {
-            handle_train_tabular(req_id, core, &name, source, x, y, &spec, &family, writeback)
-        }
+        "classify" | "estimator" => handle_train_tabular(
+            req_id,
+            core,
+            &name,
+            TabularTrainingInput { source, x, y },
+            &spec,
+            &family,
+            writeback,
+        ),
         other => Response::err(
             req_id,
             format!("pipeline: unknown model family {other:?} (classify | estimator | graphlearn)"),
@@ -104,18 +116,22 @@ pub(crate) fn handle_train(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+struct TabularTrainingInput {
+    source: Option<GraphSource>,
+    x: Vec<Vec<f64>>,
+    y: Vec<i64>,
+}
+
 fn handle_train_tabular(
     req_id: u64,
     core: &GraphCore,
     name: &str,
-    source: Option<GraphSource>,
-    x: Vec<Vec<f64>>,
-    y: Vec<i64>,
+    input: TabularTrainingInput,
     spec: &PipelineSpec,
     family: &str,
     writeback: bool,
 ) -> Response {
+    let TabularTrainingInput { source, x, y } = input;
     let (ids, rows) = match build_features(core, &source, &x, &spec.features) {
         Ok(data) => data,
         Err(e) => return Response::err(req_id, e),
@@ -278,19 +294,19 @@ fn finish_train(
     }
     Response::ok(
         req_id,
-        ResultPayload::Json(json!({
-            "name": name,
-            "version": version,
-            "model_id": model_id,
-            "family": family,
-            "algorithm": algorithm,
-            "metrics": artifact.metrics,
-            "n_features": artifact.counts.0,
-            "n_train": artifact.counts.1,
-            "n_test": artifact.counts.2,
-            "classes": artifact.classes,
-            "written_back": writeback,
-        })),
+        ResultPayload::of::<results::MiningPipelineTrain>(PipelineTrainResult {
+            name: name.to_string(),
+            version,
+            model_id,
+            family: family.to_string(),
+            algorithm: algorithm.to_string(),
+            metrics: artifact.metrics,
+            n_features: artifact.counts.0,
+            n_train: artifact.counts.1,
+            n_test: artifact.counts.2,
+            classes: artifact.classes,
+            written_back: writeback,
+        }),
     )
 }
 
@@ -322,12 +338,12 @@ pub(crate) fn handle_serve(req_id: u64, core: &GraphCore, name: String, version:
     }
     Response::ok(
         req_id,
-        ResultPayload::Json(json!({
-            "name": name,
-            "version": version,
-            "model_id": model_id,
-            "served": true,
-        })),
+        ResultPayload::of::<results::MiningPipelineServe>(PipelineServeResult {
+            name,
+            version,
+            model_id,
+            served: true,
+        }),
     )
 }
 
@@ -383,26 +399,21 @@ fn predict_classify(
     } else {
         0
     };
-    let rows_json: Vec<Value> = (0..rows.len())
-        .map(|i| {
-            json!({
-                "id": ids.get(i).cloned().unwrap_or_else(|| i.to_string()),
-                "label": out.labels[i],
-                "proba": out.proba[i],
-            })
+    let classified: Vec<PipelineClassifiedRow> = (0..rows.len())
+        .map(|i| PipelineClassifiedRow {
+            id: ids.get(i).cloned().unwrap_or_else(|| i.to_string()),
+            label: out.labels[i],
+            proba: out.proba[i].clone(),
         })
         .collect();
-    Response::ok(
-        req_id,
-        ResultPayload::Json(json!({
-            "model_id": model.model_id,
-            "family": "classify",
-            "rows": rows_json,
-            "classes": out.classes,
-            "n_rows": rows.len(),
-            "written_back": written,
-        })),
-    )
+    let body = PipelinePrediction::Classify(ClassifyPrediction {
+        model_id: model.model_id.clone(),
+        rows: classified,
+        classes: out.classes,
+        n_rows: rows.len(),
+        written_back: written,
+    });
+    Response::ok(req_id, ResultPayload::of::<MiningPipelinePredict>(body))
 }
 
 fn predict_estimator(
@@ -430,24 +441,19 @@ fn predict_estimator(
     } else {
         0
     };
-    let rows_json: Vec<Value> = (0..rows.len())
-        .map(|i| {
-            json!({
-                "id": ids.get(i).cloned().unwrap_or_else(|| i.to_string()),
-                "value": yhat.get(i).copied().unwrap_or(0.0),
-            })
+    let regressed: Vec<PipelineValueRow> = (0..rows.len())
+        .map(|i| PipelineValueRow {
+            id: ids.get(i).cloned().unwrap_or_else(|| i.to_string()),
+            value: yhat.get(i).copied().unwrap_or(0.0),
         })
         .collect();
-    Response::ok(
-        req_id,
-        ResultPayload::Json(json!({
-            "model_id": model.model_id,
-            "family": "estimator",
-            "rows": rows_json,
-            "n_rows": rows.len(),
-            "written_back": written,
-        })),
-    )
+    let body = PipelinePrediction::Estimator(EstimatorPrediction {
+        model_id: model.model_id.clone(),
+        rows: regressed,
+        n_rows: rows.len(),
+        written_back: written,
+    });
+    Response::ok(req_id, ResultPayload::of::<MiningPipelinePredict>(body))
 }
 
 fn predict_graphlearn(
@@ -484,21 +490,20 @@ fn predict_graphlearn(
     // Top-k highest-probability missing links (a sensible default surface; the fuller
     // candidate-pairs API stays on `graph_learn predict`).
     let scored = link_predict::predict_missing_links(&kan, &ctx, &existing, 50);
-    let rows_json: Vec<Value> = scored
+    let predicted: Vec<PredictedLink> = scored
         .iter()
-        .map(|&(a, b, score)| {
-            json!({ "src": graph.node_at(a), "dst": graph.node_at(b), "score": score })
+        .map(|&(a, b, score)| PredictedLink {
+            src: graph.node_at(a).clone(),
+            dst: graph.node_at(b).clone(),
+            score,
         })
         .collect();
-    Response::ok(
-        req_id,
-        ResultPayload::Json(json!({
-            "model_id": model.model_id,
-            "family": "graphlearn",
-            "predicted": rows_json,
-            "n_predicted": scored.len(),
-        })),
-    )
+    let body = PipelinePrediction::Graphlearn(GraphlearnPrediction {
+        model_id: model.model_id.clone(),
+        predicted,
+        n_predicted: scored.len(),
+    });
+    Response::ok(req_id, ResultPayload::of::<MiningPipelinePredict>(body))
 }
 
 // ─────────────────────────── Evaluate ───────────────────────────
@@ -546,13 +551,13 @@ fn handle_evaluate(
         };
     Response::ok(
         req_id,
-        ResultPayload::Json(json!({
-            "name": name,
-            "version": version,
-            "family": model.family,
-            "metrics": metrics_obj,
-            "n": rows.len(),
-        })),
+        ResultPayload::of::<results::MiningPipelineEvaluate>(PipelineEvaluation {
+            name,
+            version,
+            family: model.family,
+            metrics: metrics_obj,
+            n: rows.len(),
+        }),
     )
 }
 
@@ -601,16 +606,16 @@ fn handle_compare(
     let diff = diff_metrics(ma, mb);
     Response::ok(
         req_id,
-        ResultPayload::Json(json!({
-            "name": name,
-            "version_a": version_a,
-            "version_b": version_b,
-            "algorithm_a": a.algorithm,
-            "algorithm_b": b.algorithm,
-            "metrics_a": a.metrics,
-            "metrics_b": b.metrics,
-            "diff": diff,
-        })),
+        ResultPayload::of::<results::MiningPipelineCompare>(PipelineComparison {
+            name,
+            version_a,
+            version_b,
+            algorithm_a: a.algorithm,
+            algorithm_b: b.algorithm,
+            metrics_a: a.metrics,
+            metrics_b: b.metrics,
+            diff,
+        }),
     )
 }
 
@@ -635,157 +640,6 @@ fn diff_metrics(a: &Value, b: &Value) -> Value {
         }
     }
     Value::Object(out)
-}
-
-// ─────────────────────────── Feature construction ───────────────────────────
-
-/// Build the `(node_id, row)` feature matrix by running the ordered feature steps.
-/// Explicit `x` short-circuits the producing steps (only transforms apply).
-fn build_features(
-    core: &GraphCore,
-    source: &Option<GraphSource>,
-    x: &[Vec<f64>],
-    steps: &[FeatureStep],
-) -> Result<(Vec<String>, Vec<Vec<f64>>), String> {
-    if !x.is_empty() {
-        let mut rows = x.to_vec();
-        for step in steps {
-            if matches!(step, FeatureStep::Normalize {}) {
-                l2_normalize_rows(&mut rows);
-            }
-        }
-        let ids: Vec<String> = (0..rows.len()).map(|i| i.to_string()).collect();
-        return Ok((ids, rows));
-    }
-    let source = source
-        .as_ref()
-        .ok_or_else(|| "pipeline: no explicit `x` and no `source` to build features".to_string())?;
-    build_source_features(core, source, steps)
-}
-
-fn build_source_features(
-    core: &GraphCore,
-    source: &GraphSource,
-    steps: &[FeatureStep],
-) -> Result<(Vec<String>, Vec<Vec<f64>>), String> {
-    let mut ids: Vec<String> = Vec::new();
-    let mut rows: Vec<Vec<f64>> = Vec::new();
-    let mut produced = false;
-    for step in steps {
-        match step {
-            FeatureStep::Embedding { .. } => {
-                let (graph, _) = super::graphlearn::build_graph_with_set(core, source);
-                if graph.node_count() == 0 {
-                    return Err("pipeline: source subgraph is empty".to_string());
-                }
-                rows = compute_embedding_rows(&graph, step);
-                ids = graph.nodes().iter().map(|n| n.to_string()).collect();
-                produced = true;
-            }
-            FeatureStep::NodeVector {} => {
-                let (i, r) = gather_node_vectors(core, &source.node_label, source.limit);
-                ids = i;
-                rows = r;
-                produced = true;
-            }
-            FeatureStep::Normalize {} => {
-                if !produced {
-                    return Err(
-                        "pipeline: `normalize` before any producing feature step".to_string()
-                    );
-                }
-                l2_normalize_rows(&mut rows);
-            }
-        }
-    }
-    if !produced {
-        return Err(
-            "pipeline: no producing feature step (embedding | node_vector) and no explicit `x`"
-                .to_string(),
-        );
-    }
-    Ok((ids, rows))
-}
-
-/// Compute structural-embedding rows (`f64`, index-ordered) for an `Embedding` step.
-fn compute_embedding_rows(graph: &AdjacencyGraph<String>, step: &FeatureStep) -> Vec<Vec<f64>> {
-    let FeatureStep::Embedding {
-        method,
-        dim,
-        iterations,
-        walk_length,
-        walks_per_node,
-        window,
-        epochs,
-        seed,
-    } = step
-    else {
-        return Vec::new();
-    };
-    match method.to_ascii_lowercase().as_str() {
-        "node2vec" => {
-            let cfg = Node2VecConfig {
-                dim: *dim,
-                walk_length: *walk_length,
-                walks_per_node: *walks_per_node,
-                window: *window,
-                epochs: *epochs,
-                seed: *seed,
-                l2_normalize: false,
-                ..Default::default()
-            };
-            to_f64_rows(&node2vec(graph, &cfg))
-        }
-        _ => {
-            let cfg = FastRpConfig {
-                dim: *dim,
-                iterations: *iterations,
-                seed: *seed,
-                l2_normalize: false,
-                ..Default::default()
-            };
-            to_f64_rows(&fastrp(graph, &cfg))
-        }
-    }
-}
-
-/// The first `Embedding` step (feeds the KAN embedding channel for the graphlearn family).
-fn first_embedding(steps: &[FeatureStep]) -> Option<&FeatureStep> {
-    steps
-        .iter()
-        .find(|s| matches!(s, FeatureStep::Embedding { .. }))
-}
-
-/// Read each label node's pre-stored embedding from the SemanticStore (`NodeVector`).
-fn gather_node_vectors(
-    core: &GraphCore,
-    node_label: &str,
-    limit: usize,
-) -> (Vec<String>, Vec<Vec<f64>>) {
-    let owners = core.get_nodes_by_label(node_label, limit);
-    let store = core.semantic_store.read();
-    let mut ids = Vec::with_capacity(owners.len());
-    let mut rows = Vec::with_capacity(owners.len());
-    for (id, _) in owners {
-        if let Some(vec) = store.get_embedding(&id) {
-            rows.push(vec.into_iter().map(|f| f as f64).collect());
-            ids.push(id);
-        }
-    }
-    (ids, rows)
-}
-
-/// L2-normalize each feature row in place (a zero row is left untouched). Inlined —
-/// eg-compute's own `l2_normalize_rows` is crate-private.
-fn l2_normalize_rows(rows: &mut [Vec<f64>]) {
-    for row in rows.iter_mut() {
-        let norm: f64 = row.iter().map(|x| x * x).sum::<f64>().sqrt();
-        if norm > 0.0 {
-            for x in row.iter_mut() {
-                *x /= norm;
-            }
-        }
-    }
 }
 
 // ─────────────────────────── Labels ───────────────────────────

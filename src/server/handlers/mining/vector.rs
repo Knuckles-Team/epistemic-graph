@@ -5,6 +5,12 @@ use eg_compute::mining::{
     classify::{self, FittedClassifier},
     cluster, reduce,
 };
+use eg_types::compute_result::mining::{
+    AnomalyMiningResult, AnomalyRow, ClassificationMiningResult, ClassifiedRow,
+    ClassifierFitResult, ClusterMiningResult, ClusterRow, ReducedRow, ReductionMiningResult,
+    RowRef,
+};
+use eg_types::result_contract::compute as results;
 
 // ─────────────────────────── Clustering ───────────────────────────
 
@@ -74,40 +80,30 @@ pub(crate) fn handle_cluster(
         materialize_cluster_claims(core, &out, &ids, algorithm, cluster_provenance(&source));
     }
 
-    let cluster_rows: Vec<serde_json::Value> = out
+    let clusters: Vec<ClusterRow> = out
         .clusters
         .iter()
-        .map(|c| {
+        .map(|c| ClusterRow {
+            cluster_id: c.cluster_id,
             // Report member node ids when the rows came from a node source, else the
             // raw row indices.
-            let members: Vec<serde_json::Value> = c
-                .members
-                .iter()
-                .map(|&i| match ids.get(i) {
-                    Some(id) => serde_json::Value::String(id.clone()),
-                    None => serde_json::json!(i),
-                })
-                .collect();
-            serde_json::json!({
-                "cluster_id": c.cluster_id,
-                "members": members,
-                "centroid": c.centroid,
-                "score": c.score,
-            })
+            members: c.members.iter().map(|&i| RowRef::at(&ids, i)).collect(),
+            centroid: c.centroid.clone(),
+            score: c.score,
         })
         .collect();
 
-    let mut payload = serde_json::json!({
-        "clusters": cluster_rows,
-        "labels": out.labels,
-        "n_rows": rows.len(),
-        "n_clusters": out.clusters.iter().filter(|c| c.cluster_id >= 0).count(),
-        "written_back": written,
-    });
-    if let Some(resp) = &out.responsibilities {
-        payload["responsibilities"] = serde_json::json!(resp);
-    }
-    Response::ok(req_id, ResultPayload::Json(payload))
+    Response::ok(
+        req_id,
+        ResultPayload::of::<results::MineCluster>(ClusterMiningResult {
+            clusters,
+            n_rows: rows.len(),
+            n_clusters: out.clusters.iter().filter(|c| c.cluster_id >= 0).count(),
+            written_back: written,
+            labels: out.labels,
+            responsibilities: out.responsibilities,
+        }),
+    )
 }
 
 pub(super) fn cluster_algo(
@@ -278,29 +274,23 @@ pub(crate) fn handle_anomaly(
         );
     }
 
-    let rows_json: Vec<serde_json::Value> = (0..rows.len())
-        .map(|i| {
-            let id = match ids.get(i) {
-                Some(id) => serde_json::Value::String(id.clone()),
-                None => serde_json::json!(i),
-            };
-            serde_json::json!({
-                "id": id,
-                "anomaly_score": out.scores[i],
-                "is_anomaly": out.is_anomaly[i],
-            })
+    let scored: Vec<AnomalyRow> = (0..rows.len())
+        .map(|i| AnomalyRow {
+            id: RowRef::at(&ids, i),
+            anomaly_score: out.scores[i],
+            is_anomaly: out.is_anomaly[i],
         })
         .collect();
 
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "rows": rows_json,
-            "n_rows": rows.len(),
-            "n_anomalies": out.is_anomaly.iter().filter(|&&a| a).count(),
-            "threshold": out.threshold,
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineAnomaly>(AnomalyMiningResult {
+            rows: scored,
+            n_rows: rows.len(),
+            n_anomalies: out.is_anomaly.iter().filter(|&&a| a).count(),
+            threshold: out.threshold,
+            written_back: written,
+        }),
     )
 }
 
@@ -465,12 +455,12 @@ pub(super) fn handle_classify_fit(
     match classify::fit(&rows, &y, algo) {
         Ok(model) => Response::ok(
             req_id,
-            ResultPayload::Json(serde_json::json!({
-                "model": model,
-                "algorithm": classify_algo_name(algorithm),
-                "n_samples": rows.len(),
-                "classes": classify_classes(&model),
-            })),
+            ResultPayload::of::<results::MineClassifyFit>(ClassifierFitResult {
+                classes: classify_classes(&model),
+                model,
+                algorithm: classify_algo_name(algorithm).to_string(),
+                n_samples: rows.len(),
+            }),
         ),
         Err(e) => Response::err(req_id, e),
     }
@@ -529,28 +519,22 @@ pub(crate) fn handle_classify_predict(
         materialize_classification_claims(core, &out, &ids, classify_provenance(&source));
     }
 
-    let rows_json: Vec<serde_json::Value> = (0..rows.len())
-        .map(|i| {
-            let id = match ids.get(i) {
-                Some(id) => serde_json::Value::String(id.clone()),
-                None => serde_json::json!(i),
-            };
-            serde_json::json!({
-                "id": id,
-                "label": out.labels[i],
-                "proba": out.proba[i],
-            })
+    let classified: Vec<ClassifiedRow> = (0..rows.len())
+        .map(|i| ClassifiedRow {
+            id: RowRef::at(&ids, i),
+            label: out.labels[i],
+            proba: out.proba[i].clone(),
         })
         .collect();
 
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "rows": rows_json,
-            "classes": out.classes,
-            "n_rows": rows.len(),
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineClassifyPredict>(ClassificationMiningResult {
+            rows: classified,
+            classes: out.classes,
+            n_rows: rows.len(),
+            written_back: written,
+        }),
     )
 }
 
@@ -695,27 +679,30 @@ pub(crate) fn handle_reduce(
         materialize_reduce_claims(core, &rows, &out, &ids, request.algorithm, &request.source);
     }
 
-    let rows_json: Vec<serde_json::Value> = (0..out.coords.len())
-        .map(|i| {
-            let id = match ids.get(i) {
-                Some(id) => serde_json::Value::String(id.clone()),
-                None => serde_json::json!(i),
-            };
-            serde_json::json!({ "id": id, "coords": out.coords[i] })
+    let n_components = out.coords.first().map(|c| c.len()).unwrap_or(0);
+    // Singular values are published only by an algorithm that produces them.
+    let singular_values = (!out.singular_values.is_empty()).then_some(out.singular_values);
+    let reduced: Vec<ReducedRow> = out
+        .coords
+        .into_iter()
+        .enumerate()
+        .map(|(i, coords)| ReducedRow {
+            id: RowRef::at(&ids, i),
+            coords,
         })
         .collect();
 
-    let mut payload = serde_json::json!({
-        "rows": rows_json,
-        "algorithm": reduce_algo_name(request.algorithm),
-        "n_rows": rows.len(),
-        "n_components": out.coords.first().map(|c| c.len()).unwrap_or(0),
-        "written_back": written,
-    });
-    if !out.singular_values.is_empty() {
-        payload["singular_values"] = serde_json::json!(out.singular_values);
-    }
-    Response::ok(req_id, ResultPayload::Json(payload))
+    Response::ok(
+        req_id,
+        ResultPayload::of::<results::MineReduce>(ReductionMiningResult {
+            rows: reduced,
+            algorithm: reduce_algo_name(request.algorithm).to_string(),
+            n_rows: rows.len(),
+            n_components,
+            written_back: written,
+            singular_values,
+        }),
+    )
 }
 
 pub(super) fn reduce_algo(

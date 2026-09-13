@@ -1,6 +1,11 @@
 use super::*;
 
 use super::terminal::GraphOpsContext;
+use eg_types::compute_result::algorithms::{
+    ClusterExpansion, ClusterHierarchySummary, ClusterLevelView, ClusterMemberEdge,
+    ClusterMemberNode, ClusterSummary, InterClusterEdge,
+};
+use eg_types::result_contract::compute as results;
 
 /// `ClusterHierarchyRefresh`: pure extract-method from `try_handle`'s match arm,
 /// byte-identical behaviour, no signature change.
@@ -41,14 +46,18 @@ async fn handle_cluster_hierarchy_refresh(
     };
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "graph": graph_name,
-            "levels": computed.levels.len(),
-            "base_node_count": computed.base_node_count,
-            "base_edge_count": computed.base_edge_count,
-            "top_level_clusters": computed.levels.last().map(|l| l.clusters.len()).unwrap_or(0),
-            "cached": cached,
-        })),
+        ResultPayload::of::<results::ClusterHierarchyRefresh>(ClusterHierarchySummary {
+            graph: graph_name.to_string(),
+            levels: computed.levels.len(),
+            base_node_count: computed.base_node_count,
+            base_edge_count: computed.base_edge_count,
+            top_level_clusters: computed
+                .levels
+                .last()
+                .map(|l| l.clusters.len())
+                .unwrap_or(0),
+            cached,
+        }),
     )
 }
 
@@ -75,24 +84,26 @@ async fn handle_cluster_hierarchy_clusters(
         );
     }
     let level_data = &hierarchy.levels[level - 1];
-    let (clusters_json, remap) =
+    let (clusters, remap) =
         project_level_clusters(&level_data.clusters, parent_cluster_id.as_deref());
-    let inter_cluster_edges: Vec<serde_json::Value> = level_data
+    let inter_cluster_edges: Vec<InterClusterEdge> = level_data
         .inter_cluster_edges
         .iter()
-        .filter_map(|&(s, d, w)| {
-            let ls = remap.get(&(s as usize))?;
-            let ld = remap.get(&(d as usize))?;
-            Some(serde_json::json!({ "src_idx": ls, "dst_idx": ld, "weight": w }))
+        .filter_map(|&(s, d, weight)| {
+            Some(InterClusterEdge {
+                src_idx: *remap.get(&(s as usize))?,
+                dst_idx: *remap.get(&(d as usize))?,
+                weight,
+            })
         })
         .collect();
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "level": level,
-            "clusters": clusters_json,
-            "inter_cluster_edges": inter_cluster_edges,
-        })),
+        ResultPayload::of::<results::ClusterHierarchyClusters>(ClusterLevelView {
+            level,
+            clusters,
+            inter_cluster_edges,
+        }),
     )
 }
 
@@ -133,8 +144,8 @@ async fn load_cached_cluster_hierarchy(
         .map_err(|e| Response::err(req_id, format!("cached cluster hierarchy is corrupt: {e}")))
 }
 
-/// Project one level's clusters to wire JSON, optionally filtered to one
-/// parent's children, returning the JSON alongside the local-index remap.
+/// Project one level's clusters to their wire summaries, optionally filtered to
+/// one parent's children, returning the summaries alongside the local-index remap.
 ///
 /// Local (array-local, per the VIZ-1 contract) indices: unfiltered ⇒ identity
 /// map; filtered by `parent_cluster_id` ⇒ remapped to the returned subset's own
@@ -145,26 +156,28 @@ async fn load_cached_cluster_hierarchy(
 fn project_level_clusters(
     clusters: &[crate::algorithms::ClusterMeta],
     parent_cluster_id: Option<&str>,
-) -> (
-    Vec<serde_json::Value>,
-    std::collections::HashMap<usize, u32>,
-) {
+) -> (Vec<ClusterSummary>, std::collections::HashMap<usize, u32>) {
     let mut remap: std::collections::HashMap<usize, u32> = std::collections::HashMap::new();
-    let mut clusters_json: Vec<serde_json::Value> = Vec::new();
+    let mut summaries: Vec<ClusterSummary> = Vec::new();
     for (i, c) in clusters.iter().enumerate() {
         if parent_cluster_id.is_some_and(|pid| c.parent_id.as_deref() != Some(pid)) {
             continue;
         }
-        remap.insert(i, clusters_json.len() as u32);
-        clusters_json.push(serde_json::json!({
-            "id": c.id,
-            "label": c.label,
-            "node_count": c.node_count,
-            "edge_count": c.edge_count,
-            "top_node_types": c.top_node_types,
-        }));
+        remap.insert(i, summaries.len() as u32);
+        summaries.push(cluster_summary(c));
     }
-    (clusters_json, remap)
+    (summaries, remap)
+}
+
+/// One cached cluster's wire summary.
+fn cluster_summary(c: &crate::algorithms::ClusterMeta) -> ClusterSummary {
+    ClusterSummary {
+        id: c.id.clone(),
+        label: c.label.clone(),
+        node_count: c.node_count,
+        edge_count: c.edge_count,
+        top_node_types: c.top_node_types.clone(),
+    }
 }
 
 /// `ClusterHierarchyExpand`: pure extract-method from `try_handle`'s match arm,
@@ -213,23 +226,23 @@ fn expand_leaf_cluster_to_nodes(
         return Response::err(req_id, format!("unknown cluster_id: {cluster_id}"));
     }
     let sub = core.get_subgraph(&member_ids);
-    let nodes: Vec<serde_json::Value> = sub
+    let nodes: Vec<ClusterMemberNode> = sub
         .node_properties
         .iter()
-        .map(|(id, blob)| {
-            let props =
-                eg_types::msgpack::decode_property_value(blob).unwrap_or(serde_json::Value::Null);
-            serde_json::json!({ "id": id, "properties": props })
+        .map(|(id, blob)| ClusterMemberNode {
+            id: id.clone(),
+            properties: eg_types::msgpack::decode_property_value(blob)
+                .unwrap_or(serde_json::Value::Null),
         })
         .collect();
     let edges = expand_subgraph_edges_to_wire(&sub);
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "nodes": nodes,
-            "edges": edges,
-            "child_clusters": Vec::<serde_json::Value>::new(),
-        })),
+        ResultPayload::of::<results::ClusterHierarchyExpand>(ClusterExpansion {
+            nodes,
+            edges,
+            child_clusters: Vec::new(),
+        }),
     )
 }
 
@@ -237,8 +250,8 @@ fn expand_leaf_cluster_to_nodes(
 /// edge shape. Split out so the nested pair/blob loop does not count against
 /// `expand_leaf_cluster_to_nodes`; byte-identical behaviour, including the `"_"`
 /// fallback for a blob with no decodable `relationship`.
-fn expand_subgraph_edges_to_wire(sub: &crate::graph::GraphView) -> Vec<serde_json::Value> {
-    let mut edges: Vec<serde_json::Value> = Vec::new();
+fn expand_subgraph_edges_to_wire(sub: &crate::graph::GraphView) -> Vec<ClusterMemberEdge> {
+    let mut edges: Vec<ClusterMemberEdge> = Vec::new();
     for ((src, tgt), blobs) in &sub.edge_properties {
         for blob in blobs {
             let props =
@@ -247,9 +260,11 @@ fn expand_subgraph_edges_to_wire(sub: &crate::graph::GraphView) -> Vec<serde_jso
                 .get("relationship")
                 .and_then(|v| v.as_str())
                 .unwrap_or("_");
-            edges.push(serde_json::json!({
-                "src_id": src, "dst_id": tgt, "type": relationship,
-            }));
+            edges.push(ClusterMemberEdge {
+                src_id: src.clone(),
+                dst_id: tgt.clone(),
+                relationship: relationship.to_string(),
+            });
         }
     }
     edges
@@ -269,30 +284,22 @@ fn expand_coarse_cluster_to_children(
     let Some(child_level) = hierarchy.levels.get(level - 2) else {
         return Response::err(req_id, format!("malformed cluster_id: {cluster_id}"));
     };
-    let child_clusters: Vec<serde_json::Value> = child_level
+    let child_clusters: Vec<ClusterSummary> = child_level
         .clusters
         .iter()
         .filter(|c| c.parent_id.as_deref() == Some(cluster_id))
-        .map(|c| {
-            serde_json::json!({
-                "id": c.id,
-                "label": c.label,
-                "node_count": c.node_count,
-                "edge_count": c.edge_count,
-                "top_node_types": c.top_node_types,
-            })
-        })
+        .map(cluster_summary)
         .collect();
     if child_clusters.is_empty() {
         return Response::err(req_id, format!("unknown cluster_id: {cluster_id}"));
     }
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "nodes": Vec::<serde_json::Value>::new(),
-            "edges": Vec::<serde_json::Value>::new(),
-            "child_clusters": child_clusters,
-        })),
+        ResultPayload::of::<results::ClusterHierarchyExpand>(ClusterExpansion {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            child_clusters,
+        }),
     )
 }
 

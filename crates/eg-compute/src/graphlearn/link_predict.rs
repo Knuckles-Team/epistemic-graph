@@ -21,12 +21,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::hash::Hash;
 
-use crate::datascience::training::adam_step;
 use crate::graph_algos::pagerank::{pagerank, PageRankConfig};
 use crate::graph_algos::AdjacencyGraph;
 
 use super::edge_fn::{Basis, KanEdgeFn};
 use super::neighbor_aggregate::aggregate_1hop;
+
+mod fit;
 
 /// The structural features scored per candidate pair, in fixed order. The names are
 /// serialized onto the `:EdgeFunction` write-back so each learned curve is queryable
@@ -341,104 +342,7 @@ pub fn fit_link_predictor(
     positives: &[(usize, usize)],
     config: &KanLinkConfig,
 ) -> KanLinkModel {
-    let n_nodes = ctx.node_count();
-    // Canonicalise positives to (min, max) and dedupe.
-    let pos_set: HashSet<(usize, usize)> = positives
-        .iter()
-        .filter(|(a, b)| a != b && *a < n_nodes && *b < n_nodes)
-        .map(|&(a, b)| if a < b { (a, b) } else { (b, a) })
-        .collect();
-    let pos: Vec<(usize, usize)> = {
-        let mut v: Vec<(usize, usize)> = pos_set.iter().copied().collect();
-        v.sort_unstable();
-        v
-    };
-    let n_neg = ((pos.len() as f64) * config.neg_ratio).round() as usize;
-    let neg = sample_negatives(n_nodes, &pos_set, n_neg, config.seed);
-
-    // Build the labelled training matrix.
-    let mut raw: Vec<Vec<f64>> = Vec::with_capacity(pos.len() + neg.len());
-    let mut labels: Vec<f64> = Vec::with_capacity(pos.len() + neg.len());
-    for &(a, b) in &pos {
-        raw.push(ctx.pair_features(a, b));
-        labels.push(1.0);
-    }
-    for &(a, b) in &neg {
-        raw.push(ctx.pair_features(a, b));
-        labels.push(0.0);
-    }
-
-    // Standardisation stats.
-    let (feat_mean, feat_std) = standardize_stats(&raw, ctx.n_features());
-    let x_std: Vec<Vec<f64>> = raw
-        .iter()
-        .map(|r| {
-            r.iter()
-                .enumerate()
-                .map(|(i, &v)| (v - feat_mean[i]) / feat_std[i])
-                .collect()
-        })
-        .collect();
-
-    // Build & init the layer stack (7 structural features, or 9 with embeddings).
-    let mut layers = build_layers(ctx.n_features(), config);
-    init_layers(&mut layers, config.seed);
-
-    // Adam optimiser state over the flattened parameters.
-    let mut params = flatten_params(&layers);
-    let np = params.len();
-    let mut m = vec![0.0; np];
-    let mut v = vec![0.0; np];
-
-    let batch = x_std.len().max(1) as f64;
-    for epoch in 0..config.epochs {
-        // Accumulate gradients over the full batch.
-        let mut gacc = GradAccum::zeros(&layers);
-        for (row, &y) in x_std.iter().zip(labels.iter()) {
-            let (acts, score) = forward_all(&layers, row);
-            let p = sigmoid(score);
-            let dlds = p - y; // dL/dscore for sigmoid + BCE
-            backward(&layers, &acts, dlds, &mut gacc);
-        }
-        let grad = gacc.flatten(1.0 / batch);
-        let step = adam_step(
-            &params,
-            &grad,
-            &m,
-            &v,
-            config.lr,
-            0.9,
-            0.999,
-            1e-8,
-            epoch as u64 + 1,
-        );
-        params = step.params;
-        m = step.m;
-        v = step.v;
-        set_params(&mut layers, &params);
-    }
-
-    let mut model = KanLinkModel {
-        basis: config.basis,
-        degree: config.degree,
-        feature_names: ctx.feature_names(),
-        layers,
-        feat_mean,
-        feat_std,
-        alpha: config.alpha,
-        train_auc: 0.0,
-    };
-    // Record training AUC.
-    let pos_scores: Vec<f64> = pos
-        .iter()
-        .map(|&(a, b)| model.predict_prob(&ctx.pair_features(a, b)))
-        .collect();
-    let neg_scores: Vec<f64> = neg
-        .iter()
-        .map(|&(a, b)| model.predict_prob(&ctx.pair_features(a, b)))
-        .collect();
-    model.train_auc = auc(&pos_scores, &neg_scores);
-    model
+    fit::fit_link_predictor(ctx, positives, config)
 }
 
 /// Score a set of candidate pairs (compact indices) with a fitted model, returning
@@ -510,18 +414,7 @@ struct GradAccum {
 
 impl GradAccum {
     fn zeros(layers: &[KanLayer]) -> Self {
-        let coeffs = layers
-            .iter()
-            .map(|l| {
-                (0..l.out_dim)
-                    .map(|j| {
-                        (0..l.in_dim)
-                            .map(|i| vec![0.0; l.fns[j][i].coeffs.len()])
-                            .collect()
-                    })
-                    .collect()
-            })
-            .collect();
+        let coeffs = layers.iter().map(zero_layer_coeffs).collect();
         let bias = layers.iter().map(|l| vec![0.0; l.out_dim]).collect();
         Self { coeffs, bias }
     }
@@ -543,6 +436,18 @@ impl GradAccum {
         }
         out
     }
+}
+
+fn zero_layer_coeffs(layer: &KanLayer) -> Vec<Vec<Vec<f64>>> {
+    let mut coeffs = Vec::with_capacity(layer.out_dim);
+    for j in 0..layer.out_dim {
+        let mut outputs = Vec::with_capacity(layer.in_dim);
+        for i in 0..layer.in_dim {
+            outputs.push(vec![0.0; layer.fns[j][i].coeffs.len()]);
+        }
+        coeffs.push(outputs);
+    }
+    coeffs
 }
 
 /// Backprop `dL/dscore` through the layer stack, accumulating into `gacc`.
@@ -738,26 +643,7 @@ pub fn auc(pos: &[f64], neg: &[f64]) -> f64 {
     wins / (pos.len() as f64 * neg.len() as f64)
 }
 
-/// Deterministic SplitMix64 PRNG (same family the mining GMM uses for k-means++).
-struct SplitMix64 {
-    state: u64,
-}
-
-impl SplitMix64 {
-    fn new(seed: u64) -> Self {
-        Self { state: seed }
-    }
-    fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-    fn next_f64(&mut self) -> f64 {
-        (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
-    }
-}
+use crate::SplitMix64;
 
 #[cfg(test)]
 mod tests {

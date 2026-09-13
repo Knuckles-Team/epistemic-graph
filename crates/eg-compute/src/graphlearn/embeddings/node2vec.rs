@@ -95,80 +95,113 @@ where
     // as a cumulative table for O(log V) sampling.
     let neg_cdf = negative_cdf(&adj);
 
-    // Parameter matrices: input embeddings (the output) + context embeddings.
-    let mut emb = init_matrix(n, d, config.seed ^ 0x1234_5678, 0.5);
-    let mut ctx = vec![vec![0.0f64; d]; n];
-
-    // Flattened Adam state over [emb ; ctx].
-    let np = 2 * n * d;
-    let mut m = vec![0.0f64; np];
-    let mut vv = vec![0.0f64; np];
+    let mut state = Node2VecState::new(n, d, config.seed);
 
     for epoch in 0..config.epochs.max(1) {
-        let mut g_emb = vec![vec![0.0f64; d]; n];
-        let mut g_ctx = vec![vec![0.0f64; d]; n];
-        let mut examples = 0u64;
-        // Per-epoch RNG so re-sampled walks/negatives stay deterministic yet vary.
-        let mut walk_rng = SplitMix64::new(
-            config
-                .seed
-                .wrapping_add((epoch as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)),
-        );
-        let mut neg_rng = SplitMix64::new(config.seed ^ 0xD1B5_4A32_D192_ED03 ^ epoch as u64);
-
-        // STREAM the corpus: generate each walk, accumulate its gradient, drop it.
-        let mut walk = Vec::with_capacity(config.walk_length);
-        for start in 0..n {
-            if adj[start].is_empty() {
-                continue; // no walk possible from an isolated node
-            }
-            for _ in 0..config.walks_per_node {
-                sample_walk(&adj, start, config, &mut walk_rng, &mut walk);
-                accumulate_walk_grad(
-                    &walk,
-                    &emb,
-                    &ctx,
-                    config,
-                    &neg_cdf,
-                    &mut neg_rng,
-                    &mut g_emb,
-                    &mut g_ctx,
-                    &mut examples,
-                );
-            }
-        }
-        if examples == 0 {
+        if !train_epoch(&adj, config, &neg_cdf, &mut state, epoch) {
             break;
         }
-
-        // Mean gradient over the epoch's examples, then one Adam step on [emb ; ctx].
-        let inv = 1.0 / examples as f64;
-        let mut params = vec![0.0f64; np];
-        let mut grads = vec![0.0f64; np];
-        flatten_into(&emb, &ctx, &mut params);
-        flatten_scaled_into(&g_emb, &g_ctx, inv, &mut grads);
-        let step = adam_step(
-            &params,
-            &grads,
-            &m,
-            &vv,
-            config.lr,
-            0.9,
-            0.999,
-            1e-8,
-            epoch as u64 + 1,
-        );
-        m = step.m;
-        vv = step.v;
-        unflatten(&step.params, &mut emb, &mut ctx);
     }
 
+    let mut emb = state.emb;
     if config.l2_normalize {
         l2_normalize_rows(&mut emb);
     }
     emb.into_iter()
         .map(|row| row.into_iter().map(|x| x as f32).collect())
         .collect()
+}
+
+struct Node2VecState {
+    emb: Vec<Vec<f64>>,
+    ctx: Vec<Vec<f64>>,
+    m: Vec<f64>,
+    vv: Vec<f64>,
+}
+
+impl Node2VecState {
+    fn new(n: usize, d: usize, seed: u64) -> Self {
+        let np = 2 * n * d;
+        Self {
+            emb: init_matrix(n, d, seed ^ 0x1234_5678, 0.5),
+            ctx: vec![vec![0.0f64; d]; n],
+            m: vec![0.0f64; np],
+            vv: vec![0.0f64; np],
+        }
+    }
+}
+
+fn train_epoch(
+    adj: &[Vec<(usize, f64)>],
+    config: &Node2VecConfig,
+    neg_cdf: &[f64],
+    state: &mut Node2VecState,
+    epoch: usize,
+) -> bool {
+    let n = adj.len();
+    let d = config.dim.max(1);
+    let np = 2 * n * d;
+    let mut g_emb = vec![vec![0.0f64; d]; n];
+    let mut g_ctx = vec![vec![0.0f64; d]; n];
+    let mut examples = 0u64;
+    // Per-epoch RNG so re-sampled walks/negatives stay deterministic yet vary.
+    let mut walk_rng = SplitMix64::new(
+        config
+            .seed
+            .wrapping_add((epoch as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)),
+    );
+    let mut neg_rng = SplitMix64::new(config.seed ^ 0xD1B5_4A32_D192_ED03 ^ epoch as u64);
+
+    // STREAM the corpus: generate each walk, accumulate its gradient, drop it.
+    let mut walk = Vec::with_capacity(config.walk_length);
+    {
+        let mut gradients = WalkGradientState {
+            emb: &state.emb,
+            ctx: &state.ctx,
+            config,
+            neg_cdf,
+            neg_rng: &mut neg_rng,
+            g_emb: &mut g_emb,
+            g_ctx: &mut g_ctx,
+            examples: &mut examples,
+        };
+        for start in 0..n {
+            if adj[start].is_empty() {
+                continue; // no walk possible from an isolated node
+            }
+            for _ in 0..config.walks_per_node {
+                sample_walk(adj, start, config, &mut walk_rng, &mut walk);
+                accumulate_walk_grad(&walk, &mut gradients);
+            }
+        }
+    }
+    if examples == 0 {
+        return false;
+    }
+
+    // Mean gradient over the epoch's examples, then one Adam step on [emb ; ctx].
+    let inv = 1.0 / examples as f64;
+    let mut params = vec![0.0f64; np];
+    let mut grads = vec![0.0f64; np];
+    flatten_into(&state.emb, &state.ctx, &mut params);
+    flatten_scaled_into(&g_emb, &g_ctx, inv, &mut grads);
+    let step = adam_step(
+        &params,
+        &grads,
+        &state.m,
+        &state.vv,
+        crate::datascience::training::AdamHyperparameters {
+            lr: config.lr,
+            beta1: 0.9,
+            beta2: 0.999,
+            eps: 1e-8,
+        },
+        epoch as u64 + 1,
+    );
+    state.m = step.m;
+    state.vv = step.v;
+    unflatten(&step.params, &mut state.emb, &mut state.ctx);
+    true
 }
 
 // ─────────────────────────── biased walk ───────────────────────────
@@ -272,38 +305,38 @@ fn weighted_pick(
 /// `g_ctx`. For each center `u` and each context `c` within `±window`, one positive
 /// pair `(u, c)` plus `negatives` sampled non-context nodes contribute the analytic
 /// SGNS gradient. CONCEPT:EG-KG.graphlearn.node2vec
-#[allow(clippy::too_many_arguments)]
-fn accumulate_walk_grad(
-    walk: &[usize],
-    emb: &[Vec<f64>],
-    ctx: &[Vec<f64>],
-    config: &Node2VecConfig,
-    neg_cdf: &[f64],
-    neg_rng: &mut SplitMix64,
-    g_emb: &mut [Vec<f64>],
-    g_ctx: &mut [Vec<f64>],
-    examples: &mut u64,
-) {
+struct WalkGradientState<'a> {
+    emb: &'a [Vec<f64>],
+    ctx: &'a [Vec<f64>],
+    config: &'a Node2VecConfig,
+    neg_cdf: &'a [f64],
+    neg_rng: &'a mut SplitMix64,
+    g_emb: &'a mut [Vec<f64>],
+    g_ctx: &'a mut [Vec<f64>],
+    examples: &'a mut u64,
+}
+
+fn accumulate_walk_grad(walk: &[usize], state: &mut WalkGradientState<'_>) {
     let len = walk.len();
     for i in 0..len {
         let u = walk[i];
-        let lo = i.saturating_sub(config.window);
-        let hi = (i + config.window + 1).min(len);
+        let lo = i.saturating_sub(state.config.window);
+        let hi = (i + state.config.window + 1).min(len);
         for (j, &c) in walk.iter().enumerate().take(hi).skip(lo) {
             if j == i {
                 continue;
             }
             // Positive pair (u, c): dL/dz = σ(z) − 1.
-            sgns_pair(u, c, 1.0, emb, ctx, g_emb, g_ctx);
+            sgns_pair(u, c, 1.0, state.emb, state.ctx, state.g_emb, state.g_ctx);
             // Negatives: dL/dz = σ(z) (label 0).
-            for _ in 0..config.negatives {
-                let neg = sample_negative(neg_cdf, neg_rng);
+            for _ in 0..state.config.negatives {
+                let neg = sample_negative(state.neg_cdf, state.neg_rng);
                 if neg == u {
                     continue;
                 }
-                sgns_pair(u, neg, 0.0, emb, ctx, g_emb, g_ctx);
+                sgns_pair(u, neg, 0.0, state.emb, state.ctx, state.g_emb, state.g_ctx);
             }
-            *examples += 1;
+            *state.examples += 1;
         }
     }
 }
