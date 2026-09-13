@@ -139,7 +139,27 @@ async fn spawn_listener_mode(
     state: Arc<RwLock<ServerState>>,
     mode: pgwire::PgWireAuthMode,
 ) -> String {
+    provision_text_embedder_once();
     test_support::spawn_pgwire_listener(state, mode).await
+}
+
+/// Provision `EG_UQL_TEXT_EMBEDDER=hash` for this whole test process, before ANY
+/// pgwire listener exists (GOC-70 rule 2).
+///
+/// The server resolves that variable exactly once per process -- `uql_text_embedder`
+/// is a `OnceLock` and `bind_sql_text_embedder` a `Once`, both latched by the FIRST
+/// pgwire query of ANY session (`bind_startup_from_client`). A single test setting
+/// the variable in its own body therefore raced every sibling test's first query:
+/// whichever session queried first latched "no embedder" for the process, and
+/// `wire_eg_embed_is_reachable_over_a_pgwire_only_session` failed under 2-core
+/// affinity. Every listener in this binary is spawned through `spawn_listener_mode`
+/// or `spawn_listener_abortable`, and no query can precede a listener, so doing the
+/// mutation here -- once, with `Once` blocking concurrent callers until it is done --
+/// makes the embedder deterministically bound before any reader can latch it. No
+/// other test in this binary depends on the embedder being unbound.
+fn provision_text_embedder_once() {
+    static TEXT_EMBEDDER_ENV: std::sync::Once = std::sync::Once::new();
+    TEXT_EMBEDDER_ENV.call_once(|| std::env::set_var("EG_UQL_TEXT_EMBEDDER", "hash"));
 }
 
 /// Like [`spawn_listener`], but hands back the listener task's `JoinHandle` too. A
@@ -154,6 +174,7 @@ async fn spawn_listener_mode(
 async fn spawn_listener_abortable(
     state: Arc<RwLock<ServerState>>,
 ) -> (String, tokio::task::JoinHandle<()>) {
+    provision_text_embedder_once();
     let addr_s = test_support::ephemeral_listener_addr().await;
     let serve_addr = addr_s.clone();
     let handle = tokio::spawn(async move {
@@ -238,7 +259,9 @@ async fn wire_rejects_retired_graph_compatibility_sql_and_extensions() {
 /// proves the SQL resolves rather than erroring closed.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wire_eg_embed_is_reachable_over_a_pgwire_only_session() {
-    std::env::set_var("EG_UQL_TEXT_EMBEDDER", "hash");
+    // `EG_UQL_TEXT_EMBEDDER=hash` is provisioned process-wide by
+    // `provision_text_embedder_once` inside `spawn_listener`, before this or any other
+    // session's first query can latch the embedder (see that function's doc).
     let state = seeded_state();
     let addr = spawn_listener(state).await;
     let client = connect(&addr).await;
@@ -249,7 +272,7 @@ async fn wire_eg_embed_is_reachable_over_a_pgwire_only_session() {
         .unwrap_or_else(|e| {
             panic!(
                 "eg_embed(...) must be reachable over a pgwire-only session \
-                 (BUG-CX-084), got: {e}"
+                 (BUG-CX-084), got: {e:?}"
             )
         });
     let data_rows = rows
