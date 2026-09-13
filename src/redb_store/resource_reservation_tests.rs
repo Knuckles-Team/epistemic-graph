@@ -3036,16 +3036,13 @@ fn terminal_result_replays_exact_record_without_held_capacity() {
     let mut record = resource_build_record(&request, &host(), 7, 1).unwrap();
     record.state = ResourceReservationRecordState::Released;
     record.tombstone = true;
-    let result = resource_decode_result_payload(
-        resource_result_payload(
-            ResourceReservationResultDecision::Idempotent,
-            &request,
-            Some(record.clone()),
-            Some(&host()),
-            9,
-            Vec::new(),
-        )
-        .unwrap(),
+    let result = resource_result_payload(
+        ResourceReservationResultDecision::Idempotent,
+        &request,
+        Some(record.clone()),
+        Some(&host()),
+        9,
+        Vec::new(),
     )
     .unwrap();
     assert!(resource_request_matches_record(&request, &record));

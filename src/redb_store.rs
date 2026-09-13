@@ -3328,8 +3328,8 @@ struct MutationRowCtx<'a> {
 /// as the batch's raw response payload. `label` names the request kind in the
 /// refusal message, so `SubmitWorkItem` and `SubmitWorkItems` keep their own
 /// distinct wording even though the mechanics are identical.
-fn finish_native_submit_work_item_operation<T: serde::Serialize>(
-    result: T,
+fn finish_native_submit_work_item_operation<M: eg_types::result_contract::MethodResult>(
+    result: M::Body,
     batch: &MutationBatch,
     generated_result: &mut Option<Vec<u8>>,
     label: &str,
@@ -3339,7 +3339,7 @@ fn finish_native_submit_work_item_operation<T: serde::Serialize>(
             "{label} MutationBatch must contain exactly one result-producing operation"
         ));
     }
-    let payload = crate::protocol::ResultPayload::raw(&result)?;
+    let payload = crate::protocol::ResultPayload::of::<M>(result)?;
     *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
     Ok(())
 }
@@ -3370,7 +3370,9 @@ fn apply_native_submit_work_item_operation(
             outbox_id: &batch.batch_id,
         },
     )?;
-    finish_native_submit_work_item_operation(result, batch, generated_result, "SubmitWorkItem")
+    finish_native_submit_work_item_operation::<
+        eg_types::result_contract::coordination::SubmitWorkItem,
+    >(result, batch, generated_result, "SubmitWorkItem")
 }
 
 fn apply_native_submit_work_items_operation(
@@ -3399,7 +3401,9 @@ fn apply_native_submit_work_items_operation(
             outbox_id: &batch.batch_id,
         },
     )?;
-    finish_native_submit_work_item_operation(result, batch, generated_result, "SubmitWorkItems")
+    finish_native_submit_work_item_operation::<
+        eg_types::result_contract::coordination::SubmitWorkItems,
+    >(result, batch, generated_result, "SubmitWorkItems")
 }
 
 #[allow(clippy::too_many_arguments)]

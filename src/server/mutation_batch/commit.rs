@@ -1061,45 +1061,41 @@ pub(crate) async fn commit_work_item(
 /// bit after the authoritative replay; never write the rewritten bytes back to
 /// redb.
 fn mark_submit_replayed(result: ResultPayload, batch: bool) -> Result<ResultPayload, String> {
-    fn set_flags(value: &mut serde_json::Value, batch: bool) -> Result<(), String> {
-        let object = value
-            .as_object_mut()
-            .ok_or_else(|| "replayed SubmitWorkItem result is not an object".to_string())?;
-        if batch {
-            object.insert("replayed".to_string(), serde_json::Value::Bool(true));
-            let children = object
-                .get_mut("results")
-                .and_then(serde_json::Value::as_array_mut)
-                .ok_or_else(|| "replayed SubmitWorkItems result has no results".to_string())?;
-            for child in children {
-                let child = child.as_object_mut().ok_or_else(|| {
-                    "replayed SubmitWorkItems child result is not an object".to_string()
-                })?;
-                child.insert("created".to_string(), serde_json::Value::Bool(false));
-                child.insert("replayed".to_string(), serde_json::Value::Bool(true));
-            }
-        } else {
-            object.insert("created".to_string(), serde_json::Value::Bool(false));
-            object.insert("replayed".to_string(), serde_json::Value::Bool(true));
-        }
-        Ok(())
+    match batch {
+        true => replayed_submit_batch(result),
+        false => replayed_submit(result),
     }
+}
 
+fn replayed_submit_batch(result: ResultPayload) -> Result<ResultPayload, String> {
+    let mut body: eg_types::native_control::SubmitWorkItemsResult = decode_submit_receipt(result)?;
+    body.replayed = true;
+    for child in &mut body.results {
+        child.created = false;
+        child.replayed = true;
+    }
+    ResultPayload::of::<eg_types::result_contract::coordination::SubmitWorkItems>(body)
+}
+
+fn replayed_submit(result: ResultPayload) -> Result<ResultPayload, String> {
+    let mut body: eg_types::native_control::SubmitWorkItemResult = decode_submit_receipt(result)?;
+    body.created = false;
+    body.replayed = true;
+    ResultPayload::of::<eg_types::result_contract::coordination::SubmitWorkItem>(body)
+}
+
+/// The durably committed submit result a replay re-answers, as its declared body.
+fn decode_submit_receipt<T: serde::de::DeserializeOwned>(
+    result: ResultPayload,
+) -> Result<T, String> {
     match result {
-        ResultPayload::Raw(bytes) => {
-            let mut value: serde_json::Value = eg_types::msgpack::decode_bounded(
-                &bytes,
-                eg_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
-            )
-            .map_err(|_| "replayed SubmitWorkItem result is corrupt".to_string())?;
-            set_flags(&mut value, batch)?;
-            let bytes = rmp_serde::to_vec_named(&value).map_err(|e| e.to_string())?;
-            Ok(ResultPayload::Raw(bytes))
-        }
-        ResultPayload::Json(mut value) => {
-            set_flags(&mut value, batch)?;
-            Ok(ResultPayload::Json(value))
-        }
+        ResultPayload::Raw(bytes) => eg_types::msgpack::decode_bounded(
+            &bytes,
+            eg_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
+        )
+        .map_err(|_| "replayed SubmitWorkItem result is corrupt".to_string()),
+        ResultPayload::Json(value) => serde_json::from_value(value)
+            .map_err(|_| "replayed SubmitWorkItem result is corrupt".to_string()),
         _ => Err("replayed SubmitWorkItem result has an invalid payload shape".to_string()),
     }
 }

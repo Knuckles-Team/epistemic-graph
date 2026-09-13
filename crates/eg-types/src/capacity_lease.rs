@@ -176,6 +176,7 @@ impl CapacityCell {
 /// state vocabulary convention — a plain closed string-like enum, not an
 /// open-ended status field).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum LeaseState {
     Active,
@@ -205,6 +206,7 @@ impl LeaseState {
 // `CapacityResourceClass` and `LeasePriority` purely to satisfy a capability no
 // caller has asked for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct CapacityLease {
     pub schema_version: u16,

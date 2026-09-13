@@ -271,10 +271,12 @@ fn apply_claim_next(
 ) -> Result<ResultPayload, String> {
     let updates = match eg_types::msgpack::decode_property_object(updates_msgpack) {
         Ok(m) => m,
-        Err(_) => return ResultPayload::raw(&Option::<(String, serde_json::Value)>::None),
+        Err(_) => {
+            return ResultPayload::of::<eg_types::result_contract::coordination::ClaimNext>(None)
+        }
     };
     let claimed = core.claim_next_fields(label, &updates);
-    ResultPayload::raw(&claimed)
+    ResultPayload::of::<eg_types::result_contract::coordination::ClaimNext>(claimed)
 }
 
 /// `AddSceneObject`: pure extract-method from `try_handle_gateway`'s closure,

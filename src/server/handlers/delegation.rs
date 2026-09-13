@@ -166,7 +166,10 @@ async fn admit_request(
     .await?;
     let native = decode_submit_result(native).map_err(AdmissionError::Message)?;
     let result = result_from_submit(&bound, native).map_err(AdmissionError::Message)?;
-    Ok(Response::ok(ctx.req_id, ResultPayload::raw(&result)))
+    Ok(Response::ok(
+        ctx.req_id,
+        ResultPayload::of::<eg_types::result_contract::coordination::KgDelegate>(result),
+    ))
 }
 
 #[cfg(feature = "redb")]
@@ -245,7 +248,10 @@ async fn replay_before_library(
     .await?;
     let native = decode_submit_result(native).map_err(AdmissionError::Message)?;
     let result = result_from_submit(&bound, native).map_err(AdmissionError::Message)?;
-    Ok(Some(Response::ok(ctx.req_id, ResultPayload::raw(&result))))
+    Ok(Some(Response::ok(
+        ctx.req_id,
+        ResultPayload::of::<eg_types::result_contract::coordination::KgDelegate>(result),
+    )))
 }
 
 #[cfg(feature = "redb")]

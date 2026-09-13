@@ -1134,22 +1134,24 @@ pub(crate) fn claim_not_claimed_payload(
     inflight: u32,
     changed_work_item_ids: Vec<String>,
 ) -> Result<crate::protocol::ResultPayload, String> {
-    crate::protocol::ResultPayload::raw(&ClaimWorkItemResult {
-        schema_version: ClaimWorkItemResultSchemaVersion::V1,
-        claimed: false,
-        reason,
-        work_item_id: None,
-        kind: None,
-        payload_ref: None,
-        lease_holder_ref: None,
-        lease_epoch: None,
-        fencing_token: None,
-        lease_expires_at_ms: None,
-        attempt: None,
-        max_attempts: None,
-        tenant_in_flight: Some(u64::from(inflight)),
-        changed_work_item_ids,
-    })
+    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(
+        ClaimWorkItemResult {
+            schema_version: ClaimWorkItemResultSchemaVersion::V1,
+            claimed: false,
+            reason,
+            work_item_id: None,
+            kind: None,
+            payload_ref: None,
+            lease_holder_ref: None,
+            lease_epoch: None,
+            fencing_token: None,
+            lease_expires_at_ms: None,
+            attempt: None,
+            max_attempts: None,
+            tenant_in_flight: Some(u64::from(inflight)),
+            changed_work_item_ids,
+        },
+    )
 }
 
 /// Stamp the granted lease onto the selected candidate and report its
@@ -1266,34 +1268,34 @@ pub(crate) fn apply_claim_work_item_row(
         now_ms,
         crypto,
     )?;
-    Ok(Some(crate::protocol::ResultPayload::raw(
-        &ClaimWorkItemResult {
-            schema_version: ClaimWorkItemResultSchemaVersion::V1,
-            claimed: true,
-            reason: ClaimWorkItemResultReason::Claimed,
-            work_item_id: Some(node_id.clone()),
-            kind: (!kind.is_empty()).then_some(kind),
-            payload_ref: (!payload_ref.is_empty()).then_some(payload_ref),
-            lease_holder_ref: Some(worker_id.clone()),
-            lease_epoch: Some(epoch),
-            fencing_token: Some(epoch),
-            lease_expires_at_ms: Some(now_ms.saturating_add(lease_ms)),
-            attempt: Some(attempt),
-            max_attempts: Some(max_attempts),
-            tenant_in_flight: Some(u64::from(inflight.saturating_add(1))),
-            changed_work_item_ids: {
-                changed_work_item_ids.push(node_id);
-                changed_work_item_ids
-            },
+    Ok(Some(crate::protocol::ResultPayload::of::<
+        eg_types::result_contract::coordination::ClaimWorkItem,
+    >(ClaimWorkItemResult {
+        schema_version: ClaimWorkItemResultSchemaVersion::V1,
+        claimed: true,
+        reason: ClaimWorkItemResultReason::Claimed,
+        work_item_id: Some(node_id.clone()),
+        kind: (!kind.is_empty()).then_some(kind),
+        payload_ref: (!payload_ref.is_empty()).then_some(payload_ref),
+        lease_holder_ref: Some(worker_id.clone()),
+        lease_epoch: Some(epoch),
+        fencing_token: Some(epoch),
+        lease_expires_at_ms: Some(now_ms.saturating_add(lease_ms)),
+        attempt: Some(attempt),
+        max_attempts: Some(max_attempts),
+        tenant_in_flight: Some(u64::from(inflight.saturating_add(1))),
+        changed_work_item_ids: {
+            changed_work_item_ids.push(node_id);
+            changed_work_item_ids
         },
-    )?))
+    })?))
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_renew_work_item_lease_row(
     graph: &str,
     tenant: &String,
-    work_item_id: &String,
+    work_item_id: &str,
     worker_id: &String,
     lease_epoch: u64,
     fencing_token: u64,
@@ -1309,7 +1311,7 @@ pub(crate) fn apply_renew_work_item_lease_row(
         return Err("RenewWorkItemLease requires worker_id and non-zero lease_ms".into());
     }
     let current = nodes
-        .get((graph, work_item_id.as_str()))?
+        .get((graph, work_item_id))?
         .map(|value| crypto.unseal(value.value()))
         .transpose()?;
     // Every WorkItem result — including one that changed no row — MUST carry
@@ -1318,13 +1320,10 @@ pub(crate) fn apply_renew_work_item_lease_row(
     // missing it strands the serving projection one version behind and makes the
     // graph permanently read-only (INCIDENT-kg-readonly-2026-07-31).
     let Some(bytes) = current else {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({
-                "renewed": false,
-                "reason": "missing",
-                "changed_work_item_ids": [],
-            }),
-        )));
+        return lease_renewal_refused(
+            eg_types::result_contract::coordination::LeaseRenewalRefusal::Missing,
+        )
+        .map(Some);
     };
     let mut props = decode(&bytes)?;
     let valid = property_string(&props, "tenant") == tenant
@@ -1334,13 +1333,10 @@ pub(crate) fn apply_renew_work_item_lease_row(
         && property_u64(&props, "fencing_token") == fencing_token
         && property_f64(&props, "lease_expires_at") >= now_ms as f64 / 1000.0;
     if !valid {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({
-                "renewed": false,
-                "reason": "fenced",
-                "changed_work_item_ids": [],
-            }),
-        )));
+        return lease_renewal_refused(
+            eg_types::result_contract::coordination::LeaseRenewalRefusal::Fenced,
+        )
+        .map(Some);
     }
     // Phase-1 mirror: the lease was validated (fence_valid), so leased|running →
     // running. Capture the pre-status before the authority overwrites it.
@@ -1364,16 +1360,104 @@ pub(crate) fn apply_renew_work_item_lease_row(
         Some("running"),
     );
     write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
-    Ok(Some(crate::protocol::ResultPayload::Json(
-        serde_json::json!({
-            "renewed": true,
-            "work_item_id": work_item_id,
-            "lease_epoch": lease_epoch,
-            "fencing_token": fencing_token,
-            "lease_expires_at_ms": (now_ms).saturating_add(lease_ms),
-            "changed_work_item_ids": [work_item_id],
-        }),
-    )))
+    lease_renewed(
+        work_item_id,
+        lease_epoch,
+        fencing_token,
+        now_ms.saturating_add(lease_ms),
+    )
+    .map(Some)
+}
+
+/// A `RenewWorkItemLease` that extended the caller's live lease.
+fn lease_renewed(
+    work_item_id: &str,
+    lease_epoch: u64,
+    fencing_token: u64,
+    lease_expires_at_ms: u64,
+) -> Result<crate::protocol::ResultPayload, String> {
+    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::RenewWorkItemLease>(
+        eg_types::result_contract::coordination::WorkItemLeaseRenewal {
+            renewed: true,
+            reason: None,
+            work_item_id: Some(work_item_id.to_string()),
+            lease_epoch: Some(lease_epoch),
+            fencing_token: Some(fencing_token),
+            lease_expires_at_ms: Some(lease_expires_at_ms),
+            changed_work_item_ids: vec![work_item_id.to_string()],
+        },
+    )
+}
+
+/// A `RenewWorkItemLease` that renewed nothing and changed no row.
+fn lease_renewal_refused(
+    reason: eg_types::result_contract::coordination::LeaseRenewalRefusal,
+) -> Result<crate::protocol::ResultPayload, String> {
+    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::RenewWorkItemLease>(
+        eg_types::result_contract::coordination::WorkItemLeaseRenewal {
+            renewed: false,
+            reason: Some(reason),
+            work_item_id: None,
+            lease_epoch: None,
+            fencing_token: None,
+            lease_expires_at_ms: None,
+            changed_work_item_ids: Vec::new(),
+        },
+    )
+}
+
+/// A WorkItem transition that changed no row.
+fn unchanged_transition<Status>(
+    status: Status,
+    work_item_id: Option<&str>,
+) -> eg_types::result_contract::coordination::WorkItemTransition<Status> {
+    eg_types::result_contract::coordination::WorkItemTransition {
+        status,
+        work_item_id: work_item_id.map(str::to_string),
+        lease_epoch: None,
+        fencing_token: None,
+        changed_work_item_ids: Vec::new(),
+    }
+}
+
+fn commit_transition_result(
+    transition: eg_types::result_contract::coordination::WorkItemTransition<
+        eg_types::result_contract::coordination::WorkItemCommitStatus,
+    >,
+) -> Result<crate::protocol::ResultPayload, String> {
+    crate::protocol::ResultPayload::of::<
+        eg_types::result_contract::coordination::CommitWorkItemResult,
+    >(transition)
+}
+
+fn cancel_transition_result(
+    transition: eg_types::result_contract::coordination::WorkItemTransition<
+        eg_types::result_contract::coordination::WorkItemCancelStatus,
+    >,
+) -> Result<crate::protocol::ResultPayload, String> {
+    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::CancelWorkItem>(
+        transition,
+    )
+}
+
+/// The declared status of an applied commit.
+fn declared_commit_status(
+    status: &str,
+) -> Result<eg_types::result_contract::coordination::WorkItemCommitStatus, String> {
+    match status {
+        "succeeded" => Ok(eg_types::result_contract::coordination::WorkItemCommitStatus::Succeeded),
+        "failed" => Ok(eg_types::result_contract::coordination::WorkItemCommitStatus::Failed),
+        "cancelled" => Ok(eg_types::result_contract::coordination::WorkItemCommitStatus::Cancelled),
+        "dead_letter" => {
+            Ok(eg_types::result_contract::coordination::WorkItemCommitStatus::DeadLetter)
+        }
+        "retry_scheduled" => {
+            Ok(eg_types::result_contract::coordination::WorkItemCommitStatus::RetryScheduled)
+        }
+        other => Err(format!(
+            "CommitWorkItemResult produced an undeclared status '{other}'"
+        )),
+    }
 }
 
 /// Shape validation for a `CasWorkItemMetadata` request, in the original order:
@@ -1500,14 +1584,14 @@ pub(crate) fn apply_cas_work_item_metadata_row(
     validate_cas_work_item_metadata_request(request)?;
 
     let respond = |outcome: CasWorkItemMetadataOutcome, changed: Vec<String>| {
-        Ok(Some(crate::protocol::ResultPayload::raw(
-            &CasWorkItemMetadataResult {
-                schema_version: CasWorkItemMetadataResultSchemaVersion::V1,
-                outcome,
-                work_item_id: work_item_id.clone(),
-                changed_work_item_ids: changed,
-            },
-        )?))
+        Ok(Some(crate::protocol::ResultPayload::of::<
+            eg_types::result_contract::coordination::CasWorkItemMetadata,
+        >(CasWorkItemMetadataResult {
+            schema_version: CasWorkItemMetadataResultSchemaVersion::V1,
+            outcome,
+            work_item_id: work_item_id.clone(),
+            changed_work_item_ids: changed,
+        })?))
     };
 
     let current = nodes
@@ -1563,28 +1647,31 @@ pub(crate) fn commit_work_item_result_precheck(
     lease_epoch: u64,
     fencing_token: u64,
     now_ms: u64,
-) -> Option<crate::protocol::ResultPayload> {
+) -> Option<
+    eg_types::result_contract::coordination::WorkItemTransition<
+        eg_types::result_contract::coordination::WorkItemCommitStatus,
+    >,
+> {
     if property_string(props, "tenant") != tenant {
-        return Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
+        return Some(unchanged_transition(
+            eg_types::result_contract::coordination::WorkItemCommitStatus::Missing,
+            None,
         ));
     }
     if matches!(
         property_string(props, "status"),
         "succeeded" | "failed" | "cancelled" | "dead_letter"
     ) {
-        return Some(crate::protocol::ResultPayload::Json(serde_json::json!({
-            "status": "noop",
-            "work_item_id": work_item_id,
-            "changed_work_item_ids": [],
-        })));
+        return Some(unchanged_transition(
+            eg_types::result_contract::coordination::WorkItemCommitStatus::Noop,
+            Some(work_item_id),
+        ));
     }
     if !commit_work_item_lease_is_valid(props, worker_id, lease_epoch, fencing_token, now_ms) {
-        return Some(crate::protocol::ResultPayload::Json(serde_json::json!({
-            "status": "fenced",
-            "work_item_id": work_item_id,
-            "changed_work_item_ids": [],
-        })));
+        return Some(unchanged_transition(
+            eg_types::result_contract::coordination::WorkItemCommitStatus::Fenced,
+            Some(work_item_id),
+        ));
     }
     None
 }
@@ -1728,13 +1815,15 @@ pub(crate) fn apply_commit_work_item_result_row(
         .map(|value| crypto.unseal(value.value()))
         .transpose()?;
     let Some(bytes) = current else {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
-        )));
+        return commit_transition_result(unchanged_transition(
+            eg_types::result_contract::coordination::WorkItemCommitStatus::Missing,
+            None,
+        ))
+        .map(Some);
     };
     let mut props: serde_json::Map<String, serde_json::Value> = decode_durable(&bytes)?;
     let pre_props = props.clone();
-    if let Some(payload) = commit_work_item_result_precheck(
+    if let Some(refusal) = commit_work_item_result_precheck(
         &props,
         work_item_id,
         tenant,
@@ -1743,7 +1832,7 @@ pub(crate) fn apply_commit_work_item_result_row(
         fencing_token,
         now_ms,
     ) {
-        return Ok(Some(payload));
+        return commit_transition_result(refusal).map(Some);
     }
     if !matches!(outcome, "succeeded" | "failed" | "cancelled") {
         return Err("CommitWorkItemResult outcome must be succeeded, failed, or cancelled".into());
@@ -1834,15 +1923,16 @@ pub(crate) fn apply_commit_work_item_result_row(
             apply_receipt_rows(graph, &extension.receipt_nodes, nodes, crypto)?;
         }
     }
-    Ok(Some(crate::protocol::ResultPayload::Json(
-        serde_json::json!({
-            "status": committed_status,
-            "work_item_id": work_item_id,
-            "lease_epoch": lease_epoch,
-            "fencing_token": fencing_token,
-            "changed_work_item_ids": changed,
-        }),
-    )))
+    commit_transition_result(
+        eg_types::result_contract::coordination::WorkItemTransition {
+            status: declared_commit_status(committed_status)?,
+            work_item_id: Some(work_item_id.to_string()),
+            lease_epoch: Some(lease_epoch),
+            fencing_token: Some(fencing_token),
+            changed_work_item_ids: changed,
+        },
+    )
+    .map(Some)
 }
 
 /// The terminal commit an outcome bundle has to be bound to.
@@ -2009,7 +2099,7 @@ fn apply_receipt_rows(
 pub(crate) fn apply_cancel_work_item_row(
     graph: &str,
     tenant: &String,
-    work_item_id: &String,
+    work_item_id: &str,
     reason_ref: &Option<String>,
     now_ms: u64,
     nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
@@ -2024,56 +2114,54 @@ pub(crate) fn apply_cancel_work_item_row(
         decode_durable(bytes)
     };
     let current = nodes
-        .get((graph, work_item_id.as_str()))?
+        .get((graph, work_item_id))?
         .map(|value| crypto.unseal(value.value()))
         .transpose()?;
     let Some(bytes) = current else {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
-        )));
+        return cancel_transition_result(unchanged_transition(
+            eg_types::result_contract::coordination::WorkItemCancelStatus::Missing,
+            None,
+        ))
+        .map(Some);
     };
     let mut props = decode(&bytes)?;
     let pre_props = props.clone();
     if property_string(&props, "tenant") != tenant {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
-        )));
+        return cancel_transition_result(unchanged_transition(
+            eg_types::result_contract::coordination::WorkItemCancelStatus::Missing,
+            None,
+        ))
+        .map(Some);
     }
     if matches!(
         property_string(&props, "status"),
         "succeeded" | "failed" | "cancelled" | "dead_letter"
     ) {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({
-                "status": "noop",
-                "work_item_id": work_item_id,
-                "changed_work_item_ids": [],
-            }),
-        )));
+        return cancel_transition_result(unchanged_transition(
+            eg_types::result_contract::coordination::WorkItemCancelStatus::Noop,
+            Some(work_item_id),
+        ))
+        .map(Some);
     }
     let now_s = now_ms as f64 / 1000.0;
     if matches!(property_string(&props, "status"), "leased" | "running")
         && property_f64(&props, "lease_expires_at") >= now_s
     {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({
-                "status": "in_flight",
-                "work_item_id": work_item_id,
-                "changed_work_item_ids": [],
-            }),
-        )));
+        return cancel_transition_result(unchanged_transition(
+            eg_types::result_contract::coordination::WorkItemCancelStatus::InFlight,
+            Some(work_item_id),
+        ))
+        .map(Some);
     }
     if !matches!(
         property_string(&props, "status"),
         "submitted" | "ready" | "leased" | "running"
     ) {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({
-                "status": "not_cancellable",
-                "work_item_id": work_item_id,
-                "changed_work_item_ids": [],
-            }),
-        )));
+        return cancel_transition_result(unchanged_transition(
+            eg_types::result_contract::coordination::WorkItemCancelStatus::NotCancellable,
+            Some(work_item_id),
+        ))
+        .map(Some);
     }
     // Phase-1 mirror: capture the pre-status (a cancellable non-terminal state)
     // before the authority marks it cancelled.
@@ -2143,22 +2231,23 @@ pub(crate) fn apply_cancel_work_item_row(
         Some("cancelled"),
     );
     write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
-    Ok(Some(crate::protocol::ResultPayload::Json(
-        serde_json::json!({
-            "status": "cancelled",
-            "work_item_id": work_item_id,
-            "lease_epoch": next_epoch,
-            "fencing_token": next_fencing_token,
-            "changed_work_item_ids": [work_item_id],
-        }),
-    )))
+    cancel_transition_result(
+        eg_types::result_contract::coordination::WorkItemTransition {
+            status: eg_types::result_contract::coordination::WorkItemCancelStatus::Cancelled,
+            work_item_id: Some(work_item_id.to_string()),
+            lease_epoch: Some(next_epoch),
+            fencing_token: Some(next_fencing_token),
+            changed_work_item_ids: vec![work_item_id.to_string()],
+        },
+    )
+    .map(Some)
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_defer_work_item_row(
     graph: &str,
     tenant: &String,
-    work_item_id: &String,
+    work_item_id: &str,
     worker_id: &String,
     lease_epoch: u64,
     fencing_token: u64,
@@ -2175,13 +2264,15 @@ pub(crate) fn apply_defer_work_item_row(
         return Err("DeferWorkItem next_retry_at_ms must not precede now_ms".into());
     }
     let current = nodes
-        .get((graph, work_item_id.as_str()))?
+        .get((graph, work_item_id))?
         .map(|value| crypto.unseal(value.value()))
         .transpose()?;
     let Some(bytes) = current else {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({"status": "missing", "changed_work_item_ids": []}),
-        )));
+        return deferral_result(deferral_refused(
+            eg_types::result_contract::coordination::WorkItemDeferStatus::Missing,
+            None,
+        ))
+        .map(Some);
     };
     let mut props = decode(&bytes)?;
     let now_s = now_ms as f64 / 1000.0;
@@ -2192,13 +2283,11 @@ pub(crate) fn apply_defer_work_item_row(
         && property_u64(&props, "fencing_token") == fencing_token
         && property_f64(&props, "lease_expires_at") >= now_s;
     if !valid {
-        return Ok(Some(crate::protocol::ResultPayload::Json(
-            serde_json::json!({
-                "status": "fenced",
-                "work_item_id": work_item_id,
-                "changed_work_item_ids": [],
-            }),
-        )));
+        return deferral_result(deferral_refused(
+            eg_types::result_contract::coordination::WorkItemDeferStatus::Fenced,
+            Some(work_item_id),
+        ))
+        .map(Some);
     }
     // Phase-1 mirror: capture the leased|running pre-status before the fenced
     // lease is released back to `ready`.
@@ -2236,16 +2325,40 @@ pub(crate) fn apply_defer_work_item_row(
         Some("ready"),
     );
     write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
-    Ok(Some(crate::protocol::ResultPayload::Json(
-        serde_json::json!({
-            "status": "deferred",
-            "work_item_id": work_item_id,
-            "lease_epoch": next_epoch,
-            "fencing_token": next_epoch,
-            "next_retry_at_ms": next_retry_at_ms,
-            "attempt": attempts,
-            "defer_count": defer_count,
-            "changed_work_item_ids": [work_item_id],
-        }),
-    )))
+    deferral_result(eg_types::result_contract::coordination::WorkItemDeferral {
+        status: eg_types::result_contract::coordination::WorkItemDeferStatus::Deferred,
+        work_item_id: Some(work_item_id.to_string()),
+        lease_epoch: Some(next_epoch),
+        fencing_token: Some(next_epoch),
+        next_retry_at_ms: Some(next_retry_at_ms),
+        attempt: Some(attempts),
+        defer_count: Some(defer_count),
+        changed_work_item_ids: vec![work_item_id.to_string()],
+    })
+    .map(Some)
+}
+
+/// A `DeferWorkItem` that changed no row.
+fn deferral_refused(
+    status: eg_types::result_contract::coordination::WorkItemDeferStatus,
+    work_item_id: Option<&str>,
+) -> eg_types::result_contract::coordination::WorkItemDeferral {
+    eg_types::result_contract::coordination::WorkItemDeferral {
+        status,
+        work_item_id: work_item_id.map(str::to_string),
+        lease_epoch: None,
+        fencing_token: None,
+        next_retry_at_ms: None,
+        attempt: None,
+        defer_count: None,
+        changed_work_item_ids: Vec::new(),
+    }
+}
+
+fn deferral_result(
+    deferral: eg_types::result_contract::coordination::WorkItemDeferral,
+) -> Result<crate::protocol::ResultPayload, String> {
+    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::DeferWorkItem>(
+        deferral,
+    )
 }

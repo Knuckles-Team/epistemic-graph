@@ -364,7 +364,9 @@ fn handle_cancel_op(
         Err(error) => return Response::err(req_id, error),
     };
     match store.request_cancel_batch(&job_id, &batch, now) {
-        Ok((job, _)) => job_response(req_id, &job),
+        Ok((job, _)) => {
+            job_response::<eg_types::result_contract::coordination::JobCancel>(req_id, &job)
+        }
         Err(e) => Response::err(req_id, e.to_string()),
     }
 }
@@ -445,7 +447,9 @@ pub(crate) async fn handle(
             handle_submit_op(state, &store, req_id, authority, attempt_nonce, spec).await
         }
         JobOp::Status { job_id } => match owned_job(&store, authority, &job_id) {
-            Ok(job) => job_response(req_id, &job),
+            Ok(job) => {
+                job_response::<eg_types::result_contract::coordination::JobStatus>(req_id, &job)
+            }
             Err(e) => Response::err(req_id, e),
         },
         JobOp::Cancel { job_id } => {
@@ -643,21 +647,47 @@ fn compile_job_batch(
     Ok((batch, now))
 }
 
-fn job_response(req_id: u64, job: &eg_jobs::AnalyticsJob) -> Response {
-    match job_result_payload(job) {
+fn job_response<M>(req_id: u64, job: &eg_jobs::AnalyticsJob) -> Response
+where
+    M: eg_types::result_contract::MethodResult<
+        Body = eg_types::result_contract::coordination::AnalyticsJobRecord,
+    >,
+{
+    match job_result_payload::<M>(job) {
         Ok(result) => Response::ok(req_id, result),
         Err(e) => Response::err(req_id, format!("job serialization failed: {e}")),
     }
 }
 
-fn job_result_payload(job: &eg_jobs::AnalyticsJob) -> Result<ResultPayload, String> {
+fn job_result_payload<M>(job: &eg_jobs::AnalyticsJob) -> Result<ResultPayload, String>
+where
+    M: eg_types::result_contract::MethodResult<
+        Body = eg_types::result_contract::coordination::AnalyticsJobRecord,
+    >,
+{
+    let (record, _input_payload) = job_record(job)?;
+    ResultPayload::of::<M>(record)
+}
+
+/// Project a durable job onto its declared wire record, strictly, split from its
+/// executor payload. Executor payloads are durable implementation detail: even
+/// governed, pseudonymized inputs are only ever handed to the claiming worker.
+fn job_record(
+    job: &eg_jobs::AnalyticsJob,
+) -> Result<
+    (
+        eg_types::result_contract::coordination::AnalyticsJobRecord,
+        Option<Vec<u8>>,
+    ),
+    String,
+> {
     let mut value = serde_json::to_value(job).map_err(|error| error.to_string())?;
-    // Executor payloads are durable implementation detail. Even governed,
-    // pseudonymized inputs are not echoed through status responses.
     if let Some(object) = value.as_object_mut() {
         object.remove("input_payload");
     }
-    Ok(ResultPayload::Json(value))
+    let record = serde_json::from_value(value)
+        .map_err(|error| format!("job record does not match its declared projection: {error}"))?;
+    Ok((record, job.input_payload.clone()))
 }
 
 /// Resolve a completed typed job result for the shared KnowledgeBatch stream.
@@ -739,15 +769,33 @@ fn tenant_worker_quota() -> TenantJobQuota {
 }
 
 fn worker_claim_response(req_id: u64, claim: &WorkerClaim) -> Response {
-    match (
-        serde_json::to_value(&claim.job),
-        serde_json::to_value(&claim.lease),
-    ) {
-        (Ok(job), Ok(lease)) => Response::ok(
-            req_id,
-            ResultPayload::Json(serde_json::json!({"job": job, "lease": lease})),
-        ),
-        _ => Response::err(req_id, "worker claim serialization failed"),
+    Response::ok(
+        req_id,
+        worker_claim_payload(claim).map_err(|_| "worker claim serialization failed".to_string()),
+    )
+}
+
+fn worker_claim_payload(claim: &WorkerClaim) -> Result<ResultPayload, String> {
+    let (record, input_payload) = job_record(&claim.job)?;
+    ResultPayload::of::<eg_types::result_contract::coordination::JobWorkerClaim>(Some(
+        eg_types::result_contract::coordination::WorkerJobClaim {
+            job: eg_types::result_contract::coordination::ClaimedAnalyticsJob {
+                record,
+                input_payload,
+            },
+            lease: worker_lease(&claim.lease),
+        },
+    ))
+}
+
+fn worker_lease(
+    lease: &eg_jobs::model::WorkerLease,
+) -> eg_types::result_contract::coordination::JobWorkerLease {
+    eg_types::result_contract::coordination::JobWorkerLease {
+        worker_ref: lease.worker_ref.clone(),
+        epoch: lease.epoch,
+        acquired_at_ms: lease.acquired_at_ms,
+        expires_at_ms: lease.expires_at_ms,
     }
 }
 
@@ -783,7 +831,10 @@ fn handle_worker_claim(
         tenant_worker_quota(),
     ) {
         Ok(Some(claim)) => worker_claim_response(req_id, &claim),
-        Ok(None) => Response::ok(req_id, ResultPayload::Json(serde_json::Value::Null)),
+        Ok(None) => Response::ok(
+            req_id,
+            ResultPayload::of::<eg_types::result_contract::coordination::JobWorkerClaim>(None),
+        ),
         Err(error) => Response::err(req_id, error.to_string()),
     }
 }
@@ -812,10 +863,12 @@ fn handle_worker_renew(
         unix_ms(),
         bounded_lease_ms(lease_ms),
     ) {
-        Ok(lease) => match serde_json::to_value(lease) {
-            Ok(value) => Response::ok(req_id, ResultPayload::Json(value)),
-            Err(_) => Response::err(req_id, "worker lease serialization failed"),
-        },
+        Ok(lease) => Response::ok(
+            req_id,
+            ResultPayload::of::<eg_types::result_contract::coordination::JobWorkerRenew>(
+                worker_lease(&lease),
+            ),
+        ),
         Err(error) => Response::err(req_id, error.to_string()),
     }
 }
@@ -860,7 +913,9 @@ fn handle_worker_checkpoint(
         },
         now,
     ) {
-        Ok(job) => job_response(req_id, &job),
+        Ok(job) => job_response::<eg_types::result_contract::coordination::JobWorkerCheckpoint>(
+            req_id, &job,
+        ),
         Err(error) => Response::err(req_id, error.to_string()),
     }
 }
@@ -1102,10 +1157,14 @@ fn handle_worker_stage(
         return Response::err(req_id, error);
     }
     if worker_stage_already_matches(&current, &worker_ref, lease_epoch, &result) {
-        return job_response(req_id, &current);
+        return job_response::<eg_types::result_contract::coordination::JobWorkerStage>(
+            req_id, &current,
+        );
     }
     match store.stage_result_fenced(job_id, &worker_ref, lease_epoch, result, unix_ms()) {
-        Ok(job) => job_response(req_id, &job),
+        Ok(job) => {
+            job_response::<eg_types::result_contract::coordination::JobWorkerStage>(req_id, &job)
+        }
         Err(error) => Response::err(req_id, error.to_string()),
     }
 }
@@ -1147,7 +1206,9 @@ async fn handle_worker_publish(
         Err(error) => return Response::err(req_id, error.to_string()),
     };
     if worker_publish_already_succeeded(&job, &worker_ref, lease_epoch) {
-        return job_response(req_id, &job);
+        return job_response::<eg_types::result_contract::coordination::JobWorkerPublish>(
+            req_id, &job,
+        );
     }
     let job = match require_publishing_lease(store, req_id, job_id, &worker_ref, lease_epoch) {
         Ok(job) => job,
@@ -1176,7 +1237,9 @@ async fn finalize_local_publish(
 ) -> Response {
     match publish_staged_result(state, store, job, worker_ref, lease_epoch).await {
         Ok(()) => match store.get(job_id) {
-            Ok(job) => job_response(req_id, &job),
+            Ok(job) => job_response::<eg_types::result_contract::coordination::JobWorkerPublish>(
+                req_id, &job,
+            ),
             Err(error) => Response::err(req_id, error.to_string()),
         },
         Err(error) => Response::err(req_id, error),
@@ -1258,11 +1321,15 @@ fn handle_worker_cancel(
             && job.last_worker_ref == worker_ref
             && job.lease_epoch == lease_epoch
         {
-            return job_response(req_id, &job);
+            return job_response::<eg_types::result_contract::coordination::JobWorkerCancel>(
+                req_id, &job,
+            );
         }
     }
     match store.mark_cancelled_fenced(job_id, &worker_ref, lease_epoch, unix_ms()) {
-        Ok(job) => job_response(req_id, &job),
+        Ok(job) => {
+            job_response::<eg_types::result_contract::coordination::JobWorkerCancel>(req_id, &job)
+        }
         Err(error) => Response::err(req_id, error.to_string()),
     }
 }
@@ -1297,11 +1364,15 @@ fn handle_worker_fail(
             && job.last_worker_ref == worker_ref
             && job.lease_epoch == lease_epoch
         {
-            return job_response(req_id, &job);
+            return job_response::<eg_types::result_contract::coordination::JobWorkerFail>(
+                req_id, &job,
+            );
         }
     }
     match store.fail_attempt_fenced(job_id, &worker_ref, lease_epoch, reason_code, unix_ms()) {
-        Ok(job) => job_response(req_id, &job),
+        Ok(job) => {
+            job_response::<eg_types::result_contract::coordination::JobWorkerFail>(req_id, &job)
+        }
         Err(error) => Response::err(req_id, error.to_string()),
     }
 }
@@ -1969,7 +2040,9 @@ fn finish_job_submit(
     committed_at_ms: u64,
 ) -> Response {
     match store.submit_batch(submit_spec, batch, committed_at_ms) {
-        Ok((job, _replayed)) => job_response(req_id, &job),
+        Ok((job, _replayed)) => {
+            job_response::<eg_types::result_contract::coordination::JobSubmit>(req_id, &job)
+        }
         Err(e) => Response::err(req_id, e.to_string()),
     }
 }
@@ -1990,7 +2063,7 @@ async fn handle_resume(
     let _ = (state, store);
     let _replayed = replayed;
 
-    job_response(req_id, &job)
+    job_response::<eg_types::result_contract::coordination::JobResume>(req_id, &job)
 }
 
 /// Start the optional bounded colocated executor pool. Setting the count to zero
@@ -2876,7 +2949,7 @@ pub(crate) async fn apply_consensus_job_publication_finalize(
             committed_at_ms,
         )
         .map_err(|error| error.to_string())?;
-    job_result_payload(&job)
+    job_result_payload::<eg_types::result_contract::coordination::JobWorkerPublish>(&job)
 }
 
 async fn publish_staged_result(

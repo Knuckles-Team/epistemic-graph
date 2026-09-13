@@ -276,7 +276,7 @@ pub(super) fn resource_result_payload(
     host: Option<&DurableResourceHost>,
     fairness_debt: u64,
     changed: Vec<String>,
-) -> Result<crate::protocol::ResultPayload, String> {
+) -> Result<ResourceReservationResult, String> {
     let (state, lifecycle_revision, tombstone, held) = match record.as_ref() {
         Some(record) => {
             let held = if record.state == ResourceReservationRecordState::Reserved {
@@ -308,7 +308,7 @@ pub(super) fn resource_result_payload(
         .map(|record| record.host_ref.clone())
         .or_else(|| Some(request.host_ref.clone()));
     let host_revision = host.map_or(0, |host| host.revision);
-    crate::protocol::ResultPayload::raw(&ResourceReservationResult {
+    Ok(ResourceReservationResult {
         schema_version: ResourceReservationResultSchemaVersion::V1,
         decision,
         reservation_id: Some(record.as_ref().map_or_else(
@@ -346,11 +346,11 @@ pub(super) fn resource_host_result(
     policies: &[(String, DurableResourceDiskPolicy)],
     accepted: bool,
     reason: ResourceHostUpdateResultReason,
-) -> Result<crate::protocol::ResultPayload, String> {
+) -> Result<ResourceHostUpdateResult, String> {
     let host_snapshot = host
         .map(|host| resource_host_update_snapshot(host, policies))
         .transpose()?;
-    crate::protocol::ResultPayload::raw(&ResourceHostUpdateResult {
+    Ok(ResourceHostUpdateResult {
         schema_version: ResourceHostUpdateResultSchemaVersion::V1,
         accepted,
         reason,
@@ -1708,7 +1708,13 @@ pub(crate) fn apply_resource_reservation_rows(
     // its own named function (see immediately after this function).
     match method {
         Method::UpdateResourceHost { request } => {
-            apply_update_resource_host_rows(request, graph, hosts, disk_policies, crypto)
+            apply_update_resource_host_rows(request, graph, hosts, disk_policies, crypto)?
+                .map(
+                    crate::protocol::ResultPayload::of::<
+                        eg_types::result_contract::coordination::UpdateResourceHost,
+                    >,
+                )
+                .transpose()
         }
         Method::ReserveWorkItemResources { request }
         | Method::ReleaseWorkItemResources { request }
@@ -1728,9 +1734,31 @@ pub(crate) fn apply_resource_reservation_rows(
                 anti_affinity,
                 disk_policies,
                 crypto,
-            )
+            )?
+            .map(|result| resource_reservation_payload(method, result))
+            .transpose()
         }
         _ => Ok(None),
+    }
+}
+
+/// Encode a reservation lifecycle result as the declared result of the method that
+/// produced it.
+fn resource_reservation_payload(
+    method: &Method,
+    result: ResourceReservationResult,
+) -> Result<crate::protocol::ResultPayload, String> {
+    match method {
+        Method::ReserveWorkItemResources { .. } => crate::protocol::ResultPayload::of::<
+            eg_types::result_contract::coordination::ReserveWorkItemResources,
+        >(result),
+        Method::ReleaseWorkItemResources { .. } => crate::protocol::ResultPayload::of::<
+            eg_types::result_contract::coordination::ReleaseWorkItemResources,
+        >(result),
+        Method::ReclaimWorkItemResources { .. } => crate::protocol::ResultPayload::of::<
+            eg_types::result_contract::coordination::ReclaimWorkItemResources,
+        >(result),
+        _ => Err("resource reservation result for a non-reservation method".to_string()),
     }
 }
 
@@ -1851,7 +1879,7 @@ pub(super) fn check_resource_host_update_conflicts(
     host: &DurableResourceHost,
     target_kind: &str,
     policy_rows: &[(String, DurableResourceDiskPolicy)],
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceHostUpdateResult>, String> {
     if host.target_kind != target_kind || host.target_alias != request.target_alias {
         return Ok(Some(resource_host_result(
             request,
@@ -1923,7 +1951,7 @@ pub(crate) fn apply_update_resource_host_rows(
     hosts: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     disk_policies: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceHostUpdateResult>, String> {
     let target_kind = validate_resource_host_update_request(request)?;
     let current = resource_load_host(hosts, graph, &request.host_ref, crypto)?;
     let policy_rows =
@@ -1952,7 +1980,7 @@ pub(crate) fn apply_update_resource_host_rows(
 /// and every caller must stop and return it unchanged.
 pub(crate) enum ReservationLifecycleStep<T> {
     Continue(T),
-    Return(crate::protocol::ResultPayload),
+    Return(Box<ResourceReservationResult>),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1971,7 +1999,7 @@ pub(crate) fn apply_resource_reservation_lifecycle_rows(
     anti_affinity: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str, &str), u64>,
     disk_policies: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     let (is_reserve, is_reclaim, existing, props, work_item_fence) =
         match resource_lifecycle_precheck_and_load_work_item(
             method,
@@ -1982,7 +2010,7 @@ pub(crate) fn apply_resource_reservation_lifecycle_rows(
             graph,
             crypto,
         )? {
-            ReservationLifecycleStep::Return(payload) => return Ok(Some(payload)),
+            ReservationLifecycleStep::Return(payload) => return Ok(Some(*payload)),
             ReservationLifecycleStep::Continue(value) => value,
         };
     let extension = match resource_validate_work_item_status_and_extension(
@@ -1992,7 +2020,7 @@ pub(crate) fn apply_resource_reservation_lifecycle_rows(
         &work_item_fence,
         &props,
     )? {
-        ReservationLifecycleStep::Return(payload) => return Ok(Some(payload)),
+        ReservationLifecycleStep::Return(payload) => return Ok(Some(*payload)),
         ReservationLifecycleStep::Continue(value) => value,
     };
     if let Some(payload) = resource_commit_release_or_reclaim_or_reserve_gate(
@@ -2027,7 +2055,7 @@ pub(crate) fn apply_resource_reservation_lifecycle_rows(
         extension,
         crypto,
     )? {
-        ReservationLifecycleStep::Return(payload) => return Ok(Some(payload)),
+        ReservationLifecycleStep::Return(payload) => return Ok(Some(*payload)),
         ReservationLifecycleStep::Continue(value) => value,
     };
     resource_commit_reserve_admission(
@@ -2119,7 +2147,7 @@ pub(super) fn resource_commit_release_or_reclaim_or_reserve_gate(
     exclusivity: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &str>,
     disk_policies: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     if let Some(payload) = resource_commit_release_or_reclaim(
         graph,
         request,
@@ -2172,7 +2200,7 @@ pub(super) fn resource_admit_reserve_host_with_winner_check(
     if let Some(payload) =
         resource_check_attempt_winner_conflict(attempts, reservations, graph, request, crypto)?
     {
-        return Ok(ReservationLifecycleStep::Return(payload));
+        return Ok(ReservationLifecycleStep::Return(payload.into()));
     }
     resource_admit_reserve_host(
         hosts,
@@ -2195,7 +2223,7 @@ pub(super) fn resource_admit_reserve_host_with_winner_check(
 /// must also contain `now`.
 pub(crate) fn resource_reserve_window_precheck(
     request: &ResourceReservationRequest,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     if request
         .expected_lifecycle_revision
         .is_some_and(|revision| revision != 0)
@@ -2232,7 +2260,7 @@ pub(crate) fn resource_reserve_window_precheck(
 pub(super) fn resource_lifecycle_revision_precheck(
     request: &ResourceReservationRequest,
     stored: &DurableResourceReservation,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     let reserved = stored.record.state == ResourceReservationRecordState::Reserved;
     let lifecycle_matches = if reserved {
         request.expected_lifecycle_revision == Some(stored.record.lifecycle_revision)
@@ -2267,7 +2295,7 @@ pub(super) fn resource_existing_reservation_precheck(
     graph: &str,
     hosts: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     if stored.record.tenant_ref != request.tenant_ref {
         return Ok(Some(resource_result_payload(
             ResourceReservationResultDecision::Conflict,
@@ -2330,7 +2358,7 @@ pub(super) fn resource_lifecycle_precheck(
     let is_reclaim = matches!(method, Method::ReclaimWorkItemResources { .. });
     if is_reserve {
         if let Some(payload) = resource_reserve_window_precheck(request)? {
-            return Ok(ReservationLifecycleStep::Return(payload));
+            return Ok(ReservationLifecycleStep::Return(payload.into()));
         }
     }
     // A terminal row is the durable idempotency tombstone.  Replay of
@@ -2346,7 +2374,7 @@ pub(super) fn resource_lifecycle_precheck(
         if let Some(payload) = resource_existing_reservation_precheck(
             request, stored, is_reserve, graph, hosts, crypto,
         )? {
-            return Ok(ReservationLifecycleStep::Return(payload));
+            return Ok(ReservationLifecycleStep::Return(payload.into()));
         }
     }
     Ok(ReservationLifecycleStep::Continue((
@@ -2375,27 +2403,25 @@ pub(crate) fn resource_load_and_validate_work_item(
         .map(|value| crypto.unseal(value.value()))
         .transpose()?;
     let Some(item_bytes) = item_bytes else {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::NotFound,
-            request,
-            None,
-            None,
-            0,
-            vec![],
-        )?));
-    };
-    let props: serde_json::Map<String, serde_json::Value> = decode_durable(&item_bytes)?;
-    let work_item_fence = match resource_validate_work_item(&props, request, is_reclaim) {
-        Ok(fence) => fence,
-        Err(decision) => {
-            return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-                decision,
+        return Ok(ReservationLifecycleStep::Return(
+            resource_result_payload(
+                ResourceReservationResultDecision::NotFound,
                 request,
                 None,
                 None,
                 0,
                 vec![],
-            )?));
+            )?
+            .into(),
+        ));
+    };
+    let props: serde_json::Map<String, serde_json::Value> = decode_durable(&item_bytes)?;
+    let work_item_fence = match resource_validate_work_item(&props, request, is_reclaim) {
+        Ok(fence) => fence,
+        Err(decision) => {
+            return Ok(ReservationLifecycleStep::Return(
+                resource_result_payload(decision, request, None, None, 0, vec![])?.into(),
+            ));
         }
     };
     Ok(ReservationLifecycleStep::Continue((props, work_item_fence)))
@@ -2417,14 +2443,17 @@ pub(crate) fn resource_validate_work_item_status_and_extension<'p>(
         let lease_expires_at_ms =
             (property_f64(props, "lease_expires_at") * 1000.0).max(0.0) as u64;
         if !matches!(status, "leased" | "running") || lease_expires_at_ms <= request.now_ms {
-            return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-                ResourceReservationResultDecision::Stale,
-                request,
-                None,
-                None,
-                0,
-                vec![],
-            )?));
+            return Ok(ReservationLifecycleStep::Return(
+                resource_result_payload(
+                    ResourceReservationResultDecision::Stale,
+                    request,
+                    None,
+                    None,
+                    0,
+                    vec![],
+                )?
+                .into(),
+            ));
         }
     } else if (!is_reclaim || !work_item_fence.superseded)
         && !matches!(
@@ -2438,28 +2467,34 @@ pub(crate) fn resource_validate_work_item_status_and_extension<'p>(
         // is for), so it is exempted -- `!is_reclaim ||
         // !superseded` is `true` for release and `!superseded` for
         // reclaim, matching the two branches this replaces.
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::Stale,
-            request,
-            None,
-            None,
-            0,
-            vec![],
-        )?));
+        return Ok(ReservationLifecycleStep::Return(
+            resource_result_payload(
+                ResourceReservationResultDecision::Stale,
+                request,
+                None,
+                None,
+                0,
+                vec![],
+            )?
+            .into(),
+        ));
     }
     let (_repository, extension) = resource_metadata_maps(props)
         .map_err(|_| "WorkItem resource admission extension is invalid".to_string())?;
     if is_reserve {
         let expected = resource_recomputed_fingerprint(props, request)?;
         if expected != request.input_fingerprint {
-            return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-                ResourceReservationResultDecision::InputConflict,
-                request,
-                None,
-                None,
-                0,
-                vec![],
-            )?));
+            return Ok(ReservationLifecycleStep::Return(
+                resource_result_payload(
+                    ResourceReservationResultDecision::InputConflict,
+                    request,
+                    None,
+                    None,
+                    0,
+                    vec![],
+                )?
+                .into(),
+            ));
         }
     }
     Ok(ReservationLifecycleStep::Continue(extension))
@@ -2475,7 +2510,7 @@ pub(super) fn resource_release_row_precheck(
     is_reserve: bool,
     hosts: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     if stored.record.tenant_ref != request.tenant_ref {
         return Ok(Some(resource_result_payload(
             ResourceReservationResultDecision::Conflict,
@@ -2516,7 +2551,7 @@ pub(super) fn resource_reclaim_policy_precheck(
     request: &ResourceReservationRequest,
     stored: &DurableResourceReservation,
     props: &serde_json::Map<String, serde_json::Value>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     let refuse = || {
         resource_result_payload(
             ResourceReservationResultDecision::Policy,
@@ -2666,7 +2701,7 @@ pub(super) fn resource_commit_release_or_reclaim(
     exclusivity: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &str>,
     disk_policies: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     let Some(stored) = existing else {
         return Ok(None);
     };
@@ -2732,7 +2767,7 @@ pub(crate) fn resource_check_attempt_winner_conflict(
     graph: &str,
     request: &ResourceReservationRequest,
     crypto: DurableCrypto<'_>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     let winner = attempts
         .get((graph, request.work_item_id.as_str(), request.attempt))?
         .map(|value| value.value().to_string());
@@ -2762,7 +2797,7 @@ pub(super) fn resource_admission_refusal(
     decision: ResourceReservationResultDecision,
     request: &ResourceReservationRequest,
     host: &DurableResourceHost,
-) -> Result<crate::protocol::ResultPayload, String> {
+) -> Result<ResourceReservationResult, String> {
     resource_result_payload(decision, request, None, Some(host), 0, vec![])
 }
 
@@ -2779,7 +2814,7 @@ pub(super) fn resource_admit_check_host_eligibility(
     request: &ResourceReservationRequest,
     host: &DurableResourceHost,
     extension: &serde_json::Map<String, serde_json::Value>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     if let Some(expected) = request.expected_host_revision {
         if expected != host.revision {
             return Ok(Some(resource_admission_refusal(
@@ -2830,7 +2865,7 @@ pub(super) fn resource_admit_check_index_gates(
     anti_affinity: &eg_storage::ScopedOwnerTableMut<'_, (&str, &str, &str), u64>,
     concurrency: &eg_storage::ScopedOwnerTableMut<'_, (&str, &str), u64>,
     exclusivity: &eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &str>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     for tag in &request.anti_affinity {
         let count = anti_affinity
             .get((graph, request.host_ref.as_str(), tag.as_str()))?
@@ -2886,7 +2921,7 @@ pub(super) fn resource_admit_check_disk(
     host: &DurableResourceHost,
     existing_policy: Option<&DurableResourceDiskPolicy>,
     policy_row_count: usize,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     if existing_policy.is_none() && policy_row_count >= MAX_RESOURCE_HOST_DISK_POLICIES {
         return Ok(Some(resource_admission_refusal(
             ResourceReservationResultDecision::Policy,
@@ -2944,7 +2979,7 @@ pub(super) fn resource_admit_apply_disk_policy(
     existing_policy: Option<&DurableResourceDiskPolicy>,
     disk_policies: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     let predicted_used = host
         .disk_used_mib
         .checked_add(host.held_disk_mib)
@@ -3022,14 +3057,17 @@ pub(super) fn resource_admit_reserve_host(
 ) -> Result<ReservationLifecycleStep<DurableResourceHost>, String> {
     let host = resource_load_host(hosts, graph, &request.host_ref, crypto)?;
     let Some(host) = host else {
-        return Ok(ReservationLifecycleStep::Return(resource_result_payload(
-            ResourceReservationResultDecision::NotFound,
-            request,
-            None,
-            None,
-            0,
-            vec![],
-        )?));
+        return Ok(ReservationLifecycleStep::Return(
+            resource_result_payload(
+                ResourceReservationResultDecision::NotFound,
+                request,
+                None,
+                None,
+                0,
+                vec![],
+            )?
+            .into(),
+        ));
     };
     // Admission and host snapshots share the schema's 128-policy
     // bound.  Enumerating this exact host prefix is part of the same
@@ -3038,7 +3076,7 @@ pub(super) fn resource_admit_reserve_host(
     let policy_rows =
         resource_collect_disk_policy_rows(disk_policies, graph, &request.host_ref, crypto)?;
     if let Some(payload) = resource_admit_check_host_eligibility(request, &host, extension)? {
-        return Ok(ReservationLifecycleStep::Return(payload));
+        return Ok(ReservationLifecycleStep::Return(payload.into()));
     }
     if let Some(payload) = resource_admit_check_index_gates(
         graph,
@@ -3048,7 +3086,7 @@ pub(super) fn resource_admit_reserve_host(
         concurrency,
         exclusivity,
     )? {
-        return Ok(ReservationLifecycleStep::Return(payload));
+        return Ok(ReservationLifecycleStep::Return(payload.into()));
     }
     let disk_key = format!("{}\0{}", request.host_ref, request.disk_policy_key);
     let existing_policy = disk_policies
@@ -3058,7 +3096,7 @@ pub(super) fn resource_admit_reserve_host(
     if let Some(payload) =
         resource_admit_check_disk(request, &host, existing_policy.as_ref(), policy_rows.len())?
     {
-        return Ok(ReservationLifecycleStep::Return(payload));
+        return Ok(ReservationLifecycleStep::Return(payload.into()));
     }
     if let Some(payload) = resource_admit_apply_disk_policy(
         graph,
@@ -3069,7 +3107,7 @@ pub(super) fn resource_admit_reserve_host(
         disk_policies,
         crypto,
     )? {
-        return Ok(ReservationLifecycleStep::Return(payload));
+        return Ok(ReservationLifecycleStep::Return(payload.into()));
     }
     Ok(ReservationLifecycleStep::Continue(host))
 }
@@ -3092,7 +3130,7 @@ pub(super) fn resource_commit_reserve_admission(
     anti_affinity: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str, &str), u64>,
     fairness: &mut eg_storage::ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
-) -> Result<Option<crate::protocol::ResultPayload>, String> {
+) -> Result<Option<ResourceReservationResult>, String> {
     let mut debt = resource_load_fairness(
         fairness,
         graph,
@@ -3223,9 +3261,9 @@ pub(crate) fn resource_request_from_record(
 pub(crate) fn resource_no_reservation_query_result(
     request: &ResourceReservationStatusRequest,
     decision: ResourceReservationResultDecision,
-) -> Result<crate::protocol::ResultPayload, String> {
+) -> Result<ResourceReservationResult, String> {
     let work_item_id = request.work_item_id.clone().unwrap_or_default();
-    crate::protocol::ResultPayload::raw(&ResourceReservationResult {
+    Ok(ResourceReservationResult {
         schema_version: ResourceReservationResultSchemaVersion::V1,
         decision,
         reservation_id: None,
@@ -3331,6 +3369,7 @@ pub(crate) fn resource_record_work_item_live(
         && resource_expected_fence(record.fencing_token) == record.fence
 }
 
+#[cfg(test)]
 pub(crate) fn resource_decode_result_payload(
     payload: crate::protocol::ResultPayload,
 ) -> Result<ResourceReservationResult, String> {
@@ -3444,10 +3483,10 @@ pub(crate) fn read_resource_reservation_current_work_item_query(
         .map(|value| crypto.unseal(value.value()))
         .transpose()?;
     let Some(bytes) = bytes else {
-        return resource_decode_result_payload(resource_no_reservation_query_result(
+        return resource_no_reservation_query_result(
             request,
             ResourceReservationResultDecision::NotFound,
-        )?);
+        );
     };
     let props: serde_json::Map<String, serde_json::Value> = decode_durable(&bytes)?;
     let current = current_work_item_query_matches(
@@ -3464,7 +3503,7 @@ pub(crate) fn read_resource_reservation_current_work_item_query(
     } else {
         ResourceReservationResultDecision::Stale
     };
-    resource_decode_result_payload(resource_no_reservation_query_result(request, decision)?)
+    resource_no_reservation_query_result(request, decision)
 }
 
 // RM's mirrorless retry query intentionally omits the fingerprint: the
@@ -3541,15 +3580,14 @@ pub(super) fn build_resource_reservation_query_result(
     } else {
         ResourceReservationResultDecision::Stale
     };
-    let bytes = resource_result_payload(
+    resource_result_payload(
         decision,
         &request_for_payload,
         (current_valid || tombstone_replay).then(|| record.clone()),
         host.as_ref(),
         stored.fairness_debt,
         Vec::new(),
-    )?;
-    resource_decode_result_payload(bytes)
+    )
 }
 
 pub(crate) fn read_resource_reservation_by_id(
@@ -3567,20 +3605,20 @@ pub(crate) fn read_resource_reservation_by_id(
     // scheduler then submits Reserve and lets that transaction revalidate
     // the WorkItem/fence atomically.
     let Some(row) = reservations.get((graph, reservation_id))? else {
-        return resource_decode_result_payload(resource_no_reservation_query_result(
+        return resource_no_reservation_query_result(
             request,
             ResourceReservationResultDecision::NotFound,
-        )?);
+        );
     };
     let stored: DurableResourceReservation = resource_decode(row.value(), crypto)?;
     if stored.record.tenant_ref != request.tenant_ref {
         // Preserve tenant isolation while keeping the public query vocabulary
         // typed and bounded.  Do not reveal whether another tenant owns this
         // reservation id through a transport error.
-        return resource_decode_result_payload(resource_no_reservation_query_result(
+        return resource_no_reservation_query_result(
             request,
             ResourceReservationResultDecision::NotFound,
-        )?);
+        );
     }
     if !resource_reservation_query_correlates(request, &stored.record) {
         return Err("resource reservation correlation does not match".into());

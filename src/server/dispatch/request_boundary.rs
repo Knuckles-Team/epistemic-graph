@@ -851,10 +851,12 @@ pub(super) async fn dispatch_resource_stats(
     )
     .await
     {
-        Ok(snapshot) => match serde_json::to_value(&snapshot) {
-            Ok(value) => Response::ok(req_id, ResultPayload::Json(value)),
-            Err(error) => Response::err(req_id, format!("ResourceStats serialization: {error}")),
-        },
+        Ok(snapshot) => Response::ok(
+            req_id,
+            ResultPayload::of::<eg_types::result_contract::coordination::ResourceStatsPage>(
+                snapshot,
+            ),
+        ),
         Err(error) => Response::err(req_id, error),
     }
 }
