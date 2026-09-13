@@ -455,7 +455,10 @@ fn refresh_changes_authority(current: &SemanticBinding, replacement: &SemanticBi
 
 /// A SQL-sourced live head may only be refreshed to a newer epoch of the same
 /// source authority; any other head only to a revision that sorts after it.
-fn ensure_newer_source_revision(current: &str, replacement: &str) -> Result<(), SemanticCodeError> {
+pub(super) fn ensure_newer_source_revision(
+    current: &str,
+    replacement: &str,
+) -> Result<(), SemanticCodeError> {
     if !current.starts_with("sql-source:") {
         if compare_source_revision(replacement, current) != Ordering::Greater {
             return Err(refused(

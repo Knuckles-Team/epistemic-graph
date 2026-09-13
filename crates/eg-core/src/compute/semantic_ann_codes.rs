@@ -89,6 +89,12 @@ mod tombstone;
 #[cfg(test)]
 mod binding_lifecycle_tests;
 #[cfg(test)]
+mod revision_codec_tests;
+#[cfg(test)]
+mod s6_finalization_tests;
+#[cfg(test)]
+mod stage_pipeline_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod write_door_tests;

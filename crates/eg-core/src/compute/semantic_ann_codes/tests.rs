@@ -544,7 +544,10 @@ fn reconciliation_progress(
     }
 }
 
-fn sql_source_identity(binding: &SemanticBinding, seed: u8) -> SemanticSqlSourceIdentity {
+pub(super) fn sql_source_identity(
+    binding: &SemanticBinding,
+    seed: u8,
+) -> SemanticSqlSourceIdentity {
     let selector = match &binding.source_selector {
         SemanticSourceSelector::SqlColumnRef(selector) => selector.clone(),
         _ => panic!("SQL source fixture requires a SQL selector"),
@@ -552,7 +555,7 @@ fn sql_source_identity(binding: &SemanticBinding, seed: u8) -> SemanticSqlSource
     SemanticSqlSourceIdentity::create(&selector, TENANT, digest(seed))
 }
 
-fn completed_sql_source_artifact(
+pub(super) fn completed_sql_source_artifact(
     binding: &SemanticBinding,
     transition: &SemanticStageTransition,
     source_identity: &SemanticSqlSourceIdentity,
@@ -624,7 +627,7 @@ fn store_fingerprint(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
 
 /// A warmed semantic store with `extra` members beyond the build threshold, and
 /// one query vector drawn from it.
-fn warmed_store(extra: usize) -> (SemanticStore, Vec<f32>) {
+pub(super) fn warmed_store(extra: usize) -> (SemanticStore, Vec<f32>) {
     let dim = 16;
     let n = crate::compute::semantic_ann::ANN_BUILD_THRESHOLD + 50 + extra;
     let mut store = SemanticStore::new();
@@ -2725,9 +2728,31 @@ fn s6_generation_two_demotes_the_previous_live_binding_in_one_write() {
     let _ = std::fs::remove_dir_all(&refusal_dir);
 }
 
-#[test]
-fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusal() {
-    let dir = tmp_dir("s6-finalize-generation-two");
+/// A binding whose generation two is fully proved for S6 and whose live
+/// generation one is still served, with the S6 lease topic subscribed.
+pub(super) struct S6Fixture {
+    pub(super) activation_artifact: SemanticGenerationArtifact,
+    pub(super) ann_stage_key: String,
+    pub(super) codes: SemanticCodeStore,
+    pub(super) consumer: &'static str,
+    pub(super) dir: std::path::PathBuf,
+    pub(super) generation_one_bytes: Vec<u8>,
+    pub(super) generation_one_live: SemanticBinding,
+    pub(super) generation_two: SemanticBinding,
+    pub(super) image: crate::compute::semantic::SemanticGenerationImage,
+    pub(super) lexical_checkpoint: SemanticGenerationCheckpoint,
+    pub(super) pointer_one: SemanticActivePointer,
+    pub(super) pointer_one_bytes: Vec<u8>,
+    pub(super) revision_two: &'static str,
+    pub(super) s6_checkpoint: SemanticGenerationCheckpoint,
+    pub(super) s6_stage_key: String,
+    pub(super) s6_transition: SemanticStageTransition,
+}
+
+/// Seed [`S6Fixture`]: every durable proof S6 finalization of generation two
+/// reads, beside a live generation one and its active pointer.
+pub(super) fn seeded_s6_publication(tag: &str) -> S6Fixture {
+    let dir = tmp_dir(tag);
     let codes = open_store(&dir);
     let revision_one =
         "sql-source:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:epoch:1";
@@ -3065,10 +3090,6 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
     let lexical_manifest_bytes = lexical_manifest.to_canonical_cbor().unwrap();
     let ann_manifest_bytes = ann_manifest.to_canonical_cbor().unwrap();
 
-    // The first attempt deliberately removes the old binding after the S6
-    // lease is claimed.  Finalization has already admitted the transition
-    // rows when the prior-live demotion discovers the missing row, so the
-    // transaction must roll every staged artifact back.
     let consumer = "semantic-s6-real";
     codes.subscribe_stage_consumer(consumer).unwrap();
     let seed_digest = digest(31);
@@ -3157,6 +3178,48 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
             },
         )
         .unwrap();
+    S6Fixture {
+        activation_artifact,
+        ann_stage_key,
+        codes,
+        consumer,
+        dir,
+        generation_one_bytes,
+        generation_one_live,
+        generation_two,
+        image,
+        lexical_checkpoint,
+        pointer_one,
+        pointer_one_bytes,
+        revision_two,
+        s6_checkpoint,
+        s6_stage_key,
+        s6_transition,
+    }
+}
+
+#[test]
+fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusal() {
+    let S6Fixture {
+        activation_artifact,
+        ann_stage_key,
+        codes,
+        consumer,
+        dir,
+        generation_one_bytes,
+        generation_two,
+        image,
+        pointer_one_bytes,
+        revision_two,
+        s6_checkpoint,
+        s6_stage_key,
+        s6_transition,
+        ..
+    } = seeded_s6_publication("s6-finalize-generation-two");
+    // The first attempt deliberately removes the old binding after the S6
+    // lease is claimed.  Finalization has already admitted the transition
+    // rows when the prior-live demotion discovers the missing row, so the
+    // transaction must roll every staged artifact back.
     let mut budget = eg_transaction::OutboxClaimBudget::new(1, 5_000, 11).unwrap();
     let first_lease = codes
         .claim_stage_leases(consumer, &mut budget)
