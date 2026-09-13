@@ -2866,6 +2866,7 @@ name = "eg-jobs"
 version = "0.1.0"
 dependencies = [
  "eg-core",
+ "eg-jobs",
  "eg-storage",
  "eg-transaction",
  "eg-types",
