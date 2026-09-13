@@ -39,17 +39,36 @@ use eg_core::result_cache::ResultCache;
 #[cfg(feature = "graphql")]
 use eg_graphql::parser::{Field, GqlValue};
 
+#[cfg(feature = "query")]
+use eg_types::result_contract::EncodeRef;
 #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
-fn raw_result_bytes<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, String> {
-    let ResultPayload::Raw(bytes) = ResultPayload::raw(value)? else {
-        unreachable!("ResultPayload::raw always constructs the Raw variant")
-    };
-    Ok(bytes)
+use eg_types::result_contract::{encoding, query as query_results, Dynamic, MethodResult};
+
+/// MessagePack bytes of a value that is not itself a result: a result-cache key, or one
+/// row of a SQL result.
+#[cfg(feature = "query")]
+fn msgpack_bytes<T: serde::Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, String> {
+    rmp_serde::to_vec_named(value).map_err(|error| format!("result serialization failed: {error}"))
 }
 
+/// Answer with `body` encoded as `M`'s declared result.
+#[cfg(feature = "query")]
+fn result_response<M>(req_id: u64, body: &M::Body) -> Response
+where
+    M: MethodResult,
+    M::Encoding: EncodeRef<M::Body>,
+{
+    Response::ok(req_id, ResultPayload::of_ref::<M>(body))
+}
+
+/// Answer with a caller-shaped `body` encoded as `M`'s declared `Raw` result.
 #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
-fn raw_response<T: serde::Serialize>(req_id: u64, value: &T) -> Response {
-    Response::ok(req_id, ResultPayload::raw(value))
+fn dynamic_response<M, T>(req_id: u64, body: &T) -> Response
+where
+    M: MethodResult<Body = Dynamic, Encoding = encoding::Raw>,
+    T: serde::Serialize + ?Sized,
+{
+    Response::ok(req_id, ResultPayload::of_dynamic::<M, T>(body))
 }
 
 /// Verify that Cypher's explicit wire mode agrees with the native parser.
@@ -408,17 +427,19 @@ async fn try_handle_inner(
         // on this path (staged writes don't bump `version()`), exactly like the
         // committed SQL read path. RLS applies to the committed base snapshot.
         #[cfg(feature = "query")]
-        Method::TxnUnifiedQuery { txn_id, plan } => Ok(run_unified_overlaid(
-            state,
-            req_id,
-            &txn_id,
-            plan,
-            read_authority,
-            caller,
-            #[cfg(feature = "security")]
-            rls,
-        )
-        .await),
+        Method::TxnUnifiedQuery { txn_id, plan } => {
+            Ok(run_unified_overlaid::<query_results::TxnUnifiedQuery>(
+                state,
+                req_id,
+                &txn_id,
+                plan,
+                read_authority,
+                caller,
+                #[cfg(feature = "security")]
+                rls,
+            )
+            .await)
+        }
         #[cfg(feature = "query")]
         Method::TxnUnifiedQueryText { txn_id, text } => {
             handle_txn_unified_query_text(&hctx, txn_id, text).await
@@ -645,8 +666,8 @@ async fn handle_sql_with_lease(
     })
     .await
     {
-        Ok(Ok(typed)) => match typed.rows.iter().map(raw_result_bytes).collect() {
-            Ok(rows) => raw_response(
+        Ok(Ok(typed)) => match typed.rows.iter().map(msgpack_bytes).collect() {
+            Ok(rows) => dynamic_response::<query_results::Sql, _>(
                 req_id,
                 &crate::protocol::QueryResult {
                     columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
@@ -696,7 +717,7 @@ async fn handle_unified_query_text_with_lease(
     )
     .await
     {
-        Ok(Ok(rows)) => raw_response(req_id, &rows),
+        Ok(Ok(rows)) => result_response::<query_results::UnifiedQueryText>(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     };
@@ -850,8 +871,8 @@ async fn handle_sql(
             })
             .await
             {
-                Ok(Ok(typed)) => match typed.rows.iter().map(raw_result_bytes).collect() {
-                    Ok(rows) => raw_response(
+                Ok(Ok(typed)) => match typed.rows.iter().map(msgpack_bytes).collect() {
+                    Ok(rows) => dynamic_response::<query_results::Sql, _>(
                         req_id,
                         &crate::protocol::QueryResult {
                             columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
@@ -906,7 +927,7 @@ async fn handle_unified_query(
     let dep = plan_dependency_set(&plan);
     #[cfg(feature = "result-cache")]
     let (snap, version, hash) = {
-        let mut payload = match raw_result_bytes(&plan) {
+        let mut payload = match msgpack_bytes(&plan) {
             Ok(payload) => payload,
             Err(error) => return Ok(Response::err(req_id, error)),
         };
@@ -949,7 +970,10 @@ async fn handle_unified_query(
             None => core.result_cache().get(hash, core.version()),
         };
         if let Some(bytes) = probe {
-            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+            return Ok(Response::ok(
+                req_id,
+                ResultPayload::of_cache_hit::<query_results::UnifiedQuery>(bytes),
+            ));
         }
         // perf/row-visibility-index (B-sweep): a result-cache MISS still
         // used to unconditionally pay for `filter_view`'s full per-node RLS
@@ -983,19 +1007,28 @@ async fn handle_unified_query(
     )
     .await
     {
-        Ok(Ok(rows)) => match raw_result_bytes(&rows) {
-            Ok(bytes) => {
+        Ok(Ok(rows)) => match ResultPayload::of_ref::<query_results::UnifiedQuery>(&rows) {
+            Ok(payload) => {
                 #[cfg(feature = "result-cache")]
                 match &dep {
                     // Dependency-scoped store: computed against `version`, tagged with the
                     // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
-                    Some(deps) => {
-                        core.result_cache()
-                            .put_dep(hash, 0, version, deps.clone(), bytes.clone())
-                    }
-                    None => core.result_cache().put(hash, version, bytes.clone()),
+                    Some(deps) => eg_core::result_cache::cache_dep_result(
+                        core.result_cache(),
+                        hash,
+                        0,
+                        version,
+                        deps.clone(),
+                        &payload,
+                    ),
+                    None => eg_core::result_cache::cache_result(
+                        core.result_cache(),
+                        hash,
+                        version,
+                        &payload,
+                    ),
                 }
-                Response::ok(req_id, ResultPayload::Raw(bytes))
+                Response::ok(req_id, payload)
             }
             Err(error) => Response::err(req_id, error),
         },
@@ -1066,7 +1099,10 @@ async fn handle_unified_query_text(
             None => core.result_cache().get(hash, core.version()),
         };
         if let Some(bytes) = probe {
-            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+            return Ok(Response::ok(
+                req_id,
+                ResultPayload::of_cache_hit::<query_results::UnifiedQueryText>(bytes),
+            ));
         }
         // perf/row-visibility-index (B-sweep): a result-cache MISS still
         // used to unconditionally pay for `filter_view`'s full per-node RLS
@@ -1100,19 +1136,28 @@ async fn handle_unified_query_text(
     )
     .await
     {
-        Ok(Ok(rows)) => match raw_result_bytes(&rows) {
-            Ok(bytes) => {
+        Ok(Ok(rows)) => match ResultPayload::of_ref::<query_results::UnifiedQueryText>(&rows) {
+            Ok(payload) => {
                 #[cfg(feature = "result-cache")]
                 match &dep {
                     // Dependency-scoped store: computed against `version`, tagged with the
                     // dependency set the plan read, so a disjoint write leaves it valid (W1.6/P7).
-                    Some(deps) => {
-                        core.result_cache()
-                            .put_dep(hash, 0, version, deps.clone(), bytes.clone())
-                    }
-                    None => core.result_cache().put(hash, version, bytes.clone()),
+                    Some(deps) => eg_core::result_cache::cache_dep_result(
+                        core.result_cache(),
+                        hash,
+                        0,
+                        version,
+                        deps.clone(),
+                        &payload,
+                    ),
+                    None => eg_core::result_cache::cache_result(
+                        core.result_cache(),
+                        hash,
+                        version,
+                        &payload,
+                    ),
                 }
-                Response::ok(req_id, ResultPayload::Raw(bytes))
+                Response::ok(req_id, payload)
             }
             Err(error) => Response::err(req_id, error),
         },
@@ -1153,7 +1198,7 @@ async fn handle_explain_plan(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::ExplainPlan>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainPlan error: {msg}")),
         Err(resp) => resp,
     };
@@ -1187,7 +1232,7 @@ async fn handle_explain_provenance(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::ExplainProvenance>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenance error: {msg}")),
         Err(resp) => resp,
     };
@@ -1220,7 +1265,7 @@ async fn handle_explain_provenance_by_ids(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::ExplainProvenanceByIds>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenanceByIds error: {msg}")),
         Err(resp) => resp,
     };
@@ -1258,7 +1303,7 @@ async fn handle_explain_policy(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::ExplainPolicy>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainPolicy error: {msg}")),
         Err(resp) => resp,
     };
@@ -1286,7 +1331,10 @@ async fn handle_explain_belief(
     let rls = rls.clone();
     let resp = match disclosure_level {
         None => match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
-            Ok(result) => raw_response(req_id, &result),
+            Ok(result) => result_response::<query_results::ExplainBelief>(
+                req_id,
+                &crate::protocol::ExplainBeliefResponse::Classic(result),
+            ),
             Err(resp) => resp,
         },
         Some(cap) => {
@@ -1295,7 +1343,10 @@ async fn handle_explain_belief(
             })
             .await
             {
-                Ok(result) => raw_response(req_id, &result),
+                Ok(result) => result_response::<query_results::ExplainBelief>(
+                    req_id,
+                    &crate::protocol::ExplainBeliefResponse::Redacted(result),
+                ),
                 Err(resp) => resp,
             }
         }
@@ -1325,7 +1376,10 @@ async fn handle_explain_belief(
     }
     let snap = core.analysis_snapshot();
     let resp = match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
-        Ok(result) => raw_response(req_id, &result),
+        Ok(result) => result_response::<query_results::ExplainBelief>(
+            req_id,
+            &crate::protocol::ExplainBeliefResponse::Classic(result),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1342,7 +1396,7 @@ async fn handle_epistemic_status(
     let snap = core.analysis_snapshot();
     let resp = match compute_off_lock(req_id, move || epistemic_status_wire(&node_id, &snap)).await
     {
-        Ok(result) => raw_response(req_id, &result),
+        Ok(result) => result_response::<query_results::EpistemicStatus>(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1361,7 +1415,7 @@ async fn handle_what_changed(
     let snap = core.analysis_snapshot();
     let resp =
         match compute_off_lock(req_id, move || what_changed_wire(&snap, tx_from, tx_to)).await {
-            Ok(result) => raw_response(req_id, &result),
+            Ok(result) => result_response::<query_results::WhatChanged>(req_id, &result),
             Err(resp) => resp,
         };
     Ok(resp)
@@ -1433,10 +1487,11 @@ async fn handle_recompute_materialization(
             fence_epoch: 0,
             projection_pending: true,
         };
-        let payload = match ResultPayload::raw(&result) {
-            Ok(payload) => payload,
-            Err(error) => return Ok(Response::err(req_id, error)),
-        };
+        let payload =
+            match ResultPayload::of_ref::<query_results::RecomputeMaterialization>(&result) {
+                Ok(payload) => payload,
+                Err(error) => return Ok(Response::err(req_id, error)),
+            };
         let batch_id = crate::server::mutation_batch::opaque_request_key(
             "reasoning-recompute",
             graph_name,
@@ -1485,7 +1540,9 @@ async fn handle_recompute_materialization(
         fence_epoch,
         projection_pending: false,
     };
-    Ok(raw_response(req_id, &result))
+    Ok(result_response::<query_results::RecomputeMaterialization>(
+        req_id, &result,
+    ))
 }
 
 // Read-only status lookup on the durable per-graph projection.
@@ -1513,7 +1570,9 @@ async fn handle_materialization_status(
         status: status.map(|status| format!("{status:?}")),
         source_graph_version,
     };
-    Ok(raw_response(req_id, &result))
+    Ok(result_response::<query_results::MaterializationStatus>(
+        req_id, &result,
+    ))
 }
 
 // Bulk "what's stale" read on the same durable per-graph projection.
@@ -1537,7 +1596,9 @@ async fn handle_stale_materializations(ctx: &QueryHandlerCtx<'_>) -> Result<Resp
         ids,
         source_graph_version,
     };
-    Ok(raw_response(req_id, &result))
+    Ok(result_response::<query_results::StaleMaterializations>(
+        req_id, &result,
+    ))
 }
 
 // EPI-P3-7 (gap-fill): standalone Dung argumentation conflict resolution. A
@@ -1571,7 +1632,7 @@ async fn handle_resolve_conflict(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::ResolveConflict>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ResolveConflict error: {msg}")),
         Err(resp) => resp,
     };
@@ -1614,7 +1675,7 @@ async fn handle_explain_evidence(
     })
     .await
     {
-        Ok(result) => raw_response(req_id, &result),
+        Ok(result) => result_response::<query_results::ExplainEvidence>(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1636,7 +1697,7 @@ async fn handle_explain_evidence(
     rls.filter_view(caller, &mut snap);
     let resp = match compute_off_lock(req_id, move || explain_evidence_wire(&node_id, &snap)).await
     {
-        Ok(result) => raw_response(req_id, &result),
+        Ok(result) => result_response::<query_results::ExplainEvidence>(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1659,7 +1720,7 @@ async fn handle_causal_estimate(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::CausalEstimate>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("CausalEstimate error: {msg}")),
         Err(resp) => resp,
     };
@@ -1683,7 +1744,7 @@ async fn handle_causal_counterfactual(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::CausalCounterfactual>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("CausalCounterfactual error: {msg}")),
         Err(resp) => resp,
     };
@@ -1705,7 +1766,7 @@ async fn handle_rank_by_provenance(
     })
     .await
     {
-        Ok(result) => raw_response(req_id, &result),
+        Ok(result) => result_response::<query_results::RankByProvenance>(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -1729,7 +1790,7 @@ async fn handle_txn_unified_query_text(
         Ok(p) => p,
         Err(e) => return Ok(Response::err(req_id, e.render(&text))),
     };
-    Ok(run_unified_overlaid(
+    Ok(run_unified_overlaid::<query_results::TxnUnifiedQueryText>(
         state,
         req_id,
         &txn_id,
@@ -1893,7 +1954,7 @@ async fn handle_nl_query(
     })
     .await
     {
-        Ok(Ok(rows)) => raw_response(req_id, &rows),
+        Ok(Ok(rows)) => result_response::<query_results::NlQuery>(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
         Err(resp) => resp,
     };
@@ -1981,7 +2042,7 @@ async fn handle_graphql_commit_txn(
     )
     .await;
     let resp = match committed {
-        Ok(committed) => raw_response(
+        Ok(committed) => dynamic_response::<query_results::GraphQl, _>(
             req_id,
             &serde_json::json!({
                 "data": {"commitTransaction": {"committed": committed}}
@@ -2062,7 +2123,7 @@ async fn handle_graphql_staging_mutation(
         }
         Err(resp) => return Ok(resp),
     };
-    let result = match ResultPayload::raw(&value) {
+    let result = match ResultPayload::of_dynamic::<query_results::GraphQl, _>(&value) {
         Ok(result) => result,
         Err(error) => return Ok(Response::err(req_id, error)),
     };
@@ -2087,7 +2148,7 @@ async fn handle_graphql_plain_mutation(
     })
     .await
     {
-        Ok(Ok(value)) => raw_response(req_id, &value),
+        Ok(Ok(value)) => dynamic_response::<query_results::GraphQl, _>(req_id, &value),
         Ok(Err(msg)) => Response::err(req_id, format!("GraphQL mutation error: {msg}")),
         Err(resp) => resp,
     };
@@ -2172,7 +2233,10 @@ async fn handle_graphql(
         // ever checking for a hit). Only a genuine MISS reaches the
         // per-(actor,version) `FilteredViewCache` probe-then-build below.
         if let Some(bytes) = core.result_cache().get(hash, core.version()) {
-            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+            return Ok(Response::ok(
+                req_id,
+                ResultPayload::of_encoded::<query_results::GraphQl>(bytes),
+            ));
         }
         #[cfg(feature = "security")]
         let (snap, version) = versioned_rls_snapshot(&core, caller, rls);
@@ -2197,11 +2261,11 @@ async fn handle_graphql(
     })
     .await
     {
-        Ok(Ok(value)) => match raw_result_bytes(&value) {
-            Ok(bytes) => {
+        Ok(Ok(value)) => match ResultPayload::of_dynamic::<query_results::GraphQl, _>(&value) {
+            Ok(payload) => {
                 #[cfg(feature = "result-cache")]
-                core.result_cache().put(hash, version, bytes.clone());
-                Response::ok(req_id, ResultPayload::Raw(bytes))
+                eg_core::result_cache::cache_result(core.result_cache(), hash, version, &payload);
+                Response::ok(req_id, payload)
             }
             Err(error) => Response::err(req_id, error),
         },
@@ -2221,7 +2285,7 @@ async fn handle_graphql(
 async fn handle_cypher_write(req_id: u64, core: Arc<GraphCore>, query: String) -> Response {
     let core_w = core.clone();
     match compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query)).await {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => dynamic_response::<query_results::CypherQuery, _>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
         Err(resp) => resp,
     }
@@ -2295,7 +2359,10 @@ async fn handle_cypher_query(
         // recompute (the `put` below still lands under this call's own fresh
         // `version`, so nothing stale or cross-actor is ever served).
         if let Some(bytes) = core.result_cache().get(hash, core.version()) {
-            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+            return Ok(Response::ok(
+                req_id,
+                ResultPayload::of_encoded::<query_results::CypherQuery>(bytes),
+            ));
         }
         // perf/cold-query-floor-analysis (UNCOMPILED PROPOSAL — see
         // `crate::rls_view_cache` in eg-core, not yet exercised by any test or
@@ -2368,10 +2435,11 @@ async fn handle_cypher_query(
     })
     .await
     {
-        Ok(Ok(result)) => match raw_result_bytes(&result) {
-            Ok(bytes) => {
-                core.result_cache().put(hash, version, bytes.clone());
-                Response::ok(req_id, ResultPayload::Raw(bytes))
+        Ok(Ok(result)) => match ResultPayload::of_dynamic::<query_results::CypherQuery, _>(&result)
+        {
+            Ok(payload) => {
+                eg_core::result_cache::cache_result(core.result_cache(), hash, version, &payload);
+                Response::ok(req_id, payload)
             }
             Err(error) => Response::err(req_id, error),
         },
@@ -2380,7 +2448,7 @@ async fn handle_cypher_query(
     };
     #[cfg(not(feature = "result-cache"))]
     let resp = match compute_off_lock(req_id, move || eg_query::exec_cypher(&snap, &query)).await {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => dynamic_response::<query_results::CypherQuery, _>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
         Err(resp) => resp,
     };
@@ -4414,7 +4482,7 @@ async fn run_unified_overlaid_staged_series(
 }
 
 #[cfg(feature = "query")]
-async fn run_unified_overlaid(
+async fn run_unified_overlaid<M>(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     txn_id: &str,
@@ -4422,7 +4490,10 @@ async fn run_unified_overlaid(
     read_authority: Option<&GraphReadAuthority>,
     caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
-) -> Response {
+) -> Response
+where
+    M: MethodResult<Body = Vec<(String, Option<f32>)>, Encoding = encoding::Raw>,
+{
     // Resolve the txn's target core + snapshot its staged write-set/embeddings while
     // holding only the cheap state read + per-txn lock; everything moved into the
     // off-lock closure is OWNED, so no lock is held across the compute.
@@ -4553,7 +4624,7 @@ async fn run_unified_overlaid(
     })
     .await
     {
-        Ok(Ok(rows)) => raw_response(req_id, &rows),
+        Ok(Ok(rows)) => result_response::<M>(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     }
@@ -5466,8 +5537,8 @@ async fn exec_sql_graph_table_read(
 ) -> Response {
     let rows = compute_off_lock(req_id, move || graph_table_rows(&store, &read_core, &query)).await;
     match rows {
-        Ok(Ok(typed)) => match typed.rows.iter().map(raw_result_bytes).collect() {
-            Ok(rows) => raw_response(
+        Ok(Ok(typed)) => match typed.rows.iter().map(msgpack_bytes).collect() {
+            Ok(rows) => dynamic_response::<query_results::Sql, _>(
                 req_id,
                 &crate::protocol::QueryResult {
                     columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
@@ -5535,7 +5606,7 @@ fn sql_write_ack(
 ) -> Response {
     match outcome {
         Ok(Ok(n)) => {
-            let row = match raw_result_bytes(&vec![serde_json::Value::from(n as u64)]) {
+            let row = match msgpack_bytes(&vec![serde_json::Value::from(n as u64)]) {
                 Ok(row) => row,
                 Err(error) => return Response::err(req_id, error),
             };
@@ -5543,7 +5614,7 @@ fn sql_write_ack(
                 columns: vec![tag.to_string()],
                 rows: vec![row],
             };
-            raw_response(req_id, &result)
+            dynamic_response::<query_results::Sql, _>(req_id, &result)
         }
         Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
         Err(resp) => resp,

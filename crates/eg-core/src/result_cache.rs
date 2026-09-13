@@ -158,6 +158,40 @@ impl Default for ResultCache {
     }
 }
 
+/// [`ResultCache::put`] for an encoded method result: only a MessagePack `Raw` payload is
+/// cacheable, so any other payload is not stored.
+pub fn cache_result(
+    cache: &ResultCache,
+    query_hash: u128,
+    version: u64,
+    payload: &eg_types::protocol::ResultPayload,
+) {
+    if let eg_types::protocol::ResultPayload::Raw(bytes) = payload {
+        cache.put(query_hash, version, bytes.clone());
+    }
+}
+
+/// [`ResultCache::put_dep`] for an encoded method result: only a MessagePack `Raw` payload
+/// is cacheable, so any other payload is not stored.
+pub fn cache_dep_result(
+    cache: &ResultCache,
+    query_hash: u128,
+    actor_scope_hash: u64,
+    computed_at: u64,
+    deps: DepSet,
+    payload: &eg_types::protocol::ResultPayload,
+) {
+    if let eg_types::protocol::ResultPayload::Raw(bytes) = payload {
+        cache.put_dep(
+            query_hash,
+            actor_scope_hash,
+            computed_at,
+            deps,
+            bytes.clone(),
+        );
+    }
+}
+
 impl ResultCache {
     pub fn new() -> Self {
         Self::with_cap(cap_from_env())

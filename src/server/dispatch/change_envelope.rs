@@ -941,16 +941,20 @@ pub(super) async fn route_change_envelope_ops(
             envelope_id,
             tenant,
         } => {
-            return Ok(async {
-                let persistence = persistence.clone();
-                {
-                    let Some(backend) = persistence.as_ref() else {
-                        return Response::err(req_id, "ChangeEnvelope persistence is unavailable");
-                    };
-                    let fname = crate::persist::sanitize(graph_name);
-                    return match backend.read_change_envelope(&fname, &envelope_id).await {
-                        Ok(Some(record))
-                            if record.envelope.mutation.identity.tenant().as_str() == tenant
+            return Ok(
+                async {
+                    let persistence = persistence.clone();
+                    {
+                        let Some(backend) = persistence.as_ref() else {
+                            return Response::err(
+                                req_id,
+                                "ChangeEnvelope persistence is unavailable",
+                            );
+                        };
+                        let fname = crate::persist::sanitize(graph_name);
+                        return match backend.read_change_envelope(&fname, &envelope_id).await {
+                            Ok(Some(record))
+                                if record.envelope.mutation.identity.tenant().as_str() == tenant
                         // A native (non-graph) scope reports no graph name;
                         // `map(...) == Some(_)` fails closed on `None` instead of
                         // matching `graph_name` against a coerced sentinel.
@@ -962,25 +966,32 @@ pub(super) async fn route_change_envelope_ops(
                             .graph_name()
                             .map(crate::mutation_batch::LogicalName::as_str)
                             == Some(graph_name) =>
-                        {
-                            Response::ok(req_id, ResultPayload::raw(&record))
-                        }
-                        Ok(Some(_)) => {
-                            Response::err(req_id, "ACCESS_DENIED: envelope tenant mismatch")
-                        }
-                        Ok(None) => Response::ok(
-                            req_id,
-                            ResultPayload::raw(
-                                &Option::<crate::change_envelope::ChangeEnvelopeRecord>::None,
+                            {
+                                Response::ok(
+                                    req_id,
+                                    ResultPayload::of::<
+                                        eg_types::result_contract::query::GetChangeEnvelope,
+                                    >(Some(record)),
+                                )
+                            }
+                            Ok(Some(_)) => {
+                                Response::err(req_id, "ACCESS_DENIED: envelope tenant mismatch")
+                            }
+                            Ok(None) => Response::ok(
+                                req_id,
+                                ResultPayload::of::<
+                                    eg_types::result_contract::query::GetChangeEnvelope,
+                                >(None),
                             ),
-                        ),
-                        Err(error) => {
-                            Response::err(req_id, format!("ChangeEnvelope read failed: {error}"))
-                        }
-                    };
+                            Err(error) => Response::err(
+                                req_id,
+                                format!("ChangeEnvelope read failed: {error}"),
+                            ),
+                        };
+                    }
                 }
-            }
-            .await);
+                .await,
+            );
         }
         Method::GetContentVersion { object_id, tenant } => {
             return Ok(async {
@@ -994,7 +1005,12 @@ pub(super) async fn route_change_envelope_ops(
                         .read_content_version(&fname, &tenant, &object_id)
                         .await
                     {
-                        Ok(version) => Response::ok(req_id, ResultPayload::raw(&version)),
+                        Ok(version) => Response::ok(
+                            req_id,
+                            ResultPayload::of_ref::<
+                                eg_types::result_contract::query::GetContentVersion,
+                            >(&version),
+                        ),
                         Err(error) => {
                             Response::err(req_id, format!("content-version read failed: {error}"))
                         }
@@ -1019,7 +1035,12 @@ pub(super) async fn route_change_envelope_ops(
                         .read_change_cursor(&fname, &tenant, &source, &partition)
                         .await
                     {
-                        Ok(cursor) => Response::ok(req_id, ResultPayload::raw(&cursor)),
+                        Ok(cursor) => Response::ok(
+                            req_id,
+                            ResultPayload::of_ref::<
+                                eg_types::result_contract::query::GetChangeCursor,
+                            >(&cursor),
+                        ),
                         Err(error) => {
                             Response::err(req_id, format!("change-cursor read failed: {error}"))
                         }
