@@ -123,7 +123,12 @@ pub(crate) async fn try_handle(
                 // which amortizes the per-node RLS decode the same way it does for
                 // Cypher.
                 if let Some(bytes) = core.result_cache().get(hash, core.version()) {
-                    return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+                    return Ok(Response::ok(
+                        req_id,
+                        ResultPayload::of_cache_hit::<eg_types::result_contract::reasoning::Sparql>(
+                            bytes,
+                        ),
+                    ));
                 }
                 #[cfg(feature = "security")]
                 let (snap, version) = {
@@ -192,13 +197,19 @@ pub(crate) async fn try_handle(
                 Ok(Ok(result)) => {
                     let (vars, rows) = result.to_rows();
                     let wire = crate::protocol::SparqlResult { vars, rows };
-                    match ResultPayload::raw(&wire) {
-                        Ok(ResultPayload::Raw(bytes)) => {
+                    match ResultPayload::of_ref::<eg_types::result_contract::reasoning::Sparql>(
+                        &wire,
+                    ) {
+                        Ok(payload) => {
                             #[cfg(feature = "result-cache")]
-                            core.result_cache().put(hash, version, bytes.clone());
-                            Response::ok(req_id, ResultPayload::Raw(bytes))
+                            eg_core::result_cache::cache_result(
+                                core.result_cache(),
+                                hash,
+                                version,
+                                &payload,
+                            );
+                            Response::ok(req_id, payload)
                         }
-                        Ok(_) => unreachable!("ResultPayload::raw always constructs Raw"),
                         Err(error) => Response::err(req_id, error),
                     }
                 }
@@ -380,9 +391,40 @@ async fn handle_shacl_validate(
         Ok(report) => report,
         Err(e) => return Response::err(req_id, format!("ShaclValidate: {e}")),
     };
-    match serde_json::to_value(&report) {
-        Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-        Err(e) => Response::err(req_id, format!("ShaclValidate: serialize report: {e}")),
+    Response::ok(
+        req_id,
+        ResultPayload::of::<eg_types::result_contract::reasoning::ShaclValidate>(
+            shacl_report_wire(report),
+        ),
+    )
+}
+
+/// The `ShaclValidate` wire body of an engine SHACL report.
+#[cfg(feature = "shacl")]
+fn shacl_report_wire(
+    report: eg_shacl::ValidationReport,
+) -> eg_types::rdf_report::ShaclValidationReport {
+    use eg_types::rdf_report::{ShaclSeverity, ShaclValidationReport, ShaclValidationResult};
+    let results = report
+        .results
+        .into_iter()
+        .map(|result| ShaclValidationResult {
+            focus_node: result.focus_node,
+            path: result.path,
+            value: result.value,
+            source_shape: result.source_shape,
+            constraint_component: result.constraint_component,
+            message: result.message,
+            severity: match result.severity {
+                eg_shacl::Severity::Violation => ShaclSeverity::Violation,
+                eg_shacl::Severity::Warning => ShaclSeverity::Warning,
+                eg_shacl::Severity::Info => ShaclSeverity::Info,
+            },
+        })
+        .collect();
+    ShaclValidationReport {
+        conforms: report.conforms,
+        results,
     }
 }
 
@@ -430,9 +472,31 @@ async fn handle_shex_validate(
         .collect();
     let map = eg_shex::ShapeMap::from_iri_pairs(&pairs);
     let report = eg_shex::validate(&schema, &data, &map);
-    match serde_json::to_value(&report) {
-        Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-        Err(e) => Response::err(req_id, format!("ShexValidate: serialize report: {e}")),
+    Response::ok(
+        req_id,
+        ResultPayload::of::<eg_types::result_contract::reasoning::ShexValidate>(shex_report_wire(
+            report,
+        )),
+    )
+}
+
+/// The `ShexValidate` wire body of an engine ShEx report.
+#[cfg(feature = "shex")]
+fn shex_report_wire(report: eg_shex::ShexReport) -> eg_types::rdf_report::ShexValidationReport {
+    use eg_types::rdf_report::{ShexNodeResult, ShexValidationReport};
+    let results = report
+        .results
+        .into_iter()
+        .map(|result| ShexNodeResult {
+            node: result.node,
+            shape: result.shape,
+            conforms: result.conforms,
+            reason: result.reason,
+        })
+        .collect();
+    ShexValidationReport {
+        conforms: report.conforms,
+        results,
     }
 }
 
@@ -495,7 +559,10 @@ async fn handle_run_rules(
     })
     .await
     {
-        Ok(Ok(response)) => Response::ok(req_id, ResultPayload::raw(&response)),
+        Ok(Ok(response)) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::reasoning::RunRules>(&response),
+        ),
         Ok(Err(msg)) => Response::err(req_id, format!("RunRules error: {msg}")),
         Err(resp) => resp,
     }
@@ -586,7 +653,10 @@ async fn handle_owl_reason(
     })
     .await
     {
-        Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+        Ok(Ok(result)) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::reasoning::OwlReason>(&result),
+        ),
         Ok(Err(msg)) => Response::err(req_id, format!("OwlReason error: {msg}")),
         Err(resp) => resp,
     };
@@ -662,7 +732,12 @@ async fn handle_owl_reason_distributed(
     })
     .await
     {
-        Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+        Ok(Ok(result)) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::reasoning::OwlReasonDistributed>(
+                &result,
+            ),
+        ),
         Ok(Err(msg)) => Response::err(req_id, format!("OwlReasonDistributed error: {msg}")),
         Err(resp) => resp,
     };
@@ -761,7 +836,10 @@ async fn handle_owl_explain(
     let snap = core.analysis_snapshot();
     let resp =
         match compute_off_lock(req_id, move || owl_explain(&snap, &ontology, &sub, &sup)).await {
-            Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+            Ok(Ok(result)) => Response::ok(
+                req_id,
+                ResultPayload::of_ref::<eg_types::result_contract::reasoning::OwlExplain>(&result),
+            ),
             Ok(Err(msg)) => Response::err(req_id, format!("OwlExplain error: {msg}")),
             Err(resp) => resp,
         };
@@ -854,7 +932,10 @@ async fn handle_sparql_virtual(
     })
     .await;
     match out {
-        Ok(Ok(result)) => Response::ok(req_id, ResultPayload::raw(&result)),
+        Ok(Ok(result)) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::reasoning::SparqlVirtual>(&result),
+        ),
         Ok(Err(msg)) => Response::err(req_id, format!("SparqlVirtual error: {msg}")),
         Err(e) => Response::err(req_id, format!("SparqlVirtual task join error: {e}")),
     }
@@ -1314,7 +1395,10 @@ async fn handle_add_triples(
     let mut iris = eg_rdf::mapping::IriStore::default();
     let report = eg_rdf::mapping::load_triples(core, &mut iris, graph_name, triples);
     match report {
-        Ok(r) => Response::ok(req_id, ResultPayload::raw(&r)),
+        Ok(r) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::graph::AddTriples>(&r),
+        ),
         Err(e) => Response::err(req_id, format!("AddTriples error: {e}")),
     }
 }
@@ -1324,7 +1408,10 @@ async fn handle_add_triples(
 async fn handle_get_rdf(req_id: u64, graph_name: &str, core: &Arc<GraphCore>) -> Response {
     let exported = eg_rdf::mapping::export_triples(core, graph_name);
     match exported.and_then(|t| eg_rdf::mapping::to_ntriples(&t)) {
-        Ok(nt) => Response::ok(req_id, ResultPayload::raw(&nt)),
+        Ok(nt) => Response::ok(
+            req_id,
+            ResultPayload::of::<eg_types::result_contract::reasoning::GetRdf>(nt),
+        ),
         Err(e) => Response::err(req_id, format!("GetRdf error: {e}")),
     }
 }
@@ -1364,7 +1451,10 @@ async fn handle_remove_triples(
     }
 
     let removed = eg_rdf::update::remove_triples(core, &triples);
-    Response::ok(req_id, ResultPayload::Count(removed as u64))
+    Response::ok(
+        req_id,
+        ResultPayload::scalar::<eg_types::result_contract::graph::RemoveTriples>(removed as u64),
+    )
 }
 
 /// DROP the target named graph's RDF content (CONCEPT:EG-KG.query.named-graph-support).
