@@ -76,6 +76,15 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
             {"gates", "lint-and-architecture", "feature-matrix", "benchmarks"}
         ),
         job_skip_reasons={
+            "tts-piper-inference": (
+                "CI-only real-inference job: apt-installs the espeak-ng/bindgen native "
+                "build dependencies and downloads the pinned onnxruntime release via "
+                "scripts/fetch_onnxruntime.sh. Installing packages or downloading a "
+                "runtime during a local hook is forbidden. Run it locally with "
+                "`export ORT_DYLIB_PATH=\"$(scripts/fetch_onnxruntime.sh)\"` then "
+                "`cargo test -p eg-tts-piper --all-features`. Every step is therefore "
+                "reported NOT VALIDATED LOCALLY rather than silently omitted."
+            ),
             "scanner-quality": (
                 "CI-only scanner profile: provisions the exact CCCC/KISS/dupehound/"
                 "jscpd/import-linter/dependency-cruiser/arch-lint versions into an "
