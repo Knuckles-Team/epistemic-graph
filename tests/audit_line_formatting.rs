@@ -6,7 +6,7 @@
 //! `audit_line` is `pub fn`, so it can be exercised directly (no
 //! served-dispatch harness needed) -- a true black-box call of the public
 //! function.
-#![cfg(feature = "graph")]
+#![cfg(feature = "security")]
 
 use epistemic_graph::audit::audit_line;
 use epistemic_graph::protocol::Method;

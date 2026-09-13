@@ -848,12 +848,11 @@ harness = ["raft"]
 # backend. PGWire is therefore part of the one full main build (CONCEPT:EG-352) and
 # remains present in both source-built layers. The listener starts only when configured
 # via EPISTEMIC_GRAPH_PGWIRE_ADDR.
-# Wire-agnostic SQL execution core (CONCEPT:EG-074) — the multi-wire keystone. The
-# wire-NEUTRAL `classify → dispatch → exec` pipeline + session/txn state that EVERY
-# wire reuses (`WireProtocol`/`WireSession`). Pure engine (needs `query` + `server`);
-# NO pgwire/postgres-types. `pgwire` and the other SQL adapters reuse it; those adapters
-# are collected by the one main `full` build.
-wire = ["query", "server"]
+# The wire-agnostic SQL execution core (CONCEPT:EG-074, `server::wire`) — the wire-NEUTRAL
+# `classify → dispatch → exec` pipeline + session/txn state that EVERY SQL wire reuses
+# (`WireProtocol`/`WireSession`) — is compiled by every `query` + `server` build, because
+# the native `Method::Sql` catalog path shares its authorization and replay-receipt
+# authority. It has no feature of its own; each SQL adapter names `query` + `server`.
 pgwire = [
     "dep:pgwire",
     "dep:futures",
@@ -861,7 +860,6 @@ pgwire = [
     "dep:windows-sys",
     "query",
     "server",
-    "wire",
 ]
 # SQLite-compatible served surface (CONCEPT:EG-075) — Phase J of the multi-wire program.
 # SQLite has NO client/server wire protocol (embedded library + file format), so this is
@@ -869,10 +867,10 @@ pgwire = [
 # as `sparql-http`/`metrics`) that accepts SQLite-dialect SQL, rewrites the SQLite-isms
 # (AUTOINCREMENT / INTEGER PRIMARY KEY / PRAGMA no-ops) and runs them through the shared
 # `WireProtocol`/`WireSession` core (CONCEPT:EG-074) — NO reimplemented SQL. PURE-RUST:
-# links NO C sqlite (no rusqlite/bundled). Needs `wire` (which implies `query` +
-# `server`) and is included in the one main build. Real `.db` file import/export is
+# links NO C sqlite (no rusqlite/bundled). Needs `query` + `server` (which carry the
+# shared core) and is included in the one main build. Real `.db` file import/export is
 # the separate `sqlite-file` feature below.
-sqlite-wire = ["wire"]
+sqlite-wire = ["query", "server"]
 # SQLite `.db` FILE import/export (CONCEPT:EG-331/EG-332) — reading/writing a real
 # on-disk `sqlite3` `.db` file (the documented EG-075 follow-up), DISTINCT from the
 # `sqlite-wire` NDJSON dialect surface above. Import reads a `.db`'s tables+rows into
@@ -897,9 +895,9 @@ sqlite-file = [
 # text-protocol result-set + OK/ERR packets) framed directly over `tokio::net`. Links
 # NO server-side mysql protocol crate — only `sha1` (the mysql_native_password digest),
 # gated behind this feature. Reuses the shared `wire::WireSession` classify→exec→txn
-# core (needs `query` + `server` + `wire`) and is included in the one main build. The
+# core (needs `query` + `server`) and is included in the one main build. The
 # listener starts only when configured via EPISTEMIC_GRAPH_MYSQL_ADDR.
-mysql-wire = ["dep:sha1", "query", "server", "wire"]
+mysql-wire = ["dep:sha1", "query", "server"]
 # Message broker (CONCEPT:EG-275): RabbitMQ-class exchanges/bindings/topic-routing on
 # top of the KG-2.303 work-queue. Turns on `eg-core/broker` (the pure `broker` module
 # + `GraphCore::broker_enqueue`) + `eg-types/broker` (the broker `Method` variants).
@@ -929,9 +927,9 @@ stomp-wire = ["broker", "server"]
 # MSSQL TDS wire-protocol listener (CONCEPT:EG-077) — the MSSQL `WireProtocol` adapter
 # (CONCEPT:EG-074), sibling of `pgwire`. A HAND-ROLLED TDS server over `tokio` with
 # no server-side `tiberius`/`tds` crate, so it adds NO new dependency — only `query` +
-# `server` + the shared `wire` core. It is included in the one main build and starts
+# `server`, which carry the shared `server::wire` core. It is included in the one main build and starts
 # only when configured via EPISTEMIC_GRAPH_MSSQL_ADDR.
-mssql-wire = ["query", "server", "wire"]
+mssql-wire = ["query", "server"]
 # Neo4j Bolt wire-protocol listener (CONCEPT:EG-159) — a native Bolt v4.4 server so
 # Neo4j drivers/tools connect DIRECTLY to the engine's Cypher surface. HAND-ROLLED,
 # pure-Rust: a PackStream v2 codec + Bolt chunked framing + the message state machine

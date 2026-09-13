@@ -2613,7 +2613,7 @@ pub(crate) struct ServedIndexes<'a> {
     // Keeps `'a` used even when neither `text` nor `geo` is built, so `ServedIndexes<'_>`
     // stays a valid (zero-field-active) type in every feature combination.
     #[cfg(not(any(feature = "text", feature = "geo")))]
-    _marker: std::marker::PhantomData<&'a ()>,
+    pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
 /// Bundles `run_unified`'s tsdb `Op::TsScan` leg-binding parameters — ONE

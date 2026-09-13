@@ -3,10 +3,10 @@ use super::request_boundary::dispatch_with_context;
 #[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 use super::*;
 
-#[cfg(all(feature = "redb", feature = "security"))]
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 const MAX_PRIVATE_COORDINATOR_PLAN_BYTES: usize = 256 * 1024 * 1024;
 
-#[cfg(all(feature = "redb", feature = "security"))]
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 fn seal_private_coordinator_plan<T: serde::Serialize>(
     backend: &crate::server::persistence::redb_backend::RedbBackend,
     plan: &T,
@@ -20,7 +20,7 @@ fn seal_private_coordinator_plan<T: serde::Serialize>(
     seal_private_coordinator_plan_with_cipher(&cipher, plan)
 }
 
-#[cfg(all(feature = "redb", feature = "security"))]
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 fn seal_private_coordinator_plan_with_cipher<T: serde::Serialize>(
     cipher: &crate::crypto::ValueCipher,
     plan: &T,
@@ -34,7 +34,7 @@ fn seal_private_coordinator_plan_with_cipher<T: serde::Serialize>(
     Ok((digest, cipher.seal(&plaintext)))
 }
 
-#[cfg(all(feature = "redb", feature = "security"))]
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 fn private_coordinator_plan_digest(
     batch: &crate::mutation_batch::MutationBatch,
     event_type: &str,
@@ -63,7 +63,7 @@ fn private_coordinator_plan_digest(
     Ok(digest.to_string())
 }
 
-#[cfg(all(feature = "redb", feature = "security"))]
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 fn open_private_coordinator_plan<T: serde::de::DeserializeOwned>(
     backend: &crate::server::persistence::redb_backend::RedbBackend,
     batch: &crate::mutation_batch::MutationBatch,
@@ -79,7 +79,7 @@ fn open_private_coordinator_plan<T: serde::de::DeserializeOwned>(
     open_private_coordinator_plan_with_cipher(&cipher, batch, event_type, encrypted)
 }
 
-#[cfg(all(feature = "redb", feature = "security"))]
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
 fn open_private_coordinator_plan_with_cipher<T: serde::de::DeserializeOwned>(
     cipher: &crate::crypto::ValueCipher,
     batch: &crate::mutation_batch::MutationBatch,

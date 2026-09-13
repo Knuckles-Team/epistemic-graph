@@ -1421,6 +1421,22 @@ fn finalize_dispatch_response(
     response
 }
 
+#[cfg(not(feature = "redb"))]
+fn finalize_dispatch_response(
+    req_id: u64,
+    response: Response,
+    session_control: Option<()>,
+) -> Response {
+    if response.error.is_none() {
+        if let Some(control) = session_control {
+            if let Err(error) = finish_session_control_saga(control) {
+                return Response::err(req_id, error);
+            }
+        }
+    }
+    response
+}
+
 #[cfg(test)]
 mod native_resource_capability_tests {
     use super::append_native_resource_ops;
@@ -1445,20 +1461,4 @@ mod native_resource_capability_tests {
             ]
         );
     }
-}
-
-#[cfg(not(feature = "redb"))]
-fn finalize_dispatch_response(
-    req_id: u64,
-    response: Response,
-    session_control: Option<()>,
-) -> Response {
-    if response.error.is_none() {
-        if let Some(control) = session_control {
-            if let Err(error) = finish_session_control_saga(control) {
-                return Response::err(req_id, error);
-            }
-        }
-    }
-    response
 }

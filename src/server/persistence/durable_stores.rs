@@ -177,6 +177,7 @@ pub(crate) fn bundled_store_authority(
             super::tenant_catalog::CATALOG_PHYSICAL_STORE,
             eg_storage::OwnerLayout::TenantCatalog,
         )),
+        #[cfg(feature = "kv")]
         "kv.redb" => Some((
             crate::server::kv::KV_PHYSICAL_STORE,
             eg_storage::OwnerLayout::Kv,
