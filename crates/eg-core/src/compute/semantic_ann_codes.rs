@@ -71,6 +71,7 @@ use std::sync::Arc;
 mod activation;
 mod batch;
 mod binding;
+mod binding_read;
 mod checkpoint;
 mod completion;
 mod door;
@@ -78,8 +79,10 @@ mod persist;
 mod predecessor;
 pub(crate) mod reconciliation;
 mod reconciliation_codec;
+mod record;
 mod refresh;
 mod rows;
+mod serving;
 mod stage;
 mod tombstone;
 
@@ -124,6 +127,25 @@ impl From<std::io::Error> for SemanticCodeError {
 
 pub(crate) fn kernel_error(error: impl std::fmt::Display) -> SemanticCodeError {
     SemanticCodeError::Kernel(error.to_string())
+}
+
+/// A refusal by this owner's own checks.
+pub(crate) fn refused(message: &str) -> SemanticCodeError {
+    SemanticCodeError::Refused(message.to_string())
+}
+
+/// Refuse with `message` unless `condition` holds.
+pub(crate) fn ensure(condition: bool, message: &str) -> Result<(), SemanticCodeError> {
+    if condition {
+        Ok(())
+    } else {
+        Err(refused(message))
+    }
+}
+
+/// Durable state that does not describe itself.
+pub(crate) fn corrupt(message: &str) -> SemanticCodeError {
+    SemanticCodeError::Corrupt(message.to_string())
 }
 
 /// The only outbox event that represents a stage claimable by the semantic

@@ -59,11 +59,11 @@ const WRITE_DOOR: [(&str, &str); 23] = [
     ("scope_identity", "fixed_native"),
     ("serving_read", "read_scope"),
     ("commit_metadata_fenced", "admit_current"),
-    ("commit_metadata_fenced", "owner_rows"),
+    ("apply_owner_rows", "owner_rows"),
     ("commit_metadata_fenced", "finish"),
     ("commit_metadata_fenced", "commit"),
-    ("commit_metadata_fenced", "outbox_validate_in"),
-    ("commit_metadata_fenced", "outbox_ack_in"),
+    ("validate_lease_in", "outbox_validate_in"),
+    ("ack_lease_in", "outbox_ack_in"),
     ("replay_operation_if_recorded", "admit_current"),
     ("replay_operation_if_recorded", "commit"),
     ("outbox_subscribe", "outbox_subscribe"),
@@ -820,7 +820,7 @@ fn commit_probe(
         subject: "write-door-probe",
         mutation_digest: digest,
     };
-    codes.door.commit_metadata(
+    codes.door.commit_metadata_fenced(
         |version| {
             let mut batch =
                 codes.metadata_batch(codes.door.owner(), version, mutation, Vec::new(), 1)?;
@@ -831,6 +831,7 @@ fn commit_probe(
         },
         digest,
         1,
+        None,
         |_, _| {
             applied.set(true);
             Ok(())

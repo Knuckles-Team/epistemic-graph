@@ -5,9 +5,16 @@ use super::batch::{semantic_digest, MetadataMutation};
 use super::reconciliation_codec::{
     decode_reconciliation_checkpoint, encode_reconciliation_checkpoint,
 };
-use super::{kernel_error, semantic_contract_error, SemanticCodeError, SemanticCodeStore};
-use eg_storage::{SEMANTIC_SOURCE_PROGRESS, SEMANTIC_SQL_SOURCES};
-use eg_types::semantic_index::{SemanticDigest, SemanticSourceProgress, SemanticSqlSourceManifest};
+use super::record::{decode_valid, row_bytes};
+use super::{
+    corrupt, ensure, kernel_error, refused, semantic_contract_error, SemanticCodeError,
+    SemanticCodeStore,
+};
+use eg_storage::{SemanticIndexOwner, SEMANTIC_SOURCE_PROGRESS, SEMANTIC_SQL_SOURCES};
+use eg_transaction::AdmittedMutation;
+use eg_types::semantic_index::{
+    SemanticBinding, SemanticDigest, SemanticSourceProgress, SemanticSqlSourceManifest,
+};
 
 /// One durable continuation for a source reconciliation generation.  The
 /// continuation lives in the existing source-progress owner table under this
@@ -69,34 +76,23 @@ impl SemanticCodeStore {
         &self,
         generation: u64,
     ) -> Result<Option<SemanticSourceReconciliationCheckpoint>, SemanticCodeError> {
-        if generation == 0 {
-            return Err(SemanticCodeError::Refused(
-                "source reconciliation generation must be nonzero".to_string(),
-            ));
-        }
+        ensure(
+            generation != 0,
+            "source reconciliation generation must be nonzero",
+        )?;
         let read = self.door.serving_read()?;
-        let current = self.read_binding_in(&read)?.ok_or_else(|| {
-            SemanticCodeError::Refused(
-                "source reconciliation requires a durable binding head".to_string(),
-            )
-        })?;
-        if current.generation != generation {
-            return Err(SemanticCodeError::Refused(
-                "source reconciliation checkpoint is for a stale binding generation".to_string(),
-            ));
-        }
-        let raw = read
+        let current = self
+            .read_binding_in(&read)?
+            .ok_or_else(|| refused("source reconciliation requires a durable binding head"))?;
+        ensure(
+            current.generation == generation,
+            "source reconciliation checkpoint is for a stale binding generation",
+        )?;
+        let progress_rows = read
             .open_owner_table(SEMANTIC_SOURCE_PROGRESS)
-            .map_err(kernel_error)?
-            .get((
-                self.tenant.as_str(),
-                self.binding.as_str(),
-                generation,
-                SEMANTIC_RECONCILIATION_CHECKPOINT_ENTITY,
-            ))
-            .map_err(kernel_error)?
-            .map(|value| value.value().to_vec());
-        raw.map(|bytes| decode_reconciliation_checkpoint(&bytes))
+            .map_err(kernel_error)?;
+        row_bytes(progress_rows.get(self.reconciliation_key(generation)))?
+            .map(|bytes| decode_reconciliation_checkpoint(&bytes))
             .transpose()
     }
 
@@ -110,109 +106,47 @@ impl SemanticCodeStore {
         expected: Option<&SemanticSourceReconciliationCheckpoint>,
         next: &SemanticSourceReconciliationCheckpoint,
     ) -> Result<(), SemanticCodeError> {
-        if generation == 0 {
-            return Err(SemanticCodeError::Refused(
-                "source reconciliation generation must be nonzero".to_string(),
-            ));
-        }
+        ensure(
+            generation != 0,
+            "source reconciliation generation must be nonzero",
+        )?;
         let next_bytes = encode_reconciliation_checkpoint(next)?;
         let expected_bytes = expected.map(encode_reconciliation_checkpoint).transpose()?;
-        let digest = semantic_digest(&next_bytes);
         let batch_id = format!(
             "semantic-index:reconciliation-checkpoint:{}",
-            semantic_digest(
-                &[
-                    b"write\0".as_slice(),
-                    self.tenant.as_bytes(),
-                    b"\0",
-                    self.binding.as_bytes(),
-                    b"\0",
-                    &generation.to_be_bytes(),
-                    b"\0",
-                    next_bytes.as_slice(),
-                ]
-                .concat()
-            )
+            self.reconciliation_batch_digest(b"write\0", generation, &next_bytes)
         );
-        let owner = self.door.owner();
-        self.door
-            .commit_metadata(
-                |version| {
-                    self.metadata_batch(
-                        owner,
-                        version,
-                        MetadataMutation {
-                            batch_id: &batch_id,
-                            event_type: "semantic_source_reconciliation_checkpoint",
-                            subject: &format!("{}:{generation}", self.binding),
-                            mutation_digest: digest,
-                        },
-                        Vec::new(),
-                        0,
-                    )
-                },
-                digest,
-                0,
-                |write, rows| {
-                    let current_binding = self.read_binding_in_write(write)?.ok_or_else(|| {
-                        SemanticCodeError::Refused(
-                            "source reconciliation requires a durable binding head".to_string(),
-                        )
-                    })?;
-                    if current_binding.generation != generation {
-                        return Err(SemanticCodeError::Refused(
-                            "source reconciliation checkpoint targets a stale generation"
-                                .to_string(),
-                        ));
-                    }
-                    let current_raw = write
-                        .open_read_table(SEMANTIC_SOURCE_PROGRESS)
-                        .map_err(kernel_error)?
-                        .get((
-                            self.tenant.as_str(),
-                            self.binding.as_str(),
-                            generation,
-                            SEMANTIC_RECONCILIATION_CHECKPOINT_ENTITY,
-                        ))
-                        .map_err(kernel_error)?
-                        .map(|value| value.value().to_vec());
-                    let current = current_raw
-                        .as_deref()
-                        .map(decode_reconciliation_checkpoint)
-                        .transpose()?;
-                    let is_next = current_raw.as_deref() == Some(next_bytes.as_slice());
-                    let matches_expected = match (expected_bytes.as_deref(), current_raw.as_deref())
-                    {
-                        (None, None) => true,
-                        (Some(expected), Some(actual)) => actual == expected,
-                        _ => false,
-                    };
-                    if !matches_expected && !is_next {
-                        return Err(SemanticCodeError::Refused(
-                            "source reconciliation checkpoint CAS predecessor is stale".to_string(),
-                        ));
-                    }
-                    if current.is_some() && is_next {
-                        return Ok(());
-                    }
-                    let mut table = rows
-                        .open_table(SEMANTIC_SOURCE_PROGRESS)
-                        .map_err(kernel_error)?;
-                    table
-                        .insert(
-                            (
-                                self.tenant.as_str(),
-                                self.binding.as_str(),
-                                generation,
-                                SEMANTIC_RECONCILIATION_CHECKPOINT_ENTITY,
-                            ),
-                            next_bytes.as_slice(),
-                        )
-                        .map_err(kernel_error)?;
-                    Ok(())
-                },
-            )
-            .map(|_| ())
+        let subject = format!("{}:{generation}", self.binding);
+        let mutation = MetadataMutation {
+            batch_id: &batch_id,
+            event_type: "semantic_source_reconciliation_checkpoint",
+            subject: &subject,
+            mutation_digest: semantic_digest(&next_bytes),
+        };
+        self.commit_maintenance(mutation, Vec::new(), 0, None, |write, rows| {
+            let current = self.reconciliation_row_in_write(
+                write,
+                generation,
+                "source reconciliation checkpoint targets a stale generation",
+            )?;
+            if let Some(current) = current.as_deref() {
+                decode_reconciliation_checkpoint(current)?;
+            }
+            let is_next = current.as_deref() == Some(next_bytes.as_slice());
+            ensure(
+                is_next || current.as_deref() == expected_bytes.as_deref(),
+                "source reconciliation checkpoint CAS predecessor is stale",
+            )?;
+            if is_next {
+                return Ok(());
+            }
+            rows.open_table(SEMANTIC_SOURCE_PROGRESS)
+                .map_err(kernel_error)?
+                .insert(self.reconciliation_key(generation), next_bytes.as_slice())
+                .map_err(kernel_error)?;
+            Ok(())
+        })
+        .map(|_| ())
     }
 
     /// Remove a completed reconciliation continuation with an in-write CAS.
@@ -223,89 +157,39 @@ impl SemanticCodeStore {
         generation: u64,
         expected: &SemanticSourceReconciliationCheckpoint,
     ) -> Result<(), SemanticCodeError> {
-        if generation == 0 {
-            return Err(SemanticCodeError::Refused(
-                "source reconciliation generation must be nonzero".to_string(),
-            ));
-        }
+        ensure(
+            generation != 0,
+            "source reconciliation generation must be nonzero",
+        )?;
         let expected_bytes = encode_reconciliation_checkpoint(expected)?;
-        let digest = semantic_digest(&expected_bytes);
         let batch_id = format!(
             "semantic-index:reconciliation-clear:{}",
-            semantic_digest(
-                &[
-                    b"clear\0".as_slice(),
-                    self.tenant.as_bytes(),
-                    b"\0",
-                    self.binding.as_bytes(),
-                    b"\0",
-                    &generation.to_be_bytes(),
-                    b"\0",
-                    expected_bytes.as_slice(),
-                ]
-                .concat()
-            )
+            self.reconciliation_batch_digest(b"clear\0", generation, &expected_bytes)
         );
-        let owner = self.door.owner();
-        self.door
-            .commit_metadata(
-                |version| {
-                    self.metadata_batch(
-                        owner,
-                        version,
-                        MetadataMutation {
-                            batch_id: &batch_id,
-                            event_type: "semantic_source_reconciliation_checkpoint_clear",
-                            subject: &format!("{}:{generation}", self.binding),
-                            mutation_digest: digest,
-                        },
-                        Vec::new(),
-                        0,
-                    )
-                },
-                digest,
-                0,
-                |write, rows| {
-                    let current_binding = self.read_binding_in_write(write)?.ok_or_else(|| {
-                        SemanticCodeError::Refused(
-                            "source reconciliation requires a durable binding head".to_string(),
-                        )
-                    })?;
-                    if current_binding.generation != generation {
-                        return Err(SemanticCodeError::Refused(
-                            "source reconciliation clear targets a stale generation".to_string(),
-                        ));
-                    }
-                    let current = write
-                        .open_read_table(SEMANTIC_SOURCE_PROGRESS)
-                        .map_err(kernel_error)?
-                        .get((
-                            self.tenant.as_str(),
-                            self.binding.as_str(),
-                            generation,
-                            SEMANTIC_RECONCILIATION_CHECKPOINT_ENTITY,
-                        ))
-                        .map_err(kernel_error)?
-                        .map(|value| value.value().to_vec());
-                    if current.as_deref() != Some(expected_bytes.as_slice()) {
-                        return Err(SemanticCodeError::Refused(
-                            "source reconciliation checkpoint clear predecessor is stale"
-                                .to_string(),
-                        ));
-                    }
-                    rows.open_table(SEMANTIC_SOURCE_PROGRESS)
-                        .map_err(kernel_error)?
-                        .remove((
-                            self.tenant.as_str(),
-                            self.binding.as_str(),
-                            generation,
-                            SEMANTIC_RECONCILIATION_CHECKPOINT_ENTITY,
-                        ))
-                        .map_err(kernel_error)?;
-                    Ok(())
-                },
-            )
-            .map(|_| ())
+        let subject = format!("{}:{generation}", self.binding);
+        let mutation = MetadataMutation {
+            batch_id: &batch_id,
+            event_type: "semantic_source_reconciliation_checkpoint_clear",
+            subject: &subject,
+            mutation_digest: semantic_digest(&expected_bytes),
+        };
+        self.commit_maintenance(mutation, Vec::new(), 0, None, |write, rows| {
+            let current = self.reconciliation_row_in_write(
+                write,
+                generation,
+                "source reconciliation clear targets a stale generation",
+            )?;
+            ensure(
+                current.as_deref() == Some(expected_bytes.as_slice()),
+                "source reconciliation checkpoint clear predecessor is stale",
+            )?;
+            rows.open_table(SEMANTIC_SOURCE_PROGRESS)
+                .map_err(kernel_error)?
+                .remove(self.reconciliation_key(generation))
+                .map_err(kernel_error)?;
+            Ok(())
+        })
+        .map(|_| ())
     }
 
     /// Return a bounded lexicographic page of the generation's durable source
@@ -318,49 +202,34 @@ impl SemanticCodeStore {
         after: Option<&str>,
         limit: usize,
     ) -> Result<(Vec<String>, Option<String>), SemanticCodeError> {
-        if generation == 0 || limit == 0 || limit > 256 {
-            return Err(SemanticCodeError::Refused(
-                "source entity page has an invalid generation or bounded limit".to_string(),
-            ));
-        }
-        if let Some(after) = after {
-            if !valid_source_entity_id_for_reconciliation(after) {
-                return Err(SemanticCodeError::Refused(
-                    "source entity page cursor is not a canonical source identity".to_string(),
-                ));
-            }
-        }
+        ensure(
+            generation != 0 && limit != 0 && limit <= 256,
+            "source entity page has an invalid generation or bounded limit",
+        )?;
+        ensure(
+            after.is_none_or(valid_source_entity_id_for_reconciliation),
+            "source entity page cursor is not a canonical source identity",
+        )?;
         let read = self.door.serving_read()?;
-        let binding = self.read_binding_in(&read)?.ok_or_else(|| {
-            SemanticCodeError::Refused(
-                "source entity paging requires a durable binding head".to_string(),
-            )
-        })?;
-        if binding.generation != generation {
-            return Err(SemanticCodeError::Refused(
-                "source entity page targets a stale generation".to_string(),
-            ));
-        }
+        let binding = self
+            .read_binding_in(&read)?
+            .ok_or_else(|| refused("source entity paging requires a durable binding head"))?;
+        ensure(
+            binding.generation == generation,
+            "source entity page targets a stale generation",
+        )?;
         let table = read
             .open_owner_table(SEMANTIC_SOURCE_PROGRESS)
             .map_err(kernel_error)?;
-        let mut entities = Vec::with_capacity(limit);
-        let mut next_cursor = None;
-        let range_start = after.unwrap_or("");
+        let owner = (self.tenant.as_str(), self.binding.as_str());
         let rows = table
-            .range(
-                (
-                    self.tenant.as_str(),
-                    self.binding.as_str(),
-                    generation,
-                    range_start,
-                )..,
-            )
+            .range((owner.0, owner.1, generation, after.unwrap_or(""))..)
             .map_err(kernel_error)?;
+        let mut entities = Vec::with_capacity(limit);
         for row in rows {
             let (key, value) = row.map_err(kernel_error)?;
             let key = key.value();
-            if key.0 != self.tenant || key.1 != self.binding || key.2 != generation {
+            if (key.0, key.1, key.2) != (owner.0, owner.1, generation) {
                 break;
             }
             if key.3 == SEMANTIC_RECONCILIATION_CHECKPOINT_ENTITY
@@ -368,34 +237,24 @@ impl SemanticCodeStore {
             {
                 continue;
             }
-            if !valid_source_entity_id_for_reconciliation(key.3)
-                || key.3.len() > SEMANTIC_RECONCILIATION_MAX_ENTITY_BYTES
-            {
-                return Err(SemanticCodeError::Corrupt(
-                    "source-progress page contains a non-canonical source identity".to_string(),
+            if !valid_source_entity_id_for_reconciliation(key.3) {
+                return Err(corrupt(
+                    "source-progress page contains a non-canonical source identity",
                 ));
             }
-            let progress = SemanticSourceProgress::from_canonical_cbor(value.value())
-                .map_err(semantic_contract_error)?;
-            progress.validate().map_err(semantic_contract_error)?;
-            if progress.binding_id != self.binding
-                || progress.binding_digest != binding.binding_digest
-                || progress.generation != generation
-                || progress.source_entity_id != key.3
-            {
-                return Err(SemanticCodeError::Corrupt(
-                    "source-progress page row is outside its durable binding generation"
-                        .to_string(),
-                ));
+            self.generation_progress(
+                &binding,
+                key.3,
+                value.value(),
+                "source-progress page row is outside its durable binding generation",
+            )?;
+            if entities.len() == limit {
+                let next_cursor = entities.last().cloned();
+                return Ok((entities, next_cursor));
             }
-            if entities.len() < limit {
-                entities.push(key.3.to_string());
-            } else {
-                next_cursor = entities.last().cloned();
-                break;
-            }
+            entities.push(key.3.to_string());
         }
-        Ok((entities, next_cursor))
+        Ok((entities, None))
     }
 
     /// Test whether a source identity has a durable progress row in this
@@ -406,48 +265,17 @@ impl SemanticCodeStore {
         generation: u64,
         source_entity_id: &str,
     ) -> Result<bool, SemanticCodeError> {
-        if generation == 0 || !valid_source_entity_id_for_reconciliation(source_entity_id) {
-            return Err(SemanticCodeError::Refused(
-                "source entity existence query has an invalid identity".to_string(),
-            ));
-        }
-        let read = self.door.serving_read()?;
-        let binding = self.read_binding_in(&read)?.ok_or_else(|| {
-            SemanticCodeError::Refused(
-                "source entity existence requires a durable binding head".to_string(),
-            )
-        })?;
-        if binding.generation != generation {
-            return Ok(false);
-        }
-        let raw = read
-            .open_owner_table(SEMANTIC_SOURCE_PROGRESS)
-            .map_err(kernel_error)?
-            .get((
-                self.tenant.as_str(),
-                self.binding.as_str(),
-                generation,
-                source_entity_id,
-            ))
-            .map_err(kernel_error)?
-            .map(|value| value.value().to_vec());
-        let Some(raw) = raw else {
-            return Ok(false);
-        };
-        let progress =
-            SemanticSourceProgress::from_canonical_cbor(&raw).map_err(semantic_contract_error)?;
-        progress.validate().map_err(semantic_contract_error)?;
-        if progress.binding_id != self.binding
-            || progress.binding_digest != binding.binding_digest
-            || progress.generation != generation
-            || progress.source_entity_id != source_entity_id
-        {
-            return Err(SemanticCodeError::Corrupt(
-                "source-progress existence row is outside its durable binding generation"
-                    .to_string(),
-            ));
-        }
-        Ok(true)
+        ensure(
+            generation != 0 && valid_source_entity_id_for_reconciliation(source_entity_id),
+            "source entity existence query has an invalid identity",
+        )?;
+        let progress = self.current_progress(
+            generation,
+            source_entity_id,
+            "source entity existence requires a durable binding head",
+            "source-progress existence row is outside its durable binding generation",
+        )?;
+        Ok(progress.is_some())
     }
 
     /// Read the retained canonical SQL manifest for one historical source
@@ -461,81 +289,39 @@ impl SemanticCodeStore {
         generation: u64,
         source_entity_id: &str,
     ) -> Result<Option<SemanticSqlSourceManifest>, SemanticCodeError> {
-        if generation == 0 || !valid_source_entity_id_for_reconciliation(source_entity_id) {
-            return Err(SemanticCodeError::Refused(
-                "SQL source manifest lookup has an invalid generation or source identity"
-                    .to_string(),
-            ));
-        }
+        ensure(
+            generation != 0 && valid_source_entity_id_for_reconciliation(source_entity_id),
+            "SQL source manifest lookup has an invalid generation or source identity",
+        )?;
         let read = self.door.serving_read()?;
-        let raw = read
+        let manifests = read
             .open_owner_table(SEMANTIC_SQL_SOURCES)
-            .map_err(kernel_error)?
-            .get((
-                self.tenant.as_str(),
-                self.binding.as_str(),
-                generation,
-                source_entity_id,
-            ))
-            .map_err(kernel_error)?
-            .map(|value| value.value().to_vec());
-        let Some(raw) = raw else {
+            .map_err(kernel_error)?;
+        let key = (
+            self.tenant.as_str(),
+            self.binding.as_str(),
+            generation,
+            source_entity_id,
+        );
+        let Some(raw) = row_bytes(manifests.get(key))? else {
             return Ok(None);
         };
-        let manifest = SemanticSqlSourceManifest::from_canonical_cbor(&raw)
-            .map_err(semantic_contract_error)?;
-        manifest.validate().map_err(semantic_contract_error)?;
+        let manifest: SemanticSqlSourceManifest = decode_valid(&raw)?;
         validate_sql_source_revision(&manifest.source_revision)?;
-        if manifest.binding_id != self.binding
-            || manifest.generation != generation
-            || manifest.source_entity_id != source_entity_id
+        if (
+            manifest.binding_id.as_str(),
+            manifest.generation,
+            manifest.source_entity_id.as_str(),
+        ) != (self.binding.as_str(), generation, source_entity_id)
         {
-            return Err(SemanticCodeError::Corrupt(
-                "SQL source manifest row does not match its canonical key".to_string(),
+            return Err(corrupt(
+                "SQL source manifest row does not match its canonical key",
             ));
         }
         let binding = self
             .read_binding_generation_in(&read, generation)?
-            .ok_or_else(|| {
-                SemanticCodeError::Corrupt(
-                    "SQL source manifest names a missing binding generation".to_string(),
-                )
-            })?;
-        manifest
-            .source_identity
-            .validate_against_binding(&binding)
-            .map_err(semantic_contract_error)?;
-        if manifest.binding_id != binding.binding_id
-            || manifest.binding_digest != binding.binding_digest
-            || manifest.generation != binding.generation
-            || manifest.source_schema_digest != binding.source_schema_digest
-            || manifest.source_field_set_digest != binding.source_field_set_digest
-            || manifest.source_acl_revision
-                != binding.policy_identity.components.source_acl_revision
-            || manifest.source_acl_digest != binding.policy_identity.components.source_acl_digest
-        {
-            return Err(SemanticCodeError::Corrupt(
-                "SQL source manifest is outside its durable binding authority".to_string(),
-            ));
-        }
-        let manifest_revision =
-            sql_source_revision_parts(&manifest.source_revision).ok_or_else(|| {
-                SemanticCodeError::Corrupt(
-                    "SQL source manifest has no canonical source authority".to_string(),
-                )
-            })?;
-        let binding_revision =
-            sql_source_revision_parts(&binding.source_revision).ok_or_else(|| {
-                SemanticCodeError::Corrupt(
-                    "durable binding has no canonical SQL source authority".to_string(),
-                )
-            })?;
-        if manifest_revision.authority != binding_revision.authority {
-            return Err(SemanticCodeError::Corrupt(
-                "SQL source manifest authority differs from its durable binding authority"
-                    .to_string(),
-            ));
-        }
+            .ok_or_else(|| corrupt("SQL source manifest names a missing binding generation"))?;
+        ensure_manifest_within_binding(&manifest, &binding)?;
         Ok(Some(manifest))
     }
 
@@ -549,51 +335,180 @@ impl SemanticCodeStore {
         source_revision: &str,
     ) -> Result<bool, SemanticCodeError> {
         validate_sql_source_revision(source_revision)?;
-        if generation == 0 || !valid_source_entity_id_for_reconciliation(source_entity_id) {
-            return Err(SemanticCodeError::Refused(
-                "source revision query has an invalid identity".to_string(),
-            ));
-        }
+        ensure(
+            generation != 0 && valid_source_entity_id_for_reconciliation(source_entity_id),
+            "source revision query has an invalid identity",
+        )?;
+        let progress = self.current_progress(
+            generation,
+            source_entity_id,
+            "source revision query requires a durable binding head",
+            "source revision row is outside its durable binding generation",
+        )?;
+        Ok(progress.is_some_and(|progress| {
+            progress.source_revision == source_revision && progress.superseded_by_revision.is_none()
+        }))
+    }
+
+    /// The entity's progress row when `generation` is the current binding
+    /// head, validated against that head; `None` for another generation or
+    /// an absent row.
+    fn current_progress(
+        &self,
+        generation: u64,
+        source_entity_id: &str,
+        no_head: &str,
+        outside: &str,
+    ) -> Result<Option<SemanticSourceProgress>, SemanticCodeError> {
         let read = self.door.serving_read()?;
-        let binding = self.read_binding_in(&read)?.ok_or_else(|| {
-            SemanticCodeError::Refused(
-                "source revision query requires a durable binding head".to_string(),
-            )
-        })?;
+        let binding = self
+            .read_binding_in(&read)?
+            .ok_or_else(|| refused(no_head))?;
         if binding.generation != generation {
-            return Ok(false);
+            return Ok(None);
         }
-        let raw = read
+        let progress_rows = read
             .open_owner_table(SEMANTIC_SOURCE_PROGRESS)
-            .map_err(kernel_error)?
-            .get((
-                self.tenant.as_str(),
-                self.binding.as_str(),
-                generation,
-                source_entity_id,
-            ))
-            .map_err(kernel_error)?
-            .map(|value| value.value().to_vec());
-        let Some(raw) = raw else {
-            return Ok(false);
-        };
-        let progress =
-            SemanticSourceProgress::from_canonical_cbor(&raw).map_err(semantic_contract_error)?;
-        progress.validate().map_err(semantic_contract_error)?;
-        if progress.binding_id != self.binding
-            || progress.binding_digest != binding.binding_digest
-            || progress.generation != generation
-            || progress.source_entity_id != source_entity_id
-        {
-            return Err(SemanticCodeError::Corrupt(
-                "source revision row is outside its durable binding generation".to_string(),
-            ));
+            .map_err(kernel_error)?;
+        let key = (
+            self.tenant.as_str(),
+            self.binding.as_str(),
+            generation,
+            source_entity_id,
+        );
+        row_bytes(progress_rows.get(key))?
+            .map(|raw| self.generation_progress(&binding, source_entity_id, &raw, outside))
+            .transpose()
+    }
+
+    /// A progress row of `binding`'s generation for exactly `source_entity_id`.
+    fn generation_progress(
+        &self,
+        binding: &SemanticBinding,
+        source_entity_id: &str,
+        bytes: &[u8],
+        outside: &str,
+    ) -> Result<SemanticSourceProgress, SemanticCodeError> {
+        let progress: SemanticSourceProgress = decode_valid(bytes)?;
+        if (
+            progress.binding_id.as_str(),
+            progress.binding_digest,
+            progress.generation,
+            progress.source_entity_id.as_str(),
+        ) != (
+            self.binding.as_str(),
+            binding.binding_digest,
+            binding.generation,
+            source_entity_id,
+        ) {
+            return Err(corrupt(outside));
         }
-        Ok(
-            progress.source_revision == source_revision
-                && progress.superseded_by_revision.is_none(),
+        Ok(progress)
+    }
+
+    /// The generation's reconciliation checkpoint row, read inside the write
+    /// after proving `generation` is still the binding head.
+    fn reconciliation_row_in_write(
+        &self,
+        write: &AdmittedMutation<'_, SemanticIndexOwner>,
+        generation: u64,
+        stale: &str,
+    ) -> Result<Option<Vec<u8>>, SemanticCodeError> {
+        let binding = self
+            .read_binding_in_write(write)?
+            .ok_or_else(|| refused("source reconciliation requires a durable binding head"))?;
+        ensure(binding.generation == generation, stale)?;
+        let progress_rows = write
+            .open_read_table(SEMANTIC_SOURCE_PROGRESS)
+            .map_err(kernel_error)?;
+        row_bytes(progress_rows.get(self.reconciliation_key(generation)))
+    }
+
+    fn reconciliation_key(&self, generation: u64) -> (&str, &str, u64, &'static str) {
+        (
+            self.tenant.as_str(),
+            self.binding.as_str(),
+            generation,
+            SEMANTIC_RECONCILIATION_CHECKPOINT_ENTITY,
         )
     }
+
+    /// The batch identity of one checkpoint write or clear: the operation, the
+    /// owner, the generation and the exact checkpoint bytes.
+    fn reconciliation_batch_digest(
+        &self,
+        operation: &[u8],
+        generation: u64,
+        checkpoint_bytes: &[u8],
+    ) -> SemanticDigest {
+        semantic_digest(
+            &[
+                operation,
+                self.tenant.as_bytes(),
+                b"\0",
+                self.binding.as_bytes(),
+                b"\0",
+                &generation.to_be_bytes(),
+                b"\0",
+                checkpoint_bytes,
+            ]
+            .concat(),
+        )
+    }
+}
+
+/// A retained SQL manifest belongs to its binding generation's source
+/// identity, schema, field set and ACL, under the binding's SQL authority.
+fn ensure_manifest_within_binding(
+    manifest: &SemanticSqlSourceManifest,
+    binding: &SemanticBinding,
+) -> Result<(), SemanticCodeError> {
+    manifest
+        .source_identity
+        .validate_against_binding(binding)
+        .map_err(semantic_contract_error)?;
+    let components = &binding.policy_identity.components;
+    let manifest_authority = (
+        (
+            manifest.binding_id.as_str(),
+            manifest.binding_digest,
+            manifest.generation,
+        ),
+        (
+            &manifest.source_schema_digest,
+            &manifest.source_field_set_digest,
+            manifest.source_acl_revision,
+            &manifest.source_acl_digest,
+        ),
+    );
+    let binding_authority = (
+        (
+            binding.binding_id.as_str(),
+            binding.binding_digest,
+            binding.generation,
+        ),
+        (
+            &binding.source_schema_digest,
+            &binding.source_field_set_digest,
+            components.source_acl_revision,
+            &components.source_acl_digest,
+        ),
+    );
+    if manifest_authority != binding_authority {
+        return Err(corrupt(
+            "SQL source manifest is outside its durable binding authority",
+        ));
+    }
+    let manifest_revision = sql_source_revision_parts(&manifest.source_revision)
+        .ok_or_else(|| corrupt("SQL source manifest has no canonical source authority"))?;
+    let binding_revision = sql_source_revision_parts(&binding.source_revision)
+        .ok_or_else(|| corrupt("durable binding has no canonical SQL source authority"))?;
+    if manifest_revision.authority != binding_revision.authority {
+        return Err(corrupt(
+            "SQL source manifest authority differs from its durable binding authority",
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn valid_source_entity_id_for_reconciliation(entity: &str) -> bool {
@@ -644,11 +559,8 @@ pub(super) fn compare_source_revision(left: &str, right: &str) -> std::cmp::Orde
 /// returned by the atomic SQL snapshot read.  A bare or event-local counter
 /// is insufficient because two SQL resources can commit the same table.
 pub(super) fn validate_sql_source_revision(revision: &str) -> Result<(), SemanticCodeError> {
-    if sql_source_revision_parts(revision).is_none() {
-        return Err(SemanticCodeError::Refused(
-            "semantic SQL refresh revision must bind a canonical source authority and nonzero epoch"
-                .to_string(),
-        ));
-    }
-    Ok(())
+    ensure(
+        sql_source_revision_parts(revision).is_some(),
+        "semantic SQL refresh revision must bind a canonical source authority and nonzero epoch",
+    )
 }

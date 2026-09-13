@@ -1,10 +1,19 @@
 //! Stage predecessor proofs: a stage may run or be recorded only on top of
 //! the durable receipt, checkpoint and manifests its predecessor names.
+//!
+//! The same rule is proved twice: once against a serving snapshot, to fence a
+//! lease before work runs, and again inside the admitted write that records
+//! the transition. Both apply [`entity_progress`] and
+//! [`ensure_predecessor_proof`]; they differ only in where the rows are read
+//! from and in the wording each site has always reported.
 
 use super::checkpoint::{
     current_checkpoint_from_tables, validate_six_checkpoint_from_tables, GenerationCoordinates,
 };
-use super::{kernel_error, semantic_contract_error, SemanticCodeError, SemanticCodeStore};
+use super::record::{decode_valid, row, row_bytes, ValidatedRow};
+use super::{
+    ensure, kernel_error, refused, semantic_contract_error, SemanticCodeError, SemanticCodeStore,
+};
 use eg_storage::{
     ScopedRead, SemanticIndexOwner, SEMANTIC_ANN, SEMANTIC_CHECKPOINTS, SEMANTIC_CHECKPOINT_HEADS,
     SEMANTIC_LEXICAL, SEMANTIC_SOURCE_PROGRESS, SEMANTIC_STAGES,
@@ -16,6 +25,51 @@ use eg_types::semantic_index::{
     SemanticStagePredecessor,
 };
 
+/// The refusal wording one proof site reports.
+struct PredecessorWording {
+    no_progress: &'static str,
+    progress_mismatch: &'static str,
+    superseded: &'static str,
+    already_completed: &'static str,
+    generation_scope: &'static str,
+    s1_completed: &'static str,
+    receipt_needs_progress: &'static str,
+    receipt_mismatch: &'static str,
+    checkpoint_stale: &'static str,
+    coverage_stale: &'static str,
+    activation_stale: &'static str,
+}
+
+/// A lease fenced against the serving snapshot before work runs.
+const LEASE: PredecessorWording = PredecessorWording {
+    no_progress: "semantic stage lease has no durable source-progress row",
+    progress_mismatch: "semantic stage lease source-progress proof does not match intent",
+    superseded: "semantic stage lease names a superseded source revision",
+    already_completed: "semantic stage lease is already completed",
+    generation_scope: "only S6 may use a generation-scoped lease",
+    s1_completed: "S1 source progress already has a completed predecessor",
+    receipt_needs_progress: "entity receipt requires entity source progress",
+    receipt_mismatch: "entity predecessor receipt is not the durable receipt",
+    checkpoint_stale: "generation predecessor checkpoint is absent or stale",
+    coverage_stale: "generation coverage checkpoint is absent or stale",
+    activation_stale: "S6 activation checkpoints are absent, mixed, or stale",
+};
+
+/// A transition re-proved inside its admitted write.
+const TRANSITION: PredecessorWording = PredecessorWording {
+    no_progress: "semantic stage transition has no source-progress row",
+    progress_mismatch: "semantic transition source-progress proof does not match intent",
+    superseded: "semantic transition names a superseded source revision",
+    already_completed: "semantic transition stage is already completed",
+    generation_scope: "only S6 may use a generation scope",
+    s1_completed: "S1 transition has a completed predecessor",
+    receipt_needs_progress: "entity receipt requires source progress",
+    receipt_mismatch: "entity receipt is not the durable predecessor receipt",
+    checkpoint_stale: "generation checkpoint is absent or mismatched",
+    coverage_stale: "generation coverage is absent or mismatched",
+    activation_stale: "S6 activation proof is absent or mixed-generation",
+};
+
 impl SemanticCodeStore {
     pub(super) fn validate_stage_predecessor_in(
         &self,
@@ -23,178 +77,26 @@ impl SemanticCodeStore {
         intent: &SemanticStageIntent,
         reject_completed: bool,
     ) -> Result<(), SemanticCodeError> {
-        match &intent.scope {
-            eg_types::semantic_index::SemanticStageScope::Entity { source_entity_id } => {
-                let raw = read
-                    .open_owner_table(SEMANTIC_SOURCE_PROGRESS)
-                    .map_err(kernel_error)?
-                    .get((
-                        self.tenant.as_str(),
-                        self.binding.as_str(),
-                        intent.generation,
-                        source_entity_id.as_str(),
-                    ))
-                    .map_err(kernel_error)?
-                    .map(|value| value.value().to_vec())
-                    .ok_or_else(|| {
-                        SemanticCodeError::Refused(
-                            "semantic stage lease has no durable source-progress row".to_string(),
-                        )
-                    })?;
-                let progress = SemanticSourceProgress::from_canonical_cbor(&raw)
-                    .map_err(semantic_contract_error)?;
-                if progress.binding_digest != intent.binding_digest
-                    || progress.generation != intent.generation
-                    || progress.source_entity_id != *source_entity_id
-                    || progress.source_revision != intent.source_revision
-                {
-                    return Err(SemanticCodeError::Refused(
-                        "semantic stage lease source-progress proof does not match intent"
-                            .to_string(),
-                    ));
-                }
-                if progress.superseded_by_revision.is_some() {
-                    return Err(SemanticCodeError::Refused(
-                        "semantic stage lease names a superseded source revision".to_string(),
-                    ));
-                }
-                if reject_completed
-                    && progress
-                        .completed_stage
-                        .is_some_and(|completed| completed >= intent.stage)
-                {
-                    return Err(SemanticCodeError::Refused(
-                        "semantic stage lease is already completed".to_string(),
-                    ));
-                }
-                self.validate_predecessor_proof_in(read, intent, &Some(&progress))?;
-            }
-            eg_types::semantic_index::SemanticStageScope::Generation => {
-                if intent.stage != SemanticStage::ReconcileAndActivate {
-                    return Err(SemanticCodeError::Refused(
-                        "only S6 may use a generation-scoped lease".to_string(),
-                    ));
-                }
-                self.validate_predecessor_proof_in(read, intent, &None)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn validate_predecessor_proof_in(
-        &self,
-        read: &ScopedRead<'_, SemanticIndexOwner>,
-        intent: &SemanticStageIntent,
-        progress: &Option<&SemanticSourceProgress>,
-    ) -> Result<(), SemanticCodeError> {
-        let predecessor = &intent.predecessor;
-        match predecessor {
-            SemanticStagePredecessor::None => {
-                if progress.is_some_and(|progress| progress.completed_stage.is_some()) {
-                    return Err(SemanticCodeError::Refused(
-                        "S1 source progress already has a completed predecessor".to_string(),
-                    ));
-                }
-            }
-            SemanticStagePredecessor::EntityReceipt {
-                stage,
-                receipt_digest,
-            } => {
-                let Some(progress) = progress else {
-                    return Err(SemanticCodeError::Refused(
-                        "entity receipt requires entity source progress".to_string(),
-                    ));
-                };
-                if progress.completed_stage != Some(*stage)
-                    || progress.completed_receipt_digest != Some(*receipt_digest)
-                {
-                    return Err(SemanticCodeError::Refused(
-                        "entity predecessor receipt is not the durable receipt".to_string(),
-                    ));
-                }
-            }
-            SemanticStagePredecessor::GenerationCheckpoint {
-                stage,
-                checkpoint_digest,
-            } => {
-                if !progress.is_some_and(|progress| progress.completed_stage == Some(*stage))
-                    || !self.has_checkpoint_in(read, intent, *checkpoint_digest, *stage)?
-                {
-                    return Err(SemanticCodeError::Refused(
-                        "generation predecessor checkpoint is absent or stale".to_string(),
-                    ));
-                }
-            }
-            SemanticStagePredecessor::GenerationCoverage { checkpoint } => {
-                checkpoint
-                    .require_complete()
-                    .map_err(semantic_contract_error)?;
-                if !progress
-                    .is_some_and(|progress| progress.completed_stage == Some(SemanticStage::Vector))
-                    || !self.has_checkpoint_in(
-                        read,
-                        intent,
-                        checkpoint.checkpoint_digest,
-                        SemanticStage::Vector,
-                    )?
-                {
-                    return Err(SemanticCodeError::Refused(
-                        "generation coverage checkpoint is absent or stale".to_string(),
-                    ));
-                }
-            }
-            SemanticStagePredecessor::Activation {
-                lexical_checkpoint_digest,
-                ann_checkpoint_digest,
-            } => {
-                if !self.has_checkpoint_in(
-                    read,
-                    intent,
-                    *lexical_checkpoint_digest,
-                    SemanticStage::LexicalIndex,
-                )? || !self.has_checkpoint_in(
-                    read,
-                    intent,
-                    *ann_checkpoint_digest,
-                    SemanticStage::AnnIndex,
-                )? {
-                    return Err(SemanticCodeError::Refused(
-                        "S6 activation checkpoints are absent, mixed, or stale".to_string(),
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn has_checkpoint_in(
-        &self,
-        read: &ScopedRead<'_, SemanticIndexOwner>,
-        intent: &SemanticStageIntent,
-        digest: SemanticDigest,
-        stage: SemanticStage,
-    ) -> Result<bool, SemanticCodeError> {
+        let (tenant, binding) = (self.tenant.as_str(), self.binding.as_str());
+        let progress_rows = read
+            .open_owner_table(SEMANTIC_SOURCE_PROGRESS)
+            .map_err(kernel_error)?;
+        let progress = entity_progress(
+            |entity| row(progress_rows.get((tenant, binding, intent.generation, entity))),
+            intent,
+            reject_completed,
+            &LEASE,
+        )?;
         let checkpoints = read
             .open_owner_table(SEMANTIC_CHECKPOINTS)
             .map_err(kernel_error)?;
         let heads = read
             .open_owner_table(SEMANTIC_CHECKPOINT_HEADS)
             .map_err(kernel_error)?;
-        let current = current_checkpoint_from_tables(
-            &checkpoints,
-            &heads,
-            GenerationCoordinates {
-                tenant: self.tenant.as_str(),
-                binding: self.binding.as_str(),
-                generation: intent.generation,
-                binding_digest: intent.binding_digest,
-                source_revision: &intent.source_revision,
-            },
-            stage,
-        )?;
-        Ok(current.is_some_and(|checkpoint| {
-            checkpoint.checkpoint_digest == digest && checkpoint.require_complete().is_ok()
-        }))
+        let at = GenerationCoordinates::of_intent(tenant, binding, intent);
+        ensure_predecessor_proof(intent, progress.as_ref(), &LEASE, |stage| {
+            current_checkpoint_from_tables(&checkpoints, &heads, at, stage)
+        })
     }
 
     pub(super) fn validate_six_checkpoint_in(
@@ -229,64 +131,43 @@ impl SemanticCodeStore {
         binding: &SemanticBinding,
         intent: &SemanticStageIntent,
     ) -> Result<(), SemanticCodeError> {
-        let lexical_raw = read
-            .open_owner_table(SEMANTIC_LEXICAL)
-            .map_err(kernel_error)?
-            .get((
-                self.tenant.as_str(),
-                self.binding.as_str(),
-                intent.generation,
-            ))
-            .map_err(kernel_error)?
-            .map(|value| value.value().to_vec())
-            .ok_or_else(|| {
-                SemanticCodeError::Refused(
-                    "S6 activation has no durable lexical index manifest".to_string(),
-                )
-            })?;
-        let lexical = SemanticLexicalIndexManifest::from_canonical_cbor(&lexical_raw)
-            .map_err(semantic_contract_error)?;
-        lexical.validate().map_err(semantic_contract_error)?;
-        if lexical.binding_id != binding.binding_id
-            || lexical.binding_digest != binding.binding_digest
-            || lexical.generation != binding.generation
-            || lexical.source_revision != binding.source_revision
-            || lexical.identity != binding.lexical_index_identity
-        {
-            return Err(SemanticCodeError::Refused(
-                "S6 lexical manifest is not bound to the durable binding".to_string(),
-            ));
-        }
-
-        let ann_raw = read
-            .open_owner_table(SEMANTIC_ANN)
-            .map_err(kernel_error)?
-            .get((
-                self.tenant.as_str(),
-                self.binding.as_str(),
-                intent.generation,
-            ))
-            .map_err(kernel_error)?
-            .map(|value| value.value().to_vec())
-            .ok_or_else(|| {
-                SemanticCodeError::Refused(
-                    "S6 activation has no durable ANN index manifest".to_string(),
-                )
-            })?;
-        let ann = SemanticAnnIndexManifest::from_canonical_cbor(&ann_raw)
-            .map_err(semantic_contract_error)?;
-        ann.validate().map_err(semantic_contract_error)?;
-        if ann.binding_id != binding.binding_id
-            || ann.binding_digest != binding.binding_digest
-            || ann.generation != binding.generation
-            || ann.source_revision != binding.source_revision
-            || ann.identity != binding.ann_index_identity
-        {
-            return Err(SemanticCodeError::Refused(
-                "S6 ANN manifest is not bound to the durable binding".to_string(),
-            ));
-        }
-        Ok(())
+        let key = (
+            self.tenant.as_str(),
+            self.binding.as_str(),
+            intent.generation,
+        );
+        let lexical: SemanticLexicalIndexManifest = read_manifest(
+            &read
+                .open_owner_table(SEMANTIC_LEXICAL)
+                .map_err(kernel_error)?,
+            key,
+            "S6 activation has no durable lexical index manifest",
+        )?;
+        ensure(
+            manifest_generation(
+                &lexical.binding_id,
+                lexical.binding_digest,
+                lexical.generation,
+                &lexical.source_revision,
+            ) == binding_generation(binding)
+                && lexical.identity == binding.lexical_index_identity,
+            "S6 lexical manifest is not bound to the durable binding",
+        )?;
+        let ann: SemanticAnnIndexManifest = read_manifest(
+            &read.open_owner_table(SEMANTIC_ANN).map_err(kernel_error)?,
+            key,
+            "S6 activation has no durable ANN index manifest",
+        )?;
+        ensure(
+            manifest_generation(
+                &ann.binding_id,
+                ann.binding_digest,
+                ann.generation,
+                &ann.source_revision,
+            ) == binding_generation(binding)
+                && ann.identity == binding.ann_index_identity,
+            "S6 ANN manifest is not bound to the durable binding",
+        )
     }
 }
 
@@ -325,135 +206,169 @@ pub(super) fn validate_stage_predecessor_write(
     intent: &SemanticStageIntent,
     reject_completed: bool,
 ) -> Result<(), SemanticCodeError> {
-    let progress = if let Some(source_entity_id) = intent.scope.source_entity_id() {
-        let raw = write
+    let progress = {
+        let progress_rows = write
             .open_read_table(SEMANTIC_SOURCE_PROGRESS)
-            .map_err(kernel_error)?
-            .get((tenant, binding, intent.generation, source_entity_id))
-            .map_err(kernel_error)?
-            .map(|value| value.value().to_vec())
-            .ok_or_else(|| {
-                SemanticCodeError::Refused(
-                    "semantic stage transition has no source-progress row".to_string(),
-                )
-            })?;
-        let progress =
-            SemanticSourceProgress::from_canonical_cbor(&raw).map_err(semantic_contract_error)?;
-        if progress.binding_digest != intent.binding_digest
-            || progress.generation != intent.generation
-            || progress.source_entity_id != source_entity_id
-            || progress.source_revision != intent.source_revision
-        {
-            return Err(SemanticCodeError::Refused(
-                "semantic transition source-progress proof does not match intent".to_string(),
-            ));
-        }
-        if progress.superseded_by_revision.is_some() {
-            return Err(SemanticCodeError::Refused(
-                "semantic transition names a superseded source revision".to_string(),
-            ));
-        }
-        if reject_completed
-            && progress
-                .completed_stage
-                .is_some_and(|completed| completed >= intent.stage)
-        {
-            return Err(SemanticCodeError::Refused(
-                "semantic transition stage is already completed".to_string(),
-            ));
-        }
-        Some(progress)
-    } else {
-        if intent.stage != SemanticStage::ReconcileAndActivate {
-            return Err(SemanticCodeError::Refused(
-                "only S6 may use a generation scope".to_string(),
-            ));
-        }
-        None
+            .map_err(kernel_error)?;
+        entity_progress(
+            |entity| row(progress_rows.get((tenant, binding, intent.generation, entity))),
+            intent,
+            reject_completed,
+            &TRANSITION,
+        )?
     };
-    let predecessor = &intent.predecessor;
-    let checkpoint_table = rows
+    let checkpoints = rows
         .open_table(SEMANTIC_CHECKPOINTS)
         .map_err(kernel_error)?;
-    let checkpoint_head_table = rows
+    let heads = rows
         .open_table(SEMANTIC_CHECKPOINT_HEADS)
         .map_err(kernel_error)?;
-    let checkpoint = |digest: SemanticDigest,
-                      stage: SemanticStage|
-     -> Result<bool, SemanticCodeError> {
-        Ok(current_checkpoint_from_tables(
-            &checkpoint_table,
-            &checkpoint_head_table,
-            GenerationCoordinates {
-                tenant,
-                binding,
-                generation: intent.generation,
-                binding_digest: intent.binding_digest,
-                source_revision: &intent.source_revision,
-            },
-            stage,
-        )?
-        .is_some_and(|value| value.checkpoint_digest == digest && value.require_complete().is_ok()))
+    let at = GenerationCoordinates::of_intent(tenant, binding, intent);
+    ensure_predecessor_proof(intent, progress.as_ref(), &TRANSITION, |stage| {
+        current_checkpoint_from_tables(&checkpoints, &heads, at, stage)
+    })
+}
+
+/// The progress row an entity-scoped intent runs on, matching the intent and
+/// not superseded; `None` for the one generation-scoped stage, S6. `lookup`
+/// reads one entity's progress row wherever this proof site reads rows.
+fn entity_progress<L>(
+    lookup: L,
+    intent: &SemanticStageIntent,
+    reject_completed: bool,
+    wording: &PredecessorWording,
+) -> Result<Option<SemanticSourceProgress>, SemanticCodeError>
+where
+    L: FnOnce(&str) -> Result<Option<SemanticSourceProgress>, SemanticCodeError>,
+{
+    let Some(source_entity_id) = intent.scope.source_entity_id() else {
+        ensure(
+            intent.stage == SemanticStage::ReconcileAndActivate,
+            wording.generation_scope,
+        )?;
+        return Ok(None);
     };
-    match predecessor {
-        SemanticStagePredecessor::None => {
-            if progress.is_some_and(|value| value.completed_stage.is_some()) {
-                return Err(SemanticCodeError::Refused(
-                    "S1 transition has a completed predecessor".to_string(),
-                ));
-            }
-        }
+    let progress = lookup(source_entity_id)?.ok_or_else(|| refused(wording.no_progress))?;
+    ensure(
+        (
+            progress.binding_digest,
+            progress.generation,
+            progress.source_entity_id.as_str(),
+            progress.source_revision.as_str(),
+        ) == (
+            intent.binding_digest,
+            intent.generation,
+            source_entity_id,
+            intent.source_revision.as_str(),
+        ),
+        wording.progress_mismatch,
+    )?;
+    ensure(
+        progress.superseded_by_revision.is_none(),
+        wording.superseded,
+    )?;
+    let completed = progress
+        .completed_stage
+        .is_some_and(|stage| stage >= intent.stage);
+    ensure(!(reject_completed && completed), wording.already_completed)?;
+    Ok(Some(progress))
+}
+
+/// The durable proof `intent.predecessor` names: an entity receipt recorded
+/// in `progress`, or a generation checkpoint that is still the complete head
+/// `current` returns for its stage.
+fn ensure_predecessor_proof<F>(
+    intent: &SemanticStageIntent,
+    progress: Option<&SemanticSourceProgress>,
+    wording: &PredecessorWording,
+    current: F,
+) -> Result<(), SemanticCodeError>
+where
+    F: Fn(SemanticStage) -> Result<Option<SemanticGenerationCheckpoint>, SemanticCodeError>,
+{
+    let is_head = |digest: SemanticDigest, stage: SemanticStage| {
+        let head = current(stage)?;
+        Ok::<_, SemanticCodeError>(head.is_some_and(|head| is_complete_head(&head, digest)))
+    };
+    let completed = |stage: SemanticStage| {
+        progress.is_some_and(|progress| progress.completed_stage == Some(stage))
+    };
+    match &intent.predecessor {
+        SemanticStagePredecessor::None => ensure(
+            progress.is_none_or(|progress| progress.completed_stage.is_none()),
+            wording.s1_completed,
+        ),
         SemanticStagePredecessor::EntityReceipt {
             stage,
             receipt_digest,
         } => {
-            let Some(progress) = progress.as_ref() else {
-                return Err(SemanticCodeError::Refused(
-                    "entity receipt requires source progress".to_string(),
-                ));
-            };
-            if progress.completed_stage != Some(*stage)
-                || progress.completed_receipt_digest != Some(*receipt_digest)
-            {
-                return Err(SemanticCodeError::Refused(
-                    "entity receipt is not the durable predecessor receipt".to_string(),
-                ));
-            }
+            let progress = progress.ok_or_else(|| refused(wording.receipt_needs_progress))?;
+            ensure(
+                (progress.completed_stage, progress.completed_receipt_digest)
+                    == (Some(*stage), Some(*receipt_digest)),
+                wording.receipt_mismatch,
+            )
         }
         SemanticStagePredecessor::GenerationCheckpoint {
             stage,
             checkpoint_digest,
-        } => {
-            if progress.is_none_or(|value| value.completed_stage != Some(*stage))
-                || !checkpoint(*checkpoint_digest, *stage)?
-            {
-                return Err(SemanticCodeError::Refused(
-                    "generation checkpoint is absent or mismatched".to_string(),
-                ));
-            }
-        }
-        SemanticStagePredecessor::GenerationCoverage { checkpoint: value } => {
-            value.require_complete().map_err(semantic_contract_error)?;
-            if progress.is_none_or(|row| row.completed_stage != Some(SemanticStage::Vector))
-                || !checkpoint(value.checkpoint_digest, SemanticStage::Vector)?
-            {
-                return Err(SemanticCodeError::Refused(
-                    "generation coverage is absent or mismatched".to_string(),
-                ));
-            }
+        } => ensure(
+            completed(*stage) && is_head(*checkpoint_digest, *stage)?,
+            wording.checkpoint_stale,
+        ),
+        SemanticStagePredecessor::GenerationCoverage { checkpoint } => {
+            checkpoint
+                .require_complete()
+                .map_err(semantic_contract_error)?;
+            ensure(
+                completed(SemanticStage::Vector)
+                    && is_head(checkpoint.checkpoint_digest, SemanticStage::Vector)?,
+                wording.coverage_stale,
+            )
         }
         SemanticStagePredecessor::Activation {
             lexical_checkpoint_digest,
             ann_checkpoint_digest,
-        } => {
-            if !checkpoint(*lexical_checkpoint_digest, SemanticStage::LexicalIndex)?
-                || !checkpoint(*ann_checkpoint_digest, SemanticStage::AnnIndex)?
-            {
-                return Err(SemanticCodeError::Refused(
-                    "S6 activation proof is absent or mixed-generation".to_string(),
-                ));
-            }
-        }
+        } => ensure(
+            is_head(*lexical_checkpoint_digest, SemanticStage::LexicalIndex)?
+                && is_head(*ann_checkpoint_digest, SemanticStage::AnnIndex)?,
+            wording.activation_stale,
+        ),
     }
-    Ok(())
+}
+
+/// A stage head proves a predecessor only as the named, complete checkpoint.
+fn is_complete_head(head: &SemanticGenerationCheckpoint, digest: SemanticDigest) -> bool {
+    head.checkpoint_digest == digest && head.require_complete().is_ok()
+}
+
+fn read_manifest<T, R>(
+    table: &T,
+    key: (&str, &str, u64),
+    missing: &str,
+) -> Result<R, SemanticCodeError>
+where
+    T: redb::ReadableTable<(&'static str, &'static str, u64), &'static [u8]>,
+    R: ValidatedRow,
+{
+    let raw = row_bytes(table.get(key))?.ok_or_else(|| refused(missing))?;
+    decode_valid(&raw)
+}
+
+fn manifest_generation<'a>(
+    binding_id: &'a str,
+    binding_digest: SemanticDigest,
+    generation: u64,
+    source_revision: &'a str,
+) -> (&'a str, SemanticDigest, u64, &'a str) {
+    (binding_id, binding_digest, generation, source_revision)
+}
+
+fn binding_generation(binding: &SemanticBinding) -> (&str, SemanticDigest, u64, &str) {
+    (
+        binding.binding_id.as_str(),
+        binding.binding_digest,
+        binding.generation,
+        binding.source_revision.as_str(),
+    )
 }

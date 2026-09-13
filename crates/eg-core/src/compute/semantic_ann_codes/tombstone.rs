@@ -1,5 +1,10 @@
 //! Reconciliation tombstones: retiring source entities that disappeared
 //! from a completed SQL source snapshot.
+//!
+//! A tombstone is proved from the request alone (an S1 deletion intent whose
+//! input is the complete snapshot's deletion proof), then re-proved inside
+//! the admitted write against the durable binding, reconciliation checkpoint,
+//! prior progress and the retained receipt that completed it.
 
 use super::batch::MetadataMutation;
 use super::persist::replace_bytes;
@@ -11,19 +16,32 @@ use super::reconciliation::{
 use super::reconciliation_codec::{
     encode_reconciliation_checkpoint, validate_reconciliation_checkpoint,
 };
-use super::stage::{stage_intent_key, stage_intent_outbox, stage_receipt_index_key};
-use super::{
-    kernel_error, semantic_contract_error, SemanticCodeError, SemanticCodeStore,
-    SemanticMutationReceipt,
+use super::record::{decode_valid, encode, encode_valid, row, row_bytes};
+use super::stage::{
+    completion_coordinates, fresh_source_progress, retained_completion, stage_intent_key,
+    stage_intent_outbox, stage_receipt_index_key,
 };
-use eg_storage::{SEMANTIC_SOURCE_PROGRESS, SEMANTIC_STAGES};
-use eg_types::mutation_batch::MutationOutboxLease;
+use super::{
+    corrupt, ensure, kernel_error, refused, semantic_contract_error, SemanticCodeError,
+    SemanticCodeStore, SemanticMutationReceipt,
+};
+use eg_storage::{SemanticIndexOwner, SEMANTIC_SOURCE_PROGRESS, SEMANTIC_STAGES};
+use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite};
+use eg_types::mutation_batch::{MutationOutboxIntent, MutationOutboxLease};
 use eg_types::semantic_index::{
     SemanticDigest, SemanticIndexMutation, SemanticSourceProgress, SemanticSqlSourceManifest,
     SemanticStage, SemanticStageIntent, SemanticStageOutcome, SemanticStagePredecessor,
     SemanticStageTransition,
 };
 use sha2::{Digest, Sha256};
+use std::cmp::Ordering;
+
+/// A tombstone request as proved before its admitted write.
+struct TombstoneProof<'a> {
+    intent: &'a SemanticStageIntent,
+    source_entity_id: &'a str,
+    checkpoint_bytes: &'a [u8],
+}
 
 impl SemanticCodeStore {
     /// Admit the S1 tombstone derived from a completed authoritative source
@@ -41,313 +59,306 @@ impl SemanticCodeStore {
         checkpoint: &SemanticSourceReconciliationCheckpoint,
         now_ms: u64,
     ) -> Result<SemanticMutationReceipt, SemanticCodeError> {
-        intent.validate().map_err(semantic_contract_error)?;
-        if intent.binding_id != self.binding
-            || intent.generation == 0
-            || intent.stage != SemanticStage::SourceCommit
-            || !matches!(&intent.predecessor, SemanticStagePredecessor::None)
-        {
-            return Err(SemanticCodeError::Refused(
-                "semantic reconciliation tombstone must be an S1 intent for this binding"
-                    .to_string(),
-            ));
-        }
-        let source_entity_id = intent.scope.source_entity_id().ok_or_else(|| {
-            SemanticCodeError::Refused(
-                "semantic reconciliation tombstone must name one source entity".to_string(),
-            )
-        })?;
-        if !valid_source_entity_id_for_reconciliation(source_entity_id) {
-            return Err(SemanticCodeError::Refused(
-                "semantic reconciliation tombstone has a non-canonical source entity".to_string(),
-            ));
-        }
-        validate_reconciliation_checkpoint(checkpoint)?;
-        if !matches!(
-            checkpoint.phase,
-            SemanticSourceReconciliationPhase::FinalizingTombstones
-        ) || checkpoint.source_revision != intent.source_revision
-        {
-            return Err(SemanticCodeError::Refused(
-                "semantic reconciliation tombstone lacks an exact finalizing source proof"
-                    .to_string(),
-            ));
-        }
-        let complete_receipt = checkpoint.complete_snapshot_receipt_digest.ok_or_else(|| {
-            SemanticCodeError::Refused(
-                "semantic reconciliation tombstone has no complete snapshot proof".to_string(),
-            )
-        })?;
-        let expected_input = reconciliation_tombstone_input_digest(
-            source_entity_id,
-            &checkpoint.source_revision,
-            complete_receipt,
-        );
-        if intent.input_digest != expected_input {
-            return Err(SemanticCodeError::Refused(
-                "semantic reconciliation tombstone input is not the exact deletion proof"
-                    .to_string(),
-            ));
-        }
+        let (source_entity_id, complete_receipt) = self.tombstone_request(intent, checkpoint)?;
         let checkpoint_bytes = encode_reconciliation_checkpoint(checkpoint)?;
-        let payload = intent
-            .to_canonical_cbor()
-            .map_err(semantic_contract_error)?;
-        let key = stage_intent_key(intent);
-        let mut outbox = stage_intent_outbox(intent)?;
-        outbox.headers.insert(
-            "reconciliation_proof".to_string(),
-            "semantic-source-tombstone/v1".to_string(),
-        );
-        outbox.headers.insert(
-            "source_wakeup_digest".to_string(),
-            checkpoint.source_wakeup_digest.to_string(),
-        );
-        outbox.headers.insert(
-            "complete_snapshot_receipt_digest".to_string(),
-            complete_receipt.to_string(),
-        );
+        let payload = encode(intent)?;
+        let outbox = tombstone_outbox(intent, checkpoint, complete_receipt)?;
         // Keep the payload/key generated by the canonical stage helper. The
         // local binding below only exists so the immutable payload remains
         // obvious in this admission's proof construction.
-        debug_assert_eq!(outbox.key, key);
+        debug_assert_eq!(outbox.key, stage_intent_key(intent));
         debug_assert_eq!(outbox.payload, payload);
         let batch_id = format!(
             "semantic-index:reconciliation-tombstone:{}:{}",
             intent.intent_digest, checkpoint.source_wakeup_digest
         );
-        let owner = self.door.owner();
-        let tenant = self.tenant.clone();
-        let binding_id = self.binding.clone();
-        let intent_digest = intent.intent_digest;
-        let source_entity_id = source_entity_id.to_string();
-        let intent_for_write = intent.clone();
-        let checkpoint_for_write = checkpoint.clone();
-        self.door.commit_metadata(
-            |version| {
-                self.metadata_batch(
-                         owner,
-                         version,
-                         MetadataMutation {
-                             batch_id: &batch_id,
-                             event_type: "semantic_source_tombstone_enqueued",
-                             subject: &format!("source:{source_entity_id}"),
-                             mutation_digest: intent_digest,
-                         },
-                         vec![outbox],
-                         now_ms,
-                     )
+        let subject = format!("source:{source_entity_id}");
+        let proof = TombstoneProof {
+            intent,
+            source_entity_id,
+            checkpoint_bytes: &checkpoint_bytes,
+        };
+        self.commit_maintenance(
+            MetadataMutation {
+                batch_id: &batch_id,
+                event_type: "semantic_source_tombstone_enqueued",
+                subject: &subject,
+                mutation_digest: intent.intent_digest,
             },
-            intent_digest,
+            vec![outbox],
             now_ms,
+            None,
             |write, rows| {
-                let current_binding = self.read_binding_in_write(write)?.ok_or_else(|| {
-                    SemanticCodeError::Refused(
-                        "semantic reconciliation tombstone has no durable binding".to_string(),
-                    )
-                })?;
-                if current_binding.binding_id != binding_id
-                    || current_binding.binding_digest != intent_for_write.binding_digest
-                    || current_binding.generation != intent_for_write.generation
-                {
-                    return Err(SemanticCodeError::Refused(
-                        "semantic reconciliation tombstone binding proof is stale".to_string(),
-                    ));
-                }
-                let binding_revision =
-                    sql_source_revision_parts(&current_binding.source_revision).ok_or_else(|| {
-                        SemanticCodeError::Corrupt(
-                            "durable semantic binding has a non-canonical SQL source revision"
-                                .to_string(),
-                        )
-                    })?;
-                let intent_revision =
-                    sql_source_revision_parts(&intent_for_write.source_revision).ok_or_else(
-                        || {
-                            SemanticCodeError::Refused(
-                                "semantic reconciliation tombstone has a non-canonical SQL source revision"
-                                    .to_string(),
-                            )
-                        },
-                    )?;
-                if binding_revision.authority != intent_revision.authority {
-                    return Err(SemanticCodeError::Refused(
-                        "semantic reconciliation tombstone belongs to another source authority"
-                            .to_string(),
-                    ));
-                }
-                let durable_checkpoint = write
-                    .open_read_table(SEMANTIC_SOURCE_PROGRESS)
-                    .map_err(kernel_error)?
-                    .get((
-                        tenant.as_str(),
-                        binding_id.as_str(),
-                        intent_for_write.generation,
-                        SEMANTIC_RECONCILIATION_CHECKPOINT_ENTITY,
-                    ))
-                    .map_err(kernel_error)?
-                    .map(|value| value.value().to_vec())
-                    .ok_or_else(|| {
-                        SemanticCodeError::Refused(
-                            "semantic reconciliation tombstone has no durable checkpoint"
-                                .to_string(),
-                        )
-                    })?;
-                if durable_checkpoint != checkpoint_bytes {
-                    return Err(SemanticCodeError::Refused(
-                        "semantic reconciliation tombstone checkpoint proof is stale"
-                            .to_string(),
-                    ));
-                }
-                let old_raw = write
-                    .open_read_table(SEMANTIC_SOURCE_PROGRESS)
-                    .map_err(kernel_error)?
-                    .get((
-                        tenant.as_str(),
-                        binding_id.as_str(),
-                        intent_for_write.generation,
-                        source_entity_id.as_str(),
-                    ))
-                    .map_err(kernel_error)?
-                    .map(|value| value.value().to_vec())
-                    .ok_or_else(|| {
-                        SemanticCodeError::Refused(
-                            "semantic reconciliation tombstone names no durable prior entity"
-                                .to_string(),
-                        )
-                    })?;
-                let old = SemanticSourceProgress::from_canonical_cbor(&old_raw)
-                    .map_err(semantic_contract_error)?;
-                old.validate().map_err(semantic_contract_error)?;
-                validate_sql_source_revision(&old.source_revision)?;
-                let old_revision = sql_source_revision_parts(&old.source_revision).ok_or_else(|| {
-                    SemanticCodeError::Corrupt(
-                        "semantic source progress has a non-canonical SQL source revision"
-                            .to_string(),
-                    )
-                })?;
-                if old_revision.authority != intent_revision.authority {
-                    return Err(SemanticCodeError::Corrupt(
-                        "semantic source progress belongs to another source authority".to_string(),
-                    ));
-                }
-                if old.binding_id != binding_id
-                    || old.binding_digest != intent_for_write.binding_digest
-                    || old.generation != intent_for_write.generation
-                    || old.source_entity_id != source_entity_id
-                    || old.superseded_by_revision.is_some()
-                {
-                    return Err(SemanticCodeError::Refused(
-                        "semantic reconciliation tombstone prior progress is outside the current generation"
-                            .to_string(),
-                    ));
-                }
-                if old.source_revision != intent_for_write.source_revision
-                    && compare_source_revision(
-                        &intent_for_write.source_revision,
-                        &old.source_revision,
-                    ) != std::cmp::Ordering::Greater
-                {
-                    return Err(SemanticCodeError::Refused(
-                        "semantic reconciliation tombstone source revision is stale".to_string(),
-                    ));
-                }
-                let retained_receipt_digest = old.completed_receipt_digest.ok_or_else(|| {
-                    SemanticCodeError::Refused(
-                        "semantic reconciliation tombstone requires completed prior progress"
-                            .to_string(),
-                    )
-                })?;
-                let completed_stage = old.completed_stage.ok_or_else(|| {
-                    SemanticCodeError::Refused(
-                        "semantic reconciliation tombstone requires a completed prior stage"
-                            .to_string(),
-                    )
-                })?;
-                let retained_key = stage_receipt_index_key(retained_receipt_digest);
-                let retained_raw = write
-                    .open_read_table(SEMANTIC_STAGES)
-                    .map_err(kernel_error)?
-                    .get((tenant.as_str(), binding_id.as_str(), retained_key.as_str()))
-                    .map_err(kernel_error)?
-                    .map(|value| value.value().to_vec())
-                    .ok_or_else(|| {
-                        SemanticCodeError::Refused(
-                            "semantic reconciliation tombstone prior receipt is not indexed"
-                                .to_string(),
-                        )
-                    })?;
-                let retained = SemanticIndexMutation::from_canonical_cbor(&retained_raw)
-                    .map_err(semantic_contract_error)?;
-                let retained_verified = match retained {
-                    SemanticIndexMutation::RecordStageTransition { transition, .. } => {
-                        transition.intent.binding_id == binding_id
-                            && transition.intent.binding_digest
-                                == intent_for_write.binding_digest
-                            && transition.intent.generation == intent_for_write.generation
-                            && transition.intent.scope.source_entity_id()
-                                == Some(source_entity_id.as_str())
-                            && transition.intent.source_revision == old.source_revision
-                            && transition.intent.stage == completed_stage
-                            && matches!(
-                                transition.receipt.outcome,
-                                SemanticStageOutcome::Completed
-                                    | SemanticStageOutcome::IdempotentNoop
-                            )
-                            && transition.receipt.receipt_digest() == retained_receipt_digest
-                    }
-                    _ => false,
-                };
-                if !retained_verified {
-                    return Err(SemanticCodeError::Refused(
-                        "semantic reconciliation tombstone prior receipt is not exact"
-                            .to_string(),
-                    ));
-                }
-                let progress = SemanticSourceProgress {
-                    binding_id: intent_for_write.binding_id.clone(),
-                    binding_digest: intent_for_write.binding_digest,
-                    generation: intent_for_write.generation,
-                    source_entity_id: source_entity_id.clone(),
-                    source_revision: intent_for_write.source_revision.clone(),
-                    completed_stage: None,
-                    completed_receipt_digest: None,
-                    superseded_by_revision: None,
-                    updated_at: format!("unix-ms:{now_ms}"),
-                };
-                progress.validate().map_err(semantic_contract_error)?;
-                let progress_bytes = progress
-                    .to_canonical_cbor()
-                    .map_err(semantic_contract_error)?;
-                let mut progress_rows = rows
-                    .open_table(SEMANTIC_SOURCE_PROGRESS)
-                    .map_err(kernel_error)?;
-                replace_bytes(
-                    &mut progress_rows,
-                    (
-                        tenant.as_str(),
-                        binding_id.as_str(),
-                        intent_for_write.generation,
-                        source_entity_id.as_str(),
-                    ),
-                    &progress_bytes,
-                )?;
-                drop(progress_rows);
+                let authority = self.tombstone_authority(write, intent)?;
+                self.ensure_durable_reconciliation(write, &proof)?;
+                let prior = self.tombstoned_progress(write, &proof, authority)?;
+                self.ensure_retained_prior_receipt(write, &proof, &prior)?;
+                self.replace_tombstoned_progress(rows, &proof, now_ms)?;
                 // The checkpoint is part of the proof read above. Keep a
                 // defensive equality check here so a future caller cannot
                 // accidentally discard the proof while extending the write.
-                if checkpoint_for_write.complete_snapshot_receipt_digest
-                    != Some(complete_receipt)
-                {
-                    return Err(SemanticCodeError::Corrupt(
-                        "semantic reconciliation tombstone proof changed during admission"
-                            .to_string(),
+                if checkpoint.complete_snapshot_receipt_digest != Some(complete_receipt) {
+                    return Err(corrupt(
+                        "semantic reconciliation tombstone proof changed during admission",
                     ));
                 }
                 Ok(())
             },
         )
     }
+
+    /// The request's own proof: an S1 for this binding naming one canonical
+    /// entity, a finalizing checkpoint at the intent's revision, and an input
+    /// that is exactly the entity's deletion proof.
+    fn tombstone_request<'a>(
+        &self,
+        intent: &'a SemanticStageIntent,
+        checkpoint: &SemanticSourceReconciliationCheckpoint,
+    ) -> Result<(&'a str, SemanticDigest), SemanticCodeError> {
+        intent.validate().map_err(semantic_contract_error)?;
+        ensure(
+            intent.binding_id == self.binding
+                && intent.generation != 0
+                && intent.stage == SemanticStage::SourceCommit
+                && matches!(&intent.predecessor, SemanticStagePredecessor::None),
+            "semantic reconciliation tombstone must be an S1 intent for this binding",
+        )?;
+        let source_entity_id = intent.scope.source_entity_id().ok_or_else(|| {
+            refused("semantic reconciliation tombstone must name one source entity")
+        })?;
+        ensure(
+            valid_source_entity_id_for_reconciliation(source_entity_id),
+            "semantic reconciliation tombstone has a non-canonical source entity",
+        )?;
+        validate_reconciliation_checkpoint(checkpoint)?;
+        ensure(
+            matches!(
+                checkpoint.phase,
+                SemanticSourceReconciliationPhase::FinalizingTombstones
+            ) && checkpoint.source_revision == intent.source_revision,
+            "semantic reconciliation tombstone lacks an exact finalizing source proof",
+        )?;
+        let complete_receipt = checkpoint.complete_snapshot_receipt_digest.ok_or_else(|| {
+            refused("semantic reconciliation tombstone has no complete snapshot proof")
+        })?;
+        let deletion_proof = reconciliation_tombstone_input_digest(
+            source_entity_id,
+            &checkpoint.source_revision,
+            complete_receipt,
+        );
+        ensure(
+            intent.input_digest == deletion_proof,
+            "semantic reconciliation tombstone input is not the exact deletion proof",
+        )?;
+        Ok((source_entity_id, complete_receipt))
+    }
+
+    /// The durable binding is still the intent's generation, and the intent's
+    /// SQL source authority is the binding's own.
+    fn tombstone_authority<'a>(
+        &self,
+        write: &AdmittedMutation<'_, SemanticIndexOwner>,
+        intent: &'a SemanticStageIntent,
+    ) -> Result<&'a str, SemanticCodeError> {
+        let binding = self
+            .read_binding_in_write(write)?
+            .ok_or_else(|| refused("semantic reconciliation tombstone has no durable binding"))?;
+        ensure(
+            (
+                binding.binding_id.as_str(),
+                binding.binding_digest,
+                binding.generation,
+            ) == (
+                self.binding.as_str(),
+                intent.binding_digest,
+                intent.generation,
+            ),
+            "semantic reconciliation tombstone binding proof is stale",
+        )?;
+        let binding_revision =
+            sql_source_revision_parts(&binding.source_revision).ok_or_else(|| {
+                corrupt("durable semantic binding has a non-canonical SQL source revision")
+            })?;
+        let intent_revision =
+            sql_source_revision_parts(&intent.source_revision).ok_or_else(|| {
+                refused("semantic reconciliation tombstone has a non-canonical SQL source revision")
+            })?;
+        ensure(
+            binding_revision.authority == intent_revision.authority,
+            "semantic reconciliation tombstone belongs to another source authority",
+        )?;
+        Ok(intent_revision.authority)
+    }
+
+    /// The generation's durable reconciliation checkpoint is still exactly the
+    /// finalizing checkpoint the request proved.
+    fn ensure_durable_reconciliation(
+        &self,
+        write: &AdmittedMutation<'_, SemanticIndexOwner>,
+        proof: &TombstoneProof<'_>,
+    ) -> Result<(), SemanticCodeError> {
+        let progress_rows = write
+            .open_read_table(SEMANTIC_SOURCE_PROGRESS)
+            .map_err(kernel_error)?;
+        let key = (
+            self.tenant.as_str(),
+            self.binding.as_str(),
+            proof.intent.generation,
+            SEMANTIC_RECONCILIATION_CHECKPOINT_ENTITY,
+        );
+        let durable = row_bytes(progress_rows.get(key))?.ok_or_else(|| {
+            refused("semantic reconciliation tombstone has no durable checkpoint")
+        })?;
+        ensure(
+            durable.as_slice() == proof.checkpoint_bytes,
+            "semantic reconciliation tombstone checkpoint proof is stale",
+        )
+    }
+
+    /// The entity's current progress in this generation, under the same SQL
+    /// source authority and at a revision the tombstone does not predate.
+    fn tombstoned_progress(
+        &self,
+        write: &AdmittedMutation<'_, SemanticIndexOwner>,
+        proof: &TombstoneProof<'_>,
+        authority: &str,
+    ) -> Result<SemanticSourceProgress, SemanticCodeError> {
+        let intent = proof.intent;
+        let progress_rows = write
+            .open_read_table(SEMANTIC_SOURCE_PROGRESS)
+            .map_err(kernel_error)?;
+        let key = (
+            self.tenant.as_str(),
+            self.binding.as_str(),
+            intent.generation,
+            proof.source_entity_id,
+        );
+        let raw = row_bytes(progress_rows.get(key))?.ok_or_else(|| {
+            refused("semantic reconciliation tombstone names no durable prior entity")
+        })?;
+        let old: SemanticSourceProgress = decode_valid(&raw)?;
+        validate_sql_source_revision(&old.source_revision)?;
+        let old_revision = sql_source_revision_parts(&old.source_revision).ok_or_else(|| {
+            corrupt("semantic source progress has a non-canonical SQL source revision")
+        })?;
+        if old_revision.authority != authority {
+            return Err(corrupt(
+                "semantic source progress belongs to another source authority",
+            ));
+        }
+        ensure(
+            (
+                old.binding_id.as_str(),
+                old.binding_digest,
+                old.generation,
+                old.source_entity_id.as_str(),
+                old.superseded_by_revision.is_none(),
+            ) == (
+                self.binding.as_str(),
+                intent.binding_digest,
+                intent.generation,
+                proof.source_entity_id,
+                true,
+            ),
+            "semantic reconciliation tombstone prior progress is outside the current generation",
+        )?;
+        ensure(
+            old.source_revision == intent.source_revision
+                || compare_source_revision(&intent.source_revision, &old.source_revision)
+                    == Ordering::Greater,
+            "semantic reconciliation tombstone source revision is stale",
+        )?;
+        Ok(old)
+    }
+
+    /// The prior progress is completed, and the receipt that completed it is
+    /// indexed and exact.
+    fn ensure_retained_prior_receipt(
+        &self,
+        write: &AdmittedMutation<'_, SemanticIndexOwner>,
+        proof: &TombstoneProof<'_>,
+        prior: &SemanticSourceProgress,
+    ) -> Result<(), SemanticCodeError> {
+        let retained_receipt_digest = prior.completed_receipt_digest.ok_or_else(|| {
+            refused("semantic reconciliation tombstone requires completed prior progress")
+        })?;
+        let completed_stage = prior.completed_stage.ok_or_else(|| {
+            refused("semantic reconciliation tombstone requires a completed prior stage")
+        })?;
+        let receipt_key = stage_receipt_index_key(retained_receipt_digest);
+        let stages = write
+            .open_read_table(SEMANTIC_STAGES)
+            .map_err(kernel_error)?;
+        let key = (
+            self.tenant.as_str(),
+            self.binding.as_str(),
+            receipt_key.as_str(),
+        );
+        let retained: SemanticIndexMutation = row(stages.get(key))?.ok_or_else(|| {
+            refused("semantic reconciliation tombstone prior receipt is not indexed")
+        })?;
+        let expected = (
+            self.binding.as_str(),
+            proof.intent.binding_digest,
+            proof.intent.generation,
+            prior.source_revision.as_str(),
+            completed_stage,
+            Some(proof.source_entity_id),
+        );
+        ensure(
+            retained_completion(retained, retained_receipt_digest)
+                .is_some_and(|transition| completion_coordinates(&transition.intent) == expected),
+            "semantic reconciliation tombstone prior receipt is not exact",
+        )
+    }
+
+    fn replace_tombstoned_progress(
+        &self,
+        rows: &AdmittedOwnerWrite<'_, SemanticIndexOwner>,
+        proof: &TombstoneProof<'_>,
+        now_ms: u64,
+    ) -> Result<(), SemanticCodeError> {
+        let progress = fresh_source_progress(proof.intent, proof.source_entity_id, now_ms);
+        let progress_bytes = encode_valid(&progress)?;
+        let mut progress_rows = rows
+            .open_table(SEMANTIC_SOURCE_PROGRESS)
+            .map_err(kernel_error)?;
+        replace_bytes(
+            &mut progress_rows,
+            (
+                self.tenant.as_str(),
+                self.binding.as_str(),
+                proof.intent.generation,
+                proof.source_entity_id,
+            ),
+            &progress_bytes,
+        )
+    }
+}
+
+/// The canonical S1 intent event, annotated with the reconciliation proof a
+/// consumer needs to tell a deletion from a source commit.
+fn tombstone_outbox(
+    intent: &SemanticStageIntent,
+    checkpoint: &SemanticSourceReconciliationCheckpoint,
+    complete_receipt: SemanticDigest,
+) -> Result<MutationOutboxIntent, SemanticCodeError> {
+    let mut outbox = stage_intent_outbox(intent)?;
+    outbox.headers.extend([
+        (
+            "reconciliation_proof".to_string(),
+            "semantic-source-tombstone/v1".to_string(),
+        ),
+        (
+            "source_wakeup_digest".to_string(),
+            checkpoint.source_wakeup_digest.to_string(),
+        ),
+        (
+            "complete_snapshot_receipt_digest".to_string(),
+            complete_receipt.to_string(),
+        ),
+    ]);
+    Ok(outbox)
 }
 
 pub(super) fn is_reconciled_sql_tombstone(
@@ -363,43 +374,34 @@ pub(super) fn is_reconciled_sql_tombstone(
     {
         return Ok(false);
     }
-    if transition.intent.stage != SemanticStage::SourceCommit
-        || transition.receipt.outcome != SemanticStageOutcome::Completed
-        || !matches!(
-            &transition.intent.predecessor,
-            SemanticStagePredecessor::None
-        )
-    {
-        return Err(SemanticCodeError::Refused(
-            "semantic tombstone artifact has an invalid S1 transition".to_string(),
-        ));
-    }
-    let source_entity_id = transition.intent.scope.source_entity_id().ok_or_else(|| {
-        SemanticCodeError::Refused("semantic tombstone artifact is not entity scoped".to_string())
-    })?;
-    let complete_receipt =
-        SemanticDigest::parse(headers.get("complete_snapshot_receipt_digest").ok_or_else(
-            || {
-                SemanticCodeError::Refused(
-                    "semantic tombstone artifact has no complete snapshot receipt".to_string(),
-                )
-            },
-        )?)
-        .map_err(|_| {
-            SemanticCodeError::Refused(
-                "semantic tombstone complete snapshot receipt is not canonical".to_string(),
-            )
-        })?;
+    ensure(
+        transition.intent.stage == SemanticStage::SourceCommit
+            && transition.receipt.outcome == SemanticStageOutcome::Completed
+            && matches!(
+                &transition.intent.predecessor,
+                SemanticStagePredecessor::None
+            ),
+        "semantic tombstone artifact has an invalid S1 transition",
+    )?;
+    let source_entity_id = transition
+        .intent
+        .scope
+        .source_entity_id()
+        .ok_or_else(|| refused("semantic tombstone artifact is not entity scoped"))?;
+    let receipt_header = headers
+        .get("complete_snapshot_receipt_digest")
+        .ok_or_else(|| refused("semantic tombstone artifact has no complete snapshot receipt"))?;
+    let complete_receipt = SemanticDigest::parse(receipt_header)
+        .map_err(|_| refused("semantic tombstone complete snapshot receipt is not canonical"))?;
     let expected = reconciliation_tombstone_input_digest(
         source_entity_id,
         &transition.intent.source_revision,
         complete_receipt,
     );
-    if transition.intent.input_digest != expected {
-        return Err(SemanticCodeError::Refused(
-            "semantic tombstone artifact input is not its complete snapshot proof".to_string(),
-        ));
-    }
+    ensure(
+        transition.intent.input_digest == expected,
+        "semantic tombstone artifact input is not its complete snapshot proof",
+    )?;
     Ok(true)
 }
 
@@ -412,49 +414,45 @@ pub(super) fn replace_reconciled_sql_manifest(
     transition: &SemanticStageTransition,
     lease: Option<&MutationOutboxLease>,
 ) -> Result<(), SemanticCodeError> {
-    if !is_reconciled_sql_tombstone(transition, lease)? {
-        return Err(SemanticCodeError::Refused(
-            "semantic artifact key already names different bytes".to_string(),
-        ));
-    }
-    let existing = SemanticSqlSourceManifest::from_canonical_cbor(existing_bytes)
-        .map_err(semantic_contract_error)?;
-    existing.validate().map_err(semantic_contract_error)?;
+    ensure(
+        is_reconciled_sql_tombstone(transition, lease)?,
+        "semantic artifact key already names different bytes",
+    )?;
+    let existing: SemanticSqlSourceManifest = decode_valid(existing_bytes)?;
     validate_sql_source_revision(&existing.source_revision)?;
-    if existing.binding_id != manifest.binding_id
-        || existing.binding_digest != manifest.binding_digest
-        || existing.generation != manifest.generation
-        || existing.source_entity_id != manifest.source_entity_id
-        || existing.source_identity != manifest.source_identity
-    {
-        return Err(SemanticCodeError::Refused(
-            "semantic tombstone source manifest does not retain the prior identity".to_string(),
-        ));
-    }
+    ensure(
+        (
+            existing.binding_id.as_str(),
+            existing.binding_digest,
+            existing.generation,
+            existing.source_entity_id.as_str(),
+            &existing.source_identity,
+        ) == (
+            manifest.binding_id.as_str(),
+            manifest.binding_digest,
+            manifest.generation,
+            manifest.source_entity_id.as_str(),
+            &manifest.source_identity,
+        ),
+        "semantic tombstone source manifest does not retain the prior identity",
+    )?;
     let existing_revision =
         sql_source_revision_parts(&existing.source_revision).ok_or_else(|| {
-            SemanticCodeError::Corrupt(
-                "retained SQL source manifest has a non-canonical source revision".to_string(),
-            )
+            corrupt("retained SQL source manifest has a non-canonical source revision")
         })?;
     let manifest_revision =
         sql_source_revision_parts(&manifest.source_revision).ok_or_else(|| {
-            SemanticCodeError::Corrupt(
-                "replacement SQL source manifest has a non-canonical source revision".to_string(),
-            )
+            corrupt("replacement SQL source manifest has a non-canonical source revision")
         })?;
-    if existing_revision.authority != manifest_revision.authority {
-        return Err(SemanticCodeError::Refused(
-            "semantic tombstone source authority differs from the retained manifest".to_string(),
-        ));
-    }
-    if compare_source_revision(&manifest.source_revision, &existing.source_revision)
-        != std::cmp::Ordering::Greater
-    {
-        return Err(SemanticCodeError::Refused(
-            "semantic tombstone source revision does not advance the retained manifest".to_string(),
-        ));
-    }
+    ensure(
+        existing_revision.authority == manifest_revision.authority,
+        "semantic tombstone source authority differs from the retained manifest",
+    )?;
+    ensure(
+        compare_source_revision(&manifest.source_revision, &existing.source_revision)
+            == Ordering::Greater,
+        "semantic tombstone source revision does not advance the retained manifest",
+    )?;
     replace_bytes(table, key, manifest_bytes)
 }
 

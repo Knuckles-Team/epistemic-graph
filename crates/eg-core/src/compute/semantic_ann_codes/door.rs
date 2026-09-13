@@ -19,7 +19,7 @@ use eg_transaction::{
 };
 use eg_types::contract::Nonce;
 use eg_types::mutation_batch::{
-    CompiledOperation, CompiledScope, MutationEnvelope, MutationOutboxLease,
+    CommittedVersion, CompiledOperation, CompiledScope, MutationEnvelope, MutationOutboxLease,
     MutationProjectionCursor, VersionExpectation,
 };
 use eg_types::semantic_index::SemanticDigest;
@@ -257,23 +257,6 @@ impl ServingDoor {
         }
     }
 
-    pub(super) fn commit_metadata<B, F>(
-        &self,
-        build: B,
-        mutation_digest: SemanticDigest,
-        now_ms: u64,
-        apply: F,
-    ) -> Result<SemanticMutationReceipt, SemanticCodeError>
-    where
-        B: FnOnce(u64) -> Result<MutationBatch, String>,
-        F: FnOnce(
-            &AdmittedMutation<'_, SemanticIndexOwner>,
-            &AdmittedOwnerWrite<'_, SemanticIndexOwner>,
-        ) -> Result<(), SemanticCodeError>,
-    {
-        self.commit_metadata_fenced(build, mutation_digest, now_ms, None, apply)
-    }
-
     /// Commit semantic owner rows and, for an outbox consumer transition, the
     /// delivery acknowledgement in one admitted redb mutation.  The lease is
     /// validated before the owner-write gate opens and acknowledged only after
@@ -294,99 +277,43 @@ impl ServingDoor {
             &AdmittedOwnerWrite<'_, SemanticIndexOwner>,
         ) -> Result<(), SemanticCodeError>,
     {
-        let owner = &self.serving;
         let (write, batch, begun) = self
             .mutations
-            .admit_current(owner, build)
+            .admit_current(&self.serving, build)
             .map_err(kernel_error)?;
         match begun {
             Begin::Replay(record) => {
-                let committed = record.committed_version;
                 let durable_mutation_digest = mutation_digest_from_batch(&record.batch)
                     .map_err(SemanticCodeError::Corrupt)?;
-                if let Some(lease) = lease {
-                    if let Err(error) = self
-                        .mutations
-                        .outbox_ack_in(&write, owner, lease, now_ms)
-                        .map_err(kernel_error)
-                    {
-                        let _ = write.abort();
-                        return Err(error);
-                    }
-                }
+                let write = ack_lease_in(&self.mutations, &self.serving, write, lease, now_ms)?;
                 // A replay still has a fresh attempt nonce to consume.  The
                 // kernel's replay seal records that nonce only when this
                 // admitted write commits; aborting here made a successful
                 // replay indistinguishable from a probe and allowed reuse.
                 self.mutations.commit(write, &batch).map_err(kernel_error)?;
-                let (source_version, target_version) = match committed {
-                    eg_types::mutation_batch::CommittedVersion::Native { source, target } => {
-                        (source, target)
-                    }
-                    other => {
-                        return Err(SemanticCodeError::Corrupt(format!(
-                            "semantic metadata replay has non-native committed version {other:?}"
-                        )));
-                    }
-                };
-                Ok(SemanticMutationReceipt {
-                    batch_id: batch.batch_id,
-                    mutation_digest: durable_mutation_digest,
-                    source_version,
-                    target_version,
-                    replayed: true,
-                })
+                metadata_receipt(
+                    batch.batch_id,
+                    durable_mutation_digest,
+                    record.committed_version,
+                    true,
+                )
             }
             Begin::Apply { source_version } => {
-                if let Some(lease) = lease {
-                    if let Err(error) = self
-                        .mutations
-                        .outbox_validate_in(&write, owner, lease, now_ms)
-                        .map_err(kernel_error)
-                    {
-                        let _ = write.abort();
-                        return Err(error);
-                    }
-                }
-                let owner_write = write.owner_rows(owner, &batch).map_err(kernel_error)?;
-                let applied = apply(&write, &owner_write);
-                owner_write.finish_owner().map_err(kernel_error)?;
-                if let Err(error) = applied {
-                    write.abort().map_err(kernel_error)?;
-                    return Err(error);
-                }
+                let write =
+                    validate_lease_in(&self.mutations, &self.serving, write, lease, now_ms)?;
+                let write = apply_owner_rows(write, &self.serving, &batch, apply)?;
                 let record = self
                     .mutations
                     .finish(&write, &batch, None, now_ms, source_version)
                     .map_err(kernel_error)?;
-                if let Some(lease) = lease {
-                    if let Err(error) = self
-                        .mutations
-                        .outbox_ack_in(&write, owner, lease, now_ms)
-                        .map_err(kernel_error)
-                    {
-                        let _ = write.abort();
-                        return Err(error);
-                    }
-                }
+                let write = ack_lease_in(&self.mutations, &self.serving, write, lease, now_ms)?;
                 self.mutations.commit(write, &batch).map_err(kernel_error)?;
-                let (source_version, target_version) = match record.committed_version {
-                    eg_types::mutation_batch::CommittedVersion::Native { source, target } => {
-                        (source, target)
-                    }
-                    other => {
-                        return Err(SemanticCodeError::Corrupt(format!(
-                            "semantic metadata commit has non-native committed version {other:?}"
-                        )));
-                    }
-                };
-                Ok(SemanticMutationReceipt {
-                    batch_id: batch.batch_id,
+                metadata_receipt(
+                    batch.batch_id,
                     mutation_digest,
-                    source_version,
-                    target_version,
-                    replayed: false,
-                })
+                    record.committed_version,
+                    false,
+                )
             }
         }
     }
@@ -398,6 +325,100 @@ impl ServingDoor {
     ) -> Result<ScopedRead<'_, SemanticIndexOwner>, SemanticCodeError> {
         self.kernel.read_scope(&self.serving).map_err(kernel_error)
     }
+}
+
+/// Open the owner rows of `batch`, run `apply` on them, and close them.
+/// A refused `apply` aborts the whole admitted write.
+fn apply_owner_rows<'w, F>(
+    write: AdmittedMutation<'w, SemanticIndexOwner>,
+    serving: &OwnedStoreHandle<SemanticIndexOwner>,
+    batch: &MutationBatch,
+    apply: F,
+) -> Result<AdmittedMutation<'w, SemanticIndexOwner>, SemanticCodeError>
+where
+    F: FnOnce(
+        &AdmittedMutation<'_, SemanticIndexOwner>,
+        &AdmittedOwnerWrite<'_, SemanticIndexOwner>,
+    ) -> Result<(), SemanticCodeError>,
+{
+    let owner_write = write.owner_rows(serving, batch).map_err(kernel_error)?;
+    let applied = apply(&write, &owner_write);
+    owner_write.finish_owner().map_err(kernel_error)?;
+    match applied {
+        Ok(()) => Ok(write),
+        Err(error) => {
+            write.abort().map_err(kernel_error)?;
+            Err(error)
+        }
+    }
+}
+
+/// Fence the outbox lease, if any, before the owner-write gate opens.
+fn validate_lease_in<'w>(
+    mutations: &MutationKernel,
+    serving: &OwnedStoreHandle<SemanticIndexOwner>,
+    write: AdmittedMutation<'w, SemanticIndexOwner>,
+    lease: Option<&MutationOutboxLease>,
+    now_ms: u64,
+) -> Result<AdmittedMutation<'w, SemanticIndexOwner>, SemanticCodeError> {
+    let Some(lease) = lease else {
+        return Ok(write);
+    };
+    let fenced = mutations.outbox_validate_in(&write, serving, lease, now_ms);
+    abort_unless_fenced(write, fenced)
+}
+
+/// Acknowledge the outbox lease, if any, inside the same admitted write.
+fn ack_lease_in<'w>(
+    mutations: &MutationKernel,
+    serving: &OwnedStoreHandle<SemanticIndexOwner>,
+    write: AdmittedMutation<'w, SemanticIndexOwner>,
+    lease: Option<&MutationOutboxLease>,
+    now_ms: u64,
+) -> Result<AdmittedMutation<'w, SemanticIndexOwner>, SemanticCodeError> {
+    let Some(lease) = lease else {
+        return Ok(write);
+    };
+    let fenced = mutations
+        .outbox_ack_in(&write, serving, lease, now_ms)
+        .map(|_| ());
+    abort_unless_fenced(write, fenced)
+}
+
+/// A lease fence that failed aborts the admitted write it ran in.
+fn abort_unless_fenced<'w>(
+    write: AdmittedMutation<'w, SemanticIndexOwner>,
+    fenced: Result<(), String>,
+) -> Result<AdmittedMutation<'w, SemanticIndexOwner>, SemanticCodeError> {
+    match fenced {
+        Ok(()) => Ok(write),
+        Err(error) => {
+            let _ = write.abort();
+            Err(kernel_error(error))
+        }
+    }
+}
+
+/// The receipt of a committed or replayed native metadata mutation.
+fn metadata_receipt(
+    batch_id: String,
+    mutation_digest: SemanticDigest,
+    committed: CommittedVersion,
+    replayed: bool,
+) -> Result<SemanticMutationReceipt, SemanticCodeError> {
+    let CommittedVersion::Native { source, target } = committed else {
+        let surface = if replayed { "replay" } else { "commit" };
+        return Err(SemanticCodeError::Corrupt(format!(
+            "semantic metadata {surface} has non-native committed version {committed:?}"
+        )));
+    };
+    Ok(SemanticMutationReceipt {
+        batch_id,
+        mutation_digest,
+        source_version: source,
+        target_version: target,
+        replayed,
+    })
 }
 
 pub(super) fn mutation_digest_from_batch(batch: &MutationBatch) -> Result<SemanticDigest, String> {

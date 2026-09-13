@@ -483,18 +483,18 @@ fn binding_for_image(
 
 fn seed_binding_head(codes: &SemanticCodeStore, binding: &SemanticBinding) {
     let owner = codes.door.owner();
-    let read = codes.door.storage_kernel().read_scope(&owner).unwrap();
+    let read = codes.door.storage_kernel().read_scope(owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = seed_batch(&owner, binding.generation, "reconciliation-seed", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+    let batch = seed_batch(owner, binding.generation, "reconciliation-seed", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     let binding_bytes = binding.to_canonical_cbor().unwrap();
     rows.open_table(SEMANTIC_BINDINGS)
         .unwrap()
@@ -712,16 +712,16 @@ fn dead_letter_registry_key_retains_intent_identity_at_one_attempt() {
     let codes = open_store(&dir);
     let owner = codes.door.owner();
     let version =
-        eg_transaction::version(&codes.door.storage_kernel().read_scope(&owner).unwrap()).unwrap();
-    let batch = seed_batch(&owner, 1, "dead-letter-key", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+        eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
+    let batch = seed_batch(owner, 1, "dead-letter-key", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     rows.open_table(SEMANTIC_DEAD_LETTERS)
         .unwrap()
         .insert(
@@ -816,18 +816,18 @@ fn persisted_dead_letter_transitions_keep_distinct_intents_at_one_attempt() {
     let first = make("entity:one", 41);
     let second = make("entity:two", 51);
     for (ordinal, (transition, artifact)) in [first, second].into_iter().enumerate() {
-        let read = codes.door.storage_kernel().read_scope(&owner).unwrap();
+        let read = codes.door.storage_kernel().read_scope(owner).unwrap();
         let version = eg_transaction::version(&read).unwrap();
         drop(read);
-        let batch = seed_batch(&owner, 1, &format!("dead-letter-{ordinal}"), version);
-        let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+        let batch = seed_batch(owner, 1, &format!("dead-letter-{ordinal}"), version);
+        let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
         let eg_transaction::Begin::Apply {
             source_version: source_version_write,
         } = begin
         else {
             panic!("expected a fresh Begin::Apply, got a replay");
         };
-        let rows = write.owner_rows(&owner, &batch).unwrap();
+        let rows = write.owner_rows(owner, &batch).unwrap();
         persist_stage_artifact_with_lease(&rows, TENANT, BINDING, &transition, None, &artifact)
             .unwrap();
         rows.finish_owner().unwrap();
@@ -1344,18 +1344,18 @@ fn reconciliation_entity_pages_are_bounded_and_revision_fenced() {
     let first = reconciliation_source_entity(1);
     let second = reconciliation_source_entity(2);
     let owner = codes.door.owner();
-    let read = codes.door.storage_kernel().read_scope(&owner).unwrap();
+    let read = codes.door.storage_kernel().read_scope(owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = seed_batch(&owner, 1, "reconciliation-progress-seed", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+    let batch = seed_batch(owner, 1, "reconciliation-progress-seed", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     for entity in [first.clone(), second.clone()] {
         let progress = reconciliation_progress(&binding, entity.clone(), revision);
         let bytes = progress.to_canonical_cbor().unwrap();
@@ -1458,18 +1458,18 @@ fn complete_reconciliation_tombstone_replaces_completed_prior_revision() {
     old_progress.validate().unwrap();
 
     let owner = codes.door.owner();
-    let read = codes.door.storage_kernel().read_scope(&owner).unwrap();
+    let read = codes.door.storage_kernel().read_scope(owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = seed_batch(&owner, 1, "reconciliation-tombstone-seed", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+    let batch = seed_batch(owner, 1, "reconciliation-tombstone-seed", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     let progress_bytes = old_progress.to_canonical_cbor().unwrap();
     rows.open_table(SEMANTIC_SOURCE_PROGRESS)
         .unwrap()
@@ -1662,7 +1662,7 @@ fn completed_sql_source_replay_reads_retained_transition_and_manifest() {
     let batch_id = format!("semantic-index:stage:{}", intent.intent_digest);
     codes
         .door
-        .commit_metadata(
+        .commit_metadata_fenced(
             |version| {
                 codes.metadata_batch(
                     codes.door.owner(),
@@ -1679,6 +1679,7 @@ fn completed_sql_source_replay_reads_retained_transition_and_manifest() {
             },
             mutation_digest,
             4,
+            None,
             |_, rows| {
                 let mut stages = rows.open_table(SEMANTIC_STAGES).unwrap();
                 stages
@@ -1708,7 +1709,7 @@ fn completed_sql_source_replay_reads_retained_transition_and_manifest() {
     let remove_index_digest = digest(138);
     codes
         .door
-        .commit_metadata(
+        .commit_metadata_fenced(
             |version| {
                 codes.metadata_batch(
                     codes.door.owner(),
@@ -1725,6 +1726,7 @@ fn completed_sql_source_replay_reads_retained_transition_and_manifest() {
             },
             remove_index_digest,
             5,
+            None,
             |_, rows| {
                 rows.open_table(SEMANTIC_STAGES)
                     .unwrap()
@@ -1765,7 +1767,7 @@ fn completed_sql_source_replay_reads_retained_transition_and_manifest() {
     let restore_index_digest = digest(139);
     codes
         .door
-        .commit_metadata(
+        .commit_metadata_fenced(
             |version| {
                 codes.metadata_batch(
                     codes.door.owner(),
@@ -1782,6 +1784,7 @@ fn completed_sql_source_replay_reads_retained_transition_and_manifest() {
             },
             restore_index_digest,
             6,
+            None,
             |_, rows| {
                 rows.open_table(SEMANTIC_STAGES)
                     .unwrap()
@@ -1860,7 +1863,7 @@ fn retained_sql_manifest_rejects_a_foreign_source_authority() {
     let write_digest = digest(137);
     codes
         .door
-        .commit_metadata(
+        .commit_metadata_fenced(
             |version| {
                 codes.metadata_batch(
                     codes.door.owner(),
@@ -1877,6 +1880,7 @@ fn retained_sql_manifest_rejects_a_foreign_source_authority() {
             },
             write_digest,
             4,
+            None,
             |_, rows| {
                 rows.open_table(SEMANTIC_SQL_SOURCES)
                     .unwrap()
@@ -1978,7 +1982,7 @@ fn completed_sql_tombstone_replaces_retained_manifest_through_real_completion() 
     };
     codes
         .door
-        .commit_metadata(
+        .commit_metadata_fenced(
             |version| {
                 codes.metadata_batch(
                     codes.door.owner(),
@@ -1995,6 +1999,7 @@ fn completed_sql_tombstone_replaces_retained_manifest_through_real_completion() 
             },
             old_mutation_digest,
             4,
+            None,
             |_, rows| {
                 let progress_bytes = old_progress.to_canonical_cbor().unwrap();
                 rows.open_table(SEMANTIC_SOURCE_PROGRESS)
@@ -2218,18 +2223,18 @@ fn refresh_with_s1_moves_head_and_replays_after_the_head_changed() {
     old_progress.validate().unwrap();
 
     let owner = codes.door.owner();
-    let read = codes.door.storage_kernel().read_scope(&owner).unwrap();
+    let read = codes.door.storage_kernel().read_scope(owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = seed_batch(&owner, 1, "refresh-seed", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+    let batch = seed_batch(owner, 1, "refresh-seed", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     let live_bytes = live_one.to_canonical_cbor().unwrap();
     rows.open_table(SEMANTIC_BINDINGS)
         .unwrap()
@@ -2323,18 +2328,18 @@ fn refresh_with_s1_moves_head_and_replays_after_the_head_changed() {
         .expect_err("refresh must refuse when the retained receipt index is absent");
     assert!(missing_index.to_string().contains("indexed stage row"));
     let owner = codes.door.owner();
-    let read = codes.door.storage_kernel().read_scope(&owner).unwrap();
+    let read = codes.door.storage_kernel().read_scope(owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = seed_batch(&owner, 1, "refresh-index-repair", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+    let batch = seed_batch(owner, 1, "refresh-index-repair", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     let receipt_key = super::stage::stage_receipt_index_key(old_receipt.receipt_digest());
     rows.open_table(SEMANTIC_STAGES)
         .unwrap()
@@ -2536,14 +2541,14 @@ fn a_bound_accessor_refuses_another_tenants_or_generations_rows() {
 
     let owner = codes.door.owner();
     let expected =
-        eg_transaction::version(&codes.door.storage_kernel().read_scope(&owner).unwrap()).unwrap();
-    let batch = seed_batch(&owner, 1, "acl-probe", expected);
-    let write = codes.door.mutation_kernel().open_write(&owner).unwrap();
+        eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
+    let batch = seed_batch(owner, 1, "acl-probe", expected);
+    let write = codes.door.mutation_kernel().open_write(owner).unwrap();
     assert!(matches!(
         write.begin(&batch).unwrap(),
         eg_transaction::Begin::Apply { .. }
     ));
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     {
         let mut bound = BoundCodeRows::new(rows.open_table(ANN_CODES).unwrap(), TENANT, BINDING, 1);
         // The kernel would accept every one of these; the accessor does not.
@@ -2624,18 +2629,18 @@ fn s6_generation_two_demotes_the_previous_live_binding_in_one_write() {
     };
     pointer.validate().unwrap();
     let owner = codes.door.owner();
-    let read = codes.door.storage_kernel().read_scope(&owner).unwrap();
+    let read = codes.door.storage_kernel().read_scope(owner).unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = seed_batch(&owner, 1, "s6-demotion", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+    let batch = seed_batch(owner, 1, "s6-demotion", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     let binding_bytes = live.to_canonical_cbor().unwrap();
     rows.open_table(SEMANTIC_BINDINGS)
         .unwrap()
@@ -2692,23 +2697,20 @@ fn s6_generation_two_demotes_the_previous_live_binding_in_one_write() {
     let read = refusal_codes
         .door
         .storage_kernel()
-        .read_scope(&owner)
+        .read_scope(owner)
         .unwrap();
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
-    let batch = seed_batch(&owner, 1, "s6-demotion-refusal", version);
+    let batch = seed_batch(owner, 1, "s6-demotion-refusal", version);
     let (write, begin) = refusal_codes
         .door
         .mutation_kernel()
-        .admit(&owner, &batch)
+        .admit(owner, &batch)
         .unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
+    let eg_transaction::Begin::Apply { source_version: _ } = begin else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     let binding_bytes = pending.to_canonical_cbor().unwrap();
     rows.open_table(SEMANTIC_BINDINGS)
         .unwrap()
@@ -3072,7 +3074,7 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
     let seed_digest = digest(31);
     codes
         .door
-        .commit_metadata(
+        .commit_metadata_fenced(
             |version| {
                 codes.metadata_batch(
                     codes.door.owner(),
@@ -3089,6 +3091,7 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
             },
             seed_digest,
             10,
+            None,
             |_, rows| {
                 rows.open_table(SEMANTIC_BINDINGS)
                     .unwrap()
@@ -3166,7 +3169,7 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
     let remove_digest = digest(32);
     codes
         .door
-        .commit_metadata(
+        .commit_metadata_fenced(
             |version| {
                 codes.metadata_batch(
                     codes.door.owner(),
@@ -3183,6 +3186,7 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
             },
             remove_digest,
             12,
+            None,
             |_, rows| {
                 rows.open_table(SEMANTIC_BINDINGS)
                     .unwrap()
@@ -3254,7 +3258,7 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
     let restore_digest = digest(33);
     codes
         .door
-        .commit_metadata(
+        .commit_metadata_fenced(
             |version| {
                 codes.metadata_batch(
                     codes.door.owner(),
@@ -3271,6 +3275,7 @@ fn real_s6_generation_two_finalization_demotes_live_one_and_rolls_back_on_refusa
             },
             restore_digest,
             14,
+            None,
             |_, rows| {
                 rows.open_table(SEMANTIC_BINDINGS)
                     .unwrap()
@@ -3431,20 +3436,20 @@ fn a_second_admitted_write_racing_the_same_version_fails_closed() {
     let codes = open_store(&dir);
     let owner = codes.door.owner();
     let stale_version =
-        eg_transaction::version(&codes.door.storage_kernel().read_scope(&owner).unwrap()).unwrap();
-    let winner = seed_batch(&owner, 1, "winner-digest", stale_version);
-    let loser = seed_batch(&owner, 1, "loser-digest", stale_version);
+        eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
+    let winner = seed_batch(owner, 1, "winner-digest", stale_version);
+    let loser = seed_batch(owner, 1, "loser-digest", stale_version);
 
     // The winner is an ordinary admitted owner mutation. The legacy ANN
     // publication helper is not used to advance the ledger or scope version.
-    let (winner_write, begin) = codes.door.mutation_kernel().admit(&owner, &winner).unwrap();
+    let (winner_write, begin) = codes.door.mutation_kernel().admit(owner, &winner).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_winner_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let owner_rows = winner_write.owner_rows(&owner, &winner).unwrap();
+    let owner_rows = winner_write.owner_rows(owner, &winner).unwrap();
     owner_rows.finish_owner().unwrap();
     // A write only reaches the kernel's `Finished` admission state
     // through `finish`; `finish_owner` above closes only the owner-row
@@ -3464,7 +3469,7 @@ fn a_second_admitted_write_racing_the_same_version_fails_closed() {
     let error = codes
         .door
         .mutation_kernel()
-        .admit(&owner, &loser)
+        .admit(owner, &loser)
         .map(|_| ())
         .expect_err("an activation racing a committed one must fail closed");
     assert!(error.contains("STALE_VERSION"), "{error}");
@@ -3480,17 +3485,17 @@ fn production_generation_checkpoint_heads_refuse_stale_s3_and_s5_cas() {
         let fixture = generation_checkpoint_fixture(stage);
         let owner = codes.door.owner();
         let version =
-            eg_transaction::version(&codes.door.storage_kernel().read_scope(&owner).unwrap())
+            eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap())
                 .unwrap();
-        let winner = seed_batch(&owner, 1, "checkpoint-cas-winner", version);
-        let (winner_write, begin) = codes.door.mutation_kernel().admit(&owner, &winner).unwrap();
+        let winner = seed_batch(owner, 1, "checkpoint-cas-winner", version);
+        let (winner_write, begin) = codes.door.mutation_kernel().admit(owner, &winner).unwrap();
         let eg_transaction::Begin::Apply {
             source_version: source_version_winner_write,
         } = begin
         else {
             panic!("expected a fresh Begin::Apply, got a replay");
         };
-        let winner_rows = winner_write.owner_rows(&owner, &winner).unwrap();
+        let winner_rows = winner_write.owner_rows(owner, &winner).unwrap();
         let progress_bytes = fixture.progress.to_canonical_cbor().unwrap();
         winner_rows
             .open_table(SEMANTIC_SOURCE_PROGRESS)
@@ -3531,17 +3536,14 @@ fn production_generation_checkpoint_heads_refuse_stale_s3_and_s5_cas() {
 
         let before = store_fingerprint(&dir);
         let version =
-            eg_transaction::version(&codes.door.storage_kernel().read_scope(&owner).unwrap())
+            eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap())
                 .unwrap();
-        let loser = seed_batch(&owner, 1, "checkpoint-cas-loser", version);
-        let (loser_write, begin) = codes.door.mutation_kernel().admit(&owner, &loser).unwrap();
-        let eg_transaction::Begin::Apply {
-            source_version: source_version_loser_write,
-        } = begin
-        else {
+        let loser = seed_batch(owner, 1, "checkpoint-cas-loser", version);
+        let (loser_write, begin) = codes.door.mutation_kernel().admit(owner, &loser).unwrap();
+        let eg_transaction::Begin::Apply { source_version: _ } = begin else {
             panic!("expected a fresh Begin::Apply, got a replay");
         };
-        let loser_rows = loser_write.owner_rows(&owner, &loser).unwrap();
+        let loser_rows = loser_write.owner_rows(owner, &loser).unwrap();
         let refused = super::persist::persist_generation_checkpoint_update(
             &loser_rows,
             TENANT,
@@ -3618,16 +3620,16 @@ fn production_six_rejects_complete_nonhead_checkpoint_dependencies() {
 
     let owner = codes.door.owner();
     let version =
-        eg_transaction::version(&codes.door.storage_kernel().read_scope(&owner).unwrap()).unwrap();
-    let batch = seed_batch(&owner, 1, "checkpoint-s6-head", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+        eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
+    let batch = seed_batch(owner, 1, "checkpoint-s6-head", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     let progress = SemanticSourceProgress {
         binding_id: BINDING.to_string(),
         binding_digest,
@@ -3732,16 +3734,16 @@ fn checkpoint_head_resolves_only_the_durable_pointer() {
 
     let owner = codes.door.owner();
     let version =
-        eg_transaction::version(&codes.door.storage_kernel().read_scope(&owner).unwrap()).unwrap();
-    let batch = seed_batch(&owner, 1, "checkpoint-head", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+        eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
+    let batch = seed_batch(owner, 1, "checkpoint-head", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     let partial_key = partial.checkpoint_digest.to_string();
     let partial_bytes = partial.to_canonical_cbor().unwrap();
     let complete_key = complete.checkpoint_digest.to_string();
@@ -3818,16 +3820,16 @@ fn checkpoint_head_does_not_promote_orphan_higher_count_rows() {
 
     let owner = codes.door.owner();
     let version =
-        eg_transaction::version(&codes.door.storage_kernel().read_scope(&owner).unwrap()).unwrap();
-    let batch = seed_batch(&owner, 1, "checkpoint-orphan", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+        eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
+    let batch = seed_batch(owner, 1, "checkpoint-orphan", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     // No `SEMANTIC_CHECKPOINT_HEADS` row is written on purpose -- an orphan
     // checkpoint is exactly one with no durable head pointer.
     for checkpoint in [&partial, &complete] {
@@ -3876,16 +3878,16 @@ fn checkpoint_head_rejects_pointer_row_bytes_mismatch() {
 
     let owner = codes.door.owner();
     let version =
-        eg_transaction::version(&codes.door.storage_kernel().read_scope(&owner).unwrap()).unwrap();
-    let batch = seed_batch(&owner, 1, "checkpoint-ambiguity", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+        eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
+    let batch = seed_batch(owner, 1, "checkpoint-ambiguity", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     let left_key = left.checkpoint_digest.to_string();
     let left_bytes = left.to_canonical_cbor().unwrap();
     let right_key = right.checkpoint_digest.to_string();
@@ -3970,16 +3972,16 @@ fn authoritative_state_rejects_completed_progress_without_stage_receipt() {
 
     let owner = codes.door.owner();
     let version =
-        eg_transaction::version(&codes.door.storage_kernel().read_scope(&owner).unwrap()).unwrap();
-    let batch = seed_batch(&owner, 1, "checkpoint-progress", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(&owner, &batch).unwrap();
+        eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
+    let batch = seed_batch(owner, 1, "checkpoint-progress", version);
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(&owner, &batch).unwrap();
+    let rows = write.owner_rows(owner, &batch).unwrap();
     let bytes = progress.to_canonical_cbor().unwrap();
     rows.open_table(SEMANTIC_SOURCE_PROGRESS)
         .unwrap()

@@ -1,87 +1,33 @@
 //! The binding lifecycle: admission, caller state transitions and drop.
 
-use super::batch::{semantic_digest, MetadataMutation};
+use super::batch::{
+    binding_subject, mutation_row, operation_batch_id, replayed_event, require_attribution,
+    MetadataMutation,
+};
+use super::binding_read::{head_value, BindingRace};
 use super::persist::{put_bytes_once, replace_bytes};
+use super::record::{decode, encode, encode_valid, row_bytes};
 use super::{
-    kernel_error, semantic_contract_error, OperationAttribution, SemanticCodeError,
-    SemanticCodeStore, SemanticMutationReceipt, SEMANTIC_BINDING_CREATED_TOPIC,
+    corrupt, ensure, kernel_error, refused, semantic_contract_error, OperationAttribution,
+    SemanticCodeError, SemanticCodeStore, SemanticMutationReceipt, SEMANTIC_BINDING_CREATED_TOPIC,
     SEMANTIC_BINDING_DROPPED_TOPIC, SEMANTIC_BINDING_STATE_TOPIC,
 };
 use eg_storage::{
-    ScopedRead, SemanticIndexOwner, SEMANTIC_BINDINGS, SEMANTIC_HEADS, SEMANTIC_POINTERS,
-    SEMANTIC_SOURCE_PROGRESS, SEMANTIC_STATES, SEMANTIC_TOMBSTONES,
+    SemanticIndexOwner, SEMANTIC_BINDINGS, SEMANTIC_HEADS, SEMANTIC_POINTERS, SEMANTIC_STATES,
+    SEMANTIC_TOMBSTONES,
 };
 use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite};
 use eg_types::contract::Nonce;
 use eg_types::mutation_batch::MutationOutboxIntent;
 use eg_types::semantic_index::{
-    SemanticBinding, SemanticBindingState, SemanticBindingStateTransition, SemanticIndexFilter,
-    SemanticIndexMutation, SemanticSourceProgress, SemanticTombstone, SemanticTombstoneDraft,
+    SemanticBinding, SemanticBindingState, SemanticBindingStateTransition, SemanticDigest,
+    SemanticIndexMutation, SemanticTombstone, SemanticTombstoneDraft,
 };
+use eg_types::MutationBatch;
 use redb::ReadableTable;
 use std::collections::BTreeMap;
 
 impl SemanticCodeStore {
-    /// Read the binding authority selected by the serving head.  The head and
-    /// binding rows are read from one kernel snapshot, so a caller cannot
-    /// observe a generation from one binding paired with bytes from another.
-    pub fn read_binding(&self) -> Result<Option<SemanticBinding>, SemanticCodeError> {
-        let read = self.door.serving_read()?;
-        self.read_binding_in(&read)
-    }
-
-    /// Apply the closed list filter against the authenticated owner snapshot.
-    /// The service currently owns one binding file, so this is a bounded
-    /// catalog lookup over at most the filter's validated entity set. A filter
-    /// must never be silently ignored: source visibility and revision are
-    /// proven from durable source-progress rows before the binding is returned.
-    pub(crate) fn binding_matches_filter(
-        &self,
-        filter: &SemanticIndexFilter,
-    ) -> Result<bool, SemanticCodeError> {
-        filter.validate().map_err(semantic_contract_error)?;
-        let Some(binding) = self.read_binding()? else {
-            return Ok(false);
-        };
-        if filter.source_entity_ids.is_empty() {
-            return Ok(filter
-                .required_source_revision
-                .as_deref()
-                .is_none_or(|revision| revision == binding.source_revision.as_str()));
-        }
-        let read = self.door.serving_read()?;
-        let table = read
-            .open_owner_table(SEMANTIC_SOURCE_PROGRESS)
-            .map_err(kernel_error)?;
-        for source_entity_id in &filter.source_entity_ids {
-            let Some(raw) = table
-                .get((
-                    self.tenant.as_str(),
-                    self.binding.as_str(),
-                    binding.generation,
-                    source_entity_id.as_str(),
-                ))
-                .map_err(kernel_error)?
-                .map(|value| value.value().to_vec())
-            else {
-                return Ok(false);
-            };
-            let progress = SemanticSourceProgress::from_canonical_cbor(&raw)
-                .map_err(semantic_contract_error)?;
-            if progress.binding_id != binding.binding_id
-                || progress.binding_digest != binding.binding_digest
-                || progress.generation != binding.generation
-                || filter
-                    .required_source_revision
-                    .as_deref()
-                    .is_some_and(|revision| progress.source_revision.as_str() != revision)
-            {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-
     /// Admit the immutable binding definition and publish the first typed
     /// semantic outbox event.  This is the native admission half of S1: it
     /// persists the binding before any consumer can claim work, and it never
@@ -91,112 +37,24 @@ impl SemanticCodeStore {
         binding: &SemanticBinding,
         now_ms: u64,
     ) -> Result<SemanticMutationReceipt, SemanticCodeError> {
-        binding.validate().map_err(semantic_contract_error)?;
-        if binding.tenant_id != self.tenant || binding.binding_id != self.binding {
-            return Err(SemanticCodeError::Refused(
-                "semantic binding is outside this store's authenticated owner".to_string(),
-            ));
-        }
-        if binding.durable_state != eg_types::semantic_index::SemanticBindingState::Pending {
-            return Err(SemanticCodeError::Refused(
-                "semantic binding admission requires pending durable state".to_string(),
-            ));
-        }
-        let payload = binding
-            .to_canonical_cbor()
-            .map_err(semantic_contract_error)?;
-        let mutation = SemanticIndexMutation::StoreBinding {
-            binding: Box::new(binding.clone()),
-        };
-        mutation.validate().map_err(semantic_contract_error)?;
-        let mutation_bytes = mutation
-            .to_canonical_cbor()
-            .map_err(semantic_contract_error)?;
-        let mutation_digest = semantic_digest(&mutation_bytes);
+        self.ensure_binding_owner(binding)?;
+        let (payload, mutation_digest) = pending_binding_admission(binding)?;
         let batch_id = format!("semantic-index:binding:{}", mutation_digest);
-        let mut headers = BTreeMap::new();
-        headers.insert(
-            "schema".to_string(),
-            eg_types::semantic_index::SEMANTIC_BINDING_SCHEMA.to_string(),
-        );
-        headers.insert("binding_id".to_string(), binding.binding_id.clone());
-        headers.insert(
-            "binding_digest".to_string(),
-            binding.binding_digest.to_string(),
-        );
-        headers.insert("generation".to_string(), binding.generation.to_string());
-        headers.insert(
-            "source_revision".to_string(),
-            binding.source_revision.clone(),
-        );
-        let outbox = MutationOutboxIntent {
-            topic: SEMANTIC_BINDING_CREATED_TOPIC.to_string(),
-            key: format!("{}:{}", binding.binding_id, binding.generation),
-            payload: payload.clone(),
-            headers,
-        };
-        let owner = self.door.owner();
-        let payload_digest = mutation_digest;
-        let binding_bytes = payload;
-        self.door.commit_metadata(
-            |version| {
-                self.metadata_batch(
-                    owner,
-                    version,
-                    MetadataMutation {
-                        batch_id: &batch_id,
-                        event_type: "semantic_index_binding_stored",
-                        subject: &format!("binding:{}", binding.binding_digest),
-                        mutation_digest: payload_digest,
-                    },
-                    vec![outbox],
-                    now_ms,
-                )
+        let subject = binding_subject(binding.binding_digest);
+        let outbox = binding_created_event(binding, payload.clone(), None);
+        self.commit_maintenance(
+            MetadataMutation {
+                batch_id: &batch_id,
+                event_type: "semantic_index_binding_stored",
+                subject: &subject,
+                mutation_digest,
             },
-            mutation_digest,
+            vec![outbox],
             now_ms,
+            None,
             |write, rows| {
-                if let Some(existing) = self.read_binding_in_write(write)? {
-                    if existing != *binding {
-                        return Err(SemanticCodeError::Refused(
-                            "semantic binding identity already names different bytes".to_string(),
-                        ));
-                    }
-                }
-                let heads = write
-                    .open_read_table(SEMANTIC_HEADS)
-                    .map_err(kernel_error)?;
-                if let Some(head) = heads
-                    .get((self.tenant.as_str(), self.binding.as_str()))
-                    .map_err(kernel_error)?
-                    .map(|value| value.value())
-                {
-                    if head != binding.generation {
-                        return Err(SemanticCodeError::Refused(
-                            "semantic binding head already names another generation".to_string(),
-                        ));
-                    }
-                }
-                drop(heads);
-                rows.open_table(SEMANTIC_BINDINGS)
-                    .map_err(kernel_error)?
-                    .insert(
-                        (
-                            self.tenant.as_str(),
-                            self.binding.as_str(),
-                            binding.generation,
-                        ),
-                        binding_bytes.as_slice(),
-                    )
-                    .map_err(kernel_error)?;
-                rows.open_table(SEMANTIC_HEADS)
-                    .map_err(kernel_error)?
-                    .insert(
-                        (self.tenant.as_str(), self.binding.as_str()),
-                        binding.generation,
-                    )
-                    .map_err(kernel_error)?;
-                Ok(())
+                self.ensure_head_admits(write, binding)?;
+                self.insert_binding_head(rows, binding, &payload)
             },
         )
     }
@@ -213,137 +71,49 @@ impl SemanticCodeStore {
         idempotency_key: &str,
         nonce: Nonce,
     ) -> Result<SemanticMutationReceipt, SemanticCodeError> {
-        binding.validate().map_err(semantic_contract_error)?;
-        if binding.tenant_id != self.tenant || binding.binding_id != self.binding {
-            return Err(SemanticCodeError::Refused(
-                "semantic binding is outside this store's authenticated owner".to_string(),
-            ));
-        }
-        if actor.trim().is_empty() || idempotency_key.trim().is_empty() {
-            return Err(SemanticCodeError::Refused(
-                "semantic operation requires verified actor and idempotency key".to_string(),
-            ));
-        }
-        if let Some(receipt) = self.door.replay_operation_if_recorded(
+        self.ensure_binding_owner(binding)?;
+        require_attribution(
+            actor,
+            idempotency_key,
+            "semantic operation requires verified actor and idempotency key",
+        )?;
+        let replayed = self.door.replay_operation_if_recorded(
             actor,
             idempotency_key,
             nonce,
             now_ms,
-            |batch| {
-                let existing = batch.outbox.first().ok_or_else(|| {
-                    SemanticCodeError::Corrupt(
-                        "semantic binding replay batch has no binding event".to_string(),
-                    )
-                })?;
-                let existing_binding = SemanticBinding::from_canonical_cbor(&existing.payload)
-                    .map_err(semantic_contract_error)?;
-                if existing_binding == *binding {
-                    Ok(())
-                } else {
-                    Err(SemanticCodeError::Refused(
-                        "semantic binding idempotency key names different content".to_string(),
-                    ))
-                }
-            },
-        )? {
+            |batch| replayed_binding_matches(batch, binding),
+        )?;
+        if let Some(receipt) = replayed {
             return Ok(receipt);
         }
-        if binding.durable_state != eg_types::semantic_index::SemanticBindingState::Pending {
-            return Err(SemanticCodeError::Refused(
-                "semantic binding admission requires pending durable state".to_string(),
-            ));
-        }
-        let payload = binding
-            .to_canonical_cbor()
-            .map_err(semantic_contract_error)?;
-        let mutation = SemanticIndexMutation::StoreBinding {
-            binding: Box::new(binding.clone()),
-        };
-        mutation.validate().map_err(semantic_contract_error)?;
-        let mutation_bytes = mutation
-            .to_canonical_cbor()
-            .map_err(semantic_contract_error)?;
-        let mutation_digest = semantic_digest(&mutation_bytes);
-        let mut headers = BTreeMap::new();
-        headers.insert(
-            "schema".to_string(),
-            eg_types::semantic_index::SEMANTIC_BINDING_SCHEMA.to_string(),
-        );
-        headers.insert("binding_id".to_string(), binding.binding_id.clone());
-        headers.insert(
-            "binding_digest".to_string(),
-            binding.binding_digest.to_string(),
-        );
-        headers.insert("generation".to_string(), binding.generation.to_string());
-        headers.insert(
-            "source_revision".to_string(),
-            binding.source_revision.clone(),
-        );
-        headers.insert("actor".to_string(), actor.to_string());
-        let outbox = vec![MutationOutboxIntent {
-            topic: SEMANTIC_BINDING_CREATED_TOPIC.to_string(),
-            key: format!("{}:{}", binding.binding_id, binding.generation),
-            payload,
-            headers,
-        }];
-        let batch_id = format!("semantic-index:operation:{idempotency_key}");
-        let binding_bytes = binding
-            .to_canonical_cbor()
-            .map_err(semantic_contract_error)?;
-        let owner = self.door.owner();
-        self.door.commit_metadata(
-            |version| {
-                self.metadata_operation_batch(
-                    owner,
-                    version,
-                    MetadataMutation {
-                        batch_id: &batch_id,
-                        event_type: "semantic_binding_stored",
-                        subject: &format!("binding:{}", binding.binding_digest),
-                        mutation_digest,
-                    },
-                    outbox.clone(),
-                    now_ms,
-                    OperationAttribution {
-                        actor,
-                        idempotency_key,
-                        nonce,
-                    },
-                )
+        let (payload, mutation_digest) = pending_binding_admission(binding)?;
+        let batch_id = operation_batch_id(idempotency_key);
+        let subject = binding_subject(binding.binding_digest);
+        let outbox = vec![binding_created_event(binding, payload.clone(), Some(actor))];
+        self.commit_operation(
+            MetadataMutation {
+                batch_id: &batch_id,
+                event_type: "semantic_binding_stored",
+                subject: &subject,
+                mutation_digest,
             },
-            mutation_digest,
+            outbox,
             now_ms,
+            OperationAttribution {
+                actor,
+                idempotency_key,
+                nonce,
+            },
             |write, rows| {
                 if let Some(existing) = self.read_binding_in_write(write)? {
-                    if existing != *binding {
-                        return Err(SemanticCodeError::Refused(
-                            "semantic binding identity already names different bytes".to_string(),
-                        ));
-                    }
-                    return Err(SemanticCodeError::Refused(
+                    return Err(refused(if existing != *binding {
+                        "semantic binding identity already names different bytes"
+                    } else {
                         "semantic binding is already admitted; retry its original idempotency key"
-                            .to_string(),
-                    ));
+                    }));
                 }
-                rows.open_table(SEMANTIC_BINDINGS)
-                    .map_err(kernel_error)?
-                    .insert(
-                        (
-                            self.tenant.as_str(),
-                            self.binding.as_str(),
-                            binding.generation,
-                        ),
-                        binding_bytes.as_slice(),
-                    )
-                    .map_err(kernel_error)?;
-                rows.open_table(SEMANTIC_HEADS)
-                    .map_err(kernel_error)?
-                    .insert(
-                        (self.tenant.as_str(), self.binding.as_str()),
-                        binding.generation,
-                    )
-                    .map_err(kernel_error)?;
-                Ok(())
+                self.insert_binding_head(rows, binding, &payload)
             },
         )
     }
@@ -361,174 +131,65 @@ impl SemanticCodeStore {
         idempotency_key: &str,
         nonce: Nonce,
     ) -> Result<SemanticMutationReceipt, SemanticCodeError> {
-        if actor.trim().is_empty() || idempotency_key.trim().is_empty() {
-            return Err(SemanticCodeError::Refused(
-                "semantic state transition requires verified actor and idempotency key".to_string(),
-            ));
-        }
+        require_attribution(
+            actor,
+            idempotency_key,
+            "semantic state transition requires verified actor and idempotency key",
+        )?;
         if !matches!(
             next,
             SemanticBindingState::Building | SemanticBindingState::Disabled
         ) {
-            return Err(SemanticCodeError::Refused(
-                "caller state operation may only start a pending build or disable a live binding"
-                    .to_string(),
+            return Err(refused(
+                "caller state operation may only start a pending build or disable a live binding",
             ));
         }
-        if let Some(receipt) = self.door.replay_operation_if_recorded(
+        let replayed = self.door.replay_operation_if_recorded(
             actor,
             idempotency_key,
             nonce,
             now_ms,
-            |batch| {
-                let event = batch.outbox.first().ok_or_else(|| {
-                    SemanticCodeError::Corrupt(
-                        "semantic state replay batch has no transition event".to_string(),
-                    )
-                })?;
-                let transition =
-                    SemanticBindingStateTransition::from_canonical_cbor(&event.payload)
-                        .map_err(semantic_contract_error)?;
-                if transition.binding_id == self.binding
-                    && transition.generation == expected_generation
-                    && transition.next == next
-                {
-                    Ok(())
-                } else {
-                    Err(SemanticCodeError::Refused(
-                        "semantic state idempotency key names different content".to_string(),
-                    ))
-                }
-            },
-        )? {
+            |batch| self.replayed_state_matches(batch, expected_generation, next),
+        )?;
+        if let Some(receipt) = replayed {
             return Ok(receipt);
         }
-        let binding = self.read_binding()?.ok_or_else(|| {
-            SemanticCodeError::Refused(
-                "semantic state transition has no durable binding".to_string(),
-            )
-        })?;
-        if binding.generation != expected_generation {
-            return Err(SemanticCodeError::Refused(
-                "semantic state transition generation is stale".to_string(),
-            ));
-        }
-        if !matches!(
-            (binding.durable_state, next),
-            (
-                SemanticBindingState::Pending,
-                SemanticBindingState::Building,
-            ) | (SemanticBindingState::Live, SemanticBindingState::Disabled)
-        ) {
-            return Err(SemanticCodeError::Refused(
-                "semantic state transition is not valid for the durable binding state".to_string(),
-            ));
-        }
+        let binding = self.caller_transition_source(expected_generation, next)?;
         let transition = SemanticBindingStateTransition::create(
             &binding,
             next,
             "caller_requested_semantic_binding_state",
         )
         .map_err(semantic_contract_error)?;
-        let mutation = SemanticIndexMutation::SetBindingState {
+        let (_, mutation_digest) = mutation_row(&SemanticIndexMutation::SetBindingState {
             transition: transition.clone(),
-        };
-        mutation.validate().map_err(semantic_contract_error)?;
-        let mutation_bytes = mutation
-            .to_canonical_cbor()
-            .map_err(semantic_contract_error)?;
-        let mutation_digest = semantic_digest(&mutation_bytes);
-        let payload = transition
-            .to_canonical_cbor()
-            .map_err(semantic_contract_error)?;
-        let mut headers = BTreeMap::new();
-        headers.insert(
-            "schema".to_string(),
-            eg_types::semantic_index::SEMANTIC_BINDING_STATE_TRANSITION_SCHEMA.to_string(),
-        );
-        headers.insert("binding_id".to_string(), binding.binding_id.clone());
-        headers.insert("generation".to_string(), binding.generation.to_string());
-        headers.insert("actor".to_string(), actor.to_string());
-        let outbox = vec![MutationOutboxIntent {
-            topic: SEMANTIC_BINDING_STATE_TOPIC.to_string(),
-            key: format!(
-                "{}:{}:{}",
-                binding.binding_id,
-                binding.generation,
-                next.as_str()
-            ),
-            payload,
-            headers,
-        }];
-        let batch_id = format!("semantic-index:operation:{idempotency_key}");
-        let binding_id = self.binding.clone();
-        let tenant = self.tenant.clone();
-        self.door.commit_metadata(
-            |version| {
-                self.metadata_operation_batch(
-                    self.door.owner(),
-                    version,
-                    MetadataMutation {
-                        batch_id: &batch_id,
-                        event_type: "semantic_binding_state_transition",
-                        subject: &format!("binding:{}", binding.binding_digest),
-                        mutation_digest,
-                    },
-                    outbox,
-                    now_ms,
-                    OperationAttribution {
-                        actor,
-                        idempotency_key,
-                        nonce,
-                    },
-                )
+        })?;
+        let outbox = vec![binding_state_event(&binding, &transition, actor)?];
+        let batch_id = operation_batch_id(idempotency_key);
+        let subject = binding_subject(binding.binding_digest);
+        self.commit_operation(
+            MetadataMutation {
+                batch_id: &batch_id,
+                event_type: "semantic_binding_state_transition",
+                subject: &subject,
+                mutation_digest,
             },
-            mutation_digest,
+            outbox,
             now_ms,
+            OperationAttribution {
+                actor,
+                idempotency_key,
+                nonce,
+            },
             |write, rows| {
-                let current = self.read_binding_in_write(write)?.ok_or_else(|| {
-                    SemanticCodeError::Refused(
-                        "semantic binding disappeared during state transition".to_string(),
-                    )
-                })?;
-                if current.binding_id != binding_id
-                    || current.generation != expected_generation
-                    || current.binding_digest != binding.binding_digest
-                    || current.durable_state != transition.expected
-                {
-                    return Err(SemanticCodeError::Refused(
-                        "semantic binding state or generation changed during transition"
-                            .to_string(),
-                    ));
-                }
-                let updated = current
-                    .apply_state_transition(&transition)
-                    .map_err(semantic_contract_error)?;
-                let binding_bytes = updated
-                    .to_canonical_cbor()
-                    .map_err(semantic_contract_error)?;
-                let mut bindings = rows.open_table(SEMANTIC_BINDINGS).map_err(kernel_error)?;
-                replace_bytes(
-                    &mut bindings,
-                    (tenant.as_str(), binding_id.as_str(), expected_generation),
-                    &binding_bytes,
-                )?;
-                drop(bindings);
-                let state_bytes = transition
-                    .to_canonical_cbor()
-                    .map_err(semantic_contract_error)?;
-                let mut states = rows.open_table(SEMANTIC_STATES).map_err(kernel_error)?;
-                replace_bytes(
-                    &mut states,
-                    (tenant.as_str(), binding_id.as_str()),
-                    &state_bytes,
-                )?;
-                drop(states);
+                let race = BindingRace {
+                    missing: "semantic binding disappeared during state transition",
+                    changed: "semantic binding state or generation changed during transition",
+                };
+                let current = self.binding_unchanged_in_write(write, &binding, &race)?;
+                self.write_binding_state(rows, &current, &transition)?;
                 if next == SemanticBindingState::Disabled {
-                    rows.open_table(SEMANTIC_POINTERS)
-                        .map_err(kernel_error)?
-                        .remove((tenant.as_str(), binding_id.as_str()))
-                        .map_err(kernel_error)?;
+                    self.remove_active_pointer(rows)?;
                 }
                 Ok(())
             },
@@ -547,51 +208,22 @@ impl SemanticCodeStore {
         idempotency_key: &str,
         nonce: Nonce,
     ) -> Result<SemanticMutationReceipt, SemanticCodeError> {
-        if actor.trim().is_empty() || idempotency_key.trim().is_empty() {
-            return Err(SemanticCodeError::Refused(
-                "semantic drop requires verified actor and idempotency key".to_string(),
-            ));
-        }
-        if let Some(receipt) = self.door.replay_operation_if_recorded(
+        require_attribution(
+            actor,
+            idempotency_key,
+            "semantic drop requires verified actor and idempotency key",
+        )?;
+        let replayed = self.door.replay_operation_if_recorded(
             actor,
             idempotency_key,
             nonce,
             now_ms,
-            |batch| {
-                let event = batch.outbox.first().ok_or_else(|| {
-                    SemanticCodeError::Corrupt(
-                        "semantic drop replay batch has no tombstone event".to_string(),
-                    )
-                })?;
-                let tombstone = SemanticTombstone::from_canonical_cbor(&event.payload)
-                    .map_err(semantic_contract_error)?;
-                if tombstone.tenant_id == self.tenant
-                    && tombstone.binding_id == self.binding
-                    && tombstone.generation == expected_generation
-                {
-                    Ok(())
-                } else {
-                    Err(SemanticCodeError::Refused(
-                        "semantic drop idempotency key names different content".to_string(),
-                    ))
-                }
-            },
-        )? {
+            |batch| self.replayed_drop_matches(batch, expected_generation),
+        )?;
+        if let Some(receipt) = replayed {
             return Ok(receipt);
         }
-        let binding = self.read_binding()?.ok_or_else(|| {
-            SemanticCodeError::Refused("semantic drop has no durable binding".to_string())
-        })?;
-        if binding.generation != expected_generation
-            || !matches!(
-                binding.durable_state,
-                SemanticBindingState::Disabled | SemanticBindingState::Failed
-            )
-        {
-            return Err(SemanticCodeError::Refused(
-                "semantic drop requires the expected disabled or failed generation".to_string(),
-            ));
-        }
+        let binding = self.droppable_binding(expected_generation)?;
         let tombstone = SemanticTombstone::create(SemanticTombstoneDraft {
             tenant_id: binding.tenant_id.clone(),
             binding_id: binding.binding_id.clone(),
@@ -600,200 +232,193 @@ impl SemanticCodeStore {
             deleted_at: format!("unix-ms:{now_ms}"),
         })
         .map_err(semantic_contract_error)?;
-        let state_transition = SemanticBindingStateTransition::create(
+        let dropping = SemanticBindingStateTransition::create(
             &binding,
             SemanticBindingState::Dropping,
             "caller_requested_semantic_binding_drop",
         )
         .map_err(semantic_contract_error)?;
-        let mutation = SemanticIndexMutation::DeleteBinding {
+        let (_, mutation_digest) = mutation_row(&SemanticIndexMutation::DeleteBinding {
             tombstone: Box::new(tombstone.clone()),
-        };
-        mutation.validate().map_err(semantic_contract_error)?;
-        let mutation_bytes = mutation
-            .to_canonical_cbor()
-            .map_err(semantic_contract_error)?;
-        let mutation_digest = semantic_digest(&mutation_bytes);
-        let payload = tombstone
-            .to_canonical_cbor()
-            .map_err(semantic_contract_error)?;
-        let outbox = vec![MutationOutboxIntent {
-            topic: SEMANTIC_BINDING_DROPPED_TOPIC.to_string(),
-            key: format!("{}:{}", binding.binding_id, binding.generation),
-            payload,
-            headers: BTreeMap::from([
-                (
-                    "schema".to_string(),
-                    eg_types::semantic_index::SEMANTIC_TOMBSTONE_SCHEMA.to_string(),
-                ),
-                ("actor".to_string(), actor.to_string()),
-            ]),
-        }];
-        let batch_id = format!("semantic-index:operation:{idempotency_key}");
-        let binding_id = self.binding.clone();
-        let tenant = self.tenant.clone();
-        self.door.commit_metadata(
-            |version| {
-                self.metadata_operation_batch(
-                    self.door.owner(),
-                    version,
-                    MetadataMutation {
-                        batch_id: &batch_id,
-                        event_type: "semantic_binding_dropped",
-                        subject: &format!("binding:{}", binding.binding_digest),
-                        mutation_digest,
-                    },
-                    outbox,
-                    now_ms,
-                    OperationAttribution {
-                        actor,
-                        idempotency_key,
-                        nonce,
-                    },
-                )
+        })?;
+        let outbox = vec![binding_dropped_event(&binding, &tombstone, actor)?];
+        let batch_id = operation_batch_id(idempotency_key);
+        let subject = binding_subject(binding.binding_digest);
+        self.commit_operation(
+            MetadataMutation {
+                batch_id: &batch_id,
+                event_type: "semantic_binding_dropped",
+                subject: &subject,
+                mutation_digest,
             },
-            mutation_digest,
+            outbox,
             now_ms,
+            OperationAttribution {
+                actor,
+                idempotency_key,
+                nonce,
+            },
             |write, rows| {
-                let current = self.read_binding_in_write(write)?.ok_or_else(|| {
-                    SemanticCodeError::Refused(
-                        "semantic binding disappeared during drop".to_string(),
-                    )
-                })?;
-                if current.binding_id != binding_id
-                    || current.generation != expected_generation
-                    || current.binding_digest != binding.binding_digest
-                    || current.durable_state != binding.durable_state
-                {
-                    return Err(SemanticCodeError::Refused(
-                        "semantic binding changed during drop".to_string(),
-                    ));
-                }
-                let updated = current
-                    .apply_state_transition(&state_transition)
-                    .map_err(semantic_contract_error)?;
-                let binding_bytes = updated
-                    .to_canonical_cbor()
-                    .map_err(semantic_contract_error)?;
-                let mut bindings = rows.open_table(SEMANTIC_BINDINGS).map_err(kernel_error)?;
-                replace_bytes(
-                    &mut bindings,
-                    (tenant.as_str(), binding_id.as_str(), expected_generation),
-                    &binding_bytes,
-                )?;
-                drop(bindings);
-                let state_bytes = state_transition
-                    .to_canonical_cbor()
-                    .map_err(semantic_contract_error)?;
-                let mut states = rows.open_table(SEMANTIC_STATES).map_err(kernel_error)?;
-                replace_bytes(
-                    &mut states,
-                    (tenant.as_str(), binding_id.as_str()),
-                    &state_bytes,
-                )?;
-                drop(states);
-                let tombstone_bytes = tombstone
-                    .to_canonical_cbor()
-                    .map_err(semantic_contract_error)?;
+                let race = BindingRace {
+                    missing: "semantic binding disappeared during drop",
+                    changed: "semantic binding changed during drop",
+                };
+                let current = self.binding_unchanged_in_write(write, &binding, &race)?;
+                self.write_binding_state(rows, &current, &dropping)?;
+                let tombstone_bytes = encode(&tombstone)?;
                 let mut tombstones = rows.open_table(SEMANTIC_TOMBSTONES).map_err(kernel_error)?;
                 put_bytes_once(
                     &mut tombstones,
-                    (tenant.as_str(), binding_id.as_str(), expected_generation),
+                    (
+                        self.tenant.as_str(),
+                        self.binding.as_str(),
+                        expected_generation,
+                    ),
                     &tombstone_bytes,
                 )?;
                 drop(tombstones);
-                rows.open_table(SEMANTIC_POINTERS)
-                    .map_err(kernel_error)?
-                    .remove((tenant.as_str(), binding_id.as_str()))
-                    .map_err(kernel_error)?;
-                Ok(())
+                self.remove_active_pointer(rows)
             },
         )
     }
 
-    pub(super) fn read_binding_in(
+    /// Persist one binding authority row, then move this binding's changed
+    /// state into the durable state machine: the binding row and its state
+    /// receipt are replaced together inside the caller's admitted write.
+    pub(super) fn write_binding_state(
         &self,
-        read: &ScopedRead<'_, SemanticIndexOwner>,
-    ) -> Result<Option<SemanticBinding>, SemanticCodeError> {
-        let generation = read
-            .open_owner_table(SEMANTIC_HEADS)
-            .map_err(kernel_error)?
-            .get((self.tenant.as_str(), self.binding.as_str()))
-            .map_err(kernel_error)?
-            .map(|value| value.value());
-        let Some(generation) = generation else {
-            return Ok(None);
-        };
-        self.read_binding_generation_in(read, generation)
+        rows: &AdmittedOwnerWrite<'_, SemanticIndexOwner>,
+        current: &SemanticBinding,
+        transition: &SemanticBindingStateTransition,
+    ) -> Result<(), SemanticCodeError> {
+        let updated = current
+            .apply_state_transition(transition)
+            .map_err(semantic_contract_error)?;
+        let binding_bytes = encode(&updated)?;
+        let mut bindings = rows.open_table(SEMANTIC_BINDINGS).map_err(kernel_error)?;
+        replace_bytes(
+            &mut bindings,
+            (
+                self.tenant.as_str(),
+                self.binding.as_str(),
+                updated.generation,
+            ),
+            &binding_bytes,
+        )?;
+        drop(bindings);
+        let state_bytes = encode(transition)?;
+        let mut states = rows.open_table(SEMANTIC_STATES).map_err(kernel_error)?;
+        replace_bytes(
+            &mut states,
+            (self.tenant.as_str(), self.binding.as_str()),
+            &state_bytes,
+        )
     }
 
-    /// Read one historical binding row from the serving snapshot.  The head
-    /// may have advanced during a refresh while the active pointer still
-    /// intentionally names the previous live generation.
-    pub(super) fn read_binding_generation_in(
-        &self,
-        read: &ScopedRead<'_, SemanticIndexOwner>,
-        generation: u64,
-    ) -> Result<Option<SemanticBinding>, SemanticCodeError> {
-        let raw = read
-            .open_owner_table(SEMANTIC_BINDINGS)
-            .map_err(kernel_error)?
-            .get((self.tenant.as_str(), self.binding.as_str(), generation))
-            .map_err(kernel_error)?
-            .map(|value| value.value().to_vec())
-            .ok_or_else(|| {
-                SemanticCodeError::Corrupt(
-                    "semantic binding head names a missing binding row".to_string(),
-                )
-            })?;
-        let binding =
-            SemanticBinding::from_canonical_cbor(&raw).map_err(semantic_contract_error)?;
-        if binding.tenant_id != self.tenant
-            || binding.binding_id != self.binding
-            || binding.generation != generation
+    fn ensure_binding_owner(&self, binding: &SemanticBinding) -> Result<(), SemanticCodeError> {
+        binding.validate().map_err(semantic_contract_error)?;
+        if (binding.tenant_id.as_str(), binding.binding_id.as_str())
+            != (self.tenant.as_str(), self.binding.as_str())
         {
-            return Err(SemanticCodeError::Corrupt(
-                "semantic binding row does not match its serving head".to_string(),
+            return Err(refused(
+                "semantic binding is outside this store's authenticated owner",
             ));
         }
-        Ok(Some(binding))
+        Ok(())
     }
 
-    pub(super) fn read_binding_in_write(
+    /// A maintenance admission may re-admit the same bytes but never replace a
+    /// binding or move a head that names another generation.
+    fn ensure_head_admits(
         &self,
         write: &AdmittedMutation<'_, SemanticIndexOwner>,
-    ) -> Result<Option<SemanticBinding>, SemanticCodeError> {
-        let generation = write
-            .open_read_table(SEMANTIC_HEADS)
-            .map_err(kernel_error)?
-            .get((self.tenant.as_str(), self.binding.as_str()))
-            .map_err(kernel_error)?
-            .map(|value| value.value());
-        let Some(generation) = generation else {
-            return Ok(None);
-        };
-        let raw = write
-            .open_read_table(SEMANTIC_BINDINGS)
-            .map_err(kernel_error)?
-            .get((self.tenant.as_str(), self.binding.as_str(), generation))
-            .map_err(kernel_error)?
-            .map(|value| value.value().to_vec())
-            .ok_or_else(|| {
-                SemanticCodeError::Corrupt(
-                    "semantic binding head names a missing binding row".to_string(),
-                )
-            })?;
-        let binding =
-            SemanticBinding::from_canonical_cbor(&raw).map_err(semantic_contract_error)?;
-        if binding.tenant_id != self.tenant
-            || binding.binding_id != self.binding
-            || binding.generation != generation
+        binding: &SemanticBinding,
+    ) -> Result<(), SemanticCodeError> {
+        if self
+            .read_binding_in_write(write)?
+            .is_some_and(|existing| existing != *binding)
         {
-            return Err(SemanticCodeError::Corrupt(
-                "semantic binding row does not match its serving head".to_string(),
+            return Err(refused(
+                "semantic binding identity already names different bytes",
             ));
         }
-        Ok(Some(binding))
+        let heads = write
+            .open_read_table(SEMANTIC_HEADS)
+            .map_err(kernel_error)?;
+        if head_value(heads.get(self.owner_key()))?.is_some_and(|head| head != binding.generation) {
+            return Err(refused(
+                "semantic binding head already names another generation",
+            ));
+        }
+        Ok(())
+    }
+
+    fn insert_binding_head(
+        &self,
+        rows: &AdmittedOwnerWrite<'_, SemanticIndexOwner>,
+        binding: &SemanticBinding,
+        binding_bytes: &[u8],
+    ) -> Result<(), SemanticCodeError> {
+        let owner = (self.tenant.as_str(), self.binding.as_str());
+        rows.open_table(SEMANTIC_BINDINGS)
+            .map_err(kernel_error)?
+            .insert((owner.0, owner.1, binding.generation), binding_bytes)
+            .map_err(kernel_error)?;
+        rows.open_table(SEMANTIC_HEADS)
+            .map_err(kernel_error)?
+            .insert(owner, binding.generation)
+            .map_err(kernel_error)?;
+        Ok(())
+    }
+
+    fn replayed_state_matches(
+        &self,
+        batch: &MutationBatch,
+        expected_generation: u64,
+        next: SemanticBindingState,
+    ) -> Result<(), SemanticCodeError> {
+        let transition: SemanticBindingStateTransition =
+            replayed_event(batch, "semantic state replay batch has no transition event")?;
+        ensure(
+            (
+                transition.binding_id.as_str(),
+                transition.generation,
+                transition.next,
+            ) == (self.binding.as_str(), expected_generation, next),
+            "semantic state idempotency key names different content",
+        )
+    }
+
+    fn replayed_drop_matches(
+        &self,
+        batch: &MutationBatch,
+        expected_generation: u64,
+    ) -> Result<(), SemanticCodeError> {
+        let tombstone: SemanticTombstone =
+            replayed_event(batch, "semantic drop replay batch has no tombstone event")?;
+        ensure(
+            (
+                tombstone.tenant_id.as_str(),
+                tombstone.binding_id.as_str(),
+                tombstone.generation,
+            ) == (
+                self.tenant.as_str(),
+                self.binding.as_str(),
+                expected_generation,
+            ),
+            "semantic drop idempotency key names different content",
+        )
+    }
+
+    fn remove_active_pointer(
+        &self,
+        rows: &AdmittedOwnerWrite<'_, SemanticIndexOwner>,
+    ) -> Result<(), SemanticCodeError> {
+        rows.open_table(SEMANTIC_POINTERS)
+            .map_err(kernel_error)?
+            .remove((self.tenant.as_str(), self.binding.as_str()))
+            .map_err(kernel_error)?;
+        Ok(())
     }
 }
 
@@ -807,27 +432,120 @@ pub(super) fn demote_prior_live_binding_in_write(
     binding: &str,
     generation: u64,
 ) -> Result<(), SemanticCodeError> {
-    let prior_raw = rows
-        .open_table(SEMANTIC_BINDINGS)
-        .map_err(kernel_error)?
-        .get((tenant, binding, generation))
-        .map_err(kernel_error)?
-        .map(|value| value.value().to_vec())
-        .ok_or_else(|| {
-            SemanticCodeError::Corrupt(
-                "S6 active pointer names a missing prior binding".to_string(),
-            )
-        })?;
-    let mut prior =
-        SemanticBinding::from_canonical_cbor(&prior_raw).map_err(semantic_contract_error)?;
+    let mut bindings = rows.open_table(SEMANTIC_BINDINGS).map_err(kernel_error)?;
+    let prior_raw = row_bytes(bindings.get((tenant, binding, generation)))?
+        .ok_or_else(|| corrupt("S6 active pointer names a missing prior binding"))?;
+    let mut prior: SemanticBinding = decode(&prior_raw)?;
     if prior.durable_state != SemanticBindingState::Live {
-        return Err(SemanticCodeError::Refused(
-            "S6 prior active generation is not durably live".to_string(),
-        ));
+        return Err(refused("S6 prior active generation is not durably live"));
     }
     prior.durable_state = SemanticBindingState::Disabled;
-    prior.validate().map_err(semantic_contract_error)?;
-    let prior_bytes = prior.to_canonical_cbor().map_err(semantic_contract_error)?;
-    let mut bindings = rows.open_table(SEMANTIC_BINDINGS).map_err(kernel_error)?;
+    let prior_bytes = encode_valid(&prior)?;
     replace_bytes(&mut bindings, (tenant, binding, generation), &prior_bytes)
+}
+
+/// A binding admission starts pending; its content digest addresses the
+/// `StoreBinding` mutation the ledger records.
+fn pending_binding_admission(
+    binding: &SemanticBinding,
+) -> Result<(Vec<u8>, SemanticDigest), SemanticCodeError> {
+    if binding.durable_state != SemanticBindingState::Pending {
+        return Err(refused(
+            "semantic binding admission requires pending durable state",
+        ));
+    }
+    let payload = encode(binding)?;
+    let (_, mutation_digest) = mutation_row(&SemanticIndexMutation::StoreBinding {
+        binding: Box::new(binding.clone()),
+    })?;
+    Ok((payload, mutation_digest))
+}
+
+fn replayed_binding_matches(
+    batch: &MutationBatch,
+    binding: &SemanticBinding,
+) -> Result<(), SemanticCodeError> {
+    let existing: SemanticBinding =
+        replayed_event(batch, "semantic binding replay batch has no binding event")?;
+    ensure(
+        existing == *binding,
+        "semantic binding idempotency key names different content",
+    )
+}
+
+fn binding_created_event(
+    binding: &SemanticBinding,
+    payload: Vec<u8>,
+    actor: Option<&str>,
+) -> MutationOutboxIntent {
+    let mut headers = BTreeMap::from([
+        (
+            "schema".to_string(),
+            eg_types::semantic_index::SEMANTIC_BINDING_SCHEMA.to_string(),
+        ),
+        ("binding_id".to_string(), binding.binding_id.clone()),
+        (
+            "binding_digest".to_string(),
+            binding.binding_digest.to_string(),
+        ),
+        ("generation".to_string(), binding.generation.to_string()),
+        (
+            "source_revision".to_string(),
+            binding.source_revision.clone(),
+        ),
+    ]);
+    if let Some(actor) = actor {
+        headers.insert("actor".to_string(), actor.to_string());
+    }
+    MutationOutboxIntent {
+        topic: SEMANTIC_BINDING_CREATED_TOPIC.to_string(),
+        key: format!("{}:{}", binding.binding_id, binding.generation),
+        payload,
+        headers,
+    }
+}
+
+fn binding_state_event(
+    binding: &SemanticBinding,
+    transition: &SemanticBindingStateTransition,
+    actor: &str,
+) -> Result<MutationOutboxIntent, SemanticCodeError> {
+    Ok(MutationOutboxIntent {
+        topic: SEMANTIC_BINDING_STATE_TOPIC.to_string(),
+        key: format!(
+            "{}:{}:{}",
+            binding.binding_id,
+            binding.generation,
+            transition.next.as_str()
+        ),
+        payload: encode(transition)?,
+        headers: BTreeMap::from([
+            (
+                "schema".to_string(),
+                eg_types::semantic_index::SEMANTIC_BINDING_STATE_TRANSITION_SCHEMA.to_string(),
+            ),
+            ("binding_id".to_string(), binding.binding_id.clone()),
+            ("generation".to_string(), binding.generation.to_string()),
+            ("actor".to_string(), actor.to_string()),
+        ]),
+    })
+}
+
+fn binding_dropped_event(
+    binding: &SemanticBinding,
+    tombstone: &SemanticTombstone,
+    actor: &str,
+) -> Result<MutationOutboxIntent, SemanticCodeError> {
+    Ok(MutationOutboxIntent {
+        topic: SEMANTIC_BINDING_DROPPED_TOPIC.to_string(),
+        key: format!("{}:{}", binding.binding_id, binding.generation),
+        payload: encode(tombstone)?,
+        headers: BTreeMap::from([
+            (
+                "schema".to_string(),
+                eg_types::semantic_index::SEMANTIC_TOMBSTONE_SCHEMA.to_string(),
+            ),
+            ("actor".to_string(), actor.to_string()),
+        ]),
+    })
 }
