@@ -78,7 +78,10 @@ impl<'a> DistributedRequest<'a> {
             Err(response) => return response,
         };
         match pregel::run_distributed(self.state, &graphs, &algo, read_authority).await {
-            Ok(result) => Response::ok(self.req_id, ResultPayload::raw(&result)),
+            Ok(result) => Response::ok(
+                self.req_id,
+                ResultPayload::of::<eg_types::result_contract::compute::DistributedCompute>(result),
+            ),
             Err(error) => Response::err(self.req_id, error),
         }
     }

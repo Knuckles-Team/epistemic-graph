@@ -260,7 +260,10 @@ pub(super) async fn try_handle_semantic_compute(
             #[cfg(feature = "numeric")]
             {
                 let out = eg_numeric::linalg::batch_l2_normalize(&vectors);
-                Response::ok(req_id, ResultPayload::raw(&out))
+                Response::ok(
+                    req_id,
+                    ResultPayload::of::<eg_types::result_contract::compute::BatchL2Normalize>(out),
+                )
             }
             #[cfg(not(feature = "numeric"))]
             {

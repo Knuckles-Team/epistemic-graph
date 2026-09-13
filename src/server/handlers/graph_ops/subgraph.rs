@@ -97,7 +97,9 @@ pub(super) async fn handle_vf2_subgraph_match(
         {
             Ok((matches, truncated)) => Response::ok(
                 req_id,
-                ResultPayload::raw(&Vf2MatchResult { matches, truncated }),
+                ResultPayload::of::<eg_types::result_contract::compute::Vf2SubgraphMatch>(
+                    Vf2MatchResult { matches, truncated },
+                ),
             ),
             Err(resp) => resp,
         }

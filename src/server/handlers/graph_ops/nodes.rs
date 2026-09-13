@@ -247,7 +247,12 @@ pub(super) async fn try_handle_node_batch(
         Method::MatchOntologyTerms { query } => {
             // CONCEPT:EG-ORCH.routing.lexical-capability-escalation — lexical capability gate; cached aho-corasick scan.
             let g = core;
-            Response::ok(req_id, ResultPayload::raw(&g.match_ontology_terms(&query)))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::compute::MatchOntologyTerms>(
+                    g.match_ontology_terms(&query),
+                ),
+            )
         }
         // AddEmbedding (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
         // the AddNode/RemoveNode comment above.
