@@ -88,7 +88,11 @@ def test_hook_resolves_its_worktree_when_called_outside_checkout(
         env=index_env,
         check=True,
     )
-    for authority in ("scripts/rust_module_tree.py", "scripts/rust_lexer.py"):
+    for authority in (
+        "scripts/rust_module_tree.py",
+        "scripts/rust_lexer.py",
+        "scripts/kiss_diff_scope.py",
+    ):
         blob = subprocess.run(
             ["git", "hash-object", "-w", authority],
             cwd=REPO,
@@ -121,7 +125,10 @@ def test_hook_resolves_its_worktree_when_called_outside_checkout(
 
     assert result.returncode == 0, result.stderr
     assert "src/main.rs" in result.stdout
-    assert "kiss(staged): 0 violation(s) across 1 changed file(s)" in result.stdout
+    assert (
+        "kiss(staged): 0 attributable violation(s) across 1 changed file(s)"
+        in result.stdout
+    )
     cwds = log.read_text(encoding="utf-8").splitlines()
     assert cwds
     # The `--version` probe runs at the repository root.  The `check` invocation
