@@ -133,7 +133,7 @@ jobs:
           sqlite3_bin="$(scripts/fetch_sqlite3.sh "$RUNNER_TEMP/eg-sqlite3")"
           echo "EG_SQLITE3=$sqlite3_bin" >> "$GITHUB_ENV"
       - name: Test (SQLite format differential conformance)
-        run: cargo test -p eg-sqlite-format --test differential --no-fail-fast
+        run: cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast
       - name: Test (facade full)
         run: cargo test -p epistemic-graph --features full --no-fail-fast
       # These real-model tests fail loudly when their fixture is absent. Fetch the
@@ -142,7 +142,7 @@ jobs:
       - name: Provision pinned Whisper real-model fixture
         run: scripts/fetch_whisper_test_fixture.sh "$RUNNER_TEMP/eg-whisper-test" >> "$GITHUB_ENV"
       - name: Test (Whisper real-model transcription and cancellation)
-        run: cargo test -p eg-asr-whisper --test real_transcription --no-fail-fast
+        run: cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast
       # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
       # of the parallel run above (a concurrent sibling's 256MB blob inflates the
       # shared RSS past the cap). Run them here in isolation — serial + ignored — so

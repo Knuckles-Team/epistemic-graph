@@ -163,6 +163,12 @@ def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
     assert rows[required[3]]["mode"] == "RUN"
     assert rows[required[4]]["mode"] == "RUN"
     assert all(rows[name]["blocking"] is True for name in required)
+    assert rows[required[1]]["detail"] == (
+        "cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast"
+    )
+    assert rows[required[4]]["detail"] == (
+        "cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast"
+    )
 
 
 CAPABILITY_GATE_NAME = "Test (canonical capability policy and generated ledger)"
