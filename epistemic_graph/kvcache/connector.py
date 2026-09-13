@@ -1,11 +1,14 @@
 """LMCache / vLLM remote-backend driver for the epistemic-graph KV-cache.
 
-CONCEPT:EG-KG.backend.shipped-pip-installable-python — the shipped, pip-installable Python half of the EG-187 remote
+CONCEPT:EG-KG.backend.shipped-pip-installable-python — the shipped, pip-installable
+Python half of the EG-187 remote
 KV-cache contract.
 
 The engine exposes a shared, content-addressed KV-cache backend
-(``eg_kvcache::SharedKvIndex``, CONCEPT:EG-KG.enrichment.content-address-separation) over a small HTTP surface
-(CONCEPT:EG-KG.backend.is-configured-so-co). This module drives that surface from Python so that parallel
+(``eg_kvcache::SharedKvIndex``, CONCEPT:EG-KG.enrichment.content-address-separation)
+over a small HTTP surface
+(CONCEPT:EG-KG.backend.is-configured-so-co). This module drives that surface from Python
+so that parallel
 vLLM / LMCache workers pool their KV-cache blocks by token-hash: an identical KV
 page produced by two workers is stored **once** (dedup) and a cold worker can
 fetch a page a warm worker already computed.
@@ -59,7 +62,7 @@ logger = logging.getLogger(__name__)
 # stdlib urllib transport is used, so the base import never requires httpx.
 try:  # pragma: no cover - exercised only where httpx is installed
     import httpx as _httpx
-except Exception:  # noqa: BLE001 - any import failure ⇒ stdlib transport
+except Exception:
     _httpx = None  # type: ignore[assignment]
 
 HTTPX_AVAILABLE = _httpx is not None
@@ -78,7 +81,8 @@ def _require_verified_tls_context(context: ssl.SSLContext) -> None:
 
 @dataclass(slots=True)
 class KvCacheStats:
-    """Parsed ``GET /kv/stats`` response (CONCEPT:EG-KG.backend.shipped-pip-installable-python).
+    """Parsed ``GET /kv/stats`` response
+    (CONCEPT:EG-KG.backend.shipped-pip-installable-python).
 
     Fields mirror the engine's occupancy + dedup counters. Unknown extra keys
     are ignored so a newer engine can add counters without breaking the driver.
@@ -95,7 +99,7 @@ class KvCacheStats:
 
     @classmethod
     def from_json(cls, body: Mapping[str, Any]) -> KvCacheStats:
-        fields = {f for f in cls.__dataclass_fields__}  # noqa: C416
+        fields = {f for f in cls.__dataclass_fields__}
         return cls(**{k: int(v) for k, v in body.items() if k in fields})
 
 
@@ -216,7 +220,8 @@ class HttpxTransport:
 class RemoteKVConnector:
     """LMCache/vLLM remote backend over the engine's ``/kv`` HTTP surface.
 
-    CONCEPT:EG-KG.backend.shipped-pip-installable-python. Implements the LMCache remote-backend shape
+    CONCEPT:EG-KG.backend.shipped-pip-installable-python. Implements the LMCache
+    remote-backend shape
     (``get`` / ``put`` / ``exists`` / ``contains`` / ``stats``) against EG-187
     with a mandatory bearer/JWT token, a short per-request timeout, and total
     graceful degradation — every error is a cache miss, never a raised exception
@@ -299,7 +304,8 @@ class RemoteKVConnector:
             )
             return None
 
-    # -- LMCache remote-backend contract (CONCEPT:EG-KG.backend.shipped-pip-installable-python) --------------------
+    # -- LMCache remote-backend contract
+    # (CONCEPT:EG-KG.backend.shipped-pip-installable-python) --------------------
     def get(self, key: str) -> bytes | None:
         """Fetch KV-block bytes for ``key`` (LMCache load).
 

@@ -7,7 +7,8 @@ second transport is introduced here.
 This module lives in `epistemic-graph`'s own Python surface (not in
 `agent-packages/agents/audio-transcriber`, which this lane does not own) and
 is registered under `audio_transcriber.asr_providers` via this package's own
-`pyproject.toml` entry point (`epistemic-graph = "epistemic_graph.asr_provider:build_provider"`).
+`pyproject.toml` entry point (`epistemic-graph =
+"epistemic_graph.asr_provider:build_provider"`).
 `audio-transcriber` discovers it by entry point and construction is
 try/except-guarded on that side — if the engine/native dependency is
 unreachable, the server still starts and the Faster-Whisper path still serves;
@@ -136,7 +137,8 @@ class EpistemicGraphAsrProvider:
         audio_bytes = path.read_bytes()
         if len(audio_bytes) > _MAX_WAV_BYTES:
             raise ValueError(
-                f"audio file exceeds the {_MAX_WAV_BYTES}-byte bound for this batch call"
+                f"audio file exceeds the {_MAX_WAV_BYTES}-byte bound for this batch "
+                f"call"
             )
         client = self._connect()
         result = client.asr.transcribe_file(
