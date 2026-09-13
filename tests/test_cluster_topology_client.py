@@ -26,7 +26,14 @@ class _FakeClient:
         self._answer = answer
         self._auth_secret = "-".join(("topology", "test", "secret"))
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         assert method == "ClusterMembers"
         assert params is None
         return self._answer

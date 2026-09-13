@@ -26,7 +26,14 @@ class _FakeClient:
         self._columns = columns
         self._rows = rows
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         self.sent.append((method, params))
         return {
             "columns": self._columns,
@@ -43,9 +50,18 @@ async def test_sql_sends_rpc_and_zips_rows() -> None:
     qc = QueryClient(fake)  # type: ignore[arg-type]
     out = await qc.sql("SELECT id, rank FROM nodes WHERE rank >= 2")
 
-    # RPC name + params are exactly what the engine expects.
+    # RPC name + params are exactly what the engine expects. U-144:
+    # `params_msgpack` is always sent explicitly (default `b""`), never
+    # omitted -- the server's HMAC verification hashes the fully deserialized
+    # struct, so an omitted key would sign a different, shorter map.
     assert fake.sent == [
-        ("Sql", {"query": "SELECT id, rank FROM nodes WHERE rank >= 2"})
+        (
+            "Sql",
+            {
+                "query": "SELECT id, rank FROM nodes WHERE rank >= 2",
+                "params_msgpack": b"",
+            },
+        )
     ]
     # Rows zipped into column-keyed dicts.
     assert out == [
@@ -60,4 +76,9 @@ async def test_sql_empty_result() -> None:
     qc = QueryClient(fake)  # type: ignore[arg-type]
     out = await qc.sql("SELECT id FROM nodes WHERE 1 = 0")
     assert out == []
-    assert fake.sent == [("Sql", {"query": "SELECT id FROM nodes WHERE 1 = 0"})]
+    assert fake.sent == [
+        (
+            "Sql",
+            {"query": "SELECT id FROM nodes WHERE 1 = 0", "params_msgpack": b""},
+        )
+    ]

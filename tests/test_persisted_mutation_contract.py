@@ -97,7 +97,7 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
     ]
     assert re.sub(r"\s+", " ", gateway_signature).strip() == (
         "pub(crate) async fn try_handle_gateway( req_id: u64, caller: Option<&str>, "
-        "attempt_nonce: Option<eg_types::contract::Nonce>, "
+        "attempt_nonce: Option<eg_types::contract::Nonce>, idempotency_key: &str, "
         "tenant_scope: &str, graph_name: &str, core: &Arc<GraphCore>, "
         "materialization_manifest: Option< "
         "&Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>, >, "
@@ -1175,7 +1175,11 @@ def test_module_tree_accepts_only_complete_inert_conditional_attribute_shapes(
     (tmp_path / "root.rs").write_text(
         '#![cfg_attr(test, recursion_limit = "256")]\n'
         '#[cfg_attr(feature = "ship", allow(dead_code, unused_variables))]\n'
-        '#[cfg_attr(feature = "ship", derive(CustomMacro))]\n'
+        # `CustomMacro` is not a real derive this scanner allows -- it fails
+        # closed on unknown derive paths by design (`_CFG_ATTR_KNOWN_DERIVES`
+        # in rust_module_tree.py). Use one of the actually-allowlisted paths
+        # so this fixture exercises the known-inert shape it is named for.
+        '#[cfg_attr(feature = "ship", derive(serde::Serialize))]\n'
         '#[cfg_attr(feature = "ship", warn(clippy::pedantic))]\n'
         '#[cfg_attr(feature = "ship", doc = "guarded item")]\n'
         "fn inert_attribute_marker() {}\n",

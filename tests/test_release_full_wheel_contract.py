@@ -180,17 +180,23 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     # the `gates` job's own fold — a drop below 3 means one of those calls
     # went missing.
     assert raw.count("scripts/inject_numeric_kernel.py") == 3
-    # normalize/audit run twice per fold (the raw numeric kernel wheel, then
-    # the folded server wheel) — 2x in `build` (primary + reproduction) plus
-    # 2x in `gates` (its own numeric kernel wheel + its own folded wheel) = 4.
-    # A drop below 4 means one of those calls went missing.
-    assert raw.count("scripts/normalize_wheel_sbom.py") == 4
-    assert raw.count("scripts/normalize_wheel_build_paths.py") == 4
-    assert raw.count("scripts/check_wheel_privacy.py") == 4
-    assert raw.count("sccache: 'false'") == 4
+    # normalize/audit run once per raw kernel wheel plus once more for the
+    # folded server wheel — 2x in `build` (primary + reproduction, each a
+    # single combined "Normalize and audit ... wheel" step) plus 3x in `gates`
+    # (its own numeric kernel wheel, its own pyengine kernel wheel —
+    # BUG-PE-002 — and its own folded wheel) = 5. A drop below 5 means one of
+    # those calls went missing.
+    assert raw.count("scripts/normalize_wheel_sbom.py") == 5
+    assert raw.count("scripts/normalize_wheel_build_paths.py") == 5
+    assert raw.count("scripts/check_wheel_privacy.py") == 5
+    # 3 build steps per pass (server wheel, numeric kernel, pyengine kernel;
+    # BUG-PE-002 added the pyengine kernel step) x 2 passes (primary +
+    # reproduction) = 6. A drop below 6 means one of those build steps' cache
+    # config went missing.
+    assert raw.count("sccache: 'false'") == 6
     assert (
         raw.count("CARGO_TARGET_DIR: ${{ runner.temp }}/epistemic-graph-release-target")
-        == 4
+        == 6
     )
     assert "Remove primary native build state" in raw
     assert "release wheel digest mismatch" in raw

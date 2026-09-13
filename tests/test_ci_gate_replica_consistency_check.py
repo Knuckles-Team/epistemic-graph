@@ -135,7 +135,7 @@ def test_gates_job_run_steps_include_the_numeric_kernel_parity_chain():
 
 CAPABILITY_GATE_NAME = "Test (canonical capability policy and generated ledger)"
 CAPABILITY_GATE_COMMAND = (
-    "cargo test -p eg-capabilities --features canonical-ledger --no-fail-fast"
+    "cargo test --locked -p eg-capabilities --features contract --no-fail-fast"
 )
 
 

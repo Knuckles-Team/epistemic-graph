@@ -532,6 +532,19 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
     )
     assert declared == Counter(
         [
+            # `semantic_index/` (native ANN store,
+            # EG-KG.sharding.semantic-embedding-store-backed) and `embedding.rs`
+            # are a later addition to this crate's f32 surface,
+            # entirely internal vector-store implementation -- never a Method
+            # request-body field -- so they join this census without changing the
+            # "Method carriers" check just below.
+            (
+                "embedding.rs",
+                "pub fn new(space: EmbeddingSpaceRef, values: Vec<f32>) "
+                "-> Result<Self, String> {",
+            ),
+            ("embedding.rs", "pub values: Vec<f32>,"),
+            ("embedding.rs", "values: vec![1.0, f32::NAN],"),
             ("knowledge_stream.rs", "query_embedding: Vec<f32>,"),
             ("modality.rs", "minimum_rms: f32,"),
             ("protocol.rs", "embedding: Vec<f32>,"),
@@ -539,6 +552,41 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
             ("protocol.rs", "query_embedding: Vec<f32>,"),
             ("protocol.rs", "query_embedding: Vec<f32>,"),
             ("protocol.rs", "summary_embedding: Option<Vec<f32>>,"),
+            (
+                "semantic_index/codec.rs",
+                "cbor::finite_f32(narrowed).map_err(|_| "
+                'canonical_error("finite f32 representation"))',
+            ),
+            ("semantic_index/codec.rs", "let narrowed = value as f32;"),
+            ("semantic_index/codec.rs", "number_value(f32::from_bits(bits) as f64)"),
+            (
+                "semantic_index/codec.rs",
+                'return Err(canonical_error("finite f32 representation"));',
+            ),
+            ("semantic_index/digest.rs", "assert!(finite_f32(f32::NAN).is_err());"),
+            ("semantic_index/digest.rs", "f32::from_bits(decoded)"),
+            (
+                "semantic_index/digest.rs",
+                "fn exact_f16_bits(value: f32) -> Option<u16> {",
+            ),
+            (
+                "semantic_index/digest.rs",
+                "pub(crate) fn f16_to_f32(bits: u16) -> f32 {",
+            ),
+            (
+                "semantic_index/digest.rs",
+                "pub(crate) fn finite_f32(value: f32) -> Result<Vec<u8>, String> {",
+            ),
+            (
+                "semantic_index/identity.rs",
+                'SemanticVector::create(&binding, "article:1", "7", '
+                "vec![1.0, f32::NAN, 0.0]).is_err()",
+            ),
+            ("semantic_index/identity.rs", "pub values: Vec<f32>,"),
+            ("semantic_index/identity.rs", "values: Vec<f32>,"),
+            ("semantic_index/response.rs", "pub fused_score: f32,"),
+            ("semantic_index/response.rs", "pub lexical_score: Option<f32>,"),
+            ("semantic_index/response.rs", "pub vector_score: Option<f32>,"),
             # NodeData is a stored/result DTO, never nested in Method request bodies.
             ("types.rs", "pub embedding: Option<Vec<f32>>,"),
             ("wire.rs", "FuseRrf { branches: Vec<Vec<Op>>, k: f32 },"),
@@ -554,7 +602,9 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
     )
     assert method_carriers == Counter(
         [
-            ("mutation_batch.rs", "pub method: Method,"),
+            # `mutation_batch.rs`'s `MutationOperation` moved to a
+            # `mutation_batch/model/` submodule during the module-tree split.
+            ("mutation_batch/model/request.rs", "pub method: Method,"),
             ("protocol.rs", "pub method: Method,"),
         ]
     )
@@ -738,7 +788,14 @@ class _CaptureClient:
         self.method = ""
         self.params: dict[str, object] = {}
 
-    async def _send(self, method: str, params: dict[str, object]) -> int:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, object],
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> int:
         self.method = method
         self.params = params
         return 2

@@ -123,14 +123,18 @@ LEGACY_COALESCER_METHODS = (
     "CompareAndSetNodeFields",
 )
 
-# The previous value (e695ad19...) matched NEITHER this tree NOR EG main
-# b2ac7b93 (72 predicates, 5264dc68...), so this fingerprint was already stale
-# before the RF-020 work and the gate was failing on both. Re-stamped against
-# the reviewed candidate: 74 predicates. Two are added relative to main and none
-# removed --
-#   any(feature = "amqp-wire", "mqtt-wire", "stomp-wire", "mssql-wire", "redis-wire")
-#   any(feature = "federation-search", feature = "nl-query")
-CFG_FINGERPRINT = "7bb6473c7d61790869f2e44747e1f7cf5eadd05d2faf7fc7d5c5d451769fa62b"
+# The 74-predicate fingerprint (7bb6473c...) went stale after ceec54145: the
+# `ann-redb` persisted-vector-index feature gained its own dispatch-level
+# `#[cfg(all(feature = "ann-redb", feature = "query"))]` gate (plus its
+# `not(...)` complement), and the `sparql-http` mutation-write path was
+# restructured from a bare `#[cfg(feature = "sparql-http")]` into the more
+# precise `redb`/`raft`-aware combined predicates it actually depends on
+# (dropping the bare `feature = "redb"`/`feature = "sparql-http"` forms in
+# favor of the compound ones, net +3 distinct predicates: 74 -> 77). Re-stamped
+# against the reviewed current tree (verified via `git diff` against the prior
+# fingerprint's commit, ceec54145, over `src/server/dispatch.rs` +
+# `src/server/dispatch/**`): 77 predicates.
+CFG_FINGERPRINT = "e4eaf8e1103acc9cc24fc49c3e934c2e938d50358af7dad41a00f1ab014e3e01"
 
 
 def require(condition: bool, message: str) -> None:
@@ -206,7 +210,7 @@ def check_cfg_contract(parts: dict[str, str]) -> None:
     )
     digest = hashlib.sha256("\n".join(predicates).encode()).hexdigest()
     require(
-        len(predicates) == 74 and digest == CFG_FINGERPRINT, "cfg boundary set changed"
+        len(predicates) == 77 and digest == CFG_FINGERPRINT, "cfg boundary set changed"
     )
 
 

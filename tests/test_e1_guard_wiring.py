@@ -213,7 +213,15 @@ def test_persisted_blob_guard_rejects_split_refcount_commit() -> None:
         sources["blob_store"], sources["blob_store_tests"]
     )
 
-    broken = sources["blob_store"].replace("CAS_REFCOUNT", "REFCOUNT_TABLE_REMOVED")
+    # RF-RULING-004 moved the CAS/refcount tables into the storage kernel's
+    # shared blob handle (`eg-storage`'s `owner/blob_shared.rs`), which the
+    # gate now reads directly from disk regardless of this `blob_store`
+    # argument -- so mutating `CAS_REFCOUNT` here (a token the carrier no
+    # longer references locally) is a no-op against the gate. Mutate a token
+    # the gate DOES still check within `blob_store`'s own call graph instead.
+    broken = sources["blob_store"].replace(
+        "insert_chunk_if_absent", "chunk_insert_when_missing"
+    )
     with pytest.raises(SystemExit, match="atomically bind CAS"):
         module._check_blob_result_contract(broken, sources["blob_store_tests"])
 

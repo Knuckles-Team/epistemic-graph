@@ -225,9 +225,24 @@ async fn unrelated_later_item() {
 
 _AUDITED_BODY = """\
     let (auth_secret, isolation) = load(state).await;
-    let mint_auth = MintAuthorization::compute_mac(&auth_secret, verified.claims())
-        .and_then(|mac| MintAuthorization::new(&auth_secret, verified.claims(), &mac))?;
-    let lease = isolation.mint_policy_decision_lease(&mint_auth, &graph, read)?;
+    let mint_auth = MintAuthorization::compute_mac(
+        &auth_secret,
+        verified_context.claims(),
+    )
+    .and_then(|mac| {
+        MintAuthorization::new(&auth_secret, verified_context.claims(), &mac)
+    })?;
+    let carrier = CarrierAuthority::from_verified(verified_context)?;
+    let lease =
+        isolation.mint_policy_decision_lease(&mint_auth, &graph, AccessLevel::Read)?;
+    let authority = KnowledgeStreamAuthority::from_verified_with_lease(
+        &auth_secret,
+        verified_context.claims(),
+        &graph,
+        &carrier,
+        lease,
+        isolation.policy_store()?,
+    )?;
 """
 
 _CALLER_SUPPLIED_BODY = """\
@@ -303,9 +318,25 @@ async fn dispatch_governed_stream_write_methods(
     state: &ServerState,
     graph: &GraphName,
 ) -> Result<Lease> {
-    let mint_auth = MintAuthorization::compute_mac(&auth_secret, verified.claims())
-        .and_then(|mac| MintAuthorization::new(&auth_secret, verified.claims(), &mac))?;
-    isolation.mint_policy_decision_lease(&mint_auth, &graph, read)
+    let (auth_secret, isolation) = load(state).await;
+    let mint_auth = MintAuthorization::compute_mac(
+        &auth_secret,
+        verified_context.claims(),
+    )
+    .and_then(|mac| {
+        MintAuthorization::new(&auth_secret, verified_context.claims(), &mac)
+    })?;
+    let carrier = CarrierAuthority::from_verified(verified_context)?;
+    let lease =
+        isolation.mint_policy_decision_lease(&mint_auth, &graph, AccessLevel::Read)?;
+    KnowledgeStreamAuthority::from_verified_with_lease(
+        &auth_secret,
+        verified_context.claims(),
+        &graph,
+        &carrier,
+        lease,
+        isolation.policy_store()?,
+    )
 }
 """
 

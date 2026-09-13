@@ -54,7 +54,14 @@ class _FakeClient:
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, Any]]] = []
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         assert params is not None
         self.sent.append((method, params))
         if method == "KnowledgeStream":
@@ -268,8 +275,16 @@ async def test_served_modality_rejects_noncurrent_or_drifted_data() -> None:
 
     original_send = fake._send
 
-    async def drifted_send(method: str, params: dict[str, Any] | None = None) -> Any:
-        result = await original_send(method, params)
+    async def drifted_send(
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        result = await original_send(
+            method, params, graph, idempotency_key=idempotency_key
+        )
         if params is not None and params["op"]["operation"] == "query":
             bundle = result["records"][0]["bundle"]
             bundle["evidence_spans"] = bundle.pop("evidence_loci")

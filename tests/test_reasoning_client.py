@@ -18,7 +18,14 @@ class _FakeClient:
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, Any]]] = []
 
-    async def _send(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any],
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
         self.sent.append((method, params))
         return {"ok": True}
 
