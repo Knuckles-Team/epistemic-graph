@@ -8,6 +8,9 @@
 // non-finance request (the common path), so we keep the move and scope the lint.
 #![allow(clippy::result_large_err)]
 
+use eg_types::compute_result::finance::PosteriorCredibleInterval;
+use eg_types::result_contract::compute as results;
+
 use crate::protocol::{Method, Response, ResultPayload};
 
 /// Handle a `Finance*` method. `Err(method)` hands a non-finance method back to the
@@ -28,11 +31,17 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 min_weight,
                 max_weight,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceOptimizePortfolio>(result),
+            )
         }
         Method::FinanceRiskParity { cov_matrix } => {
             let result = crate::finance::optimizer::risk_parity(&cov_matrix);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceRiskParity>(result),
+            )
         }
         Method::FinanceBlackLitterman {
             market_weights,
@@ -50,7 +59,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 tau,
                 risk_aversion,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceBlackLitterman>(result),
+            )
         }
         Method::FinanceEfficientFrontier {
             expected_returns,
@@ -62,7 +74,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 &cov_matrix,
                 target_return,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceEfficientFrontier>(result),
+            )
         }
         // ── Extended Finance: Risk (CONCEPT:AU-KG.memory.mementified-context) ──────────────────
         Method::FinanceVar {
@@ -70,33 +85,45 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             confidence,
         } => {
             let v = crate::finance::risk::historical_var(&returns, confidence);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(req_id, ResultPayload::scalar::<results::FinanceVar>(v))
         }
         Method::FinanceCvar {
             returns,
             confidence,
         } => {
             let v = crate::finance::risk::historical_cvar(&returns, confidence);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(req_id, ResultPayload::scalar::<results::FinanceCvar>(v))
         }
         Method::FinanceMaxDrawdown { returns } => {
             let v = crate::finance::risk::max_drawdown(&returns);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceMaxDrawdown>(v),
+            )
         }
         Method::FinanceDrawdownSeries { returns } => {
             let v = crate::finance::risk::drawdown_series(&returns);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceDrawdownSeries>(v),
+            )
         }
         Method::FinanceDownsideDeviation { returns, target } => {
             let v = crate::finance::risk::downside_deviation(&returns, target);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceDownsideDeviation>(v),
+            )
         }
         Method::FinanceRiskMetrics {
             returns,
             risk_free_rate,
         } => {
             let result = crate::finance::risk::compute_risk_metrics(&returns, risk_free_rate);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceRiskMetrics>(result),
+            )
         }
         Method::FinanceMonteCarloVar {
             mean,
@@ -105,7 +132,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             confidence,
         } => {
             let v = crate::finance::risk::monte_carlo_var(mean, std_dev, n_simulations, confidence);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceMonteCarloVar>(v),
+            )
         }
         Method::FinanceStressTest {
             weights,
@@ -119,7 +149,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 &cov_matrix,
                 &shock_factors,
             );
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceStressTest>(v))
         }
 
         // ── Extended Finance: Regime detection (HMM) ──────────────────
@@ -131,44 +161,62 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
         } => {
             let result =
                 crate::finance::regime::detect_regimes(&observations, n_states, max_iter, tol);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceDetectRegimes>(result),
+            )
         }
 
         // ── Extended Finance: Signals / alpha ─────────────────────────
         Method::FinanceRollingZscore { values, window } => {
             let v = crate::finance::signals::rolling_zscore(&values, window);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceRollingZscore>(v),
+            )
         }
         Method::FinanceEwma { values, span } => {
             let v = crate::finance::signals::ewma_signal(&values, span);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceEwma>(v))
         }
         Method::FinanceSignalDecay { signal, half_life } => {
             let v = crate::finance::signals::signal_decay(&signal, half_life);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceSignalDecay>(v))
         }
         Method::FinanceCombineAlphas { signals, weights } => {
             let v = crate::finance::signals::combine_alphas(&signals, &weights);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceCombineAlphas>(v),
+            )
         }
         Method::FinanceCrossSectionalRank { cross_section } => {
             let v = crate::finance::signals::cross_sectional_rank(&cross_section);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceCrossSectionalRank>(v),
+            )
         }
         Method::FinanceMomentum { prices, lookback } => {
             let v = crate::finance::signals::momentum(&prices, lookback);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceMomentum>(v))
         }
         Method::FinanceMeanReversion { values, window } => {
             let v = crate::finance::signals::mean_reversion(&values, window);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceMeanReversion>(v),
+            )
         }
         Method::FinanceInformationCoefficient {
             signal,
             forward_returns,
         } => {
             let v = crate::finance::signals::information_coefficient(&signal, &forward_returns);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceInformationCoefficient>(v),
+            )
         }
 
         // ── Extended Finance: Execution / microstructure ──────────────
@@ -184,7 +232,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 start_time,
                 interval_secs,
             );
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceTwap>(v))
         }
         Method::FinanceVwap {
             total_quantity,
@@ -198,7 +246,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 start_time,
                 interval_secs,
             );
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceVwap>(v))
         }
         Method::FinanceMarketImpact {
             daily_volatility,
@@ -212,7 +260,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 average_daily_volume,
                 impact_coefficient,
             );
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceMarketImpact>(v),
+            )
         }
         Method::FinancePairsTrading {
             prices_a,
@@ -220,11 +271,11 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             lookback,
         } => {
             let v = crate::finance::exchange::pairs_trading_signal(&prices_a, &prices_b, lookback);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinancePairsTrading>(v))
         }
         Method::FinanceMatchOrders { orders } => {
             let v = crate::finance::exchange::match_orders(&orders);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceMatchOrders>(v))
         }
 
         // ── Market Making / Microstructure (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ─────────
@@ -238,7 +289,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
         } => {
             let v =
                 crate::finance::quant::avellaneda_stoikov(mid, inventory, sigma, gamma, kappa, tau);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceAvellanedaStoikov>(v),
+            )
         }
         Method::FinanceGltQuotes {
             mid,
@@ -249,7 +303,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             a,
         } => {
             let v = crate::finance::quant::glt_quotes(mid, inventory, sigma, gamma, kappa, a);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceGltQuotes>(v))
         }
         Method::FinanceLogitQuotes {
             p_mid,
@@ -263,11 +317,14 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             let v = crate::finance::quant::logit_space_quotes(
                 p_mid, inventory, sigma, gamma, kappa, tau, boundary_m,
             );
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceLogitQuotes>(v))
         }
         Method::FinanceGlostenMilgromSpread { alpha, p } => {
             let v = crate::finance::quant::glosten_milgrom_spread(alpha, p);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceGlostenMilgromSpread>(v),
+            )
         }
         Method::FinanceExpectedPnlRate {
             delta,
@@ -279,11 +336,17 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             v_l,
         } => {
             let v = crate::finance::quant::expected_pnl_rate(delta, a, kappa, alpha, p, v_h, v_l);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceExpectedPnlRate>(v),
+            )
         }
         Method::FinanceBreakevenAlpha { delta, p, v_h, v_l } => {
             let v = crate::finance::quant::breakeven_alpha(delta, p, v_h, v_l);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceBreakevenAlpha>(v),
+            )
         }
         Method::FinanceOfiSeries {
             ts,
@@ -301,7 +364,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 &ask_sz,
                 window_secs,
             );
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceOfiSeries>(v))
         }
         Method::FinanceMicropriceSeries {
             bid_px,
@@ -310,7 +373,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             ask_sz,
         } => {
             let v = crate::finance::quant::microprice_series(&bid_px, &bid_sz, &ask_px, &ask_sz);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceMicropriceSeries>(v),
+            )
         }
         Method::FinanceVpinPm {
             buy_vol,
@@ -318,7 +384,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             p_mean,
         } => {
             let v = crate::finance::quant::vpin_pm(&buy_vol, &sell_vol, &p_mean);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(req_id, ResultPayload::scalar::<results::FinanceVpinPm>(v))
         }
         Method::FinanceHawkesMle {
             times,
@@ -326,7 +392,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             max_iter,
         } => {
             let v = crate::finance::quant::hawkes_mle(&times, t_horizon, max_iter);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceHawkesMle>(v))
         }
         Method::FinanceHardimanBouchaud {
             times,
@@ -336,7 +402,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             let v = crate::finance::quant::hardiman_bouchaud_branching_ratio(
                 &times, t_horizon, n_windows,
             );
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceHardimanBouchaud>(v),
+            )
         }
 
         // ── Kyle insider/stealth surveillance (CONCEPT:EG-KG.domains.concept-2) ──────
@@ -345,7 +414,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             signed_order_flow,
         } => {
             let v = crate::finance::quant::kyle_lambda(&price_changes, &signed_order_flow);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceKyleLambda>(v),
+            )
         }
         Method::FinanceSurveillanceRisk {
             buy_vol,
@@ -363,13 +435,19 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 &price_changes,
                 baseline_sigma,
             );
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceSurveillanceRisk>(v),
+            )
         }
 
         // ── Position Sizing (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest) ────────────────────────
         Method::FinanceKellyFraction { q, c, fraction } => {
             let v = crate::finance::quant::kelly_fraction(q, c, fraction);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceKellyFraction>(v),
+            )
         }
         Method::FinanceBayesianKelly {
             alpha,
@@ -378,13 +456,19 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             n_quadrature,
         } => {
             let v = crate::finance::quant::bayesian_kelly_fraction(alpha, beta, c, n_quadrature);
-            Response::ok(req_id, ResultPayload::Float(v))
-        }
-        Method::FinancePosteriorCredibleInterval { alpha, beta, level } => {
-            let (lo, hi) = crate::finance::quant::posterior_credible_interval(alpha, beta, level);
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!({"lower": lo, "upper": hi})),
+                ResultPayload::scalar::<results::FinanceBayesianKelly>(v),
+            )
+        }
+        Method::FinancePosteriorCredibleInterval { alpha, beta, level } => {
+            let (lower, upper) =
+                crate::finance::quant::posterior_credible_interval(alpha, beta, level);
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinancePosteriorCredibleInterval>(
+                    PosteriorCredibleInterval { lower, upper },
+                ),
             )
         }
 
@@ -403,7 +487,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 purge_window,
                 embargo,
             );
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinancePurgedCpcv>(v))
         }
         Method::FinanceDeflatedSharpe {
             observed_sr,
@@ -412,11 +496,17 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
         } => {
             let v =
                 crate::finance::quant::deflated_sharpe_ratio(observed_sr, n_trials, &sr_returns);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceDeflatedSharpe>(v),
+            )
         }
         Method::FinanceProbabilityBacktestOverfit { insample, oos } => {
             let v = crate::finance::quant::probability_of_backtest_overfit(&insample, &oos);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceProbabilityBacktestOverfit>(v),
+            )
         }
         Method::FinanceDieboldMariano {
             losses_a,
@@ -424,7 +514,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             h,
         } => {
             let v = crate::finance::quant::diebold_mariano(&losses_a, &losses_b, h);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceDieboldMariano>(v),
+            )
         }
 
         // ── Forensic Accounting (CONCEPT:EG-KG.domains.forensic-accounting-kernels) ────────────────────
@@ -433,7 +526,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             prior_year,
         } => {
             let v = crate::finance::forensic::forensic_report(&this_year, &prior_year);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceForensicReport>(v),
+            )
         }
 
         // ── State-Space / Stat-Arb (CONCEPT:EG-KG.domains.state-space-statistical-arbitrage) ─────────────────
@@ -447,7 +543,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             p0,
         } => {
             let v = crate::finance::statespace::kalman_filter_1d(&observations, f, q, h, r, x0, p0);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceKalmanFilter1d>(v),
+            )
         }
         Method::FinanceKalmanBeta {
             market_returns,
@@ -465,7 +564,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 beta0,
                 p0,
             );
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceKalmanBeta>(v))
         }
         Method::FinanceKalmanVolatility {
             returns,
@@ -483,15 +582,18 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 p0,
                 annualization,
             );
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceKalmanVolatility>(v),
+            )
         }
         Method::FinanceAdfTest { series, max_lag } => {
             let v = crate::finance::statespace::adf_test(&series, max_lag);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceAdfTest>(v))
         }
         Method::FinanceOuCalibrate { spread, dt } => {
             let v = crate::finance::statespace::ou_calibrate(&spread, dt);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceOuCalibrate>(v))
         }
         Method::FinanceOuOptimalThresholds {
             theta,
@@ -512,17 +614,26 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 },
             };
             let v = crate::finance::statespace::ou_optimal_thresholds(&params, cost);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceOuOptimalThresholds>(v),
+            )
         }
         Method::FinanceMarkovTransitionMatrix { states, n_states } => {
             let v = crate::finance::statespace::markov_transition_matrix(&states, n_states);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceMarkovTransitionMatrix>(v),
+            )
         }
 
         // ── Signal Combination / Sizing / Calibration (CONCEPT:EG-KG.domains.quant-finance) ──
         Method::FinanceOrderBookImbalance { v_bid, v_ask } => {
             let v = crate::finance::quant::order_book_imbalance(&v_bid, &v_ask);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceOrderBookImbalance>(v),
+            )
         }
         Method::FinanceQueueImbalance {
             bid_q,
@@ -531,11 +642,17 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             ask_rate,
         } => {
             let v = crate::finance::quant::queue_imbalance(&bid_q, &ask_q, &bid_rate, &ask_rate);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceQueueImbalance>(v),
+            )
         }
         Method::FinanceRealizedVolTick { mid, window } => {
             let v = crate::finance::quant::realized_vol_tick(&mid, window);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceRealizedVolTick>(v),
+            )
         }
         Method::FinanceSpreadReversion {
             bid_px,
@@ -543,29 +660,44 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             window,
         } => {
             let v = crate::finance::quant::spread_reversion(&bid_px, &ask_px, window);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceSpreadReversion>(v),
+            )
         }
         Method::FinanceInformationRatio { ic, n_independent } => {
             let v = crate::finance::quant::information_ratio(ic, n_independent);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceInformationRatio>(v),
+            )
         }
         Method::FinanceEffectiveIndependentN { returns_matrix } => {
             let v = crate::finance::quant::effective_independent_n(&returns_matrix);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceEffectiveIndependentN>(v),
+            )
         }
         Method::FinanceAlphaCombinationEngine {
             returns_matrix,
             lookback,
         } => {
             let v = crate::finance::quant::alpha_combination_engine(&returns_matrix, lookback);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceAlphaCombinationEngine>(v),
+            )
         }
         Method::FinanceBrierScore {
             forecasts,
             outcomes,
         } => {
             let v = crate::finance::quant::brier_score(&forecasts, &outcomes);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceBrierScore>(v),
+            )
         }
         Method::FinanceConvergenceGate {
             strengths,
@@ -574,7 +706,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
         } => {
             let v =
                 crate::finance::quant::convergence_gate(&strengths, strong_threshold, min_agree);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceConvergenceGate>(v),
+            )
         }
         Method::FinanceEmpiricalKelly {
             p,
@@ -590,7 +725,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 n_simulations,
                 seed,
             );
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceEmpiricalKelly>(v),
+            )
         }
 
         // ── Derivatives: SABR volatility surface (CONCEPT:AU-KG.domains.derivatives) ────
@@ -604,7 +742,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             nu,
         } => {
             let v = crate::finance::derivatives::sabr_implied_vol(f, k, t, alpha, beta, rho, nu);
-            Response::ok(req_id, ResultPayload::Float(v))
+            Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::FinanceSabrImpliedVol>(v),
+            )
         }
         Method::FinanceSabrSmile {
             f,
@@ -616,7 +757,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             nu,
         } => {
             let v = crate::finance::derivatives::sabr_smile(f, &strikes, t, alpha, beta, rho, nu);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(req_id, ResultPayload::of::<results::FinanceSabrSmile>(v))
         }
         Method::FinanceSabrCalibrate {
             f,
@@ -626,7 +767,10 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             beta,
         } => {
             let v = crate::finance::derivatives::sabr_calibrate(f, t, &strikes, &market_vols, beta);
-            Response::ok(req_id, ResultPayload::raw(&v))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::FinanceSabrCalibrate>(v),
+            )
         }
         other => return Err(other),
     };

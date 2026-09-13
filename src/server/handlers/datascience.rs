@@ -5,6 +5,9 @@
 // fall-through path; boxing the Err would allocate per non-DS request.
 #![allow(clippy::result_large_err)]
 
+use eg_types::compute_result::datascience::TrainTestSplitResult;
+use eg_types::result_contract::compute as results;
+
 use crate::protocol::{Method, Response, ResultPayload};
 
 /// Handle a `Ds*` method. `Err(method)` hands a non-datascience method back to the
@@ -14,19 +17,22 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
         // ── Data Science Primitives (CONCEPT:EG-KG.compute.rust-native-training-loss) ─────────────────
         Method::DsLinearRegression { x, y } => {
             let result = crate::datascience::primitives::linear_regression(&x, &y);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::DsLinearRegression>(result),
+            )
         }
         Method::DsKMeans { data, k, max_iter } => {
             let result = crate::datascience::primitives::kmeans(&data, k, max_iter);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+            Response::ok(req_id, ResultPayload::of::<results::DsKMeans>(result))
         }
         Method::DsPca { data, n_components } => {
             let result = crate::datascience::primitives::pca(&data, n_components);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+            Response::ok(req_id, ResultPayload::of::<results::DsPca>(result))
         }
         Method::DsComputeStats { data } => {
             let result = crate::datascience::primitives::compute_stats(&data);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(result)))
+            Response::ok(req_id, ResultPayload::of::<results::DsComputeStats>(result))
         }
         Method::DsTrainTestSplit {
             data,
@@ -41,12 +47,12 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 );
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!({
-                    "x_train": x_train,
-                    "x_test": x_test,
-                    "y_train": y_train,
-                    "y_test": y_test,
-                })),
+                ResultPayload::of::<results::DsTrainTestSplit>(TrainTestSplitResult {
+                    x_train,
+                    x_test,
+                    y_train,
+                    y_test,
+                }),
             )
         }
         Method::DsFitEstimator {
@@ -55,12 +61,15 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             y,
             params,
         } => match crate::datascience::estimators::fit_estimator(&estimator, &x, &y, &params) {
-            Ok(model) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(model))),
+            Ok(model) => Response::ok(req_id, ResultPayload::of::<results::DsFitEstimator>(model)),
             Err(e) => Response::err(req_id, e),
         },
         Method::DsPredictEstimator { model, x } => {
             let preds = crate::datascience::estimators::predict(&model, &x);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(preds)))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<results::DsPredictEstimator>(preds),
+            )
         }
 
         // ── Training loss / optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss) ────────
@@ -69,15 +78,15 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             temperature,
         } => {
             let r = crate::datascience::training::softmax(&logits, temperature);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+            Response::ok(req_id, ResultPayload::of::<results::DsSoftmax>(r))
         }
         Method::DsLogSoftmax { logits } => {
             let r = crate::datascience::training::log_softmax(&logits);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+            Response::ok(req_id, ResultPayload::of::<results::DsLogSoftmax>(r))
         }
         Method::DsCrossEntropy { logits, labels } => {
             let r = crate::datascience::training::cross_entropy(&logits, &labels);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+            Response::ok(req_id, ResultPayload::of::<results::DsCrossEntropy>(r))
         }
         Method::DsDpoLoss {
             policy_chosen,
@@ -93,7 +102,7 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 &ref_rejected,
                 beta,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+            Response::ok(req_id, ResultPayload::of::<results::DsDpoLoss>(r))
         }
         Method::DsGrpoSurrogate {
             logprob,
@@ -107,14 +116,14 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
                 &advantage,
                 clip_eps,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+            Response::ok(req_id, ResultPayload::of::<results::DsGrpoSurrogate>(r))
         }
         Method::DsKlDivergence {
             logprob,
             ref_logprob,
         } => {
             let r = crate::datascience::training::kl_divergence(&logprob, &ref_logprob);
-            Response::ok(req_id, ResultPayload::Float(r))
+            Response::ok(req_id, ResultPayload::scalar::<results::DsKlDivergence>(r))
         }
         Method::DsAdamStep {
             params,
@@ -130,11 +139,11 @@ pub(crate) fn try_handle(req_id: u64, method: Method) -> Result<Response, Method
             let r = crate::datascience::training::adam_step(
                 &params, &grads, &m, &v, lr, beta1, beta2, eps, t,
             );
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+            Response::ok(req_id, ResultPayload::of::<results::DsAdamStep>(r))
         }
         Method::DsSgdStep { params, grads, lr } => {
             let r = crate::datascience::training::sgd_step(&params, &grads, lr);
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(r)))
+            Response::ok(req_id, ResultPayload::of::<results::DsSgdStep>(r))
         }
         other => return Err(other),
     };
