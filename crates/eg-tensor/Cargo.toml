@@ -49,3 +49,8 @@ contract = ["dep:eg-modality"]
 # The serde round-trip test proves a `Tensor` survives the typed-property codec (the
 # non-blob persistence form). The compact byte-blob round-trip needs no dep at all.
 serde_json = "1.0"
+
+# Test-only opt-in cfg (not a feature, so `--all-features` never turns it on). See the
+# crate's device/CPU-feature parity tests for when to pass `--cfg eg_gpu_device_tests`.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(eg_gpu_device_tests)"] }

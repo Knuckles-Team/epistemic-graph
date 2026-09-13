@@ -1,23 +1,32 @@
 //! Differential conformance tests against the REAL `sqlite3` CLI (the non-optional bar):
 //! the Reader must decode `sqlite3`-authored fixtures identically, and the Writer's output
 //! must pass `PRAGMA integrity_check` and read back byte-for-byte through the real CLI.
-//! Every test that needs the CLI skips (with a message) when `sqlite3` is not on `$PATH`.
+//! These tests never skip. They run `$EG_SQLITE3` when set, else `sqlite3` on `$PATH`,
+//! and FAIL when neither runs. To provide the CLI on a host without one:
+//! `export EG_SQLITE3="$(scripts/fetch_sqlite3.sh)"` (pinned, checksum-verified).
 
+use std::ffi::OsString;
 use std::path::Path;
 use std::process::Command;
 
 use eg_sqlite_format::{ColumnDef, Reader, Row, Value, Writer};
 
-fn sqlite3_available() -> bool {
-    Command::new("sqlite3")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+/// The real `sqlite3` CLI these tests diff against: `$EG_SQLITE3`, else `sqlite3` on
+/// `$PATH`. Panics with how to provide it when neither runs.
+fn sqlite3_bin() -> OsString {
+    let bin = std::env::var_os("EG_SQLITE3").unwrap_or_else(|| OsString::from("sqlite3"));
+    match Command::new(&bin).arg("--version").output() {
+        Ok(out) if out.status.success() => bin,
+        other => panic!(
+            "the differential tests need the real sqlite3 CLI, but {bin:?} is not runnable \
+             ({other:?}). Install sqlite3 on PATH, or run \
+             `export EG_SQLITE3=\"$(scripts/fetch_sqlite3.sh)\"` from the repository root."
+        ),
+    }
 }
 
 fn run_sqlite(db: &Path, sql: &str) -> String {
-    let out = Command::new("sqlite3")
+    let out = Command::new(sqlite3_bin())
         .arg(db)
         .arg(sql)
         .output()
@@ -41,10 +50,6 @@ fn cd(name: &str, ty: &str) -> ColumnDef {
 
 #[test]
 fn reader_matches_sqlite3_fixture() {
-    if !sqlite3_available() {
-        eprintln!("SKIP reader_matches_sqlite3_fixture: sqlite3 not on PATH");
-        return;
-    }
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("fixture.db");
     run_sqlite(
@@ -113,10 +118,6 @@ fn reader_matches_sqlite3_fixture() {
 
 #[test]
 fn reader_rejects_without_rowid() {
-    if !sqlite3_available() {
-        eprintln!("SKIP reader_rejects_without_rowid: sqlite3 not on PATH");
-        return;
-    }
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("wr.db");
     run_sqlite(
@@ -135,10 +136,6 @@ fn reader_rejects_without_rowid() {
 
 #[test]
 fn writer_passes_sqlite3_integrity_check() {
-    if !sqlite3_available() {
-        eprintln!("SKIP writer_passes_sqlite3_integrity_check: sqlite3 not on PATH");
-        return;
-    }
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("out.db");
 
@@ -237,10 +234,6 @@ fn writer_passes_sqlite3_integrity_check() {
 
 #[test]
 fn writer_empty_table_and_single_row() {
-    if !sqlite3_available() {
-        eprintln!("SKIP writer_empty_table_and_single_row: sqlite3 not on PATH");
-        return;
-    }
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("edge.db");
     let mut w = Writer::create(&db, 4096).unwrap();

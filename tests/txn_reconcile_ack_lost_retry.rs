@@ -399,11 +399,15 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
 /// the child commit but before the parent finish. Running this as a separate
 /// process makes the abort an actual restart boundary rather than a private
 /// helper-level simulation.
+///
+/// Not a standalone test: without the parent's environment there is nothing to run,
+/// so it is `#[ignore]`d (listed as ignored rather than passing vacuously) and the
+/// parent selects it with `--ignored --exact`.
 #[tokio::test]
+#[ignore = "child-process entrypoint; spawned by signed_dispatch_commit_fault_windows_recover_parent_once"]
 async fn signed_dispatch_commit_fault_child() {
-    let Ok(dir_s) = std::env::var(FAULT_DIR_ENV) else {
-        return;
-    };
+    let dir_s = std::env::var(FAULT_DIR_ENV)
+        .expect("fault dir from parent harness; run signed_dispatch_commit_fault_windows_recover_parent_once instead of this child");
     let phase = std::env::var(FAULT_PHASE_ENV).expect("fault phase from parent harness");
     std::env::set_var(
         epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
@@ -554,6 +558,7 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
         let dir = test_support::fresh_dir(&format!("eg-txn-signed-fault-{label}"));
         let dir_s = dir.to_string_lossy().into_owned();
         let child = Command::new(std::env::current_exe().expect("integration test executable"))
+            .arg("--ignored")
             .arg("--exact")
             .arg("signed_dispatch_commit_fault_child")
             .arg("--nocapture")
@@ -759,11 +764,15 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
 /// Child process for [`signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay`].
 /// The dedicated lifecycle hook aborts after the signed Begin/Stage volatile
 /// effect and before the saga terminal receipt, leaving a real Prepared row.
+///
+/// Not a standalone test: without the parent's environment there is nothing to run,
+/// so it is `#[ignore]`d (listed as ignored rather than passing vacuously) and the
+/// parent selects it with `--ignored --exact`.
 #[tokio::test]
+#[ignore = "child-process entrypoint; spawned by signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay"]
 async fn signed_dispatch_lifecycle_fault_child() {
-    let Ok(dir_s) = std::env::var(LIFECYCLE_DIR_ENV) else {
-        return;
-    };
+    let dir_s = std::env::var(LIFECYCLE_DIR_ENV)
+        .expect("lifecycle fault dir from parent harness; run signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay instead of this child");
     let mode = std::env::var(LIFECYCLE_MODE_ENV).expect("lifecycle fault mode from parent harness");
     std::env::set_var(
         epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
@@ -880,6 +889,7 @@ async fn signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay() {
         let dir = test_support::fresh_dir(&format!("eg-txn-signed-lifecycle-fault-{mode}"));
         let dir_s = dir.to_string_lossy().into_owned();
         let child = Command::new(std::env::current_exe().expect("integration test executable"))
+            .arg("--ignored")
             .arg("--exact")
             .arg("signed_dispatch_lifecycle_fault_child")
             .arg("--nocapture")

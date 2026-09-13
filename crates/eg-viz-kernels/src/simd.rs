@@ -307,11 +307,36 @@ mod tests {
         assert!(!finite[3] && !finite[4]);
     }
 
+    /// Guard for hosts without the opt-in: the AVX2 parity tests below are compiled only
+    /// under `--cfg eg_avx2_tests`, because the fleet's Westmere hosts have no AVX2 and
+    /// the kernels cannot execute there. Without the opt-in this host must lack AVX2 (so
+    /// nothing runnable is being left out) and the public entry points must take the
+    /// scalar path.
+    #[cfg(not(eg_avx2_tests))]
+    #[test]
+    fn without_avx2_opt_in_the_host_lacks_avx2_and_dispatch_is_scalar() {
+        assert!(
+            !avx2_available(),
+            "this CPU has AVX2, so the AVX2 parity tests must run: \
+             RUSTFLAGS=\"--cfg eg_avx2_tests\" cargo test -p eg-viz-kernels"
+        );
+        let cx: Vec<f64> = (0..9).map(|i| i as f64 * 1.3).collect();
+        let cy: Vec<f64> = (0..9).map(|i| (i as f64 * 0.7).sin()).collect();
+        let mut scalar_out = vec![0.0; cx.len()];
+        triangle_areas_scalar((0.0, 0.0), (30.0, 0.5), &cx, &cy, &mut scalar_out);
+        let mut dispatched = vec![0.0; cx.len()];
+        triangle_areas((0.0, 0.0), (30.0, 0.5), &cx, &cy, &mut dispatched);
+        assert_eq!(scalar_out, dispatched);
+    }
+
+    /// AVX2 parity. Compiled only under `--cfg eg_avx2_tests`; FAILS on a CPU without AVX2.
+    #[cfg(eg_avx2_tests)]
     #[test]
     fn avx2_bucket_indices_matches_scalar_on_representative_input() {
-        if !avx2_available() {
-            return; // proved equivalent on whatever CPU proptest runs on instead
-        }
+        assert!(
+            avx2_available(),
+            "--cfg eg_avx2_tests is set but this CPU has no AVX2"
+        );
         let xs: Vec<f64> = (0..37)
             .map(|i| match i % 7 {
                 0 => f64::NAN,
@@ -333,11 +358,14 @@ mod tests {
         assert_eq!(fin_scalar, fin_simd);
     }
 
+    /// AVX2 parity. Compiled only under `--cfg eg_avx2_tests`; FAILS on a CPU without AVX2.
+    #[cfg(eg_avx2_tests)]
     #[test]
     fn avx2_triangle_areas_matches_scalar() {
-        if !avx2_available() {
-            return;
-        }
+        assert!(
+            avx2_available(),
+            "--cfg eg_avx2_tests is set but this CPU has no AVX2"
+        );
         let cx: Vec<f64> = (0..23).map(|i| i as f64 * 1.3).collect();
         let cy: Vec<f64> = (0..23).map(|i| (i as f64 * 0.7).sin()).collect();
         let prev = (0.0, 0.0);
