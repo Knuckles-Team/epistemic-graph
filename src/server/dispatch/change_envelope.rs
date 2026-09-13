@@ -3,6 +3,7 @@ use super::consensus::authoritative_now_ms;
 use super::graph_pipeline::dispatch_graph_op;
 use super::graph_pipeline::GraphOpRouting;
 use super::*;
+use eg_types::result_contract::transactions as txn_results;
 
 /// Batch envelope coordinator (CONCEPT:EG-KG.ingest.batched-change-envelopes). Validates
 /// each envelope's context against the verified request authority, groups envelopes
@@ -38,7 +39,9 @@ pub(super) async fn dispatch_change_envelopes(
     if total == 0 {
         return Response::ok(
             req_id,
-            ResultPayload::Json(serde_json::json!({ "results": [] })),
+            ResultPayload::of::<txn_results::ApplyChangeEnvelopes>(
+                txn_results::ChangeEnvelopeBatch::default(),
+            ),
         );
     }
     if total > crate::change_envelope::MAX_ENVELOPES_PER_BATCH {
@@ -56,17 +59,17 @@ pub(super) async fn dispatch_change_envelopes(
         return response;
     }
 
-    let mut per_index: Vec<serde_json::Value> = vec![serde_json::Value::Null; total];
+    let mut per_index: Vec<Option<txn_results::ChangeEnvelopeOutcome>> = vec![None; total];
     let (groups, ungrouped) = group_change_envelopes_by_graph(envelopes);
     for index in ungrouped {
         // Unreachable in practice: `change_envelope_batch_authority_error` above
         // already rejects the whole request if any envelope's mutation scope has
-        // no graph name. Kept as an explicit conflict entry, not a silent Null,
+        // no graph name. Kept as an explicit conflict entry, not a silent gap,
         // in case that invariant ever changes.
-        per_index[index] = serde_json::json!({
-            "status": "conflict",
-            "error": "ApplyChangeEnvelopes requires a graph-scoped mutation",
-        });
+        per_index[index] = Some(change_envelope_conflict(
+            None,
+            "ApplyChangeEnvelopes requires a graph-scoped mutation",
+        ));
     }
     for (graph, group) in groups {
         let indices: Vec<usize> = group.iter().map(|(index, _)| *index).collect();
@@ -86,9 +89,19 @@ pub(super) async fn dispatch_change_envelopes(
         scatter_change_envelope_group_results(&mut per_index, &indices, resp);
     }
 
+    let results = per_index
+        .into_iter()
+        .map(|entry| {
+            entry.unwrap_or_else(|| {
+                change_envelope_conflict(None, "missing per-envelope result in batch response")
+            })
+        })
+        .collect();
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({ "results": per_index })),
+        ResultPayload::of::<txn_results::ApplyChangeEnvelopes>(txn_results::ChangeEnvelopeBatch {
+            results,
+        }),
     )
 }
 
@@ -196,40 +209,41 @@ fn group_change_envelopes_by_graph(
 /// Scatter one graph group's response back into request-ordered slots.
 #[cfg(feature = "redb")]
 fn scatter_change_envelope_group_results(
-    per_index: &mut [serde_json::Value],
+    per_index: &mut [Option<txn_results::ChangeEnvelopeOutcome>],
     indices: &[usize],
     response: Response,
 ) {
-    if let Some(err) = response.error {
-        // A transport/ACL/placement failure for the whole group (distinct from the
-        // per-envelope atomic-batch abort, which returns Ok with conflict entries).
-        for index in indices {
-            per_index[*index] = serde_json::json!({ "status": "conflict", "error": err });
+    // A transport/ACL/placement failure for the whole group (distinct from the
+    // per-envelope atomic-batch abort, which returns Ok with conflict entries).
+    let mut group_results = match declared_json_response::<txn_results::ChangeEnvelopeBatch>(
+        response,
+        "invalid batch response",
+        "empty batch response",
+    ) {
+        Ok(batch) => batch.results.into_iter(),
+        Err(error) => {
+            for index in indices {
+                per_index[*index] = Some(change_envelope_conflict(None, error.clone()));
+            }
+            return;
         }
-        return;
-    }
-    let Some(ResultPayload::Json(value)) = response.result else {
-        for index in indices {
-            per_index[*index] = serde_json::json!({
-                "status": "conflict",
-                "error": "empty batch response",
-            });
-        }
-        return;
     };
-    let group_results = value
-        .get("results")
-        .and_then(|results| results.as_array())
-        .cloned()
-        .unwrap_or_default();
-    for (position, index) in indices.iter().enumerate() {
-        per_index[*index] = group_results.get(position).cloned().unwrap_or_else(|| {
-            serde_json::json!({
-                "status": "conflict",
-                "error": "missing per-envelope result in batch response",
-            })
-        });
+    for index in indices {
+        per_index[*index] = Some(group_results.next().unwrap_or_else(|| {
+            change_envelope_conflict(None, "missing per-envelope result in batch response")
+        }));
     }
+}
+
+/// A `conflict` outcome for one envelope of an `ApplyChangeEnvelopes` batch.
+fn change_envelope_conflict(
+    envelope_id: Option<String>,
+    error: impl Into<String>,
+) -> txn_results::ChangeEnvelopeOutcome {
+    txn_results::ChangeEnvelopeOutcome::Conflict(txn_results::ChangeEnvelopeConflict {
+        envelope_id,
+        error: error.into(),
+    })
 }
 
 /// Apply a batched cross-graph write (CONCEPT:EG-KG.storage.multi-graph-batch-write).
@@ -282,13 +296,46 @@ pub(super) async fn multi_graph_batch_update(
         Ok(saga) => saga,
         Err(response) => return response,
     };
-    let (results, errors) = if batches.is_empty() {
-        (serde_json::Map::new(), serde_json::Map::new())
+    let report = if batches.is_empty() {
+        txn_results::MultiGraphBatchReport::default()
     } else {
         run_multi_graph_batches(state, req_id, caller, verified_context, batches).await
     };
-    let result = ResultPayload::Json(serde_json::json!({"results": results, "errors": errors}));
-    finish_multi_graph_batch(redb, req_id, saga, result)
+    finish_multi_graph_report(redb, req_id, saga, report)
+}
+
+/// Encode the assembled partial-success report as the declared result and close the
+/// saga (when there is one) over it.
+#[cfg(feature = "redb")]
+fn finish_multi_graph_report(
+    redb: &crate::server::persistence::redb_backend::RedbBackend,
+    req_id: u64,
+    saga: Option<handlers::admin::AdminSaga>,
+    report: txn_results::MultiGraphBatchReport,
+) -> Response {
+    match ResultPayload::of::<txn_results::MultiGraphBatchUpdate>(report) {
+        Ok(result) => finish_multi_graph_batch(redb, req_id, saga, result),
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
+/// The declared JSON body of a successful in-process response; its error, or the
+/// named refusal when it answered an invalid or no body.
+#[cfg(feature = "redb")]
+fn declared_json_response<T: serde::de::DeserializeOwned>(
+    response: Response,
+    invalid: &str,
+    absent: &str,
+) -> Result<T, String> {
+    if let Some(error) = response.error {
+        return Err(error);
+    }
+    match response.result {
+        Some(ResultPayload::Json(value)) => {
+            serde_json::from_value(value).map_err(|error| format!("{invalid}: {error}"))
+        }
+        _ => Err(absent.to_string()),
+    }
 }
 
 /// Open the durable admin saga that makes a single-node multi-graph batch
@@ -344,22 +391,26 @@ fn finish_multi_graph_batch(
     }
 }
 
-/// Record one sub-batch's outcome. A graph's failure lands in `errors`; a
-/// success lands in `results`, with a non-JSON payload recorded as null so the
-/// reply always names every graph exactly once.
+/// Record one sub-batch's outcome. A graph lands in `results` with its
+/// `BatchUpdate` report, or in `errors` -- its own failure, or a success that
+/// answered no valid report -- so the reply names every graph exactly once.
 #[cfg(feature = "redb")]
 fn record_multi_graph_result(
-    results: &mut serde_json::Map<String, serde_json::Value>,
-    errors: &mut serde_json::Map<String, serde_json::Value>,
+    report: &mut txn_results::MultiGraphBatchReport,
     graph: String,
     response: Response,
 ) {
-    if let Some(err) = response.error {
-        errors.insert(graph, serde_json::Value::String(err));
-    } else if let Some(ResultPayload::Json(value)) = response.result {
-        results.insert(graph, value);
-    } else {
-        results.insert(graph, serde_json::Value::Null);
+    match declared_json_response::<txn_results::BatchUpdateReport>(
+        response,
+        "sub-batch answered an invalid BatchUpdate report",
+        "sub-batch answered no BatchUpdate report",
+    ) {
+        Ok(batch) => {
+            report.results.insert(graph, batch);
+        }
+        Err(error) => {
+            report.errors.insert(graph, error);
+        }
     }
 }
 
@@ -374,12 +425,8 @@ async fn run_multi_graph_batches(
     caller: Option<&str>,
     verified_context: &VerifiedRequestContext,
     batches: Vec<(String, serde_bytes::ByteBuf)>,
-) -> (
-    serde_json::Map<String, serde_json::Value>,
-    serde_json::Map<String, serde_json::Value>,
-) {
-    let mut results = serde_json::Map::new();
-    let mut errors = serde_json::Map::new();
+) -> txn_results::MultiGraphBatchReport {
+    let mut report = txn_results::MultiGraphBatchReport::default();
     let caller_owned = caller.map(str::to_string);
     let mut set = tokio::task::JoinSet::new();
     for (graph, ops) in batches {
@@ -404,18 +451,18 @@ async fn run_multi_graph_batches(
 
     while let Some(joined) = set.join_next().await {
         match joined {
-            Ok((graph, resp)) => record_multi_graph_result(&mut results, &mut errors, graph, resp),
+            Ok((graph, resp)) => record_multi_graph_result(&mut report, graph, resp),
             Err(join_err) => {
                 // A panicked/cancelled sub-batch task — surface it, don't abort.
                 let _ = join_err;
-                errors.insert(
-                    format!("__join_error_{}", errors.len()),
-                    serde_json::Value::String("sub-batch execution failed".to_string()),
-                );
+                let key = format!("__join_error_{}", report.errors.len());
+                report
+                    .errors
+                    .insert(key, "sub-batch execution failed".to_string());
             }
         }
     }
-    (results, errors)
+    report
 }
 
 #[cfg(not(feature = "redb"))]
@@ -486,21 +533,12 @@ pub(super) fn decode_multi_graph_batches(
 fn change_envelope_result(
     committed: &eg_types::ChangeEnvelopeCommit,
     projection_pending: bool,
-) -> serde_json::Value {
-    let mut result = serde_json::to_value(committed).unwrap_or_else(|_| {
-        serde_json::json!({
-            "envelope_id": committed.envelope_id,
-            "batch_id": committed.batch_id,
-            "replayed": committed.replayed,
-        })
-    });
-    if let Some(object) = result.as_object_mut() {
-        object.insert(
-            "projection_pending".to_string(),
-            serde_json::Value::Bool(projection_pending),
-        );
+) -> txn_results::ChangeEnvelopeApplied {
+    txn_results::ChangeEnvelopeApplied {
+        commit: committed.clone(),
+        projection_pending,
+        replication: None,
     }
-    result
 }
 
 /// Derive the native authority epoch from the registry-published graph
@@ -644,13 +682,16 @@ async fn try_replicate_change_envelope(
         Ok(response) => match response.change_envelope_commit {
             Some(committed) => {
                 let mut result = change_envelope_result(&committed, response.projection_pending);
-                if let Some(object) = result.as_object_mut() {
-                    object.insert("replicated".to_string(), true.into());
-                    object.insert("group".to_string(), routed.group_id.into());
-                    object.insert("epoch".to_string(), routed.epoch.into());
-                    object.insert("fencing_token".to_string(), routed.fencing_token().into());
-                }
-                Response::ok(req_id, ResultPayload::Json(result))
+                result.replication = Some(txn_results::ChangeEnvelopeReplication {
+                    replicated: true,
+                    group: routed.group_id,
+                    epoch: routed.epoch,
+                    fencing_token: routed.fencing_token(),
+                });
+                Response::ok(
+                    req_id,
+                    ResultPayload::of::<txn_results::ApplyChangeEnvelope>(result),
+                )
             }
             None => Response::err(
                 req_id,
@@ -686,7 +727,7 @@ async fn commit_change_envelope_batch_results(
     fname: &str,
     envelopes: &[eg_types::change_envelope::ChangeEnvelope],
     committed_at_ms: u64,
-) -> Vec<serde_json::Value> {
+) -> Vec<txn_results::ChangeEnvelopeOutcome> {
     match backend
         .commit_change_envelopes(fname, envelopes, committed_at_ms)
         .await
@@ -710,25 +751,18 @@ fn change_envelope_applied_entry(
     core: &Arc<crate::graph::GraphCore>,
     envelope: &eg_types::change_envelope::ChangeEnvelope,
     committed: &eg_types::ChangeEnvelopeCommit,
-) -> serde_json::Value {
+) -> txn_results::ChangeEnvelopeOutcome {
     let projection_error = if committed.replayed {
         None
     } else {
         crate::server::mutation_batch::publish_change_envelope_projection(core, envelope).err()
     };
-    let mut entry = change_envelope_result(committed, projection_error.is_some());
-    if let Some(object) = entry.as_object_mut() {
-        let status = if committed.replayed {
-            "idempotent_skip"
-        } else {
-            "applied"
-        };
-        object.insert(
-            "status".to_string(),
-            serde_json::Value::String(status.to_string()),
-        );
+    let entry = change_envelope_result(committed, projection_error.is_some());
+    if committed.replayed {
+        txn_results::ChangeEnvelopeOutcome::IdempotentSkip(entry)
+    } else {
+        txn_results::ChangeEnvelopeOutcome::Applied(entry)
     }
-    entry
 }
 
 /// The whole graph-batch aborted atomically — nothing committed. Report the
@@ -738,7 +772,7 @@ fn change_envelope_abort_entries(
     envelopes: &[eg_types::change_envelope::ChangeEnvelope],
     failing_index: usize,
     error: &str,
-) -> Vec<serde_json::Value> {
+) -> Vec<txn_results::ChangeEnvelopeOutcome> {
     envelopes
         .iter()
         .enumerate()
@@ -750,11 +784,7 @@ fn change_envelope_abort_entries(
                     "ABORTED_ATOMIC_GRAPH_BATCH: sibling envelope {failing_index} failed ({error})"
                 )
             };
-            serde_json::json!({
-                "status": "conflict",
-                "envelope_id": envelope.envelope_id,
-                "error": this_error,
-            })
+            change_envelope_conflict(Some(envelope.envelope_id.clone()), this_error)
         })
         .collect()
 }
@@ -871,7 +901,10 @@ pub(super) async fn route_change_envelope_ops(
                         .err()
                     };
                     let result = change_envelope_result(&committed, projection_error.is_some());
-                    Response::ok(req_id, ResultPayload::Json(result))
+                    Response::ok(
+                        req_id,
+                        ResultPayload::of::<txn_results::ApplyChangeEnvelope>(result),
+                    )
                 }
             }
             .await);
@@ -931,7 +964,9 @@ pub(super) async fn route_change_envelope_ops(
             .await;
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!({ "results": results })),
+                ResultPayload::of::<txn_results::ApplyChangeEnvelopes>(
+                    txn_results::ChangeEnvelopeBatch { results },
+                ),
             )
         }
 }

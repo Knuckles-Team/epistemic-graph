@@ -601,10 +601,12 @@ async fn bring_up_user_graphs(
     (dir, backend, multi, state)
 }
 
-/// Unwrap a handler `Response` to its `Bool` payload (the txn ack), or panic.
+/// Unwrap a handler `Response` to its boolean payload (the txn ack), or panic. A stage
+/// op answers `Bool`; `Commit` declares its unkeyed outcome as the JSON boolean, the
+/// same bytes on the wire.
 fn as_bool(r: Response) -> bool {
     match r.result {
-        Some(ResultPayload::Bool(b)) => b,
+        Some(ResultPayload::Bool(b)) | Some(ResultPayload::Json(serde_json::Value::Bool(b))) => b,
         other => panic!("expected Bool payload, got {other:?} (error={:?})", r.error),
     }
 }

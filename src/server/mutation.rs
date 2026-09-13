@@ -2802,14 +2802,15 @@ fn prepublish_success(core: &GraphCore, method: &Method) -> Option<ResultPayload
                     return None;
                 }
             };
-            match eg_types::msgpack::decode_property_value(&result) {
-                Ok(value) => Some(ResultPayload::Json(value)),
+            match eg_types::result_contract::transactions::BatchUpdateReport::decode(&result)
+                .and_then(
+                    ResultPayload::of::<eg_types::result_contract::transactions::BatchUpdate>,
+                ) {
+                Ok(payload) => Some(payload),
                 Err(error) => {
                     tracing::warn!(
                         target: "epistemic_graph::mutation",
-                        // `?` (Debug) not `%` (Display): MsgpackValidationError
-                        // implements Debug only.
-                        ?error,
+                        %error,
                         "BatchUpdate preview summary failed to decode; falling back \
                          to the full-snapshot runtime-result commit path"
                     );

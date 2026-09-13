@@ -1,7 +1,10 @@
 //! Declared results of the `graph` contract domain.
 
+use super::transactions::SparqlUpdateReport;
+
 method_results! {
     visit_graph;
+    ApplyMutation(ApplyMutation) => Json<SparqlUpdateReport>;
     CreateNodeIfAbsent(CreateNodeIfAbsent) => Bool<bool>;
     HasNode(HasNode) => Bool<bool>;
     GetNodes(GetNodes) => NodeList<Vec<(String, serde_json::Value)>>;

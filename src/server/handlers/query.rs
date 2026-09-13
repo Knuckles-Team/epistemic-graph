@@ -7714,7 +7714,10 @@ mod txn_ryow_dispatch_tests {
         )
         .await;
         assert!(
-            matches!(c.result, Some(ResultPayload::Bool(true))),
+            matches!(
+                c.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+            ),
             "commit must succeed: {:?}",
             c.error
         );

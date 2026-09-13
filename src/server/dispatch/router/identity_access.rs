@@ -111,22 +111,52 @@ pub(super) async fn dispatch_identity_and_access_methods(
                         }
                     }
                     // Delegate mutation application to the target graph
-                    dispatch_graph_op(
-                        state,
-                        &req_graph,
-                        req_id,
-                        req_agent_id.as_deref(),
-                        verified_context,
-                        Method::ApplyMutation {
-                            event_type: mutation_type,
-                            query,
-                        },
+                    multisig_mutation_response(
+                        dispatch_graph_op(
+                            state,
+                            &req_graph,
+                            req_id,
+                            req_agent_id.as_deref(),
+                            verified_context,
+                            Method::ApplyMutation {
+                                event_type: mutation_type,
+                                query,
+                            },
+                        )
+                        .await,
                     )
-                    .await
                 }
             })
             .await
         }
         other => return ControlFlow::Continue(other),
     })
+}
+
+/// `ApplyMultisigMutation` answers with the SPARQL UPDATE report of the
+/// `ApplyMutation` it was translated into, declared under its own marker.
+fn multisig_mutation_response(response: Response) -> Response {
+    let Response { id, result, error } = response;
+    if let Some(error) = error {
+        return Response::err(id, error);
+    }
+    let report = match result {
+        Some(ResultPayload::Json(value)) => serde_json::from_value::<
+            eg_types::result_contract::transactions::SparqlUpdateReport,
+        >(value)
+        .map_err(|error| {
+            format!(
+                "ApplyMultisigMutation: the translated ApplyMutation report is invalid: {error}"
+            )
+        }),
+        _ => Err(
+            "ApplyMultisigMutation: the translated ApplyMutation answered no report".to_string(),
+        ),
+    };
+    Response::ok(
+        id,
+        report.and_then(
+            ResultPayload::of::<eg_types::result_contract::transactions::ApplyMultisigMutation>,
+        ),
+    )
 }

@@ -6470,7 +6470,10 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(r.result, Some(ResultPayload::Bool(true))),
+            matches!(
+                r.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+            ),
             "commit ok: {:?}",
             r.error
         );
@@ -7716,9 +7719,12 @@ mod tests {
         d.to_string_lossy().to_string()
     }
 
+    /// A stage op answers `Bool`; `Commit` declares its unkeyed outcome as the JSON
+    /// boolean, the same bytes on the wire.
     fn as_bool(r: Response) -> Option<bool> {
         match r.result {
-            Some(ResultPayload::Bool(b)) => Some(b),
+            Some(ResultPayload::Bool(b))
+            | Some(ResultPayload::Json(serde_json::Value::Bool(b))) => Some(b),
             _ => None,
         }
     }

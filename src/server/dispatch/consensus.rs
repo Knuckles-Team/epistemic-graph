@@ -844,20 +844,44 @@ async fn coordinate_native_result(
             .await
         }
         (NativeCoordination::TransactionCommit, ResultPayload::Raw(prepared)) => {
-            execute_consensus_transaction(
-                proposal.state,
-                proposal.request_id,
-                proposal.authority,
-                proposal.server_secret,
-                multi,
-                routed,
-                proposal.graph_name,
-                proposal.graph_type,
-                &prepared,
+            // A clustered `Commit` answers the bare committed boolean: the consensus
+            // path does not see the caller idempotency key the local path tags with.
+            handlers::txn::tag_commit_response(
+                execute_consensus_transaction(
+                    proposal.state,
+                    proposal.request_id,
+                    proposal.authority,
+                    proposal.server_secret,
+                    multi,
+                    routed,
+                    proposal.graph_name,
+                    proposal.graph_type,
+                    &prepared,
+                )
+                .await,
+                false,
+                false,
             )
-            .await
         }
-        (_, terminal) => Response::ok(proposal.request_id, terminal),
+        (coordination, terminal) => {
+            terminal_native_response(proposal.request_id, coordination, terminal)
+        }
+    }
+}
+
+/// A coordination-classified command whose apply already produced its terminal
+/// result, declared as that command's result.
+#[cfg(feature = "raft")]
+fn terminal_native_response(
+    request_id: u64,
+    coordination: NativeCoordination,
+    terminal: ResultPayload,
+) -> Response {
+    match coordination {
+        NativeCoordination::TransactionCommit => {
+            handlers::txn::tag_commit_response(Response::ok(request_id, terminal), false, false)
+        }
+        _ => Response::ok(request_id, terminal),
     }
 }
 

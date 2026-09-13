@@ -4514,7 +4514,10 @@ mod tests {
             .unwrap();
         assert_ok(&coalesced_resp);
         assert!(
-            matches!(committed_resp.result, Some(ResultPayload::Bool(true))),
+            matches!(
+                committed_resp.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+            ),
             "commit: {:?}",
             committed_resp.error
         );
@@ -4828,7 +4831,10 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(r.result, Some(ResultPayload::Bool(true))),
+            matches!(
+                r.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+            ),
             "commit ok: {:?}",
             r.error
         );
@@ -4887,9 +4893,17 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(r.result, Some(ResultPayload::Bool(true))),
-            "no idempotency_key -> bare Bool, unchanged wire shape: {:?}",
+            matches!(
+                r.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+            ),
+            "no idempotency_key -> bare boolean body: {:?}",
             r.result
+        );
+        assert_eq!(
+            rmp_serde::to_vec_named(&r.result).unwrap(),
+            rmp_serde::to_vec_named(&Some(ResultPayload::Bool(true))).unwrap(),
+            "no idempotency_key -> the unchanged bare-Bool wire bytes"
         );
     }
 
@@ -5145,7 +5159,10 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(r1.result, Some(ResultPayload::Bool(true))),
+            matches!(
+                r1.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+            ),
             "t1 commits"
         );
 
@@ -5164,7 +5181,10 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(r2.result, Some(ResultPayload::Bool(false))),
+            matches!(
+                r2.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(false)))
+            ),
             "t2 must conflict, got {:?} err={:?}",
             r2.result,
             r2.error
@@ -5307,8 +5327,11 @@ mod tests {
         )
         .await;
         match r.result {
-            Some(ResultPayload::Bool(b)) => b,
-            other => panic!("Commit must return Bool, got {other:?} (err={:?})", r.error),
+            Some(ResultPayload::Json(serde_json::Value::Bool(b))) => b,
+            other => panic!(
+                "Commit must return its unkeyed boolean body, got {other:?} (err={:?})",
+                r.error
+            ),
         }
     }
 

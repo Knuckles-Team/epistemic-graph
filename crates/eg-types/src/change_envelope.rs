@@ -669,6 +669,7 @@ pub struct ChangeEnvelopeRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ChangeEnvelopeCommit {
     pub envelope_id: String,
     pub batch_id: String,

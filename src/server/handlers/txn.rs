@@ -2186,10 +2186,12 @@ async fn stage_materialize_belief(
     }
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "node_id": node_id,
-            "confidence": confidence,
-        })),
+        ResultPayload::of::<eg_types::result_contract::transactions::TxnMaterializeBelief>(
+            eg_types::result_contract::transactions::BeliefMaterialization {
+                node_id,
+                confidence,
+            },
+        ),
     )
 }
 
@@ -2210,28 +2212,40 @@ async fn stage_materialize_belief(
 /// ([`commit_multi_graph`]). The coordinator, the span gate, the durable 2PC records,
 /// and recovery are the `raft harness`-proven Lane N machinery; THIS is the
 /// user-facing wire that hands a staged multi-graph write-set to it.
-/// B-9 (2026-08-13): wrap a `Commit` response's `Bool` result into
-/// `{"committed": bool, "replayed": bool}` when the caller supplied an
-/// idempotency key on the request -- the same `applied`/`idempotent_skip`
+/// B-9 (2026-08-13): declare a `Commit` response's boolean outcome as the
+/// `Commit` result. With a caller idempotency key it is
+/// `{"committed": bool, "replayed": bool}` -- the same `applied`/`idempotent_skip`
 /// vocabulary `ApplyChangeEnvelope` reports, extended onto `Commit` rather than
-/// inventing a second one. An error response passes through unchanged either
-/// way. **Without a caller key the response is BYTE-FOR-BYTE UNCHANGED** (still
-/// a bare `Bool`) -- this is the VERIFY contract's "without the key the
-/// behaviour is unchanged".
-fn tag_commit_response(response: Response, replayed: bool, keyed: bool) -> Response {
-    if !keyed {
-        return response;
+/// inventing a second one. **Without a caller key the body is the bare boolean**,
+/// byte-for-byte the wire shape it always had (`ResultPayload` is untagged) -- the
+/// VERIFY contract's "without the key the behaviour is unchanged". An error
+/// response passes through unchanged; any other outcome is a broken receipt.
+pub(crate) fn tag_commit_response(response: Response, replayed: bool, keyed: bool) -> Response {
+    let Response { id, result, error } = response;
+    if let Some(error) = error {
+        return Response::err(id, error);
     }
-    match response.result {
-        Some(ResultPayload::Bool(committed)) => Response::ok(
-            response.id,
-            ResultPayload::Json(serde_json::json!({
-                "committed": committed,
-                "replayed": replayed,
-            })),
-        ),
-        _ => response,
-    }
+    Response::ok(id, commit_outcome(result, keyed.then_some(replayed)))
+}
+
+/// The declared `Commit` result for a successful commit's boolean outcome.
+/// `keyed_replay` is `None` for a commit without a caller idempotency key, else whether
+/// this answer replayed an earlier commit under that key.
+fn commit_outcome(
+    result: Option<ResultPayload>,
+    keyed_replay: Option<bool>,
+) -> Result<ResultPayload, String> {
+    let Some(ResultPayload::Bool(committed)) = result else {
+        return Err("transaction commit answered a non-boolean outcome".to_string());
+    };
+    let outcome = match keyed_replay {
+        Some(replayed) => eg_types::result_contract::transactions::CommitOutcome::Keyed {
+            committed,
+            replayed,
+        },
+        None => eg_types::result_contract::transactions::CommitOutcome::Unkeyed(committed),
+    };
+    ResultPayload::of::<eg_types::result_contract::transactions::Commit>(outcome)
 }
 
 async fn commit(
