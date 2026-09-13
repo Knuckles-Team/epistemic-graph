@@ -2567,6 +2567,7 @@ components:
       - "tests/"
       - "benches/"
       - "examples/"
+      - "tests/test_check_complexity_staged.py"
     generated_roots: []
     shared_roots: []
     shared_files: []
