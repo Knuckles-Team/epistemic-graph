@@ -12,7 +12,7 @@ use eg_modality::{
     temporal_buckets, GovernedModality, NativePredicate, NativeProductionProbe, OpaqueRef,
 };
 
-use crate::header::parse_wav;
+use crate::header::parse_wav_pcm;
 use crate::{content_hash, AudioData, AudioFeatureWindow, AudioSegment, WavInfo};
 
 mod plugins;
@@ -460,8 +460,7 @@ fn bounded_spectral_bins(samples: &[f32]) -> [f32; 8] {
 }
 
 fn pcm_payload(bytes: &[u8]) -> Option<(WavInfo, &[u8])> {
-    let wav = parse_wav(bytes)?;
-    Some((wav.info, wav.payload))
+    parse_wav_pcm(bytes)
 }
 
 fn decode_mono(bytes: &[u8], channels: u16, bits: u16) -> Option<Vec<f32>> {
