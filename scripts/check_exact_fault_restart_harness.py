@@ -326,7 +326,11 @@ _MUTATION_KERNEL_COMMIT_CALL = re.compile(r"\.mutations\s*\.commit\(write")
 
 def _check_store_contract() -> list[str]:
     errors: list[str] = []
-    graph_store = _read("src/redb_store.rs")
+    # `redb_store.rs` is a compiler facade: the mutation-phase calls now live
+    # in its declared `store_batch`/`store_mutation` children. Read the exact
+    # source family the compiler assembles so a child omission cannot make the
+    # graph mutation contract look satisfied by an unrelated facade comment.
+    graph_store = _read_rust_module("src/redb_store.rs")
     sql_store = _read("crates/eg-query/src/tables/store.rs")
     native_store = "\n".join(_read(path) for path in _NATIVE_STORE_COMMIT_SOURCES)
     phase_variants = {

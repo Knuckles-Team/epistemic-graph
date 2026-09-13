@@ -60,16 +60,18 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
     let (placement_epoch, placement_fence) = (0, None);
 
     let response = match crate::server::mutation_batch::commit_work_item(
-        ctx.persistence.as_ref(),
-        ctx.core,
-        ctx.req_id,
-        ctx.verified_context.attempt_nonce(),
-        Some(ctx.verified_context.idempotency_key()),
-        ctx.caller,
-        ctx.graph_name,
-        placement_epoch,
-        placement_fence,
-        method,
+        crate::server::mutation_batch::WorkItemCommitRequest::new(
+            ctx.persistence.as_ref(),
+            ctx.core,
+            ctx.req_id,
+            Some(ctx.verified_context.idempotency_key()),
+            ctx.caller,
+            ctx.graph_name,
+            placement_epoch,
+            method,
+        )
+        .with_attempt_nonce(ctx.verified_context.attempt_nonce())
+        .with_placement_fencing_token(placement_fence),
     )
     .await
     {

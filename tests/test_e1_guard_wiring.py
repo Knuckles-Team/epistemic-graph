@@ -35,6 +35,59 @@ def test_p2_guard_rejects_a_missing_post_page_fence() -> None:
         module.require_knowledge_stream_authority(broken)
 
 
+def test_p2_protocol_child_variant_is_composed_and_required() -> None:
+    module = _load_gate(
+        "check_p2_modality_architecture.py", "e1_p2_protocol_family"
+    )
+    protocol = module.protocol_source()
+    assert "KnowledgeStream {" in protocol
+    module.require_governed_protocol_method(protocol, "KnowledgeStream")
+
+    omitted = protocol.replace("KnowledgeStream {", "KnowledgeStreamRemoved {", 1)
+    with pytest.raises(SystemExit, match="not a governed served protocol method"):
+        module.require_governed_protocol_method(omitted, "KnowledgeStream")
+
+
+def test_universal_read_protocol_child_variant_is_composed_and_required() -> None:
+    module = _load_gate(
+        "check_universal_read_rls.py", "e1_universal_protocol_family"
+    )
+    protocol = module.protocol_source()
+    policies = module.capability_inventory()
+    assert "KnowledgeStream {" in protocol
+    module.require_protocol_inventory(protocol, policies)
+
+    omitted = protocol.replace("KnowledgeStream {", "KnowledgeStreamRemoved {", 1)
+    with pytest.raises(SystemExit, match="protocol/policy inventories differ"):
+        module.require_protocol_inventory(omitted, policies)
+
+
+def test_p2_dispatch_ordering_follows_graph_pipeline_children() -> None:
+    module = _load_gate(
+        "check_p2_modality_architecture.py", "e1_p2_dispatch_family"
+    )
+    dispatch = module.read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
+    module.require_graph_dispatch_ordering(dispatch)
+
+    broken = dispatch.replace("capture_graph_dispatch(state, ctx", "capture_without_acl(state, ctx", 1)
+    with pytest.raises(SystemExit, match="routed before graph ACL"):
+        module.require_graph_dispatch_ordering(broken)
+
+
+def test_universal_read_cache_key_follows_query_children() -> None:
+    module = _load_gate(
+        "check_universal_read_rls.py", "e1_universal_query_family"
+    )
+    query = module.read_module_tree("src/server/handlers/query.rs", root_dir=ROOT)
+    rdf = module.read("src/server/handlers/rdf.rs")
+    dispatch = module.read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
+    module.require_query_result_cache_rls(query, rdf, dispatch)
+
+    broken = query.replace('format!("rls:{caller}:{kind}")', 'format!("{kind}")', 1)
+    with pytest.raises(SystemExit, match="result-cache actor key"):
+        module.require_query_result_cache_rls(broken, rdf, dispatch)
+
+
 def test_modality_guard_reads_probe_child_and_rejects_a_lost_probe_body(
     tmp_path, monkeypatch
 ) -> None:
@@ -214,11 +267,15 @@ def test_persisted_blob_guard_rejects_split_refcount_commit() -> None:
         "check_persisted_mutation_contract.py", "e1_persisted_mutation_guard"
     )
     sources = module.mutation_inventory_sources()
-    module._check_blob_result_contract(sources["blob_store"], sources["blob_store_tests"])
+    module._check_blob_result_contract(
+        sources["blob_store"], sources["blob_shared"], sources["blob_store_tests"]
+    )
 
-    broken = sources["blob_store"].replace("CAS_REFCOUNT", "REFCOUNT_TABLE_REMOVED")
+    broken = sources["blob_shared"].replace("CAS_REFCOUNT", "REFCOUNT_TABLE_REMOVED")
     with pytest.raises(SystemExit, match="atomically bind CAS"):
-        module._check_blob_result_contract(broken, sources["blob_store_tests"])
+        module._check_blob_result_contract(
+            sources["blob_store"], broken, sources["blob_store_tests"]
+        )
 
 
 def test_modality_guard_rejects_lost_child_target_closure() -> None:

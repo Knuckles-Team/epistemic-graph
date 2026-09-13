@@ -722,6 +722,56 @@ def _check_mutation_dispatch_order(sources: Mapping[str, str]) -> None:
     )
 
 
+def _check_internal_graph_commit_lock(mutation_batch: str) -> None:
+    """Keep internal graph commits in the same per-graph serialization lane.
+
+    The internal commit family is a compiler-declared child of the mutation-batch
+    facade. Its callers span jobs, query explanation, transactions, and program
+    promotion, so the lock belongs at this one shared seam. Checking the lock's
+    position relative to version discovery makes a split child fail closed when a
+    future extraction drops the guard or moves it below the first authoritative read.
+    """
+
+    body = _function(mutation_batch, "commit_internal_graph_methods_with_nonce_mode")
+    lock_at = body.find("lock_graph(request.graph).await")
+    read_at = body.find("read_mutation_batch(")
+    require(
+        lock_at >= 0 and read_at >= 0 and lock_at < read_at,
+        "internal graph commits must acquire lock_graph(request.graph) before the "
+        "first authoritative read",
+    )
+
+
+def _check_internal_graph_state_payload(mutation_batch: str) -> None:
+    """Keep the prepared graph delta wired into the authoritative state write.
+
+    The staged internal-graph extraction carries the serialized row delta as a
+    field on ``PreparedInternalGraphCommit``.  Check both sides of that seam so
+    a future destructure split cannot silently leave the authoritative commit
+    with an unbound or alternate payload.
+    """
+
+    body = _rust_code_mask(
+        _function(mutation_batch, "commit_prepared_internal_graph")
+    )
+    prepared_at = body.find("let PreparedInternalGraphCommit {")
+    input_at = body.find("} = input;", prepared_at)
+    commit_at = body.find("commit_mutation_batch_state(", input_at)
+    require(
+        prepared_at >= 0 and input_at >= 0 and commit_at >= 0,
+        "prepared internal graph commit must expose its destructure and "
+        "authoritative state write",
+    )
+    prepared_fields = body[prepared_at:input_at]
+    commit_call = body[commit_at:]
+    require(
+        re.search(r"\bstate_msgpack\s*,", prepared_fields) is not None
+        and re.search(r"\bstate_msgpack\s*,", commit_call) is not None,
+        "prepared internal graph commit must carry state_msgpack through the authoritative "
+        "commit_mutation_batch_state call",
+    )
+
+
 def check_mutation_inventory(sources: Mapping[str, str]) -> None:
     """Translate the authoritative Rust inventory tests into a source-only proof.
 
@@ -738,6 +788,8 @@ def check_mutation_inventory(sources: Mapping[str, str]) -> None:
     _check_mutation_gateway_inventory(sources, mutation_runtime, routed)
     _check_mutation_dispatch_order(sources)
     _check_mutation_cluster_inventory(sources, mutation_runtime, mutating, routed)
+    _check_internal_graph_commit_lock(sources["mutation_batch"])
+    _check_internal_graph_state_payload(sources["mutation_batch"])
 
 
 _TEST_MODULE = re.compile(r"#\[cfg\(test\)\]\s*\nmod\s+\w+\s*\{", re.M)
@@ -948,7 +1000,9 @@ def _check_coordinator_limits(sources: Mapping[str, str]) -> None:
     )
 
 
-def _check_blob_result_contract(blob_store: str, blob_store_tests: str) -> None:
+def _check_blob_result_contract(
+    blob_store: str, blob_shared: str, blob_store_tests: str
+) -> None:
     # This used to look for `CAS_CHUNKS`/`CAS_REFCOUNT`/`checked_add(1)` inside
     # the blob carrier's OWN local call graph, because the carrier once owned
     # those two table writes through local `insert_chunk_row`/`update_refcount`
@@ -971,7 +1025,6 @@ def _check_blob_result_contract(blob_store: str, blob_store_tests: str) -> None:
         and "adjust_refcount" in implementation,
         "blob result kernel must atomically bind CAS, refcount, overflow, and MutationBatch",
     )
-    blob_shared = read("crates/eg-storage/src/owner/blob_shared.rs")
     require(
         "CAS_CHUNKS" in blob_shared
         and "CAS_REFCOUNT" in blob_shared
@@ -994,7 +1047,9 @@ def _check_dispatch_carrier(sources: Mapping[str, str]) -> None:
     _check_dispatch_order(sources)
     _check_dispatch_recovery_proof(sources)
     _check_coordinator_limits(sources)
-    _check_blob_result_contract(sources["blob_store"], sources["blob_store_tests"])
+    _check_blob_result_contract(
+        sources["blob_store"], sources["blob_shared"], sources["blob_store_tests"]
+    )
 
 
 def check_served_carrier_mutations(sources: Mapping[str, str]) -> None:
@@ -1068,6 +1123,7 @@ def mutation_inventory_sources() -> dict[str, str]:
     dispatch = read_compiler_family("src/server/dispatch.rs")
     raft = read_compiler_family("src/raft/mod.rs")
     blob_store = read_compiler_family("src/server/blob/store.rs")
+    blob_shared = read_compiler_family("crates/eg-storage/src/owner/blob_shared.rs")
 
     return {
         "cargo": read("Cargo.toml"),
@@ -1111,6 +1167,7 @@ def mutation_inventory_sources() -> dict[str, str]:
         "ros2_bridge": read("src/server/ros2_bridge.rs"),
         "blob_store": blob_store.production,
         "blob_store_tests": blob_store.with_tests,
+        "blob_shared": blob_shared.production,
         "main": read("src/main.rs"),
         "state": read("src/server/state.rs"),
         "server": read("src/server/mod.rs"),

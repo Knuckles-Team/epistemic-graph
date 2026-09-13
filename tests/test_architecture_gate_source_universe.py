@@ -206,6 +206,23 @@ def test_absent_struct_declaration_is_fatal_not_silently_open() -> None:
         gate._assert_rust_closed([{"rust_type": "NoSuchDtoIsDeclaredAnywhere"}])
 
 
+def test_epistemic_operations_gate_rejects_an_omitted_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every compiler-declared DTO child must remain in the reviewed inventory."""
+
+    gate = _script("check_epistemic_operations_protocol")
+    omitted = "crates/eg-types/src/epistemic_operations/resource_status.rs"
+    monkeypatch.setattr(
+        gate,
+        "EXPECTED_RUST_SOURCES",
+        gate.EXPECTED_RUST_SOURCES - {omitted},
+    )
+
+    with pytest.raises(gate.GateError, match="compiler module family changed"):
+        gate._rust_source()
+
+
 # --------------------------------------------------------------------------
 # scripts/check_mint_lease_call_sites.py -- audited property, not a file path
 # --------------------------------------------------------------------------
@@ -229,7 +246,20 @@ _AUDITED_BODY = """\
     let (auth_secret, isolation) = load(state).await;
     let mint_auth = MintAuthorization::compute_mac(&auth_secret, verified.claims())
         .and_then(|mac| MintAuthorization::new(&auth_secret, verified.claims(), &mac))?;
-    let lease = isolation.mint_policy_decision_lease(&mint_auth, &graph, read)?;
+    let carrier = CarrierAuthority::from_verified(verified_context)?;
+    let lease = isolation.mint_policy_decision_lease(
+        &mint_auth,
+        &graph,
+        crate::isolation::AccessLevel::Read,
+    )?;
+    let authority = KnowledgeStreamAuthority::from_verified_with_lease(
+        &auth_secret,
+        verified_context.claims(),
+        &graph,
+        &carrier,
+        lease,
+        isolation.policy_store()?,
+    )?;
 """
 
 _CALLER_SUPPLIED_BODY = """\
@@ -304,9 +334,24 @@ async fn dispatch_governed_stream_write_methods(
     state: &ServerState,
     graph: &GraphName,
 ) -> Result<Lease> {
-    let mint_auth = MintAuthorization::compute_mac(&auth_secret, verified.claims())
+    let (auth_secret, isolation) = load(state).await;
+    let mint_auth = MintAuthorization::compute_mac(&auth_secret, verified_context.claims())
         .and_then(|mac| MintAuthorization::new(&auth_secret, verified.claims(), &mac))?;
-    isolation.mint_policy_decision_lease(&mint_auth, &graph, read)
+    let carrier = CarrierAuthority::from_verified(verified_context)?;
+    let lease = isolation.mint_policy_decision_lease(
+        &mint_auth,
+        &graph,
+        crate::isolation::AccessLevel::Read,
+    )?;
+    let authority = KnowledgeStreamAuthority::from_verified_with_lease(
+        &auth_secret,
+        verified_context.claims(),
+        &graph,
+        &carrier,
+        lease,
+        isolation.policy_store()?,
+    )?;
+    Ok(authority)
 }
 """
 

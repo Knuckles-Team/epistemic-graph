@@ -18,7 +18,7 @@ from method_policy_inventory import (
     parse_method_policy_table,
 )
 from rust_callgraph import top_level_fns
-from rust_module_tree import read_module_tree
+from rust_module_tree import read_compiler_family, read_module_tree
 
 
 def read(relative: str) -> str:
@@ -27,6 +27,18 @@ def read(relative: str) -> str:
 
 def read_sources(paths: tuple[str, ...]) -> str:
     return "\n".join(map(read, paths))
+
+
+def protocol_source() -> str:
+    """Read the complete compiler-declared protocol family.
+
+    ``protocol.rs`` is a facade; the wire enum and its request DTOs may live in
+    any declared child module.  The family reader keeps this gate on the
+    compiler's production view and rejects an unlinked ``*.rs`` child instead
+    of silently allowing a protocol surface to escape review.
+    """
+
+    return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
 
 
 def require(condition: bool, message: str) -> None:
@@ -714,9 +726,22 @@ def _check_identity_bootstrap_replication(raft: str, dispatch: str) -> None:
 
 
 def _check_identity_order(dispatch: str) -> None:
+    route = delimited_body(
+        dispatch,
+        "fn native_route_target(",
+        "\n}",
+    )
     require(
-        'NativeMutationCommand::Identity { .. } => "__commons__".to_string()'
-        in dispatch,
+        all(
+            map(
+                route.__contains__,
+                (
+                    'Some("Identity") => "__commons__".to_string()',
+                    "command.domain()",
+                    'unreachable!("unclassified native consensus domain: {other}")',
+                ),
+            )
+        ),
         "identity/RBAC commands are not totally ordered on the bootstrap authority graph",
     )
 
@@ -848,7 +873,7 @@ def _check_mysql(mysql_packets: str, mysql_wire: str) -> None:
 
 def main() -> None:
     require_no_retired_graph_topology()
-    protocol = read("crates/eg-types/src/protocol.rs")
+    protocol = protocol_source()
     wire = read_module_tree("crates/eg-types/src/wire.rs", root_dir=ROOT)
     schema = read("crates/eg-query/src/tables/schema.rs")
     sql_exec = read("crates/eg-query/src/sql/exec.rs")
@@ -907,7 +932,10 @@ def main() -> None:
     # `crates/eg-capabilities/src/domains/`, not in `lib.rs`; `load_capability_sources`
     # is the canonical reader that `check_universal_read_rls.py` already uses.
     capabilities = load_capability_sources(ROOT)
-    mutation_runtime = read("src/server/mutation.rs")
+    # Mutation routing is implemented across the compiler-declared private
+    # children of this facade.  Follow that exact production closure so moving
+    # a route cannot make the architecture gate silently inspect stale text.
+    mutation_runtime = read_module_tree("src/server/mutation.rs", root_dir=ROOT)
     mutation_apply = read("src/mutation_apply.rs")
     # Hoisted 2026-08-25 (3810eb00, "Hoist durable-mutation classify/apply +
     # single-writer guard into eg-core"): the base graph-mutation set and the

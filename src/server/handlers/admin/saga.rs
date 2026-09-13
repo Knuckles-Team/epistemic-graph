@@ -293,14 +293,20 @@ fn decode_admin_commit(
 }
 
 #[cfg(feature = "redb")]
-pub(crate) fn catalog_saga(
+pub(crate) fn catalog_saga<M>(
     req_id: u64,
     caller: Option<&str>,
     backend: &crate::server::persistence::redb_backend::RedbBackend,
     method: &Method,
     attempt_nonce: Option<Nonce>,
     apply: impl FnOnce(&crate::server::persistence::tenant_catalog::TenantCatalog) -> Result<(), String>,
-) -> Response {
+) -> Response
+where
+    M: eg_types::result_contract::MethodResult<
+        Body = bool,
+        Encoding = eg_types::result_contract::encoding::Bool,
+    >,
+{
     let saga = match begin_admin_saga_with_nonce(
         backend,
         req_id,
@@ -325,7 +331,7 @@ pub(crate) fn catalog_saga(
         backend,
         saga.batch,
         saga.created_at_ms,
-        crate::protocol::ResultPayload::Bool(true),
+        crate::protocol::ResultPayload::scalar::<M>(true),
     ) {
         Ok(result) => Response::ok(req_id, result),
         Err(error) => Response::err(req_id, error),
@@ -333,47 +339,52 @@ pub(crate) fn catalog_saga(
 }
 
 #[cfg(feature = "redb")]
-pub(crate) fn report_json(
+pub(crate) fn reshard_report(
     report: &crate::server::persistence::online_reshard::ReshardReport,
-) -> serde_json::Value {
-    serde_json::json!({
-        "graph": report.graph,
-        "from_shard": report.from_shard,
-        "to_shard": report.to_shard,
-        "nodes": report.nodes,
-        "edges": report.edges,
-        "ledger": report.ledger,
-        "semantic": report.semantic,
-        "audit": report.audit,
-        "delta_nodes": report.delta_nodes,
-        "delta_edges": report.delta_edges,
-        "no_op": report.no_op,
-    })
+) -> eg_types::result_contract::cluster::ShardReshardReport {
+    eg_types::result_contract::cluster::ShardReshardReport {
+        graph: report.graph.clone(),
+        from_shard: report.from_shard as u64,
+        to_shard: report.to_shard as u64,
+        nodes: report.nodes,
+        edges: report.edges,
+        ledger: report.ledger,
+        semantic: report.semantic,
+        audit: report.audit,
+        delta_nodes: report.delta_nodes,
+        delta_edges: report.delta_edges,
+        no_op: report.no_op,
+    }
 }
 
 #[cfg(feature = "redb")]
-pub(crate) fn plan_json(
+pub(crate) fn rebalance_plan_report(
     plan: &crate::server::persistence::rebalance::RebalancePlan,
     shards: &[crate::server::persistence::rebalance::ShardLoad],
-) -> serde_json::Value {
-    let moves: Vec<serde_json::Value> = plan
-        .moves
-        .iter()
-        .map(|m| {
-            serde_json::json!({
-                "graph": m.graph,
-                "from_shard": m.from_shard,
-                "to_shard": m.to_shard,
-            })
-        })
-        .collect();
-    let loads: Vec<serde_json::Value> = shards
-        .iter()
-        .map(
-            |s| serde_json::json!({"shard": s.shard, "total": s.total(), "graphs": s.graphs.len()}),
-        )
-        .collect();
-    serde_json::json!({"moves": moves, "shards": loads})
+) -> eg_types::result_contract::cluster::RebalancePlanReport {
+    eg_types::result_contract::cluster::RebalancePlanReport {
+        moves: plan
+            .moves
+            .iter()
+            .map(
+                |planned| eg_types::result_contract::cluster::RebalanceMove {
+                    graph: planned.graph.clone(),
+                    from_shard: planned.from_shard,
+                    to_shard: planned.to_shard,
+                },
+            )
+            .collect(),
+        shards: shards
+            .iter()
+            .map(
+                |shard| eg_types::result_contract::cluster::ShardLoadSummary {
+                    shard: shard.shard,
+                    total: shard.total(),
+                    graphs: shard.graphs.len() as u64,
+                },
+            )
+            .collect(),
+    }
 }
 
 #[cfg(feature = "redb")]

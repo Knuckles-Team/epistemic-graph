@@ -78,6 +78,7 @@ pub enum AgentRole {
 
 /// Agent identity for ACL checks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct AgentIdentity {
     pub agent_id: String,
     pub role: AgentRole,

@@ -131,6 +131,30 @@ impl ResultPayload {
         }
     }
 
+    /// Encode a declared result whose body was persisted as MessagePack: the durable
+    /// receipt a store answers a commit, or its replay, with. The receipt is decoded
+    /// as `M`'s body, so bytes of any other shape are refused, then encoded as `M`.
+    pub fn of_receipt<M: MethodResult>(receipt: &[u8]) -> Result<Self, String>
+    where
+        M::Body: serde::de::DeserializeOwned,
+    {
+        let body = crate::msgpack::decode_bounded::<M::Body>(
+            receipt,
+            crate::msgpack::MsgpackLimits::new(
+                crate::msgpack::MAX_PROPERTY_BYTES,
+                crate::msgpack::MAX_PROPERTY_ITEMS,
+                crate::msgpack::DEFAULT_MAX_DEPTH,
+            ),
+        )
+        .map_err(|error| {
+            format!(
+                "{} receipt is not its declared result: {error:?}",
+                M::METHOD
+            )
+        })?;
+        Self::of::<M>(body)
+    }
+
     /// Encode a caller-shaped `body` as `M`'s declared [`Dynamic`] result.
     pub fn of_dynamic<M, T>(body: &T) -> Result<Self, String>
     where

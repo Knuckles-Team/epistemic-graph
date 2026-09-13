@@ -15,7 +15,7 @@ use super::backup::{
 };
 use super::saga::{
     begin_admin_saga_with_nonce, catalog_saga, finish_admin_saga, live_graph_loads, no_catalog,
-    plan_json, rebalance_opts, report_json,
+    rebalance_opts, rebalance_plan_report, reshard_report,
 };
 
 /// Route an M3 admin method (CONCEPT:EG-KG.backend.m3-admin-dispatch). `Ok(resp)` = handled; `Err(method)` = not an
@@ -51,7 +51,9 @@ pub(crate) async fn try_handle(
             )
             .await
         }
-        Method::CatalogAssign { graph, shard, node } => Ok(catalog_saga(
+        Method::CatalogAssign { graph, shard, node } => Ok(catalog_saga::<
+            eg_types::result_contract::cluster::CatalogAssign,
+        >(
             req_id,
             caller,
             backend,
@@ -59,7 +61,9 @@ pub(crate) async fn try_handle(
             attempt_nonce,
             |catalog| catalog.assign(&crate::persist::sanitize(&graph), shard, node),
         )),
-        Method::CatalogReassign { graph, shard } => Ok(catalog_saga(
+        Method::CatalogReassign { graph, shard } => Ok(catalog_saga::<
+            eg_types::result_contract::cluster::CatalogReassign,
+        >(
             req_id,
             caller,
             backend,
@@ -67,7 +71,9 @@ pub(crate) async fn try_handle(
             attempt_nonce,
             |catalog| catalog.reassign(&crate::persist::sanitize(&graph), shard),
         )),
-        Method::CatalogRemove { graph } => Ok(catalog_saga(
+        Method::CatalogRemove { graph } => Ok(catalog_saga::<
+            eg_types::result_contract::cluster::CatalogRemove,
+        >(
             req_id,
             caller,
             backend,
@@ -145,15 +151,16 @@ async fn handle_reshard(
     }
     let fname = crate::persist::sanitize(&graph);
     match backend.reshard_graph(&fname, to_shard).await {
-        Ok(report) => match finish_admin_saga(
-            backend,
-            saga.batch,
-            saga.created_at_ms,
-            ResultPayload::Json(report_json(&report)),
-        ) {
-            Ok(result) => Ok(Response::ok(req_id, result)),
-            Err(error) => Ok(Response::err(req_id, error)),
-        },
+        Ok(report) => {
+            match ResultPayload::of::<eg_types::result_contract::cluster::Reshard>(reshard_report(
+                &report,
+            ))
+            .and_then(|result| finish_admin_saga(backend, saga.batch, saga.created_at_ms, result))
+            {
+                Ok(result) => Ok(Response::ok(req_id, result)),
+                Err(error) => Ok(Response::err(req_id, error)),
+            }
+        }
         Err(e) => Ok(Response::err(req_id, format!("Reshard failed: {e}"))),
     }
 }
@@ -167,14 +174,22 @@ fn handle_catalog_list(
     let Some(cat) = backend.catalog() else {
         return Ok(no_catalog(req_id));
     };
-    let entries: Vec<serde_json::Value> = cat
+    let placements = cat
         .entries()
         .into_iter()
-        .map(|(graph, a)| serde_json::json!({"graph": graph, "shard": a.shard, "node": a.node}))
+        .map(
+            |(graph, assignment)| eg_types::result_contract::cluster::CatalogPlacement {
+                graph,
+                shard: assignment.shard,
+                node: assignment.node,
+            },
+        )
         .collect();
     Ok(Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({"placements": entries})),
+        ResultPayload::of::<eg_types::result_contract::cluster::CatalogList>(
+            eg_types::result_contract::cluster::CatalogListing { placements },
+        ),
     ))
 }
 
@@ -211,7 +226,9 @@ async fn handle_rebalance_plan(
     let plan = plan_rebalance(&shards, rebalance_opts(tolerance, max_moves));
     Ok(Response::ok(
         req_id,
-        ResultPayload::Json(plan_json(&plan, &shards)),
+        ResultPayload::of::<eg_types::result_contract::cluster::RebalancePlan>(
+            rebalance_plan_report(&plan, &shards),
+        ),
     ))
 }
 
@@ -250,13 +267,12 @@ async fn handle_rebalance_execute(
     let plan = plan_rebalance(&shards, rebalance_opts(tolerance, max_moves));
     match backend.rebalance_execute(&plan).await {
         Ok(reports) => {
-            let moves: Vec<serde_json::Value> = reports.iter().map(report_json).collect();
-            match finish_admin_saga(
-                backend,
-                saga.batch,
-                saga.created_at_ms,
-                ResultPayload::Json(serde_json::json!({"executed": moves})),
-            ) {
+            let executed = reports.iter().map(reshard_report).collect();
+            match ResultPayload::of::<eg_types::result_contract::cluster::RebalanceExecute>(
+                eg_types::result_contract::cluster::RebalanceExecution { executed },
+            )
+            .and_then(|result| finish_admin_saga(backend, saga.batch, saga.created_at_ms, result))
+            {
                 Ok(result) => Ok(Response::ok(req_id, result)),
                 Err(error) => Ok(Response::err(req_id, error)),
             }

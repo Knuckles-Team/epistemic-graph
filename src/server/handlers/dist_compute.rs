@@ -112,7 +112,7 @@ impl<'a> DistributedRequest<'a> {
             algo,
             result,
         };
-        persist_and_index(
+        persist_and_index::<eg_types::result_contract::cluster::CreateMatView>(
             self.state,
             self.req_id,
             self.caller,
@@ -131,7 +131,12 @@ impl<'a> DistributedRequest<'a> {
             Err(response) => return response,
         }
         match self.load_matview(&name).await {
-            Some(view) => Response::ok(self.req_id, ResultPayload::raw(&view.result)),
+            Some(view) => Response::ok(
+                self.req_id,
+                ResultPayload::of_ref::<eg_types::result_contract::cluster::GetMatView>(
+                    &view.result,
+                ),
+            ),
             None => Response::err(self.req_id, format!("no materialized view '{name}'")),
         }
     }
@@ -167,7 +172,7 @@ impl<'a> DistributedRequest<'a> {
                 Err(error) => return Response::err(self.req_id, error),
             };
         view.result = refreshed;
-        persist_and_index(
+        persist_and_index::<eg_types::result_contract::cluster::RefreshMatView>(
             self.state,
             self.req_id,
             self.caller,
@@ -389,7 +394,12 @@ async fn define_plan_matview(
             .as_redb()
             .ok_or_else(|| "materialized-view mutation requires durable redb".to_string())?;
         redb.plan_matview_put(&def.name, blob).await?;
-        let result = finish_control_saga(control, ResultPayload::Count(count as u64))?;
+        let result = finish_control_saga(
+            control,
+            ResultPayload::scalar::<eg_types::result_contract::cluster::PlanMatViewDefine>(
+                count as u64,
+            ),
+        )?;
         index_matview(&operation_state, def).await;
         Ok(Response::ok(req_id, result))
     })
@@ -469,7 +479,12 @@ async fn get_plan_matview(state: &Arc<RwLock<ServerState>>, req_id: u64, name: &
     // check (it is fresh by construction).
     if let Some(rows) = matview::manager().incremental_rows(name) {
         return match rmp_serde::to_vec_named(&rows) {
-            Ok(bytes) => Response::ok(req_id, ResultPayload::Raw(bytes)),
+            Ok(bytes) => Response::ok(
+                req_id,
+                ResultPayload::of_encoded::<eg_types::result_contract::cluster::PlanMatViewGet>(
+                    bytes,
+                ),
+            ),
             Err(e) => Response::err(req_id, format!("serialize matview rows: {e}")),
         };
     }
@@ -479,7 +494,12 @@ async fn get_plan_matview(state: &Arc<RwLock<ServerState>>, req_id: u64, name: &
             let version = core.version();
             let hash = matview::plan_hash(&def);
             if let Some(bytes) = core.result_cache().get_scoped(hash, version, 0) {
-                return Response::ok(req_id, ResultPayload::Raw(bytes));
+                return Response::ok(
+                    req_id,
+                    ResultPayload::of_encoded::<eg_types::result_contract::cluster::PlanMatViewGet>(
+                        bytes,
+                    ),
+                );
             }
         }
     }
@@ -487,7 +507,12 @@ async fn get_plan_matview(state: &Arc<RwLock<ServerState>>, req_id: u64, name: &
     match materialize_and_cache(state, &def).await {
         Ok((bytes, _)) => {
             matview::manager().mark_fresh(name);
-            Response::ok(req_id, ResultPayload::Raw(bytes))
+            Response::ok(
+                req_id,
+                ResultPayload::of_encoded::<eg_types::result_contract::cluster::PlanMatViewGet>(
+                    bytes,
+                ),
+            )
         }
         Err(e) => Response::err(req_id, e),
     }
@@ -508,7 +533,12 @@ async fn refresh_plan_matview(
             return Err(format!("no plan materialized view '{name}'"));
         };
         let (_, count) = materialize_and_cache(&operation_state, &def).await?;
-        let result = finish_control_saga(control, ResultPayload::Count(count as u64))?;
+        let result = finish_control_saga(
+            control,
+            ResultPayload::scalar::<eg_types::result_contract::cluster::PlanMatViewRefresh>(
+                count as u64,
+            ),
+        )?;
         matview::manager().mark_fresh(name);
         Ok(Response::ok(req_id, result))
     })
@@ -540,7 +570,10 @@ async fn drop_plan_matview(
         if let Err(error) = redb.matview_operator_state_delete(name).await {
             tracing::warn!("drop matview '{name}' operator state failed: {error}");
         }
-        let result = finish_control_saga(control, ResultPayload::Bool(true))?;
+        let result = finish_control_saga(
+            control,
+            ResultPayload::scalar::<eg_types::result_contract::cluster::PlanMatViewDrop>(true),
+        )?;
         matview::manager().drop_view(name);
         Ok(Response::ok(req_id, result))
     })
@@ -555,13 +588,19 @@ async fn drop_plan_matview(
 /// saga and publish it into RAM only after the terminal receipt is durable. A redb or
 /// coordinator failure therefore leaves no uncommitted in-memory view visible.
 #[cfg(feature = "compute-dist")]
-async fn persist_and_index(
+async fn persist_and_index<M>(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     caller: Option<&str>,
     method: &Method,
     view: MatView,
-) -> Response {
+) -> Response
+where
+    M: eg_types::result_contract::MethodResult<
+        Body = u64,
+        Encoding = eg_types::result_contract::encoding::Count,
+    >,
+{
     let operation_state = Arc::clone(state);
     match run_control_saga(state, req_id, caller, method, move |control| async move {
         let rows = view.result.len();
@@ -575,7 +614,7 @@ async fn persist_and_index(
             .as_redb()
             .ok_or_else(|| "materialized-view mutation requires durable redb".to_string())?;
         redb.matview_put(&view.name, blob).await?;
-        let result = finish_control_saga(control, ResultPayload::Count(rows as u64))?;
+        let result = finish_control_saga(control, ResultPayload::scalar::<M>(rows as u64))?;
         let s = operation_state.read().await;
         s.matviews.lock().put(view);
         Ok(Response::ok(req_id, result))

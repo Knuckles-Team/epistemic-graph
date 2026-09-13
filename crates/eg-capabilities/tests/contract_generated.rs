@@ -103,6 +103,40 @@ fn every_declared_result_schema_is_digested() {
 }
 
 #[test]
+fn split_transaction_result_marker_is_collected_by_the_generator() {
+    let artifacts = eg_capabilities::contract::render_all(&repo_root());
+    let methods = artifacts
+        .iter()
+        .find(|artifact| artifact.path == "contract/methods.json")
+        .expect("the generator renders methods.json");
+    let methods: serde_json::Value =
+        serde_json::from_slice(&methods.bytes).expect("the generated methods artifact is JSON");
+    let method = methods["methods"]
+        .as_array()
+        .and_then(|methods| {
+            methods
+                .iter()
+                .find(|method| method["id"] == "ApplyMultisigMutation")
+        })
+        .expect("the transaction descriptor is present");
+    assert_eq!(method["result_schema"]["kind"], "declared");
+    assert_eq!(
+        method["result_schema"]["bodies"]["result"]["encoding"],
+        "Json"
+    );
+
+    let transactions = artifacts
+        .iter()
+        .find(|artifact| artifact.path == "epistemic_graph/generated/transactions.py")
+        .expect("the generator renders the transactions client");
+    let transactions = String::from_utf8_lossy(&transactions.bytes);
+    assert!(transactions.contains(
+        "Result: ResultPayload::Json \
+         (contract/schemas/result.transactions.json#/methods/ApplyMultisigMutation)."
+    ));
+}
+
+#[test]
 fn every_declared_format_identity_exists_in_the_tree() {
     let root = repo_root();
     let collected: std::collections::BTreeSet<String> =

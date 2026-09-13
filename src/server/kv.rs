@@ -837,14 +837,14 @@ fn compile_kv_batch(
 }
 
 /// Whether a method is one of the KV ops (used only for the no-store error path).
+/// The capability ledger owns the KV surface boundary: its only `kv:*` actions
+/// are the five `Method::Kv*` variants handled below. This keeps the no-store
+/// routing check aligned with the policy inventory rather than duplicating a
+/// payload-shaped variant match here.
 fn is_kv_method(method: &Method) -> bool {
     matches!(
-        method,
-        Method::KvGet { .. }
-            | Method::KvPut { .. }
-            | Method::KvDelete { .. }
-            | Method::KvScan { .. }
-            | Method::KvCas { .. }
+        eg_capabilities::policy(method).authz_action,
+        "kv:read" | "kv:write"
     )
 }
 

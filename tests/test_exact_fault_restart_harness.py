@@ -88,7 +88,7 @@ def test_store_checker_binds_commit_to_saga_call_path(monkeypatch) -> None:
     relative = "crates/eg-transaction/src/saga.rs"
     source = original(relative)
     marker = "commit(write, batch)?;"
-    source = source.replace(marker, "finish_removed(write, batch)?;", 1)
+    source = source.replace(marker, "finish_removed(write, batch)?;")
 
     def read(path: str):
         return source if path == relative else original(path)
@@ -98,3 +98,29 @@ def test_store_checker_binds_commit_to_saga_call_path(monkeypatch) -> None:
     errors = module._check_store_contract()
 
     assert "native commit helper and saga: missing 'commit(write, batch)?;'" in errors
+
+
+def test_store_checker_rejects_an_omitted_graph_store_child(monkeypatch) -> None:
+    """The graph-store phase inventory must include every declared child."""
+
+    module = _checker_module()
+    facade = "src/redb_store.rs"
+    omitted = "src/redb_store/store_batch.rs"
+    original_reader = module._read_rust_module
+    assembled = original_reader(facade)
+    child = module._read(omitted)
+    assert child in assembled
+
+    def read_module(relative: str) -> str:
+        if relative == facade:
+            return assembled.replace(child, "", 1)
+        return original_reader(relative)
+
+    monkeypatch.setattr(module, "_read_rust_module", read_module)
+
+    errors = module._check_store_contract()
+
+    assert (
+        "graph mutation store: missing "
+        "'MutationCommitPhase::BeforeRows'"
+    ) in errors

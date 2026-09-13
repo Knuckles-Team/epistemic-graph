@@ -526,7 +526,10 @@ async fn five_modality_in_txn_ryow_then_commit_eg390() {
     ))
     .await;
     assert!(
-        matches!(c.result, Some(ResultPayload::Bool(true))),
+        matches!(
+            c.result,
+            Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+        ),
         "5-modality cross-modal commit must succeed atomically: {:?}",
         c.error
     );
@@ -655,7 +658,10 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
     ))
     .await;
     assert!(
-        matches!(cb.result, Some(ResultPayload::Bool(true))),
+        matches!(
+            cb.result,
+            Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+        ),
         "B must commit its phantom Sensor: {:?}",
         cb.error
     );
@@ -674,7 +680,10 @@ async fn concurrent_serializable_phantom_conflict_eg392() {
     ))
     .await;
     assert!(
-        matches!(ca.result, Some(ResultPayload::Bool(false))),
+        matches!(
+            ca.result,
+            Some(ResultPayload::Json(serde_json::Value::Bool(false)))
+        ),
         "A's serializable commit must CONFLICT on the phantom Sensor (got {:?} / {:?})",
         ca.result,
         ca.error
@@ -1204,7 +1213,10 @@ async fn pgwire_sparql_native_consistent_snapshot_eg393() {
     ))
     .await;
     assert!(
-        matches!(c.result, Some(ResultPayload::Bool(true))),
+        matches!(
+            c.result,
+            Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+        ),
         "mixed cross-modal commit must succeed: {:?}",
         c.error
     );
@@ -1589,7 +1601,10 @@ async fn plan_writeback_stages_and_commits_inferred_edges_atomically_d7() {
     ))
     .await;
     assert!(
-        matches!(commit_resp.result, Some(ResultPayload::Bool(true))),
+        matches!(
+            commit_resp.result,
+            Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+        ),
         "the cross-modal commit (anchor node + writeback edges) must succeed: {:?}",
         commit_resp.error
     );

@@ -20,13 +20,34 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, squash
-from rust_module_tree import read_module_tree
+from rust_module_tree import read_compiler_family, read_module_tree
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def protocol_source() -> str:
+    """Read the complete compiler-declared production protocol family."""
+
+    return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
+
+
+def require_query_result_cache_rls(query: str, rdf: str, dispatch: str) -> None:
+    """Pin actor-scoped cache keys across the compiler-owned query family."""
+
+    require(
+        all(
+            (
+                'format!("rls:{caller}:{kind}")' in query,
+                'format!("rls:{caller}:sparql")' in rdf,
+                "let verified_actor = match read_authority" in dispatch,
+            )
+        ),
+        "default-deny RLS is absent from a query result-cache actor key",
+    )
 
 
 def rust_function(source: str, signature: str) -> str:
@@ -69,7 +90,7 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(f"graph read-RLS architecture gate failed: {message}")
 
 
-def method_enum_names(protocol: str) -> set[str]:
+def _method_enum_body(protocol: str) -> str:
     marker = "pub enum Method {"
     start = protocol.find(marker)
     require(start >= 0, "protocol Method enum is absent")
@@ -83,10 +104,51 @@ def method_enum_names(protocol: str) -> set[str]:
             depth -= 1
         end += 1
     require(depth == 0, "protocol Method enum is unterminated")
-    body = protocol[body_start : end - 1]
+    return protocol[body_start : end - 1]
+
+
+def _method_chunk_bodies(protocol: str) -> list[str]:
+    chunk_bodies: list[str] = []
+    for chunk in re.finditer(
+        r"macro_rules!\s+__eg_method_chunk_\d+\s*\{", protocol
+    ):
+        end = protocol.find("pub(crate) use __eg_method_chunk_", chunk.end())
+        require(
+            end >= 0,
+            "protocol Method chunk is unterminated or not re-exported",
+        )
+        chunk_bodies.append(protocol[chunk.end() : end])
+    require(chunk_bodies, "protocol Method enum has no readable variant body")
+    return chunk_bodies
+
+
+def _method_variant_names(source: str) -> set[str]:
     return set(
-        re.findall(r"^    ([A-Z][A-Za-z0-9_]*)\s*(?:\{|\(|,)", body, re.MULTILINE)
+        re.findall(
+            r"^    ([A-Z][A-Za-z0-9_]*)\s*(?:\{|\(|,)",
+            source,
+            re.MULTILINE,
+        )
     )
+
+
+def method_enum_names(protocol: str) -> set[str]:
+    """Return Method variants from the enum or its compiler-reachable chunks.
+
+    The protocol's Method enum is assembled by declarative macro fragments so
+    the Rust compiler still sees one enum while a source reader sees the
+    variant tokens in ``__eg_method_chunk_*``.  Prefer the literal enum body
+    for an unsplit tree, then inspect only those named chunks; unrelated enum
+    declarations must never contribute to this inventory.
+    """
+
+    methods = _method_variant_names(_method_enum_body(protocol))
+    if methods:
+        return methods
+    chunk_bodies = _method_chunk_bodies(protocol)
+    methods = _method_variant_names("\n".join(chunk_bodies))
+    require(methods, "protocol Method enum has no variants")
+    return methods
 
 
 def capability_inventory() -> dict[str, bool]:
@@ -104,6 +166,24 @@ def capability_inventory() -> dict[str, bool]:
         require(row.name not in inventory, f"duplicate capability policy for {row.name}")
         inventory[row.name] = row.mutates
     return inventory
+
+
+def require_protocol_inventory(
+    protocol: str, policies: dict[str, bool]
+) -> tuple[set[str], list[str]]:
+    """Require exact parity between the composed protocol and policy ledger."""
+
+    methods = method_enum_names(protocol)
+    require(len(methods) >= 350, "protocol method inventory is unexpectedly small")
+    require(
+        methods == set(policies),
+        "protocol/policy inventories differ: "
+        f"missing_policy={sorted(methods - set(policies))}, "
+        f"stale_policy={sorted(set(policies) - methods)}",
+    )
+    reads = sorted(name for name, mutates in policies.items() if not mutates)
+    require(len(reads) >= 150, "generated served-read inventory is unexpectedly small")
+    return methods, reads
 
 
 def call_blocks(source: str, needle: str) -> list[str]:
@@ -160,18 +240,9 @@ def _check_sql_wire_read_contract(wire: str) -> None:
 
 
 def main() -> None:
-    protocol = read("crates/eg-types/src/protocol.rs")
-    methods = method_enum_names(protocol)
+    protocol = protocol_source()
     policies = capability_inventory()
-    require(len(methods) >= 350, "protocol method inventory is unexpectedly small")
-    require(
-        methods == set(policies),
-        "protocol/policy inventories differ: "
-        f"missing_policy={sorted(methods - set(policies))}, "
-        f"stale_policy={sorted(set(policies) - methods)}",
-    )
-    reads = sorted(name for name, mutates in policies.items() if not mutates)
-    require(len(reads) >= 150, "generated served-read inventory is unexpectedly small")
+    methods, reads = require_protocol_inventory(protocol, policies)
 
     access = read("src/server/access.rs")
     isolation, can_see_row = isolation_source()
@@ -180,7 +251,7 @@ def main() -> None:
         "src/server/handlers/graph_ops.rs", root_dir=ROOT
     )
     knowledge = knowledge_stream_handler_source()
-    query = read("src/server/handlers/query.rs")
+    query = read_module_tree("src/server/handlers/query.rs", root_dir=ROOT)
     rdf = read("src/server/handlers/rdf.rs")
     distributed = read("src/server/handlers/dist_compute.rs")
     pregel = read("src/raft/pregel.rs")
@@ -192,7 +263,7 @@ def main() -> None:
     auth = "\n".join(
         (read("src/server/auth.rs"), read("src/server/authority_context.rs"))
     )
-    jobs = read("src/server/handlers/jobs.rs")
+    jobs = read_module_tree("src/server/handlers/jobs.rs", root_dir=ROOT)
     blob_handler = read("src/server/handlers/blob.rs")
     blob_state = read("src/server/blob/mod.rs")
     blob_store = read("src/server/blob/store.rs")
@@ -204,7 +275,7 @@ def main() -> None:
     plan_tsdb_tests = read("crates/eg-plan/src/tsdb_scan_tests.rs")
     streaming = read("src/server/handlers/streaming.rs")
     cep = read("src/server/cep.rs")
-    txn = read("src/server/handlers/txn.rs")
+    txn = read_module_tree("src/server/handlers/txn.rs", root_dir=ROOT)
     sparql_http = read("src/server/sparql_http.rs")
     graphql_sse = read("src/server/graphql_sub.rs")
     graphql_crossmodal = read("crates/eg-graphql/src/crossmodal.rs")
@@ -407,16 +478,7 @@ def main() -> None:
             'caller.unwrap_or("")' not in source,
             f"{source_name} handler still admits an empty actor sentinel",
         )
-    require(
-        all(
-            (
-                'format!("rls:{caller}:{kind}")' in query,
-                'format!("rls:{caller}:sparql")' in rdf,
-                "let verified_actor = match read_authority" in dispatch,
-            )
-        ),
-        "default-deny RLS is absent from a query result-cache actor key",
-    )
+    require_query_result_cache_rls(query, rdf, dispatch)
     require(
         all(
             (

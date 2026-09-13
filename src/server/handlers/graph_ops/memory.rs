@@ -293,10 +293,9 @@ pub(super) async fn try_handle_ledger(
     ControlFlow::Break(match method {
         Method::GetLedger => Response::ok(
             req_id,
-            ResultPayload::Json(serde_json::json!(LedgerReadResult::populated(
-                raw_core.get_ledger(),
-                raw_core.ledger_watermark(),
-            ))),
+            ResultPayload::of::<eg_types::result_contract::security::GetLedger>(
+                LedgerReadResult::populated(raw_core.get_ledger(), raw_core.ledger_watermark()),
+            ),
         ),
 
         // ClearLedger/ApplyLedger (CONCEPT:EG-P0-2 bypass guard, L11):

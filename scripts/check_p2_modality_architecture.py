@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, top_level_fns
-from rust_module_tree import read_module_tree
+from rust_module_tree import read_compiler_family, read_module_tree
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,6 +24,12 @@ def compiler_source(relative: str) -> str:
     """Return a Rust module's compiler-reachable source tree."""
 
     return read_module_tree(relative, root_dir=ROOT, include_tests=True)
+
+
+def protocol_source() -> str:
+    """Return the production source of the compiler-declared protocol family."""
+
+    return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
 
 
 def knowledge_stream_handler_source() -> str:
@@ -47,7 +53,7 @@ def knowledge_stream_handler_source() -> str:
 def require_knowledge_stream_authority(handler: str) -> None:
     """Pin the sole lease-bound served authority and page fences."""
 
-    router = read("src/server/dispatch/router.rs")
+    router = read_module_tree("src/server/dispatch/router.rs", root_dir=ROOT)
     authority_path = reachable_source(router, "dispatch_governed_stream_write_methods")
     require(
         all(
@@ -133,26 +139,34 @@ def require_graph_dispatch_ordering(dispatch: str) -> None:
     fns = top_level_fns(dispatch)
     inner = fns.get("dispatch_graph_op_inner", "")
     require(inner != "", "dispatch_graph_op_inner is absent from dispatch.rs")
-    acl = call_offset(inner, "gate_graph_op_under_lock")
+    acl = call_offset(inner, "capture_graph_dispatch")
     placement = call_offset(inner, "resolve_routed_raft")
     routing = call_offset(inner, "route_graph_op_method")
     require(
-        acl >= 0 and placement > acl and routing > placement,
+        all((acl >= 0, placement > acl, routing > placement)),
         "KnowledgeStream is routed before graph ACL/placement semantics",
     )
     # ...and each delegate still does what its name claims. Without these, the
     # ordering above could be satisfied by three helpers that check nothing.
+    capture_path = reachable_source(dispatch, "capture_graph_dispatch")
     require(
-        "check_graph_access(" in fns.get("check_graph_op_access", ""),
+        all(
+            marker in capture_path
+            for marker in ("gate_graph_op_under_lock(", "check_graph_access(")
+        ),
         "the graph ACL gate no longer performs the graph ACL check",
     )
     ks_arm = "if matches!(&method, Method::KnowledgeStream"
     ks_routers = [name for name, body in fns.items() if ks_arm in body]
     post_lock = reachable_source(dispatch, "route_graph_op_method")
     require(
-        ks_routers != []
-        and all(fns[name] in post_lock for name in ks_routers)
-        and "dispatch_graph_op_inner" not in ks_routers,
+        all(
+            (
+                bool(ks_routers),
+                all(fns[name] in post_lock for name in ks_routers),
+                "dispatch_graph_op_inner" not in ks_routers,
+            )
+        ),
         "KnowledgeStream is routed outside the post-lock router, so it no "
         "longer sits behind graph ACL and placement resolution",
     )
@@ -304,6 +318,17 @@ def require_knowledge_batch_result_stream() -> None:
     require("safe_reference(&row.id)" in stream, "result ids are not forced opaque")
 
 
+def require_governed_protocol_method(protocol: str, method: str) -> None:
+    """Require a method in both the capability ledger and protocol family."""
+
+    registry_rows = parse_method_policy_table(load_capability_sources(ROOT))
+    require(
+        any(row.name == method for row in registry_rows)
+        and f"{method} {{" in protocol,
+        f"{method} is not a governed served protocol method",
+    )
+
+
 def require_served_knowledge_stream_wire() -> None:
     """The served KnowledgeStream wire: typed query, bound cursor, ACL ordering."""
 
@@ -343,13 +368,7 @@ def require_served_knowledge_stream_wire() -> None:
         "retired KnowledgeStream compatibility projection is still present",
     )
 
-    protocol = read("crates/eg-types/src/protocol.rs")
-    registry_rows = parse_method_policy_table(load_capability_sources(ROOT))
-    require(
-        any(row.name == "KnowledgeStream" for row in registry_rows)
-        and "KnowledgeStream {" in protocol,
-        "KnowledgeStream is not a governed served protocol method",
-    )
+    require_governed_protocol_method(protocol_source(), "KnowledgeStream")
     for adapter in (
         "graph_result_stream",
         "sql_result_stream",
@@ -419,7 +438,7 @@ def require_served_modality_plane() -> None:
 def require_served_modality_protocol() -> None:
     """The served modality protocol method and its complete wire operation set."""
 
-    wire = read("crates/eg-types/src/protocol.rs")
+    wire = protocol_source()
     require("ServedModality" in wire, "main protocol has no served modality method")
     wire_types = read("crates/eg-types/src/modality.rs")
     for operation in (
@@ -553,7 +572,7 @@ def require_modality_transport_path() -> None:
 def require_modality_mutation_governance() -> None:
     """Mutation, audit, and raft governance of served modality state."""
 
-    mutation = read("src/server/mutation.rs")
+    mutation = read_module_tree("src/server/mutation.rs", root_dir=ROOT)
     receipt = mutation[
         mutation.find("fn durable_receipt_method") : mutation.find(
             "/// Try to apply a coalescable", mutation.find("fn durable_receipt_method")

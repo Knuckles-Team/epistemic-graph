@@ -17,14 +17,37 @@ from rust_module_tree import _rust_code_mask, _rust_comments_mask, read_compiler
 EXPECTED_PATHS = {
     "src/server/dispatch.rs",
     "src/server/dispatch/change_envelope.rs",
+    "src/server/dispatch/change_envelope/multi_graph.rs",
     "src/server/dispatch/consensus.rs",
+    "src/server/dispatch/consensus/publication.rs",
+    "src/server/dispatch/consensus/registry.rs",
+    "src/server/dispatch/consensus/replicated.rs",
+    "src/server/dispatch/consensus/routing.rs",
+    "src/server/dispatch/consensus/sanitization.rs",
+    "src/server/dispatch/consensus/transaction.rs",
     "src/server/dispatch/graph_pipeline.rs",
+    "src/server/dispatch/graph_pipeline/dispatch_helpers.rs",
+    "src/server/dispatch/graph_pipeline/gateway.rs",
+    "src/server/dispatch/graph_pipeline/graph_access.rs",
+    "src/server/dispatch/graph_pipeline/graph_dispatch.rs",
+    "src/server/dispatch/graph_pipeline/modality.rs",
+    "src/server/dispatch/graph_pipeline/native_routes.rs",
+    "src/server/dispatch/graph_pipeline/pipeline.rs",
     "src/server/dispatch/graph_pipeline/work_governance.rs",
     "src/server/dispatch/request_boundary.rs",
+    "src/server/dispatch/request_boundary/authorization.rs",
+    "src/server/dispatch/request_boundary/consensus.rs",
+    "src/server/dispatch/request_boundary/preflight.rs",
+    "src/server/dispatch/request_boundary/saga.rs",
+    "src/server/dispatch/request_boundary/screen.rs",
     "src/server/dispatch/router.rs",
     "src/server/dispatch/router/channels.rs",
+    "src/server/dispatch/router/control_plane.rs",
+    "src/server/dispatch/router/data_plane.rs",
+    "src/server/dispatch/router/data_plane_arms.rs",
     "src/server/dispatch/router/graph_lifecycle.rs",
     "src/server/dispatch/router/identity_access.rs",
+    "src/server/dispatch/router/lifecycle.rs",
     "src/server/dispatch/router/resource_cost.rs",
     "src/server/dispatch/router/service_control.rs",
     "src/server/dispatch/router/source_ingest.rs",
@@ -65,7 +88,7 @@ ROUTE_OWNERS = {
     "dispatch_channel_methods": "src/server/dispatch/router/channels.rs",
     "dispatch_identity_and_access_methods": "src/server/dispatch/router/identity_access.rs",
     "route_change_envelope_ops": "src/server/dispatch/change_envelope.rs",
-    "route_graph_op_method": "src/server/dispatch/graph_pipeline.rs",
+    "route_graph_op_method": "src/server/dispatch/graph_pipeline/native_routes.rs",
     # `dispatch_op_workitem_mutation` was split in two during the decomposition
     # and this map was never updated, so the gate asserted ownership of a
     # function that exists in neither this tree nor EG main b2ac7b93 -- it had
@@ -77,6 +100,21 @@ ROUTE_OWNERS = {
         "src/server/dispatch/graph_pipeline/work_governance.rs",
 }
 
+ROUTE_CALLERS = {
+    "dispatch_service_control_methods": "src/server/dispatch/router.rs",
+    "dispatch_source_ingest_methods": "src/server/dispatch/router.rs",
+    "dispatch_resource_cost_methods": "src/server/dispatch/router.rs",
+    "dispatch_graph_lifecycle_methods": "src/server/dispatch/router.rs",
+    "dispatch_channel_methods": "src/server/dispatch/router.rs",
+    "dispatch_identity_and_access_methods": "src/server/dispatch/router.rs",
+    "route_change_envelope_ops": "src/server/dispatch/graph_pipeline/native_routes.rs",
+    "route_graph_op_method": "src/server/dispatch/graph_pipeline/graph_dispatch.rs",
+    "dispatch_op_workitem_claim_capability":
+        "src/server/dispatch/graph_pipeline/native_routes.rs",
+    "dispatch_op_workitem_submission_or_resources":
+        "src/server/dispatch/graph_pipeline/native_routes.rs",
+}
+
 LEGACY_COALESCER_METHODS = (
     "AddNode", "RemoveNode", "AddEdge", "RemoveEdge", "CompareAndSetNodeFields",
 )
@@ -84,11 +122,13 @@ LEGACY_COALESCER_METHODS = (
 # The previous value (e695ad19...) matched NEITHER this tree NOR EG main
 # b2ac7b93 (72 predicates, 5264dc68...), so this fingerprint was already stale
 # before the RF-020 work and the gate was failing on both. Re-stamped against
-# the reviewed candidate: 74 predicates. Two are added relative to main and none
-# removed --
+# the reviewed candidate before the KISS module split: 74 predicates. The split
+# preserves those predicates and adds two module-boundary cfg declarations, so
+# the compiler family now contains 76. The two original additions relative to
+# main remain --
 #   any(feature = "amqp-wire", "mqtt-wire", "stomp-wire", "mssql-wire", "redis-wire")
 #   any(feature = "federation-search", feature = "nl-query")
-CFG_FINGERPRINT = "7bb6473c7d61790869f2e44747e1f7cf5eadd05d2faf7fc7d5c5d451769fa62b"
+CFG_FINGERPRINT = "dbbf88719dd306e8d3dd2f4c97e07d5a12554c487586295634a17b9c7293c960"
 
 
 def require(condition: bool, message: str) -> None:
@@ -112,6 +152,15 @@ def function_names(source: str) -> list[str]:
     )
 
 
+def check_route_calls(parts: dict[str, str]) -> None:
+    for function, caller in ROUTE_CALLERS.items():
+        code = _rust_code_mask(parts[caller])
+        require(
+            re.search(rf"\b{re.escape(function)}\s*\(", code) is not None,
+            f"{function} call missing from {caller}",
+        )
+
+
 def check_inventory(parts: dict[str, str]) -> None:
     joined = "\n".join(parts.values())
     names = function_names(joined)
@@ -130,7 +179,9 @@ def check_inventory(parts: dict[str, str]) -> None:
     #   boundaries now call the single `handlers::delegation::
     #   context_matches_verified_authority`. The CHECK is preserved (see
     #   `validate_submit_context`); only the duplicate definition is gone.
-    require(len(names) == 330, "named-function inventory changed")
+    # 330 -> 417. The F3d KISS pass extracted 87 named helpers into private,
+    # compiler-declared children without changing the 48 tests or 135 assertions.
+    require(len(names) == 417, "named-function inventory changed")
     require(len(re.findall(r"#\[(?:tokio::)?test", joined)) == 48, "test inventory changed")
     require(
         len(re.findall(r"\bassert(?:_eq|_ne)?!", joined)) == 135,
@@ -142,6 +193,7 @@ def check_inventory(parts: dict[str, str]) -> None:
     for function, owner in ROUTE_OWNERS.items():
         owners = [path for path, source in parts.items() if function in function_names(source)]
         require(owners == [owner], f"{function} ownership changed: {owners}")
+    check_route_calls(parts)
 
 
 def check_cfg_contract(parts: dict[str, str]) -> None:
@@ -153,11 +205,20 @@ def check_cfg_contract(parts: dict[str, str]) -> None:
         }
     )
     digest = hashlib.sha256("\n".join(predicates).encode()).hexdigest()
-    require(len(predicates) == 74 and digest == CFG_FINGERPRINT, "cfg boundary set changed")
+    require(len(predicates) == 76 and digest == CFG_FINGERPRINT, "cfg boundary set changed")
 
 
-def check_routing_and_coalescing(parts: dict[str, str]) -> None:
-    graph = parts["src/server/dispatch/graph_pipeline.rs"]
+def family_source(parts: dict[str, str], root: str) -> str:
+    prefix = root[:-3] if root.endswith(".rs") else root
+    return "\n".join(
+        source
+        for path, source in parts.items()
+        if path == root or path.startswith(f"{prefix}/")
+    )
+
+
+def check_route_order(graph: str) -> None:
+    graph = _rust_code_mask(graph)
     # `handlers::tts::try_handle(` was dropped: `src/server/handlers/tts.rs` was
     # DELETED in 7469acff and the TTS surface moved to the modality handler, so
     # this marker had named a symbol present in neither this tree nor EG main
@@ -188,12 +249,34 @@ def check_routing_and_coalescing(parts: dict[str, str]) -> None:
     )
     offsets = [graph.rindex(marker) for marker in pipeline_order]
     require(offsets == sorted(offsets), "graph gateway/terminal route order changed")
-    require("try_coalesce_write" not in graph, "unreachable legacy coalescer fallback returned")
+
+
+def check_post_lock_route_order(native_routes: str) -> None:
+    native_routes = _rust_code_mask(native_routes)
+    post_lock_order = (
+        "route_change_envelope_ops(",
+        "route_native_store_ops(",
+        "route_graph_authority_surfaces(",
+    )
+    offsets = [native_routes.rindex(marker) for marker in post_lock_order]
+    require(offsets == sorted(offsets), "post-lock graph router order changed")
+
+
+def check_legacy_coalescer(parts: dict[str, str]) -> None:
+    graph_family = family_source(parts, "src/server/dispatch/graph_pipeline.rs")
+    require(
+        "try_coalesce_write" not in graph_family,
+        "unreachable legacy coalescer fallback returned",
+    )
     gateway = parts.get("src/server/handlers/graph_ops/gateway_graph.rs")
     if gateway is None:
-        gateway = (ROOT / "src/server/handlers/graph_ops/gateway_graph.rs").read_text()
+        gateway = read_compiler_family(
+            ROOT / "src/server/handlers/graph_ops/gateway_graph.rs", ROOT
+        ).production
     gateway = _rust_code_mask(gateway)
-    mutation = _rust_comments_mask((ROOT / "src/server/mutation.rs").read_text())
+    mutation = _rust_comments_mask(
+        read_compiler_family(ROOT / "src/server/mutation.rs", ROOT).production
+    )
     routed = mutation.split("pub const GATEWAY_ROUTED: &[&str] = &[", 1)[1].split(
         "\n];", 1
     )[0]
@@ -202,19 +285,28 @@ def check_routing_and_coalescing(parts: dict[str, str]) -> None:
         require(f'"{method}"' in routed, f"legacy coalescer method escaped GATEWAY_ROUTED: {method}")
 
 
+def check_routing_and_coalescing(parts: dict[str, str]) -> None:
+    graph = parts["src/server/dispatch/graph_pipeline/pipeline.rs"]
+    check_route_order(graph)
+    check_post_lock_route_order(parts["src/server/dispatch/graph_pipeline/native_routes.rs"])
+    check_legacy_coalescer(parts)
+
+
 def check_consensus_exhaustiveness(parts: dict[str, str]) -> None:
-    consensus = parts["src/server/dispatch/consensus.rs"]
+    consensus = parts["src/server/dispatch/consensus/routing.rs"]
     start = consensus.index("fn native_route_target(")
     end = consensus.index("\n}\n", start) + 2
-    route = consensus[start:end]
+    route = _rust_code_mask(consensus[start:end])
     require("_ =>" not in route, "native consensus route regained a wildcard fallback")
+    require(
+        re.search(r"Some\(\s*other\s*\)\s*=>\s*request_graph\.to_string\(\)", route)
+        is None,
+        "native consensus route regained a fail-open catch-all",
+    )
     require("domain_of" not in "\n".join(parts.values()), "a second dispatch domain registry appeared")
 
 
-def check_compile_shapes(parts: dict[str, str]) -> None:
-    graph = parts["src/server/dispatch/graph_pipeline.rs"]
-    router = parts["src/server/dispatch/router.rs"]
-    envelopes = parts["src/server/dispatch/change_envelope.rs"]
+def check_graph_compile_shapes(graph: str) -> None:
     require(
         "let method = Method::ServedModality { op: op.clone() };" in graph,
         "ServedModality lost its reconstructed method value",
@@ -223,6 +315,9 @@ def check_compile_shapes(parts: dict[str, str]) -> None:
         "anchor_seq: Option<u64>" in graph,
         "audit inclusion anchor contract no longer accepts the optional sequence",
     )
+
+
+def check_router_compile_shapes(router: str) -> None:
     for variant in (
         "TxnAddMeasurement", "TxnAxiom", "TxnConstruct", "TxnPlanWriteback",
         "TxnMaterializeBelief", "OwlReasonDistributed",
@@ -236,16 +331,32 @@ def check_compile_shapes(parts: dict[str, str]) -> None:
         and "Method::NlQuery { text, graph }," in router,
         "NlQuery no longer destructures and reconstructs without borrow/move overlap",
     )
+
+
+def check_envelope_compile_shapes(envelopes: str) -> None:
     require(
         "ApplyChangeEnvelopeCtx" not in envelopes,
         "obsolete change-envelope wrapper context returned",
     )
+
+
+def check_knowledge_stream_compile_shape(router: str) -> None:
     require(
         "mint_policy_decision_lease(" in router
         and "&carrier," in router
         and "mint_graph_policy_lease(" not in router,
         "KnowledgeStream lost the integrated policy-decision lease recipe",
     )
+
+
+def check_compile_shapes(parts: dict[str, str]) -> None:
+    graph = family_source(parts, "src/server/dispatch/graph_pipeline.rs")
+    router = family_source(parts, "src/server/dispatch/router.rs")
+    envelopes = family_source(parts, "src/server/dispatch/change_envelope.rs")
+    check_graph_compile_shapes(graph)
+    check_router_compile_shapes(router)
+    check_envelope_compile_shapes(envelopes)
+    check_knowledge_stream_compile_shape(router)
 
 
 def main() -> None:

@@ -6907,7 +6907,10 @@ class MultiTenantClient:
     async def delete(self, graph_name: str) -> None:
         await _gen.cluster.send_delete_graph(self._client, {"graph_name": graph_name})
 
-    async def list(self) -> list[dict[str, str]]:
+    async def list(self) -> list[dict[str, Any]]:
+        """Readable graphs: ``name``, ``type``, ``materialization``,
+        ``source_snapshot_version``, ``completeness_cursor``, ``valid`` and
+        ``index_manifests``."""
         return (await _gen.cluster.send_list_graphs(self._client)).payload
 
 
@@ -7919,8 +7922,12 @@ class ConsensusClient:
         threshold: int,
         mutation_type: str,
         query: str,
-    ) -> str:
-        """Apply an administrative mutation signed by explicit trusted signers."""
+    ) -> dict[str, Any]:
+        """Apply an administrative mutation signed by explicit trusted signers.
+
+        Returns the SPARQL UPDATE report of the ``ApplyMutation`` it is translated
+        into: ``operations``, ``inserted``, ``deleted``, ``updated_graphs`` and
+        ``created_graphs``."""
 
         _validate_multisig_threshold(signer_keys, threshold)
         if not isinstance(mutation_type, str) or not mutation_type.strip():
@@ -15234,7 +15241,9 @@ class EpistemicGraphClient:
         return await _gen.cluster.send_shutdown(self)
 
     async def apply_mutation(self, event_type: str, query: str) -> dict[str, Any]:
-        """The SPARQL Update report: operation and inserted/deleted counts."""
+        """The SPARQL UPDATE report: ``operations``, ``inserted``, ``deleted``,
+        ``updated_graphs`` and ``created_graphs``. The per-graph gateway and the
+        coordinated ``sparql_http_update_v1`` saga answer this same shape."""
         return (
             await _gen.graph.send_apply_mutation(
                 self, {"event_type": event_type, "query": query}

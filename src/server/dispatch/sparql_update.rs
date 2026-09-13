@@ -122,6 +122,11 @@ const SPARQL_COMPENSATION_EVENT: &str = "sparql_http_compensation_v1";
 struct SparqlRecoveryPlan {
     schema_version: u8,
     graphs: Vec<crate::server::sparql_http::PlannedGraphUpdate>,
+    /// The planner's operation counts, sealed with the plan so a resumed saga answers
+    /// the same `ApplyMutation` report as the attempt that planned it. A plan sealed
+    /// before this field existed decodes with zero counts.
+    #[serde(default)]
+    counts: eg_rdf::update::UpdateReport,
 }
 
 #[cfg(all(feature = "redb", feature = "security", feature = "sparql-http"))]
@@ -336,7 +341,7 @@ async fn build_sparql_update_plan(
             "ACCESS_DENIED: SPARQL graph creation requires graph:admin",
         ));
     }
-    let planned =
+    let (planned, counts) =
         match crate::server::sparql_http::plan_update(coord.state, query, default_graph, &graphs)
             .await
         {
@@ -346,6 +351,7 @@ async fn build_sparql_update_plan(
     let plan = SparqlRecoveryPlan {
         schema_version: 1,
         graphs: planned,
+        counts,
     };
     let saga = begin_sealed_sparql_saga(coord, &plan, coord.parent_id, SPARQL_RECOVERY_EVENT)?;
     Ok((saga, plan))
@@ -459,17 +465,7 @@ async fn finish_sparql_commit(
     saga: handlers::admin::AdminSaga,
     plan: &SparqlRecoveryPlan,
 ) -> Response {
-    let result = ResultPayload::Json(serde_json::json!({
-        "outcome": "committed",
-        "updated_graphs": plan.graphs.len(),
-        "created_graphs": plan.graphs.iter().filter(|graph| !graph.existed_before).count(),
-    }));
-    let committed = match handlers::admin::finish_admin_saga(
-        coord.redb,
-        saga.batch,
-        saga.created_at_ms,
-        result,
-    ) {
+    let committed = match finish_sparql_parent_saga(coord.redb, saga, plan) {
         Ok(committed) => committed,
         Err(error) => return Response::err(coord.req_id, error),
     };
@@ -477,6 +473,28 @@ async fn finish_sparql_commit(
         Ok(_) => Response::ok(coord.req_id, committed),
         Err(error) => Response::err(coord.req_id, error),
     }
+}
+
+/// Close the parent saga over the committed update's declared `ApplyMutation` report.
+#[cfg(all(feature = "sparql-http", feature = "redb", feature = "security"))]
+fn finish_sparql_parent_saga(
+    redb: &crate::server::persistence::redb_backend::RedbBackend,
+    saga: handlers::admin::AdminSaga,
+    plan: &SparqlRecoveryPlan,
+) -> Result<ResultPayload, String> {
+    let report = eg_types::result_contract::transactions::SparqlUpdateReport {
+        operations: plan.counts.operations as u64,
+        inserted: plan.counts.inserted as u64,
+        deleted: plan.counts.deleted as u64,
+        updated_graphs: plan.graphs.len() as u64,
+        created_graphs: plan
+            .graphs
+            .iter()
+            .filter(|graph| !graph.existed_before)
+            .count() as u64,
+    };
+    let result = ResultPayload::of::<eg_types::result_contract::graph::ApplyMutation>(report)?;
+    handlers::admin::finish_admin_saga(redb, saga.batch, saga.created_at_ms, result)
 }
 
 /// What the roll-forward attempt decided.
@@ -517,6 +535,7 @@ async fn try_sparql_forward_commit(
     let marker_plan = SparqlRecoveryPlan {
         schema_version: 1,
         graphs: Vec::new(),
+        counts: eg_rdf::update::UpdateReport::default(),
     };
     match begin_sealed_sparql_saga(
         coord,
@@ -781,15 +800,11 @@ mod coordinator_restart_tests {
             sealed: &[u8],
             expected_plaintext_digest: &str,
         ) -> Result<(), String> {
-            use sha2::{Digest, Sha256};
-            let plaintext = self.0.unseal(sealed)?;
-            let actual = hex::encode(Sha256::digest(&plaintext));
-            if actual != expected_plaintext_digest {
-                return Err(
-                    "private recovery payload digest does not match its parent receipt".to_string(),
-                );
-            }
-            Ok(())
+            crate::server::persistence::redb_backend::authenticate_private_payload(
+                &self.0,
+                sealed,
+                expected_plaintext_digest,
+            )
         }
     }
 
@@ -895,6 +910,7 @@ mod coordinator_restart_tests {
                 before_msgpack: vec![0x91, 0x01],
                 after_msgpack: vec![0x91, 0x02],
             }],
+            counts: eg_rdf::update::UpdateReport::default(),
         };
         let (digest, encrypted) =
             seal_private_coordinator_plan_with_cipher(&cipher, &plan).unwrap();
@@ -942,6 +958,7 @@ mod coordinator_restart_tests {
         let parent_plan = SparqlRecoveryPlan {
             schema_version: 1,
             graphs: Vec::new(),
+            counts: eg_rdf::update::UpdateReport::default(),
         };
         let (parent_digest, parent_encrypted) =
             seal_private_coordinator_plan_with_cipher(&cipher, &parent_plan).unwrap();

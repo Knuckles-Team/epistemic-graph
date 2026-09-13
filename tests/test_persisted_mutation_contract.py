@@ -41,6 +41,36 @@ def _m1_sources(module):
     )
 
 
+def _remove_all_gateway_router_occurrences(module, sources, arm: str) -> None:
+    """Delete one method variant from every compiler-family router child.
+
+    The graph gateway is now assembled from a facade helper plus private route
+    children.  A variant can therefore occur in a classifier and its live match
+    arm, or in the facade helper and the child.  Mutating only the first textual
+    occurrence would leave a duplicate marker that masks a missing ownership row.
+    Rebuild the assembled router from the exact declared children and remove all
+    occurrences so the perturbation remains fail-closed.
+    """
+
+    assembled = sources["graph_gateway_routes"]
+    assembled_count = assembled.count(arm)
+    occurrence_count = 0
+    for filename in module._GRAPH_GATEWAY_ROUTER_FILES:
+        child = module.read(f"src/server/handlers/graph_ops/{filename}")
+        count = child.count(arm)
+        if count == 0:
+            continue
+        occurrence_count += count
+        broken_child = child.replace(arm, "Method::RemovedGatewayArm {")
+        assert assembled.count(child) == 1
+        assembled = assembled.replace(child, broken_child, 1)
+
+    assert occurrence_count > 0
+    assert occurrence_count == assembled_count
+    assert assembled.count(arm) == 0
+    sources["graph_gateway_routes"] = assembled
+
+
 def test_persisted_mutation_contract_gate() -> None:
     _gate_module().main()
 
@@ -66,6 +96,7 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
         "gateway.rs",
         "gateway_broker.rs",
         "gateway_graph.rs",
+        "gateway_graph_routes.rs",
         "gateway_mining.rs",
         "gateway_mining_derived.rs",
         "gateway_mining_ml.rs",
@@ -100,6 +131,7 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
     assert re.sub(r"\s+", " ", gateway_signature).strip() == (
         "pub(crate) async fn try_handle_gateway( req_id: u64, caller: Option<&str>, "
         "attempt_nonce: Option<eg_types::contract::Nonce>, "
+        "idempotency_key: &str, "
         "tenant_scope: &str, graph_name: &str, core: &Arc<GraphCore>, "
         "materialization_manifest: Option< "
         "&Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>, >, "
@@ -130,7 +162,7 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
         "method: Method, ) -> Response"
     )
     production_code = module._rust_code_mask(family.production)
-    assert len(module._METHOD_VARIANT.findall(production_code)) == 209
+    assert len(module._METHOD_VARIANT.findall(production_code)) == 260
     assert "under_cap_returns_no_error_so_data_is_served" not in family.production
     assert "under_cap_returns_no_error_so_data_is_served" in family.with_tests
 
@@ -138,7 +170,10 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
 def test_graph_ops_gateway_families_contribute_real_method_arms() -> None:
     module = _gate_module()
     markers = {
-        "gateway_graph.rs": ("Method::AddNode", "commit_gateway_coalescable"),
+        "gateway_graph_routes.rs": (
+            "Method::AddNode",
+            "commit_gateway_coalescable",
+        ),
         "gateway_broker.rs": ("Method::Publish", "commit_gateway"),
         "gateway_mining.rs": ("Method::MineAssociate", "commit_conditional_mutation"),
         "gateway_mining_ml.rs": ("Method::GraphLearnFit", "Method::MiningPipelineTrain"),
@@ -236,13 +271,17 @@ def test_decode_json_object_has_one_visible_owner_and_two_consumers() -> None:
     gateway = module._rust_code_mask(
         module.read("src/server/handlers/graph_ops/gateway_graph.rs")
     )
+    routes = module._rust_code_mask(
+        module.read("src/server/handlers/graph_ops/gateway_graph_routes.rs")
+    )
     semantic = module._rust_code_mask(
         module.read("src/server/handlers/graph_ops/semantic.rs")
     )
 
     assert len(re.findall(r"\bfn\s+decode_json_object\s*\(", family_code)) == 1
     assert "pub(super) fn decode_json_object(" in gateway
-    assert gateway.count("decode_json_object(") == 4
+    assert gateway.count("decode_json_object(") == 1
+    assert routes.count("decode_json_object(") == 3
     assert semantic.count("super::gateway_graph::decode_json_object(") == 1
 
 
@@ -322,10 +361,7 @@ def test_live_mutation_inventory_contract() -> None:
 def test_gateway_inventory_rejects_deleted_live_router_arm(arm: str) -> None:
     module = _gate_module()
     sources = module.mutation_inventory_sources()
-    assert sources["graph_gateway_routes"].count(arm) == 1
-    sources["graph_gateway_routes"] = sources["graph_gateway_routes"].replace(
-        arm, "Method::RemovedGatewayArm {", 1
-    )
+    _remove_all_gateway_router_occurrences(module, sources, arm)
 
     with pytest.raises(SystemExit, match="served gateway ownership"):
         module.check_mutation_inventory(sources)
@@ -335,10 +371,7 @@ def test_gateway_inventory_rejects_comment_spoof_for_deleted_router_arm() -> Non
     module = _gate_module()
     sources = module.mutation_inventory_sources()
     arm = "Method::CreateNodeIfAbsent {"
-    assert sources["graph_gateway_routes"].count(arm) == 1
-    sources["graph_gateway_routes"] = sources["graph_gateway_routes"].replace(
-        arm, "Method::RemovedGatewayArm {", 1
-    )
+    _remove_all_gateway_router_occurrences(module, sources, arm)
     sources["graph_gateway_routes"] += f"\n// {arm}\n"
 
     with pytest.raises(SystemExit, match="served gateway ownership"):
@@ -398,6 +431,41 @@ def test_work_item_classifier_rejects_nondirect_or_spoofed_shapes(
 
     with pytest.raises(SystemExit, match="is_work_item_method must"):
         module.check_mutation_inventory(sources)
+
+
+def test_internal_graph_commit_lock_is_fail_closed() -> None:
+    module = _gate_module()
+    sources = module.mutation_inventory_sources()
+    body = module._function(
+        sources["mutation_batch"], "commit_internal_graph_methods_with_nonce_mode"
+    )
+    assert "lock_graph(request.graph).await" in body
+    broken = body.replace(
+        "lock_graph(request.graph).await", "lock_graph_removed(request.graph).await", 1
+    )
+    sources["mutation_batch"] = sources["mutation_batch"].replace(body, broken, 1)
+
+    with pytest.raises(SystemExit, match="internal graph commits must acquire"):
+        module.check_mutation_inventory(sources)
+
+
+def test_internal_graph_commit_carries_state_msgpack_to_authority() -> None:
+    module = _gate_module()
+    sources = module.mutation_inventory_sources()
+    body = module._function(
+        sources["mutation_batch"], "commit_prepared_internal_graph"
+    )
+    assert "state_msgpack,\n        descriptor," in body
+    assert "commit_mutation_batch_state(\n" in body
+    module._check_internal_graph_state_payload(sources["mutation_batch"])
+
+    broken = body.replace(
+        "        state_msgpack,\n        descriptor,", "        descriptor,", 1
+    )
+    sources["mutation_batch"] = sources["mutation_batch"].replace(body, broken, 1)
+
+    with pytest.raises(SystemExit, match="must carry state_msgpack"):
+        module._check_internal_graph_state_payload(sources["mutation_batch"])
 
 
 def test_mutation_batch_source_tree_contains_decomposed_authorities() -> None:

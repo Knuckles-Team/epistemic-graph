@@ -188,9 +188,15 @@ fn apply_apply_mutation(
             )
             .map_err(|error| format!("ApplyMutation: {error}"))?;
             core.replace_snapshot(update_core.snapshot())?;
-            serde_json::to_value(&report)
-                .map(ResultPayload::Json)
-                .map_err(|error| error.to_string())
+            ResultPayload::of::<eg_types::result_contract::graph::ApplyMutation>(
+                eg_types::result_contract::transactions::SparqlUpdateReport {
+                    operations: report.operations as u64,
+                    inserted: report.inserted as u64,
+                    deleted: report.deleted as u64,
+                    updated_graphs: 1,
+                    created_graphs: 0,
+                },
+            )
         }
         #[cfg(not(feature = "shacl"))]
         {
@@ -272,10 +278,12 @@ fn apply_claim_next(
 ) -> Result<ResultPayload, String> {
     let updates = match eg_types::msgpack::decode_property_object(updates_msgpack) {
         Ok(m) => m,
-        Err(_) => return ResultPayload::raw(&Option::<(String, serde_json::Value)>::None),
+        Err(_) => {
+            return ResultPayload::of::<eg_types::result_contract::coordination::ClaimNext>(None)
+        }
     };
     let claimed = core.claim_next_fields(label, &updates);
-    ResultPayload::raw(&claimed)
+    ResultPayload::of::<eg_types::result_contract::coordination::ClaimNext>(claimed)
 }
 
 /// `AddSceneObject`: pure extract-method from `try_handle_gateway`'s closure,
@@ -368,12 +376,9 @@ fn apply_batch_update(
     core: &GraphCore,
     operations_msgpack: &[u8],
 ) -> Result<ResultPayload, String> {
-    match crate::algorithms::batch_update(core, operations_msgpack) {
-        Ok(res) => eg_types::msgpack::decode_property_value(&res)
-            .map(ResultPayload::Json)
-            .map_err(|_| "Invalid batch result".to_string()),
-        Err(e) => Err(e),
-    }
+    let summary = crate::algorithms::batch_update(core, operations_msgpack)?;
+    eg_types::result_contract::transactions::BatchUpdateReport::decode(&summary)
+        .and_then(ResultPayload::of::<eg_types::result_contract::transactions::BatchUpdate>)
 }
 
 /// Decode a MessagePack-encoded `{translation,rotation,scale}` JSON blob into an

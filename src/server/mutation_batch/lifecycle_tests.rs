@@ -6,7 +6,7 @@ use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use eg_types::contract::Nonce;
 
-use super::{commit_lifecycle, lifecycle_batch_id};
+use super::{commit_lifecycle, lifecycle_batch_id, LifecycleCommitRequest};
 
 fn open_backend(dir: &Path) -> Arc<dyn PersistenceBackend> {
     Arc::new(
@@ -29,15 +29,17 @@ async fn assert_stable_lifecycle_replay(
     let first = {
         let persistence = open_backend(dir);
         let committed = commit_lifecycle(
-            &persistence,
-            action,
-            101,
-            Some(Nonce::from_bytes([1; 32])),
-            principal,
-            idempotency_key,
-            graph,
-            method.clone(),
-            &result,
+            LifecycleCommitRequest::new(
+                &persistence,
+                action,
+                101,
+                principal,
+                idempotency_key,
+                graph,
+                method.clone(),
+                &result,
+            )
+            .with_attempt_nonce(Some(Nonce::from_bytes([1; 32]))),
         )
         .await
         .expect("first lifecycle commit");
@@ -61,15 +63,17 @@ async fn assert_stable_lifecycle_replay(
     // replay the one durable receipt rather than append a second effect.
     let persistence = open_backend(dir);
     let replayed = commit_lifecycle(
-        &persistence,
-        action,
-        202,
-        Some(Nonce::from_bytes([2; 32])),
-        principal,
-        idempotency_key,
-        graph,
-        method.clone(),
-        &result,
+        LifecycleCommitRequest::new(
+            &persistence,
+            action,
+            202,
+            principal,
+            idempotency_key,
+            graph,
+            method.clone(),
+            &result,
+        )
+        .with_attempt_nonce(Some(Nonce::from_bytes([2; 32]))),
     )
     .await
     .expect("stable lifecycle retry");
@@ -84,15 +88,17 @@ async fn assert_stable_lifecycle_replay(
     // Reusing the original consumed attempt nonce is a replay error even
     // though the caller-stable operation key is otherwise valid.
     let consumed = commit_lifecycle(
-        &persistence,
-        action,
-        303,
-        Some(Nonce::from_bytes([1; 32])),
-        principal,
-        idempotency_key,
-        graph,
-        method,
-        &result,
+        LifecycleCommitRequest::new(
+            &persistence,
+            action,
+            303,
+            principal,
+            idempotency_key,
+            graph,
+            method,
+            &result,
+        )
+        .with_attempt_nonce(Some(Nonce::from_bytes([1; 32]))),
     )
     .await
     .expect_err("the original attempt nonce must be consumed");
@@ -100,15 +106,17 @@ async fn assert_stable_lifecycle_replay(
 
     // A changed method under the same stable key cannot masquerade as a retry.
     let conflict = commit_lifecycle(
-        &persistence,
-        action,
-        304,
-        Some(Nonce::from_bytes([3; 32])),
-        principal,
-        idempotency_key,
-        graph,
-        changed_method,
-        &result,
+        LifecycleCommitRequest::new(
+            &persistence,
+            action,
+            304,
+            principal,
+            idempotency_key,
+            graph,
+            changed_method,
+            &result,
+        )
+        .with_attempt_nonce(Some(Nonce::from_bytes([3; 32]))),
     )
     .await
     .expect_err("changed lifecycle payload must conflict");
@@ -168,18 +176,20 @@ async fn delete_lifecycle_replay_keeps_one_stable_receipt() {
         let persistence = open_backend(&dir);
         let result = ResultPayload::Json(serde_json::json!({"created": graph}));
         commit_lifecycle(
-            &persistence,
-            "create",
-            1,
-            Some(Nonce::from_bytes([9; 32])),
-            Some("principal:lifecycle-test"),
-            "setup-create",
-            graph,
-            Method::CreateGraph {
-                graph_name: graph.to_string(),
-                graph_type: GraphType::Global,
-            },
-            &result,
+            LifecycleCommitRequest::new(
+                &persistence,
+                "create",
+                1,
+                Some("principal:lifecycle-test"),
+                "setup-create",
+                graph,
+                Method::CreateGraph {
+                    graph_name: graph.to_string(),
+                    graph_type: GraphType::Global,
+                },
+                &result,
+            )
+            .with_attempt_nonce(Some(Nonce::from_bytes([9; 32]))),
         )
         .await
         .expect("create delete-test graph");
