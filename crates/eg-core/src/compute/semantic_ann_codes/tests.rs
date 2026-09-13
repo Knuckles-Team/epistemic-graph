@@ -53,8 +53,8 @@ use eg_types::EmbeddingSpaceRef;
 // every table here is reached through the mutation kernel.
 use redb::ReadableTable;
 
-const TENANT: &str = "native";
-const BINDING: &str = "semantic-binding-a";
+pub(super) const TENANT: &str = "native";
+pub(super) const BINDING: &str = "semantic-binding-a";
 
 fn digest(byte: u8) -> SemanticDigest {
     SemanticDigest::from_bytes([byte; 32])
@@ -296,7 +296,7 @@ fn generation_checkpoint_fixture(stage: SemanticStage) -> GenerationCheckpointFi
 }
 
 /// A unique temp dir per test invocation (no external dev-dep needed).
-fn tmp_dir(tag: &str) -> std::path::PathBuf {
+pub(super) fn tmp_dir(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
         "eg-semantic-codes-{}-{}-{}",
         tag,
@@ -338,7 +338,7 @@ fn open_store_for_any_tenant(
     .unwrap()
 }
 
-fn open_store(dir: &std::path::Path) -> SemanticCodeStore {
+pub(super) fn open_store(dir: &std::path::Path) -> SemanticCodeStore {
     open_store_for(dir, TENANT, BINDING)
 }
 
@@ -387,11 +387,11 @@ fn seed_batch(
     }
 }
 
-fn pending_binding(source_revision: &str) -> SemanticBinding {
+pub(super) fn pending_binding(source_revision: &str) -> SemanticBinding {
     binding_for_generation(source_revision, 1)
 }
 
-fn binding_for_generation(source_revision: &str, generation: u64) -> SemanticBinding {
+pub(super) fn binding_for_generation(source_revision: &str, generation: u64) -> SemanticBinding {
     SemanticBinding::create(SemanticBindingDraft {
         binding_id: BINDING.to_string(),
         tenant_id: TENANT.to_string(),

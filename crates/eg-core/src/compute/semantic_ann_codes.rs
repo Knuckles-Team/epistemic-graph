@@ -6478,3 +6478,7 @@ fn validate_sql_source_revision(revision: &str) -> Result<(), SemanticCodeError>
 #[cfg(test)]
 #[path = "semantic_ann_codes/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "semantic_ann_codes/write_door_tests.rs"]
+mod write_door_tests;
