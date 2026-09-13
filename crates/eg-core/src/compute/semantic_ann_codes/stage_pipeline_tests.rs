@@ -32,11 +32,11 @@ use super::tests::{
 };
 use super::{SemanticCodeError, SemanticCodeStore, SemanticMutationReceipt};
 
-const REVISION: &str =
+pub(super) const REVISION: &str =
     "sql-source:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:epoch:1";
 const OTHER_REVISION: &str =
     "sql-source:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:epoch:2";
-const CONSUMER: &str = "semantic-pipeline";
+pub(super) const CONSUMER: &str = "semantic-pipeline";
 
 type Completed = Result<SemanticMutationReceipt, SemanticCodeError>;
 
@@ -44,7 +44,7 @@ fn digest(seed: u8) -> SemanticDigest {
     SemanticDigest::from_bytes([seed; 32])
 }
 
-fn receipt(
+pub(super) fn receipt(
     intent: &SemanticStageIntent,
     output_digest: SemanticDigest,
     seed: u8,
@@ -58,7 +58,7 @@ fn receipt(
     }
 }
 
-fn transition(
+pub(super) fn transition(
     intent: &SemanticStageIntent,
     receipt: SemanticStageReceipt,
 ) -> SemanticStageTransition {
@@ -80,7 +80,7 @@ fn member_of(transition: &SemanticStageTransition) -> SemanticGenerationMember {
 }
 
 /// The complete one-entity checkpoint of `stage` for the intent's generation.
-fn one_entity_checkpoint(
+pub(super) fn one_entity_checkpoint(
     intent: &SemanticStageIntent,
     stage: SemanticStage,
     member: SemanticGenerationMember,
@@ -163,16 +163,16 @@ fn refusal(result: Completed) -> String {
 }
 
 /// One building binding whose single SQL source entity walks the stages.
-struct Pipeline {
+pub(super) struct Pipeline {
     dir: PathBuf,
-    codes: SemanticCodeStore,
-    binding: SemanticBinding,
-    identity: SemanticSqlSourceIdentity,
+    pub(super) codes: SemanticCodeStore,
+    pub(super) binding: SemanticBinding,
+    pub(super) identity: SemanticSqlSourceIdentity,
     clock: Cell<u64>,
 }
 
 impl Pipeline {
-    fn start(tag: &str) -> Self {
+    pub(super) fn start(tag: &str) -> Self {
         let dir = tmp_dir(tag);
         let codes = open_store(&dir);
         codes.store_binding(&pending_binding(REVISION), 1).unwrap();
@@ -198,13 +198,13 @@ impl Pipeline {
         }
     }
 
-    fn now(&self) -> u64 {
+    pub(super) fn now(&self) -> u64 {
         let now = self.clock.get() + 1;
         self.clock.set(now);
         now
     }
 
-    fn entity(&self) -> String {
+    pub(super) fn entity(&self) -> String {
         self.identity.source_entity_id()
     }
 
@@ -215,7 +215,7 @@ impl Pipeline {
     }
 
     /// Claim the next stage intent and fence it as an executor would.
-    fn claim(&self) -> (MutationOutboxLease, SemanticStageIntent) {
+    pub(super) fn claim(&self) -> (MutationOutboxLease, SemanticStageIntent) {
         let mut budget = OutboxClaimBudget::new(1, 60_000, self.now()).unwrap();
         let lease = self
             .codes
@@ -232,7 +232,7 @@ impl Pipeline {
         (lease, intent)
     }
 
-    fn complete(
+    pub(super) fn complete(
         &self,
         lease: &MutationOutboxLease,
         transition: &SemanticStageTransition,
@@ -254,7 +254,7 @@ impl Pipeline {
             .complete_generation_stage(lease, transition, artifact, successor, self.now())
     }
 
-    fn enqueue_s1(&self) -> SemanticStageIntent {
+    pub(super) fn enqueue_s1(&self) -> SemanticStageIntent {
         let intent = SemanticStageIntent::create(SemanticStageIntentDraft {
             binding_id: self.binding.binding_id.clone(),
             binding_digest: self.binding.binding_digest,
@@ -272,7 +272,7 @@ impl Pipeline {
         intent
     }
 
-    fn s1_completion(
+    pub(super) fn s1_completion(
         &self,
         intent: &SemanticStageIntent,
     ) -> (SemanticStageTransition, SemanticStageArtifact) {
@@ -434,7 +434,7 @@ impl Pipeline {
         (completed, artifact, s6)
     }
 
-    fn run_s1(&self) {
+    pub(super) fn run_s1(&self) {
         self.enqueue_s1();
         let (lease, intent) = self.claim();
         let (completed, artifact) = self.s1_completion(&intent);
@@ -462,7 +462,7 @@ impl Pipeline {
             .checkpoint_digest
     }
 
-    fn progress(&self) -> SemanticSourceProgress {
+    pub(super) fn progress(&self) -> SemanticSourceProgress {
         let read = self.codes.door.serving_read().unwrap();
         let rows = read.open_owner_table(SEMANTIC_SOURCE_PROGRESS).unwrap();
         let entity = self.entity();

@@ -297,7 +297,7 @@ fn is_retired(state: SemanticBindingState) -> bool {
 }
 
 /// The only binding state S6 publishes from is `Building`.
-fn live_transition(
+pub(super) fn live_transition(
     current: &SemanticBinding,
 ) -> Result<SemanticBindingStateTransition, SemanticCodeError> {
     match current.durable_state {
