@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
+use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 
@@ -119,12 +120,22 @@ fn pcm16le_with_quality(samples: &[f32]) -> (Vec<u8>, u32, u32, f32) {
 
 /// A pull-based iterator over synthesized chunks, backed by a producer thread and a
 /// bounded channel (capacity 4 — bounds resident memory to a handful of in-flight
-/// chunks, never the whole request's audio). Dropping the stream before it is
-/// exhausted disconnects the channel; the producer's next blocked `send` then returns
-/// an error and the thread exits promptly — no orphaned thread, no deadlock.
+/// chunks, never the whole request's audio).
+///
+/// Every wait on the producer is bounded by the request's own `request_deadline_ms`:
+/// * `next` waits at most until the deadline. A producer that is alive but wedged
+///   (an ONNX forward pass cannot be interrupted) yields [`TtsError::Timeout`] once,
+///   cancels the producer, and ends the stream. A producer that died or finished
+///   disconnects its sender, which ends the stream promptly.
+/// * Dropping the stream cancels the producer and disconnects the channel FIRST, so a
+///   producer blocked on a full channel sees its `send` fail instead of waiting on a
+///   receiver that is still alive, then waits for the producer's exit signal no longer
+///   than the remaining deadline.
 pub struct ChunkStream {
-    rx: mpsc::Receiver<Result<SynthesizedChunk, TtsError>>,
-    handle: Option<thread::JoinHandle<()>>,
+    rx: Option<mpsc::Receiver<Result<SynthesizedChunk, TtsError>>>,
+    producer_exited: mpsc::Receiver<()>,
+    cancel: CancellationToken,
+    deadline: Instant,
 }
 
 impl std::fmt::Debug for ChunkStream {
@@ -133,19 +144,49 @@ impl std::fmt::Debug for ChunkStream {
     }
 }
 
+impl ChunkStream {
+    fn remaining(&self) -> Duration {
+        self.deadline.saturating_duration_since(Instant::now())
+    }
+}
+
 impl Iterator for ChunkStream {
     type Item = Result<SynthesizedChunk, TtsError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.rx.recv().ok()
+        let remaining = self.remaining();
+        let rx = self.rx.as_ref()?;
+        match rx.recv_timeout(remaining) {
+            Ok(item) => Some(item),
+            Err(mpsc::RecvTimeoutError::Disconnected) => None,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                self.cancel.cancel();
+                self.rx = None;
+                Some(Err(TtsError::Timeout))
+            }
+        }
     }
 }
 
 impl Drop for ChunkStream {
     fn drop(&mut self) {
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
+        self.cancel.cancel();
+        // Disconnect before waiting: the producer's blocked `send` must fail now.
+        self.rx = None;
+        // Either signal (sent, or the producer's sender dropped) means it is gone. A
+        // timeout means it is inside one uninterruptible forward pass; it observes the
+        // cancellation at the next phrase or chunk boundary and exits on its own.
+        let _ = self.producer_exited.recv_timeout(self.remaining());
+    }
+}
+
+/// Signals the stream when the producer thread leaves its closure by any path —
+/// return or panic — so `ChunkStream::drop` can wait for it without a join.
+struct ProducerExitSignal(mpsc::SyncSender<()>);
+
+impl Drop for ProducerExitSignal {
+    fn drop(&mut self) {
+        let _ = self.0.try_send(());
     }
 }
 
@@ -221,10 +262,15 @@ pub fn synthesize_streaming(
     }
 
     let (tx, rx) = mpsc::sync_channel(4);
+    let (exited, producer_exited) = mpsc::sync_channel(1);
     let max_samples_per_chunk = (limits.max_chunk_decoded_bytes / 2).max(1) as usize;
     let max_chunks = u64::from(limits.max_chunks);
+    let deadline = Instant::now() + Duration::from_millis(u64::from(limits.request_deadline_ms));
+    let stream_cancel = cancel.clone();
 
-    let handle = thread::spawn(move || {
+    // Detached on purpose: the stream waits on `ProducerExitSignal`, never on a join.
+    thread::spawn(move || {
+        let _exit_signal = ProducerExitSignal(exited);
         let phrase_count = phrases.len();
         let mut sample_offset: u64 = 0;
         let mut sequence: u64 = 0;
@@ -314,7 +360,9 @@ pub fn synthesize_streaming(
     });
 
     Ok(ChunkStream {
-        rx,
-        handle: Some(handle),
+        rx: Some(rx),
+        producer_exited,
+        cancel: stream_cancel,
+        deadline,
     })
 }
