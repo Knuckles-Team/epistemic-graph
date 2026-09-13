@@ -419,14 +419,8 @@ pub fn load_triples(
     })
 }
 
-/// Summary of a [`load_triples`] call.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct LoadReport {
-    /// Total triples consumed.
-    pub triples: usize,
-    /// Multi-valued literal extras encountered (second+ literal per `(s,p)`).
-    pub multivalue: usize,
-}
+/// Summary of a [`load_triples`] call -- the `AddTriples` wire body, owned by eg-types.
+pub use eg_types::rdf_report::LoadReport;
 
 /// Extract the lexical value of a node property cell.
 ///

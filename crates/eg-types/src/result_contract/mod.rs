@@ -111,11 +111,22 @@ impl ResultPayload {
     }
 
     /// A caller-shaped result that is already MessagePack -- a result-cache hit, or the
-    /// stored bytes of a caller-written value. Only a [`Dynamic`] `Raw` result may be
-    /// served from bytes, because only there is no Rust type to check them against.
+    /// stored bytes of a caller-written value. There is no Rust type to check them against;
+    /// a typed result's cache hit goes through [`ResultPayload::of_cache_hit`] instead.
     pub fn of_encoded<M>(bytes: Vec<u8>) -> Self
     where
         M: MethodResult<Body = Dynamic, Encoding = encoding::Raw>,
+    {
+        ResultPayload::Raw(bytes)
+    }
+
+    /// A result-cache hit for `M`'s declared typed `Raw` result: bytes this server encoded
+    /// through [`ResultPayload::of`] or [`ResultPayload::of_ref`] for `M` and cached under a
+    /// key only `M`'s handler builds. The body was type-checked when it was encoded; the
+    /// cache hands the bytes back unchanged.
+    pub fn of_cache_hit<M>(bytes: Vec<u8>) -> Self
+    where
+        M: MethodResult<Encoding = encoding::Raw>,
     {
         ResultPayload::Raw(bytes)
     }

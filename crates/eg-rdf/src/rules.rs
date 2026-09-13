@@ -1388,24 +1388,8 @@ pub struct RuleReasonRequest {
     pub derived_only: bool,
 }
 
-/// One fact in a [`RuleReasonResponse`].
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct RuleFact {
-    pub predicate: String,
-    pub args: Vec<String>,
-    pub confidence: f64,
-    pub derived: bool,
-}
-
-/// The serialisable rule-reasoning response.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct RuleReasonResponse {
-    pub facts: Vec<RuleFact>,
-    pub same_as: Vec<(String, String)>,
-    pub consistent: bool,
-    pub conflicts: Vec<String>,
-    pub registered_rules: Vec<String>,
-}
+/// The rule-reasoning response and its facts -- the `RunRules` wire body, owned by eg-types.
+pub use eg_types::rdf_report::{RuleFact, RuleReasonResponse};
 
 /// Execute a [`RuleReasonRequest`]: parse the Turtle into an ontology + ABox facts,
 /// register the custom rules, run the fixpoint, and project a filtered response. This

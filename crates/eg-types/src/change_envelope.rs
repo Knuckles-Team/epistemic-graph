@@ -663,6 +663,7 @@ fn validate_msgpack_privacy(bytes: &[u8]) -> Result<(), String> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ChangeEnvelopeRecord {
     pub envelope: ChangeEnvelope,
     pub committed_at_ms: u64,

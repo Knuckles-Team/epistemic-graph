@@ -113,6 +113,8 @@ pub mod protocol;
 // bottom-of-DAG. Pure serde — no dep on `eg-quantum-core`.
 #[cfg(feature = "quantum")]
 pub mod quantum;
+// F3: RDF load/update/rule/shape-validation report bodies (eg-rdf/eg-shacl/eg-shex results).
+pub mod rdf_report;
 pub mod row_predicate;
 // F3: the typed result contract -- one marker per method result, compile-checked at every
 // handler site and walked by `eg-capabilities` to publish the result schemas.

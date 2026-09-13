@@ -84,16 +84,8 @@ pub trait GraphStore {
     }
 }
 
-/// What a [`execute`] run changed.
-#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct UpdateReport {
-    /// Update operations applied (one per `;`-separated clause).
-    pub operations: usize,
-    /// Triples inserted.
-    pub inserted: usize,
-    /// Triples deleted.
-    pub deleted: usize,
-}
+/// What an [`execute`] run changed -- the `ApplyMutation` wire body, owned by eg-types.
+pub use eg_types::rdf_report::UpdateReport;
 
 /// Parse a SPARQL 1.1 UPDATE string into the spargebra model.
 pub fn parse_update(update_str: &str) -> Result<Update, String> {
