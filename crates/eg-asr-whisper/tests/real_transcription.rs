@@ -1,12 +1,11 @@
 //! Real-model proofs. GOC-33 explicitly does NOT own model acquisition
-//! (GOC-36) and this crate never downloads a model — so these tests are
-//! gated on an operator-supplied fixture and SKIP (loudly, not silently)
-//! when it is absent, rather than being disabled or deleted. To run:
+//! (GOC-36) and this crate never downloads a model, so these tests read an
+//! operator-supplied fixture from the environment. They never skip: when the
+//! fixture is not configured they FAIL with instructions. To run:
 //!
 //! ```text
-//! EG_ASR_TEST_MODEL_PATH=/var/tmp/l9/ggml-tiny.en.bin \
-//! EG_ASR_TEST_WAV_PATH=/var/tmp/l9/jfk-16k-mono.wav \
-//! cargo test -p eg-asr-whisper --test real_transcription --target-dir ./target-isolated -- --nocapture
+//! export $(scripts/fetch_whisper_test_fixture.sh)   # pinned, sha256-verified
+//! cargo test -p eg-asr-whisper --test real_transcription -- --nocapture
 //! ```
 
 use eg_asr_whisper::{
@@ -20,13 +19,22 @@ struct Fixture {
     wav_path: String,
 }
 
-fn fixture() -> Option<Fixture> {
-    let model_path = std::env::var("EG_ASR_TEST_MODEL_PATH").ok()?;
-    let wav_path = std::env::var("EG_ASR_TEST_WAV_PATH").ok()?;
-    Some(Fixture {
-        model_path,
-        wav_path,
-    })
+/// The operator-supplied model + speech fixture. Panics with how to provide it when
+/// either variable is unset.
+fn fixture() -> Fixture {
+    let var = |name: &str| {
+        std::env::var(name).unwrap_or_else(|_| {
+            panic!(
+                "{name} is not set: the real-model tests need a whisper model and a 16 kHz \
+                 mono WAV. Run `export $(scripts/fetch_whisper_test_fixture.sh)` from the \
+                 repository root (pinned, sha256-verified download)."
+            )
+        })
+    };
+    Fixture {
+        model_path: var("EG_ASR_TEST_MODEL_PATH"),
+        wav_path: var("EG_ASR_TEST_WAV_PATH"),
+    }
 }
 
 fn load_provider(fixture: &Fixture) -> WhisperAsrProvider {
@@ -40,10 +48,7 @@ fn load_provider(fixture: &Fixture) -> WhisperAsrProvider {
 
 #[test]
 fn transcribes_real_audio_and_produces_provider_derived_timing_and_quality() {
-    let Some(fixture) = fixture() else {
-        eprintln!("SKIPPED: EG_ASR_TEST_MODEL_PATH/EG_ASR_TEST_WAV_PATH not set — no model fixture configured (GOC-36 owns acquisition, this crate never downloads one).");
-        return;
-    };
+    let fixture = fixture();
     let provider = load_provider(&fixture);
     let wav_bytes = std::fs::read(&fixture.wav_path).expect("read test wav");
     let audio = decode_wav_16k_mono(&wav_bytes).expect("fixture wav decodes as 16k mono pcm16");
@@ -90,10 +95,7 @@ fn transcribes_real_audio_and_produces_provider_derived_timing_and_quality() {
 
 #[test]
 fn cancellation_mid_stream_yields_a_typed_cancelled_error_never_a_truncated_success() {
-    let Some(fixture) = fixture() else {
-        eprintln!("SKIPPED: EG_ASR_TEST_MODEL_PATH/EG_ASR_TEST_WAV_PATH not set.");
-        return;
-    };
+    let fixture = fixture();
     let provider = load_provider(&fixture);
     let wav_bytes = std::fs::read(&fixture.wav_path).expect("read test wav");
     let audio = decode_wav_16k_mono(&wav_bytes).expect("fixture wav decodes");
@@ -123,10 +125,7 @@ fn cancellation_mid_stream_yields_a_typed_cancelled_error_never_a_truncated_succ
 
 #[test]
 fn unverified_model_is_never_loaded() {
-    let Some(fixture) = fixture() else {
-        eprintln!("SKIPPED: no model fixture configured.");
-        return;
-    };
+    let fixture = fixture();
     let wrong_digest = "0".repeat(64);
     let err = verify_model(&fixture.model_path, &wrong_digest)
         .expect_err("a real model file with the WRONG declared digest must still fail closed");

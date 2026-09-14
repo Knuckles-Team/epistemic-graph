@@ -119,6 +119,13 @@ baseline** — `GGML_NATIVE=OFF`, `GGML_AVX=OFF`, `GGML_AVX2=OFF`,
 `GGML_FMA=OFF`, `GGML_F16C=OFF`, `GGML_AVX512=OFF`, and (empirically required —
 see below) `GGML_BMI2=OFF`.
 
+The real-model tests need a model and a speech sample. `scripts/fetch_whisper_test_fixture.sh`
+downloads `ggml-tiny.en.bin` and whisper.cpp's `jfk.wav` from pinned revisions, checks their
+sha256, and prints the two variables the tests read:
+`export $(scripts/fetch_whisper_test_fixture.sh)` then
+`cargo test -p eg-asr-whisper --test real_transcription`. If the variables are unset, the tests
+fail with that instruction; they never skip.
+
 This was **not** solved by reasoning about flags alone. The first real-fixture
 run (`crates/eg-asr-whisper/tests/real_transcription.rs`, GOC-33) SIGILLed
 inside `ggml_graph_plan` on a `shlx` (BMI2) instruction *even with every AVX*

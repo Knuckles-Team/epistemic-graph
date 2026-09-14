@@ -141,6 +141,45 @@ def test_gates_job_run_steps_include_the_numeric_kernel_parity_chain():
         )
 
 
+def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
+    """The two suites that once returned early must stay runnable and blocking.
+
+    The local CI replica parses the workflow itself, so this also proves neither
+    setup nor test step disappears behind an unclassified action or condition.
+    """
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    steps = doc["jobs"]["gates"]["steps"]
+    names = [step.get("name") for step in steps]
+    required = (
+        "Provision pinned sqlite3 CLI (differential sqlite tests)",
+        "Test (SQLite format differential conformance)",
+        "Test (facade full)",
+        "Provision pinned Whisper real-model fixture",
+        "Test (Whisper real-model transcription and cancellation)",
+    )
+    assert all(name in names for name in required)
+    assert names.index(required[0]) < names.index(required[1]) < names.index(required[2])
+    assert names.index(required[3]) < names.index(required[4])
+    selected = [step for step in steps if step.get("name") in required]
+    assert all("if" not in step and "continue-on-error" not in step for step in selected)
+
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
+    rows = {row["name"]: row for row in plan if row["job"] == "gates"}
+    assert rows[required[0]]["mode"] == "RUN"
+    assert rows[required[1]]["mode"] == "RUN"
+    assert rows[required[2]]["mode"] == "RUN"
+    assert rows[required[3]]["mode"] == "RUN"
+    assert rows[required[4]]["mode"] == "RUN"
+    assert all(rows[name]["blocking"] is True for name in required)
+    assert rows[required[1]]["detail"] == (
+        "cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast"
+    )
+    assert rows[required[4]]["detail"] == (
+        "cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast"
+    )
+
+
 CAPABILITY_GATE_NAME = "Test (canonical capability policy and generated ledger)"
 # `contract` = `canonical-ledger` + `contract-schema`: it also compiles and runs
 # `tests/contract_generated.rs`, which requires both, so it is the complete profile.

@@ -755,17 +755,23 @@ mod tests {
         )
     }
 
-    fn sqlite3_available() -> bool {
-        std::process::Command::new("sqlite3")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+    /// The real `sqlite3` CLI the round-trip test diffs against: `$EG_SQLITE3`, else
+    /// `sqlite3` on `$PATH`. Panics with how to provide it when neither runs.
+    fn sqlite3_bin() -> std::ffi::OsString {
+        let bin = std::env::var_os("EG_SQLITE3").unwrap_or_else(|| "sqlite3".into());
+        match std::process::Command::new(&bin).arg("--version").output() {
+            Ok(out) if out.status.success() => bin,
+            other => panic!(
+                "the sqlite `.db` round-trip test needs the real sqlite3 CLI, but {bin:?} is \
+                 not runnable ({other:?}). Install sqlite3 on PATH, or run \
+                 `export EG_SQLITE3=\"$(scripts/fetch_sqlite3.sh)\"` from the repository root."
+            ),
+        }
     }
 
     /// Run a SQL script through the real `sqlite3` CLI against `db`, returning stdout.
     fn run_sqlite(db: &Path, sql: &str) -> String {
-        let out = std::process::Command::new("sqlite3")
+        let out = std::process::Command::new(sqlite3_bin())
             .arg(db)
             .arg(sql)
             .output()
@@ -784,15 +790,12 @@ mod tests {
     /// (pure-Rust `Reader`) into an isolated engine store, EXPORT that store back out
     /// (pure-Rust `Writer`), then prove the export with `sqlite3`: `PRAGMA integrity_check`
     /// must be `ok`, and the `.schema`/`SELECT` output must match — including a NULL, a
-    /// BLOB, an overflow-forcing large TEXT, and a multi-leaf/interior b-tree. Skips (not
-    /// fails) when `sqlite3` is not on `$PATH`.
+    /// BLOB, an overflow-forcing large TEXT, and a multi-leaf/interior b-tree. Never skips:
+    /// it FAILS when neither `$EG_SQLITE3` nor `sqlite3` on `$PATH` runs (see
+    /// `scripts/fetch_sqlite3.sh`).
     #[cfg(target_os = "linux")]
     #[test]
     fn test_sqlite_file_roundtrip_eg331_eg332() {
-        if !sqlite3_available() {
-            eprintln!("SKIP test_sqlite_file_roundtrip_eg331_eg332: sqlite3 not on PATH");
-            return;
-        }
         let (test_root, src, dst) = unique_paths();
 
         // 1. Build a source `.db` with the real sqlite3 CLI — every storage class, a NULL,

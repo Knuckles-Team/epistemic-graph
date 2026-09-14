@@ -781,19 +781,38 @@ mod tests {
         assert!(name == "cpu" || name == "cuda");
     }
 
+    /// The CUDA probe on a host with no usable device (every build host and CI runner):
+    /// `cuda::backend()` must absorb the driver-load failure (cudarc panics when libcuda
+    /// cannot be loaded) as `None`, and dispatch must then select and run the CPU backend.
+    /// On a host where a device does initialise this fails, directing the run to the
+    /// `eg_gpu_device_tests` parity test instead.
+    #[cfg(all(feature = "gpu-cuda", not(eg_gpu_device_tests)))]
+    #[test]
+    fn cuda_probe_without_a_device_falls_back_to_cpu() {
+        assert!(
+            cuda::backend().is_none(),
+            "a CUDA device initialised, so the device parity test must run: \
+             RUSTFLAGS=\"--cfg eg_gpu_device_tests\" cargo test -p eg-compute --features gpu-cuda"
+        );
+        assert_eq!(active_closure_backend_name(), "cpu");
+        let mut joined =
+            active_closure_backend().join_on_middle(&[(1, 2), (3, 4)], &[(2, 5), (2, 6), (7, 8)]);
+        joined.sort_unstable();
+        assert_eq!(joined, vec![(1, 5), (1, 6)]);
+    }
+
     /// GPU↔CPU parity (CONCEPT:EG-KG.compute.reasoning-closure-gpu). When a CUDA device is
     /// present the real transitive-join kernel MUST produce the SAME pair SET as the CPU
-    /// hash-join for a batch spanning several thread blocks; when no device is available
-    /// `cuda::backend()` is `None` and the test SKIPs cleanly. So it is a no-op in GPU-less
-    /// CI yet auto-validates the kernel wherever a compatible CUDA device exists. Only
-    /// compiled under `--features gpu-cuda`.
-    #[cfg(feature = "gpu-cuda")]
+    /// hash-join for a batch spanning several thread blocks.
+    /// It needs a real device, which no build host or CI runner has, so it is compiled
+    /// only under the explicit opt-in `--cfg eg_gpu_device_tests` and FAILS when no
+    /// device initialises. Run it on a CUDA host with
+    /// `RUSTFLAGS="--cfg eg_gpu_device_tests" cargo test -p eg-compute --features gpu-cuda`.
+    #[cfg(all(feature = "gpu-cuda", eg_gpu_device_tests))]
     #[test]
     fn cuda_join_matches_cpu_ground_truth() {
-        let Some(gpu) = cuda::backend() else {
-            eprintln!("SKIP cuda_join_matches_cpu: no CUDA device present (CPU-only host)");
-            return;
-        };
+        let gpu = cuda::backend()
+            .expect("--cfg eg_gpu_device_tests is set but no CUDA device initialised on this host");
         assert_eq!(gpu.name(), "cuda", "backend() returned a non-CUDA backend");
 
         let mut rng = ChaCha8Rng::seed_from_u64(9);
