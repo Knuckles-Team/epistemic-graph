@@ -114,6 +114,12 @@ pub(super) async fn dispatch_knowledge_stream(
 #[cfg(all(test, feature = "raft", feature = "modality-serving"))]
 mod modality_replay_receipt_tests {
     use super::*;
+    use serde::Serialize;
+
+    fn encode_modality_replay_wire<T: Serialize + ?Sized>(value: &T) -> Vec<u8> {
+        let inner = rmp_serde::to_vec_named(value).unwrap();
+        rmp_serde::to_vec_named(&ResultPayload::Raw(inner)).unwrap()
+    }
 
     fn single_wire() -> Vec<u8> {
         let outcome = eg_modality::ApplyOutcome {
@@ -121,7 +127,7 @@ mod modality_replay_receipt_tests {
             observation_version: 11,
             event_sequence: 17,
         };
-        rmp_serde::to_vec_named(&ResultPayload::raw(&outcome).unwrap()).unwrap()
+        encode_modality_replay_wire(&outcome)
     }
 
     fn stream_wire() -> Vec<u8> {
@@ -137,7 +143,7 @@ mod modality_replay_receipt_tests {
                 event_sequence: 18,
             },
         ];
-        rmp_serde::to_vec_named(&ResultPayload::raw(&outcomes).unwrap()).unwrap()
+        encode_modality_replay_wire(&outcomes)
     }
 
     #[test]
@@ -200,8 +206,7 @@ mod modality_replay_receipt_tests {
             event_sequence: 1,
         };
         let oversized = vec![outcome; 65];
-        let oversized_wire =
-            rmp_serde::to_vec_named(&ResultPayload::raw(&oversized).unwrap()).unwrap();
+        let oversized_wire = encode_modality_replay_wire(&oversized);
         assert!(crate::raft::decode_sanitized_modality_result(
             eg_types::ServedModalityKind::Document,
             crate::raft::SanitizedModalityMutation::IngestStream,

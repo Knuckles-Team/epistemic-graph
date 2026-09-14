@@ -50,6 +50,16 @@ use crate::graph::GraphCore;
 use crate::protocol::Method;
 use crate::server::ServerState;
 
+#[path = "txn/modality.rs"]
+mod modality;
+#[path = "txn/recovery_plan.rs"]
+mod recovery_plan;
+#[cfg(test)]
+#[path = "txn/recovery_plan_tests.rs"]
+mod recovery_plan_tests;
+#[path = "txn/replay_intent.rs"]
+mod replay_intent;
+
 #[cfg(feature = "raft")]
 #[derive(Clone, PartialEq, Eq)]
 struct ConsensusGraphFence {
@@ -420,37 +430,6 @@ pub(crate) struct StagedMeasurement {
     pub(crate) points: Vec<(i64, Vec<f64>)>,
 }
 
-/// Canonical private recovery body for a prepared transaction coordinator.  It is
-/// never written to a coordinator batch, outbox, log message, or trace: callers
-/// serialize this deterministic shape, encrypt it with the environment-managed
-/// data key, and atomically attach only the ciphertext to the parent receipt.
-///
-/// `agent` and wall-clock activity are deliberately absent.  Retry authorization
-/// is bound by the parent's principal fingerprint, avoiding durable raw identity;
-/// idle bookkeeping is reconstructed in memory.
-#[derive(serde::Serialize, serde::Deserialize)]
-struct DurableTxnPlan {
-    schema_version: u16,
-    graph: String,
-    tenant_scope: String,
-    begin_version: u64,
-    write_set: Vec<Method>,
-    read_set: BTreeMap<String, NodeFingerprint>,
-    isolation: IsolationLevel,
-    predicate_reads: Vec<(PredicateRead, u64)>,
-    extra_writes: BTreeMap<String, Vec<Method>>,
-    vectors: Vec<(String, Vec<f32>)>,
-    blob_refs: Vec<(String, String)>,
-    measurements: Vec<StagedMeasurement>,
-    axioms: Vec<Method>,
-    constructs: Vec<Method>,
-    plan_writeback: Vec<Method>,
-}
-
-const DURABLE_TXN_PLAN_VERSION: u16 = 2;
-const MAX_DURABLE_TXN_PLAN_BYTES: usize = 64 * 1024 * 1024;
-const MAX_DURABLE_TXN_PLAN_ITEMS: usize = 1_000_000;
-
 impl StagedMeasurement {
     /// Flatten into the persistence-layer [`crate::MeasurementBatch`] tuple threaded
     /// through `commit_crossmodal`.
@@ -479,91 +458,6 @@ pub(crate) struct NewTxnArgs {
 }
 
 impl GraphTxnState {
-    /// Serialize the complete staged transaction into a stable canonical ordering.
-    /// The returned bytes are plaintext only in process memory and MUST be sealed
-    /// before persistence.
-    pub(crate) fn encode_recovery_plan(&self) -> Result<Vec<u8>, String> {
-        let plan = DurableTxnPlan {
-            schema_version: DURABLE_TXN_PLAN_VERSION,
-            graph: self.graph.clone(),
-            tenant_scope: self.tenant_scope.clone(),
-            begin_version: self.begin_version,
-            write_set: self.write_set.clone(),
-            read_set: self
-                .read_set
-                .iter()
-                .map(|(node, fingerprint)| (node.clone(), fingerprint.clone()))
-                .collect(),
-            isolation: self.isolation,
-            predicate_reads: self.predicate_reads.clone(),
-            extra_writes: self
-                .extra_writes
-                .iter()
-                .map(|(graph, methods)| (graph.clone(), methods.clone()))
-                .collect(),
-            vectors: self.vectors.clone(),
-            blob_refs: self.blob_refs.clone(),
-            measurements: self.measurements.clone(),
-            axioms: self.axioms.clone(),
-            constructs: self.constructs.clone(),
-            plan_writeback: self.plan_writeback.clone(),
-        };
-        let bytes = rmp_serde::to_vec_named(&plan)
-            .map_err(|_| "transaction recovery plan encode failed".to_string())?;
-        eg_types::msgpack::validate_single_value(
-            &bytes,
-            eg_types::msgpack::MsgpackLimits::new(
-                MAX_DURABLE_TXN_PLAN_BYTES,
-                MAX_DURABLE_TXN_PLAN_ITEMS,
-                64,
-            ),
-        )
-        .map_err(|_| "transaction recovery plan exceeds limits".to_string())?;
-        Ok(bytes)
-    }
-
-    /// Reconstruct an ephemeral staged transaction from authenticated private
-    /// recovery bytes.  The retrying caller is held only in RAM; its durable scope
-    /// was already verified against the parent receipt before this method is called.
-    pub(crate) fn decode_recovery_plan(bytes: &[u8], agent: String) -> Result<Self, String> {
-        let plan: DurableTxnPlan = eg_types::msgpack::decode_bounded(
-            bytes,
-            eg_types::msgpack::MsgpackLimits::new(
-                MAX_DURABLE_TXN_PLAN_BYTES,
-                MAX_DURABLE_TXN_PLAN_ITEMS,
-                64,
-            ),
-        )
-        .map_err(|_| "transaction recovery plan is corrupt".to_string())?;
-        if plan.schema_version != DURABLE_TXN_PLAN_VERSION {
-            return Err(format!(
-                "unsupported transaction recovery plan version {}",
-                plan.schema_version
-            ));
-        }
-        if plan.graph.is_empty() || plan.tenant_scope.is_empty() {
-            return Err("transaction recovery plan has incomplete authority".to_string());
-        }
-        Ok(GraphTxnState {
-            graph: plan.graph,
-            tenant_scope: plan.tenant_scope,
-            begin_version: plan.begin_version,
-            write_set: plan.write_set,
-            read_set: plan.read_set.into_iter().collect(),
-            isolation: plan.isolation,
-            predicate_reads: plan.predicate_reads,
-            agent,
-            last_active_ms: now_ms(),
-            extra_writes: plan.extra_writes.into_iter().collect(),
-            vectors: plan.vectors,
-            blob_refs: plan.blob_refs,
-            measurements: plan.measurements,
-            axioms: plan.axioms,
-            constructs: plan.constructs,
-            plan_writeback: plan.plan_writeback,
-        })
-    }
-
     /// Open a fresh staged transaction. Under `Serializable` with a declared
     /// `predicate`, capture its result-set fingerprint NOW (the snapshot the txn
     /// reads against) so commit can detect a phantom/range change. `core` is the
@@ -627,87 +521,6 @@ impl GraphTxnState {
         }
         let fp = predicate.fingerprint(core);
         self.predicate_reads.push((predicate, fp));
-    }
-
-    /// Stage a VECTOR upsert into the cross-modal write-set (CONCEPT:EG-KG.txn.reader-never-sees-node). The
-    /// node it targets is captured into the OCC read-set (so a concurrent change to
-    /// that node still conflicts), then the embedding is queued to land atomically at
-    /// commit. Only the DEFAULT graph's vectors participate in the one-txn barrier.
-    pub(crate) fn stage_vector(
-        &mut self,
-        core: &GraphCore,
-        node_id: String,
-        embedding: Vec<f32>,
-        now_ms: u64,
-    ) {
-        self.observe(core, &node_id);
-        self.vectors.push((node_id, embedding));
-        self.last_active_ms = now_ms;
-    }
-
-    /// Stage a BLOB REFERENCE into the cross-modal write-set (CONCEPT:EG-KG.txn.reader-never-sees-node). The
-    /// node is captured into the OCC read-set; the `(node_id, digest)` ref lands
-    /// atomically with the node/vector/property at commit.
-    pub(crate) fn stage_blob_ref(
-        &mut self,
-        core: &GraphCore,
-        node_id: String,
-        digest: String,
-        now_ms: u64,
-    ) {
-        self.observe(core, &node_id);
-        self.blob_refs.push((node_id, digest));
-        self.last_active_ms = now_ms;
-    }
-
-    /// Stage a TIME-SERIES measurement batch into the cross-modal write-set
-    /// (CONCEPT:EG-KG.backend.cross-modal-atomic-commit). Measurements are not graph nodes, so nothing is added to the OCC
-    /// node read-set; the batch is queued to land atomically with the txn's other
-    /// modalities at commit.
-    pub(crate) fn stage_measurement(&mut self, measurement: StagedMeasurement, now_ms: u64) {
-        self.measurements.push(measurement);
-        self.last_active_ms = now_ms;
-    }
-
-    /// Stage OWL AXIOM writes, pre-lowered to `AddNode`/`AddEdge` methods (CONCEPT:EG-KG.txn.extended-cross-modal).
-    /// Each method's referenced nodes are captured into the OCC read-set (so a concurrent
-    /// change to a touched node still conflicts), then the methods are queued to land in
-    /// the SAME cross-modal commit.
-    pub(crate) fn stage_axiom(&mut self, core: &GraphCore, methods: Vec<Method>, now_ms: u64) {
-        for m in &methods {
-            self.observe_method(core, m);
-        }
-        self.axioms.extend(methods);
-        self.last_active_ms = now_ms;
-    }
-
-    /// Stage SPARQL CONSTRUCT results, pre-lowered to `AddNode`/`AddEdge` methods
-    /// (CONCEPT:EG-KG.txn.construct-evaluated). Same OCC read-set capture + atomic-commit semantics as
-    /// [`Self::stage_axiom`].
-    pub(crate) fn stage_construct(&mut self, core: &GraphCore, methods: Vec<Method>, now_ms: u64) {
-        for m in &methods {
-            self.observe_method(core, m);
-        }
-        self.constructs.extend(methods);
-        self.last_active_ms = now_ms;
-    }
-
-    /// Stage PLANNER WRITEBACK methods, pre-lowered to `AddNode`/`AddEdge` methods
-    /// (CONCEPT:EG-KG.query.plan-dag, D7 — the planner-writeback ACID seam). Same OCC
-    /// read-set capture + atomic-commit semantics as [`Self::stage_axiom`] /
-    /// [`Self::stage_construct`] — copied verbatim, this is the well-precedented shape
-    /// every staged-and-lowered modality shares.
-    pub(crate) fn stage_plan_writeback(
-        &mut self,
-        core: &GraphCore,
-        methods: Vec<Method>,
-        now_ms: u64,
-    ) {
-        for m in &methods {
-            self.observe_method(core, m);
-        }
-        self.plan_writeback.extend(methods);
-        self.last_active_ms = now_ms;
     }
 
     /// True when this txn staged any NON-graph-topology modality — a vector, blob-ref,
@@ -852,62 +665,5 @@ impl TxnIdGen {
     /// capability and is one-way hashed before entering coordinator metadata.
     pub fn next(&self) -> String {
         format!("txn-{}", uuid::Uuid::new_v4().simple())
-    }
-}
-
-#[cfg(test)]
-mod recovery_plan_tests {
-    use super::*;
-
-    #[test]
-    fn recovery_plan_is_canonical_and_omits_raw_agent_identity() {
-        let core = GraphCore::new();
-        let mut first = GraphTxnState::new(
-            &core,
-            NewTxnArgs {
-                graph: "logical-graph".to_string(),
-                tenant_scope: "opaque-tenant-scope".to_string(),
-                begin_version: 7,
-                isolation: IsolationLevel::Snapshot,
-                predicate: None,
-                agent: "raw-personal-identity".to_string(),
-                now_ms: 10,
-            },
-        );
-        first.write_set.push(Method::RemoveNode {
-            node_id: "node-a".to_string(),
-        });
-        first
-            .read_set
-            .insert("node-b".to_string(), NodeFingerprint::Absent);
-        first
-            .read_set
-            .insert("node-a".to_string(), NodeFingerprint::Present(42));
-
-        let mut second = first.clone();
-        second.read_set.clear();
-        second
-            .read_set
-            .insert("node-a".to_string(), NodeFingerprint::Present(42));
-        second
-            .read_set
-            .insert("node-b".to_string(), NodeFingerprint::Absent);
-
-        let encoded = first.encode_recovery_plan().unwrap();
-        assert_eq!(encoded, second.encode_recovery_plan().unwrap());
-        assert!(!encoded
-            .windows(b"raw-personal-identity".len())
-            .any(|window| window == b"raw-personal-identity"));
-
-        let recovered = GraphTxnState::decode_recovery_plan(
-            &encoded,
-            "retry-identity-held-only-in-ram".to_string(),
-        )
-        .unwrap();
-        assert_eq!(recovered.graph, "logical-graph");
-        assert_eq!(recovered.tenant_scope, "opaque-tenant-scope");
-        assert_eq!(recovered.begin_version, 7);
-        assert_eq!(recovered.agent, "retry-identity-held-only-in-ram");
-        assert_eq!(recovered.read_set, first.read_set);
     }
 }

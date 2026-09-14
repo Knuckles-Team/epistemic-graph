@@ -2,6 +2,10 @@
 
 use super::*;
 
+#[path = "receipts/lifecycle.rs"]
+mod lifecycle;
+pub(crate) use lifecycle::*;
+
 pub(super) struct TxnRestoreGuard {
     open: Arc<dashmap::DashMap<String, parking_lot::Mutex<GraphTxnState>>>,
     txn_id: String,
@@ -9,7 +13,7 @@ pub(super) struct TxnRestoreGuard {
 }
 
 impl TxnRestoreGuard {
-    fn new(
+    pub(super) fn new(
         open: Arc<dashmap::DashMap<String, parking_lot::Mutex<GraphTxnState>>>,
         txn_id: &str,
         txn: GraphTxnState,
@@ -21,7 +25,7 @@ impl TxnRestoreGuard {
         }
     }
 
-    fn complete(&mut self) {
+    pub(super) fn complete(&mut self) {
         self.txn = None;
     }
 }
@@ -48,27 +52,15 @@ pub(super) fn transaction_receipt_id(txn_id: &str) -> String {
 /// dedup scope onto the txn commit's own `AdminSaga` receipt mechanism, rather
 /// than inventing a second one -- see `begin_txn_receipt`'s doc.
 ///
-/// Without a caller key (`idempotency_key: None`), this is BYTE-IDENTICAL to
-/// `transaction_receipt_id(txn_id)` -- today's behavior, unchanged: the receipt
-/// is keyed purely by the server-issued `txn_id`, so a retry is only provably
-/// safe when the caller still has that exact `txn_id` (a dropped-response retry
-/// with the same handle). That already works today via `AdminSaga` replay.
-///
-/// With a caller key, the receipt is keyed by the verified tenant plus THAT key
-/// -- a disjoint id space (`"idempotency"` vs `"transaction"` as the hashed
-/// middle field, so a key-derived id can never collide with a txn_id-derived
-/// one) -- so a retry that necessarily re-stages under a FRESH `txn_id` (the
-/// caller lost track of the original and had to re-`BeginTxn`) still lands on
-/// the SAME durable receipt row and replay-skips, closing the gap
-/// `transaction_receipt_id` alone cannot: proving "committed, response lost"
-/// apart from "never committed" even when the caller no longer has the original
-/// `txn_id` to retry with.
+/// Both keyed and unkeyed receipts retain a verifiable, privacy-safe tenant
+/// binding in their durable identity. Parent-only consensus phases can therefore
+/// verify the tenant even after terminalization erases the private recovery plan.
 pub(super) fn commit_receipt_id(
     txn_id: &str,
     idempotency_key: Option<&str>,
     tenant_scope: Option<&str>,
 ) -> String {
-    match idempotency_key {
+    let operation_id = match idempotency_key {
         Some(key) => {
             // The request key is stable across a lost-response re-stage, while the
             // verified tenant is part of the canonical replay scope.  Bind both
@@ -88,12 +80,145 @@ pub(super) fn commit_receipt_id(
                 &scoped_key,
             )
         }
-        None => transaction_receipt_id(txn_id),
+        None => crate::server::mutation_batch::opaque_coordinator_key(
+            "transaction-receipt-tenant",
+            tenant_scope.unwrap_or("unknown"),
+            &transaction_receipt_id(txn_id),
+        ),
+    };
+    tenant_bound_receipt_id(tenant_scope.unwrap_or("unknown"), &operation_id)
+}
+
+fn tenant_bound_receipt_id(tenant_scope: &str, operation_id: &str) -> String {
+    let binding = crate::server::mutation_batch::opaque_coordinator_key(
+        "transaction-receipt-scope",
+        tenant_scope,
+        operation_id,
+    );
+    format!("{binding}:{operation_id}")
+}
+
+/// Validate the id read from the authenticated durable parent, never an
+/// unverified routing hint. Reconstructing the whole id binds both the tenant
+/// and operation; merely checking a caller-provided tenant prefix would not.
+pub(super) fn validate_transaction_receipt_tenant(
+    durable_receipt_id: &str,
+    tenant_scope: &str,
+) -> Result<(), String> {
+    let operation_id = durable_receipt_id
+        .strip_prefix("transaction-receipt-scope:")
+        .and_then(|scoped| scoped.split_once(':'))
+        .map(|(_, operation)| operation)
+        .ok_or_else(|| "transaction parent has no verifiable tenant binding".to_string())?;
+    if tenant_scope.trim().is_empty()
+        || !valid_receipt_operation_id(operation_id)
+        || tenant_bound_receipt_id(tenant_scope, operation_id) != durable_receipt_id
+    {
+        return Err("transaction parent does not match caller tenant scope".to_string());
     }
+    Ok(())
+}
+
+fn valid_receipt_operation_id(operation_id: &str) -> bool {
+    let Some((namespace, digest)) = operation_id.split_once(':') else {
+        return false;
+    };
+    matches!(
+        namespace,
+        "transaction-receipt" | "transaction-receipt-tenant"
+    ) && digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+/// Check a specific open transaction's ownership without consulting durable
+/// receipt state. Durable keyed replay must remain in `begin_txn_receipt`, after
+/// the commit handler has removed the transaction under its restore guard.
+pub(crate) async fn preflight_open_txn_authority(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified_context: &VerifiedRequestContext,
+    txn_id: &str,
+) -> Result<(), Response> {
+    let authority = CarrierAuthority::from_verified(verified_context)
+        .map_err(|error| Response::err(req_id, error))?;
+    let state_guard = state.read().await;
+    if let Some(entry) = state_guard.open_txns.get(txn_id) {
+        let txn = entry.value().lock();
+        if txn.tenant_scope != authority.tenant_scope() || txn.agent != authority.owner_scope() {
+            crate::metrics::access_denied();
+            return Err(Response::err(
+                req_id,
+                "ACCESS_DENIED: transaction is not owned by caller",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The owner scope stored on an ephemeral or recovered transaction, derived
+/// from the same tenant/actor pair as [`CarrierAuthority`].  Replicated apply
+/// only carries the privacy-safe actor fingerprint, so this helper is the
+/// state-machine-side equivalent of `CarrierAuthority::owner_scope`.
+/// Native dispatch supplies the verified principal independently of effective
+/// agent ACL attribution. Replicated prepare already carries its fingerprint.
+pub(super) fn txn_receipt_principal(caller: Option<&str>) -> Result<String, String> {
+    #[cfg(feature = "redb")]
+    if let Ok(authority) = crate::server::handlers::admin::current_admin_saga_authority() {
+        return Ok(authority.actor_scope().to_string());
+    }
+    crate::server::mutation_batch::principal_fingerprint(
+        caller.ok_or_else(|| "transaction receipt requires a verified principal".to_string())?,
+    )
+}
+
+pub(super) fn txn_owner_scope(tenant_scope: &str, principal: &str) -> Result<String, String> {
+    let actor_scope = txn_receipt_principal(Some(principal))?;
+    Ok(crate::server::mutation_batch::opaque_coordinator_key(
+        "carrier-owner",
+        tenant_scope,
+        &actor_scope,
+    ))
+}
+
+pub(super) fn validate_txn_owner(
+    txn: &GraphTxnState,
+    expected_tenant: Option<&str>,
+    principal: &str,
+) -> Result<(), String> {
+    let expected_tenant = expected_tenant
+        .filter(|tenant| !tenant.trim().is_empty())
+        .ok_or_else(|| "transaction commit requires a verified tenant scope".to_string())?;
+    if txn.tenant_scope != expected_tenant {
+        return Err("transaction commit does not match caller tenant scope".to_string());
+    }
+    let expected_owner = txn_owner_scope(expected_tenant, principal)?;
+    if txn.agent != expected_owner {
+        return Err("transaction commit does not match caller principal scope".to_string());
+    }
+    Ok(())
+}
+
+pub(super) fn validate_txn_owner_scope(
+    txn: &GraphTxnState,
+    expected_tenant: Option<&str>,
+    expected_owner: &str,
+) -> Result<(), String> {
+    let expected_tenant = expected_tenant
+        .filter(|tenant| !tenant.trim().is_empty())
+        .ok_or_else(|| "transaction commit requires a verified tenant scope".to_string())?;
+    if txn.tenant_scope != expected_tenant {
+        return Err("transaction commit does not match caller tenant scope".to_string());
+    }
+    if txn.agent != expected_owner {
+        return Err("transaction commit does not match caller principal scope".to_string());
+    }
+    Ok(())
 }
 
 /// The three values that together select ONE durable commit receipt, and the
-/// only three [`commit_receipt_id`] hashes.  They are never meaningful apart:
+/// only three [`commit_receipt_id`] hashes. They are never meaningful apart:
 /// the opaque parent id alone is not a receipt key once a request key is in
 /// play, and the request key alone would let one caller's key select another
 /// tenant's transaction (see [`commit_receipt_id`]).  Threaded as one value so
@@ -138,6 +263,7 @@ pub(super) async fn cleanup_cross_shard_decision(
             .as_deref()
             .ok_or_else(|| "committed transaction parent has no result".to_string())?;
         let result = decode_txn_result(bytes)?;
+        validate_txn_commit_result(&result)?;
         if !matches!(result, ResultPayload::Bool(value) if value == decision) {
             return Err("transaction parent and retained 2PC decision disagree".to_string());
         }
@@ -186,12 +312,77 @@ pub(super) fn begin_txn_receipt(
     idempotency_key: Option<&str>,
     attempt_nonce: Option<Nonce>,
 ) -> Result<(TxnReceipt, Option<ResultPayload>), String> {
+    let principal = txn_receipt_principal(caller)?;
+    let caller = Some(principal.as_str());
     let backend = backend.ok_or_else(|| {
         "transaction commit requires an authoritative MutationBatch backend".to_string()
     })?;
     let redb = backend
         .as_redb()
         .ok_or_else(|| "transaction commit requires durable redb".to_string())?;
+    let saga = admit_txn_saga(
+        redb,
+        req_id,
+        caller,
+        txn_id,
+        txn,
+        idempotency_key,
+        attempt_nonce,
+    )?;
+    let replayed = saga.replayed.clone();
+    Ok((TxnReceipt { backend, saga }, replayed))
+}
+
+#[cfg(feature = "redb")]
+fn admit_txn_saga(
+    redb: &crate::server::persistence::redb_backend::RedbBackend,
+    req_id: u64,
+    caller: Option<&str>,
+    txn_id: &str,
+    txn: &GraphTxnState,
+    idempotency_key: Option<&str>,
+    attempt_nonce: Option<Nonce>,
+) -> Result<crate::server::handlers::admin::AdminSaga, String> {
+    let intent_digest = txn.replay_intent_digest()?;
+    let batch_id = commit_receipt_id(txn_id, idempotency_key, Some(txn.tenant_scope.as_str()));
+    // This function is called only after the open transaction has been removed
+    // under `TxnRestoreGuard`. A keyed fresh re-stage may therefore inspect the
+    // existing receipt without leaving a live duplicate handle behind. Compare
+    // the stable semantic intent before nonce admission: changed writes under a
+    // reused key are a conflict, while a changed OCC snapshot is replay-safe.
+    if idempotency_key.is_some() {
+        if let Some(existing) =
+            crate::server::handlers::admin::resume_named_admin_saga(redb, &batch_id, caller)?
+        {
+            let existing_digest = transaction_plan_digest(&existing.batch)?;
+            if existing_digest != intent_digest {
+                return Err(
+                    "transaction idempotency key conflicts with a different transaction intent"
+                        .to_string(),
+                );
+            }
+            if existing.prepared {
+                return Err(
+                    "transaction commit receipt is Prepared; refusing to execute a fresh transaction under the existing key"
+                        .to_string(),
+                );
+            }
+            let admitted = retry_txn_receipt(
+                redb,
+                req_id,
+                caller
+                    .ok_or_else(|| "transaction recovery requires a verified actor".to_string())?,
+                existing,
+                attempt_nonce,
+            )?;
+            let result = admitted
+                .replayed
+                .clone()
+                .ok_or_else(|| "terminal transaction receipt has no replay result".to_string())?;
+            validate_txn_commit_result(&result)?;
+            return Ok(admitted);
+        }
+    }
     let (payload_digest, encrypted_payload) = seal_txn_recovery_plan(redb, txn)?;
     let saga =
         crate::server::handlers::admin::begin_named_admin_saga_with_private_payload_and_nonce(
@@ -201,18 +392,13 @@ pub(super) fn begin_txn_receipt(
             attempt_nonce,
             crate::server::handlers::admin::AdminSagaPayload {
                 domain: crate::mutation_batch::DurabilityDomain::ControlPlane,
-                batch_id: &commit_receipt_id(
-                    txn_id,
-                    idempotency_key,
-                    Some(txn.tenant_scope.as_str()),
-                ),
+                batch_id: &batch_id,
                 event_type: "transaction_recovery_plan",
                 payload_digest: &payload_digest,
                 encrypted_payload: &encrypted_payload,
             },
         )?;
-    let replayed = saga.replayed.clone();
-    Ok((TxnReceipt { backend, saga }, replayed))
+    Ok(saga)
 }
 
 #[cfg(not(feature = "redb"))]
@@ -245,7 +431,7 @@ fn retry_txn_receipt(
         return Ok(saga);
     };
     let payload_digest = transaction_plan_digest(&saga.batch)?;
-    let prepared = saga.replayed.is_none();
+    let prepared = saga.prepared;
     let encrypted_payload = txn_receipt_retry_payload(redb, &saga, prepared)?;
     let admitted =
         crate::server::handlers::admin::begin_named_admin_saga_with_private_payload_and_nonce(
@@ -296,12 +482,8 @@ fn resume_txn_staging(
     expected_tenant: Option<&str>,
 ) -> Result<(Option<ResultPayload>, Option<GraphTxnState>), String> {
     let replayed = saga.replayed.clone();
-    if replayed
-        .as_ref()
-        .map(|result| !matches!(result, ResultPayload::Bool(_)))
-        .unwrap_or(false)
-    {
-        return Err("transaction parent receipt has the wrong result type".to_string());
+    if let Some(result) = replayed.as_ref() {
+        validate_txn_commit_result(result)?;
     }
     let txn = if replayed.is_none() {
         let encrypted = eg_transaction::read_private_payload(
@@ -309,7 +491,12 @@ fn resume_txn_staging(
             &saga.batch.batch_id,
         )?
         .ok_or_else(|| "prepared transaction has no encrypted recovery plan".to_string())?;
-        let txn = open_txn_recovery_plan(redb, &saga.batch, &encrypted, caller.to_string())?;
+        let owner = txn_owner_scope(
+            expected_tenant
+                .ok_or_else(|| "prepared transaction has no verified tenant scope".to_string())?,
+            caller,
+        )?;
+        let txn = open_txn_recovery_plan(redb, &saga.batch, &encrypted, owner)?;
         if let Some(expected_tenant) = expected_tenant {
             if txn.tenant_scope != expected_tenant {
                 return Err("prepared transaction does not match caller tenant scope".to_string());
@@ -339,9 +526,13 @@ pub(super) fn resume_txn_receipt(
     let Some(backend) = backend else {
         return Ok(None);
     };
-    let caller = caller
-        .filter(|actor| !actor.trim().is_empty())
-        .ok_or_else(|| "transaction recovery requires a verified actor".to_string())?;
+    let principal = txn_receipt_principal(caller)?;
+    let caller = principal.as_str();
+    let expected_tenant = Some(
+        expected_tenant
+            .filter(|tenant| !tenant.is_empty())
+            .ok_or_else(|| "transaction recovery requires a verified tenant".to_string())?,
+    );
     let redb = backend
         .as_redb()
         .ok_or_else(|| "transaction recovery requires durable redb".to_string())?;
@@ -395,9 +586,8 @@ pub(super) fn seal_txn_recovery_plan(
     backend: &crate::server::persistence::redb_backend::RedbBackend,
     txn: &GraphTxnState,
 ) -> Result<(String, Vec<u8>), String> {
-    use sha2::{Digest, Sha256};
     let plaintext = txn.encode_recovery_plan()?;
-    let digest = hex::encode(Sha256::digest(&plaintext));
+    let digest = txn.replay_intent_digest()?;
     let cipher = backend.transaction_recovery_cipher().ok_or_else(|| {
         format!(
             "transaction durability requires {} to be configured",
@@ -422,7 +612,6 @@ pub(super) fn open_txn_recovery_plan(
     encrypted: &[u8],
     agent: String,
 ) -> Result<GraphTxnState, String> {
-    use sha2::{Digest, Sha256};
     if !crate::crypto::is_sealed(encrypted) {
         return Err("transaction recovery plan is not authenticated ciphertext".to_string());
     }
@@ -436,13 +625,13 @@ pub(super) fn open_txn_recovery_plan(
     let plaintext = cipher
         .unseal(encrypted)
         .map_err(|error| format!("transaction recovery plan decrypt failed: {error}"))?;
-    let actual = hex::encode(Sha256::digest(&plaintext));
-    if actual != expected {
+    let txn = GraphTxnState::decode_recovery_plan(&plaintext, agent)?;
+    if txn.replay_intent_digest()? != expected {
         return Err(
             "transaction recovery plan digest does not match its parent receipt".to_string(),
         );
     }
-    GraphTxnState::decode_recovery_plan(&plaintext, agent)
+    Ok(txn)
 }
 
 #[cfg(all(feature = "redb", not(feature = "security")))]
@@ -474,6 +663,9 @@ pub(super) fn transaction_plan_digest(
     if event_type != "transaction_recovery_plan" {
         return Err("transaction parent receipt has the wrong recovery-plan event".to_string());
     }
+    // The query stores the stable semantic intent digest, not the encrypted
+    // recovery plaintext digest. The latter includes OCC observations and would
+    // incorrectly turn a fresh lost-response re-stage into a conflict.
     let digest = query.strip_prefix("sha256:").ok_or_else(|| {
         "transaction parent receipt has an invalid recovery-plan digest".to_string()
     })?;
@@ -538,6 +730,7 @@ pub(super) fn finish_txn_receipt(
     receipt: TxnReceipt,
     result: ResultPayload,
 ) -> Result<ResultPayload, String> {
+    validate_txn_commit_result(&result)?;
     finish_saga_via_redb(
         &receipt.backend,
         receipt.saga,
@@ -554,215 +747,14 @@ pub(super) fn finish_txn_receipt(
     Err("transaction commit requires the redb MutationBatch coordinator".to_string())
 }
 
-/// Every mutating transaction-family method bypasses the transport replay
-/// ledger because its effect belongs to the durable kernel.  Begin/stage/
-/// rollback used to be the hole in that rule: they changed in-memory
-/// `open_txns` state without ever presenting the verified nonce to the kernel.
-/// Use the existing named admin saga as the one admission/receipt authority for
-/// those lifecycle steps; this helper does not introduce a second replay table.
-pub(super) fn is_txn_lifecycle_method(method: &Method) -> bool {
-    matches!(method, Method::BeginTxn { .. })
-        || (method_txn_id(method).is_some() && !matches!(method, Method::Commit { .. }))
-}
-
-/// A terminal lifecycle receipt is useful only while the volatile transaction
-/// handle it describes is still present.  The durable saga may outlive the
-/// process, but it cannot recreate `open_txns`; returning its old success after
-/// restart would hand the caller a dead Begin handle or claim a Stage/Rollback
-/// succeeded before the next request fails with `unknown transaction`.
-pub(super) async fn validate_txn_lifecycle_replay(
-    state: &Arc<RwLock<ServerState>>,
-    method: &Method,
-    owner: &str,
-    result: &ResultPayload,
-) -> Result<(), String> {
-    let txn_id = if matches!(method, Method::BeginTxn { .. }) {
-        match result {
-            ResultPayload::String(txn_id) => txn_id.as_str(),
-            _ => {
-                return Err(
-                    "transaction lifecycle receipt has the wrong BeginTxn result".to_string(),
-                );
-            }
-        }
+/// Transaction commit receipts are terminal boolean outcomes.  The parent
+/// coordinator stores the outer `ResultPayload`, so replay and closure must
+/// validate that envelope before returning it; decoding an outer receipt as a
+/// method body would silently accept a different transaction result family.
+pub(super) fn validate_txn_commit_result(result: &ResultPayload) -> Result<(), String> {
+    if matches!(result, ResultPayload::Bool(_)) {
+        Ok(())
     } else {
-        method_txn_id(method).ok_or_else(|| {
-            "transaction lifecycle receipt has no volatile transaction handle".to_string()
-        })?
-    };
-    let s = state.read().await;
-    let Some(entry) = s.open_txns.get(txn_id) else {
-        return Err(
-            "transaction lifecycle receipt is terminal but volatile staging state is unavailable; \
-             refusing to return a stale success"
-                .to_string(),
-        );
-    };
-    if entry.value().lock().agent != owner {
-        return Err("transaction lifecycle receipt does not match caller scope".to_string());
+        Err("transaction parent receipt has the wrong result type".to_string())
     }
-    Ok(())
-}
-
-pub(super) fn txn_lifecycle_batch_id(authority: &CarrierAuthority, method: &Method) -> String {
-    // Keep one envelope idempotency key reusable across different transaction
-    // operations by including the operation family in the opaque coordinator
-    // input.  The full method body remains in the kernel operation digest, so a
-    // changed txn id, graph, or payload still conflicts under the same key.
-    let operation_key = format!("{}:{}", method.tag_name(), authority.idempotency_key());
-    crate::server::mutation_batch::opaque_coordinator_key(
-        "transaction-lifecycle",
-        authority.owner_scope(),
-        &operation_key,
-    )
-}
-
-#[cfg(feature = "redb")]
-pub(crate) struct TxnLifecycleReceipt {
-    pub(super) backend: Arc<dyn crate::server::persistence::PersistenceBackend>,
-    pub(super) saga: crate::server::handlers::admin::AdminSaga,
-}
-
-#[cfg(not(feature = "redb"))]
-pub(crate) struct TxnLifecycleReceipt;
-
-#[cfg(feature = "redb")]
-pub(super) async fn begin_txn_lifecycle_receipt(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    caller: &str,
-    authority: &CarrierAuthority,
-    method: &Method,
-) -> Result<TxnLifecycleReceipt, String> {
-    let backend = state.read().await.persistence.clone().ok_or_else(|| {
-        "transaction lifecycle requires an authoritative MutationBatch backend".to_string()
-    })?;
-    let redb = backend
-        .as_redb()
-        .ok_or_else(|| "transaction lifecycle requires durable redb".to_string())?;
-    let batch_id = txn_lifecycle_batch_id(authority, method);
-    // A lifecycle saga is only the replay authority; its effect still lives in
-    // the volatile transaction registry.  If a prior attempt prepared that
-    // saga and then died before terminalization, executing the method again
-    // would duplicate Begin/Stage/Rollback (or silently operate on a different
-    // handle after restart).  Probe the same durable coordinator before
-    // admission so a Prepared receipt becomes an explicit lost-staging
-    // refusal.  The real admission below still consumes the exact nonce and
-    // therefore preserves the kernel's REPLAY_NONCE_CONSUMED / conflict
-    // decisions for retries.
-    let prepared =
-        crate::server::handlers::admin::resume_named_admin_saga(redb, &batch_id, Some(caller))?
-            .is_some_and(|saga| saga.replayed.is_none());
-    let saga = crate::server::handlers::admin::begin_named_admin_saga_with_nonce(
-        redb,
-        req_id,
-        Some(caller),
-        method,
-        crate::mutation_batch::DurabilityDomain::ControlPlane,
-        &batch_id,
-        authority.attempt_nonce(),
-    )?;
-    if prepared && saga.replayed.is_none() {
-        return Err(
-            "transaction lifecycle receipt is Prepared but volatile staging state is unavailable; \
-             refusing to re-execute an ambiguous lifecycle operation"
-                .to_string(),
-        );
-    }
-    Ok(TxnLifecycleReceipt { backend, saga })
-}
-
-#[cfg(not(feature = "redb"))]
-pub(super) async fn begin_txn_lifecycle_receipt(
-    _state: &Arc<RwLock<ServerState>>,
-    _req_id: u64,
-    _caller: &str,
-    _authority: &CarrierAuthority,
-    _method: &Method,
-) -> Result<TxnLifecycleReceipt, String> {
-    Err("transaction lifecycle requires the redb MutationBatch coordinator".to_string())
-}
-
-#[cfg(feature = "redb")]
-pub(super) fn finish_txn_lifecycle_receipt(
-    receipt: TxnLifecycleReceipt,
-    result: ResultPayload,
-) -> Result<ResultPayload, String> {
-    finish_saga_via_redb(
-        &receipt.backend,
-        receipt.saga,
-        result,
-        "transaction lifecycle lost its redb coordinator",
-    )
-}
-
-#[cfg(not(feature = "redb"))]
-pub(super) fn finish_txn_lifecycle_receipt(
-    _receipt: TxnLifecycleReceipt,
-    _result: ResultPayload,
-) -> Result<ResultPayload, String> {
-    Err("transaction lifecycle requires the redb MutationBatch coordinator".to_string())
-}
-
-/// Abort after a volatile lifecycle effect and before its durable terminal
-/// receipt is written.  This is an explicit fault-window hook for restart
-/// testing; it is inert unless a request id is armed in the environment.
-/// Keeping the hook at this boundary exercises the real signed dispatch path
-/// without creating another replay or idempotency authority.
-pub(crate) fn fault_after_txn_lifecycle_effect(req_id: u64) {
-    let Ok(armed) = std::env::var("EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID") else {
-        return;
-    };
-    if armed.parse::<u64>().ok() == Some(req_id) {
-        eprintln!("EPISTEMIC_GRAPH_LIFECYCLE_EFFECT_FAULT_REQUEST_ID armed for request {req_id}");
-        std::process::abort();
-    }
-}
-
-/// Admission result for a GraphQL-native begin/stage/read/rollback operation.
-///
-/// These operations mutate the process registry, but their replay identity and
-/// terminal result belong to the same named admin saga used by the native
-/// `BeginTxn`/`Txn*`/`Rollback` lifecycle.  Keeping the receipt behind this
-/// facade lets the GraphQL handler execute its existing registry primitive after
-/// admission without creating a second replay ledger or coordinator.
-#[cfg(feature = "graphql")]
-pub(crate) enum GraphQlLifecycleAdmission {
-    Replayed(ResultPayload),
-    /// Boxed because the receipt is ~450 bytes against the replayed payload's
-    /// much smaller one, so unboxed both arms paid the receipt's size. Safe
-    /// here for the same reason as elsewhere in this module: this enum is the
-    /// in-process return of one admission call, derives no `Serialize`, and
-    /// never crosses the wire or a durable boundary -- the receipt it carries
-    /// has its own durable representation, which boxing does not touch.
-    Execute(Box<TxnLifecycleReceipt>),
-}
-
-/// Consume the verified carrier's nonce and stable key for one native GraphQL
-/// staging operation.  A fresh nonce with the same operation identity returns
-/// `Replayed`; a reused nonce or changed method body is rejected by the kernel.
-#[cfg(feature = "graphql")]
-pub(crate) async fn begin_graphql_lifecycle(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    caller: &str,
-    authority: &CarrierAuthority,
-    method: &Method,
-) -> Result<GraphQlLifecycleAdmission, String> {
-    let receipt = begin_txn_lifecycle_receipt(state, req_id, caller, authority, method).await?;
-    #[cfg(feature = "redb")]
-    if let Some(result) = receipt.saga.replayed.clone() {
-        return Ok(GraphQlLifecycleAdmission::Replayed(result));
-    }
-    Ok(GraphQlLifecycleAdmission::Execute(Box::new(receipt)))
-}
-
-/// Terminalize a native GraphQL staging operation through the same durable
-/// lifecycle receipt used by the ordinary transaction-family methods.
-#[cfg(feature = "graphql")]
-pub(crate) fn finish_graphql_lifecycle(
-    receipt: TxnLifecycleReceipt,
-    result: ResultPayload,
-) -> Result<ResultPayload, String> {
-    finish_txn_lifecycle_receipt(receipt, result)
 }

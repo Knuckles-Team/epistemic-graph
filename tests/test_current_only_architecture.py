@@ -23,6 +23,15 @@ def _gate_module():
     return module
 
 
+def _replace_once(source: str, old: str, new: str) -> str:
+    """Build a non-vacuous known-bad source perturbation."""
+
+    assert source.count(old) == 1, f"fixture target is not unique: {old}"
+    broken = source.replace(old, new, 1)
+    assert broken != source
+    return broken
+
+
 def test_current_only_architecture_gate() -> None:
     root = Path(__file__).resolve().parents[1]
     gate_path = root / "scripts" / "check_current_only_architecture.py"
@@ -88,6 +97,96 @@ def test_rdf_update_check_follows_compiler_declared_children(
     child.unlink()
     with pytest.raises(SystemExit, match="resolve to exactly one file"):
         module.rdf_update_source()
+
+
+def test_raft_snapshot_check_follows_compiler_declared_children(
+    tmp_path: Path, monkeypatch
+) -> None:
+    module = _gate_module()
+    store_dir = tmp_path / "src" / "raft"
+    child_dir = store_dir / "store"
+    child_dir.mkdir(parents=True)
+    (store_dir / "store.rs").write_text(
+        "const RAFT_SNAPSHOT_SCHEMA_VERSION: u16 = 4;\n"
+        "struct GraphSnapshot {\n"
+        "    durable: crate::server::persistence::online_reshard::RawGraphRows,\n"
+        "}\n"
+        "mod snapshot;\n",
+        encoding="utf-8",
+    )
+    child = child_dir / "snapshot.rs"
+    child.write_text(
+        "fn export_graph_raw_for_snapshot() {}\n"
+        "fn read_authoritative_graph_snapshot() {}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+
+    store = module.raft_store_source()
+    module._check_raft_snapshot_shape(store)
+
+    child.write_text(
+        "/*\n"
+        "fn export_graph_raw_for_snapshot() {}\n"
+        "fn read_authoritative_graph_snapshot() {}\n"
+        "*/\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="duplicate decoded/plaintext"):
+        module._check_raft_snapshot_shape(module.raft_store_source())
+
+    (store_dir / "store.rs").write_text(
+        (store_dir / "store.rs")
+        .read_text(encoding="utf-8")
+        .replace("mod snapshot;\n", ""),
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="orphan Rust module files"):
+        module.raft_store_source()
+
+
+def test_raft_snapshot_replacement_rejects_dead_helper_declaration() -> None:
+    module = _gate_module()
+    store = module.raft_store_source()
+    module._check_raft_snapshot_replacement(store)
+
+    broken = _replace_once(
+        store,
+        "self.remove_stale_snapshot_graph(&name).await?;",
+        "let _stale_graph_is_incorrectly_retained = name;",
+    )
+    assert "fn remove_stale_snapshot_graph(" in broken
+    with pytest.raises(SystemExit, match="merges with stale graph authority"):
+        module._check_raft_snapshot_replacement(broken)
+
+
+def test_raft_snapshot_replacement_rejects_string_literal_call_spoof() -> None:
+    module = _gate_module()
+    store = module.raft_store_source()
+    module._check_raft_snapshot_replacement(store)
+
+    broken = _replace_once(
+        store,
+        "self.remove_stale_snapshot_graph(&name).await?;",
+        'let _spoof = "self.remove_stale_snapshot_graph(&name).await?;";',
+    )
+    with pytest.raises(SystemExit, match="merges with stale graph authority"):
+        module._check_raft_snapshot_replacement(broken)
+
+
+def test_raft_snapshot_replacement_rejects_global_marker_spoof() -> None:
+    module = _gate_module()
+    store = module.raft_store_source()
+    module._check_raft_snapshot_replacement(store)
+
+    broken = _replace_once(
+        store,
+        'if stale.iter().any(|name| name == "__commons__") {',
+        "if false {",
+    )
+    assert "Raft snapshot omits the mandatory commons graph" in broken
+    with pytest.raises(SystemExit, match="merges with stale graph authority"):
+        module._check_raft_snapshot_replacement(broken)
 
 
 def test_broker_expiry_guard_rejects_none_as_expired() -> None:

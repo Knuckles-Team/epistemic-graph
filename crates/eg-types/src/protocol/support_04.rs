@@ -77,7 +77,7 @@ impl ResultPayload {
     /// algorithm results). The compact encoding is the ONE wire contract — clients
     /// decode a top-level `bytes` result with a second `unpackb`; there is no
     /// alternate encoding flag. (Phase C-D)
-    pub fn raw<T: Serialize + ?Sized>(value: &T) -> Result<Self, String> {
+    pub(crate) fn raw<T: Serialize + ?Sized>(value: &T) -> Result<Self, String> {
         rmp_serde::to_vec_named(value)
             .map(ResultPayload::Raw)
             .map_err(|error| format!("result serialization failed: {error}"))

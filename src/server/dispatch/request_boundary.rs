@@ -233,6 +233,24 @@ async fn compute_identity_bootstrap(
     }
 }
 
+async fn preflight_commit_owner(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    req: &Request,
+    verified_context: &VerifiedRequestContext,
+) -> Result<(), Response> {
+    let Method::Commit { txn_id, .. } = &req.method else {
+        return Ok(());
+    };
+    crate::server::handlers::txn::preflight_open_txn_authority(
+        state,
+        req_id,
+        verified_context,
+        txn_id,
+    )
+    .await
+}
+
 async fn dispatch_preamble_checks(
     state: &Arc<RwLock<ServerState>>,
     req: Request,
@@ -279,6 +297,11 @@ async fn dispatch_preamble_checks(
             return Err(Response::err(req.id, error));
         }
     }
+
+    // A transaction id is a routing handle, never a bearer credential. Check an
+    // open Commit owner before local or consensus routing; durable keyed replay
+    // remains in the post-removal receipt boundary.
+    preflight_commit_owner(state, req.id, &req, verified_context).await?;
 
     check_submit_work_item_context(&req, verified_context, authority)?;
 
@@ -349,10 +372,19 @@ async fn dispatch_inner(
             Ok(v) => v,
             Err(resp) => return resp,
         };
+    dispatch_admitted_request(state, req, &verified_context, authority).await
+}
+
+async fn dispatch_admitted_request(
+    state: &Arc<RwLock<ServerState>>,
+    req: Request,
+    verified_context: &VerifiedRequestContext,
+    authority: DispatchAuthority,
+) -> Response {
     let session_control = match begin_session_control_saga(
         state,
         req.id,
-        req.agent_id.as_deref(),
+        verified_context,
         &req.method,
         verified_context.attempt_nonce(),
     )
@@ -363,16 +395,28 @@ async fn dispatch_inner(
     };
     if let Some(control) = session_control.as_ref() {
         #[cfg(feature = "redb")]
-        if let Some(result) = replayed_response(control) {
-            return Response::ok(req.id, result);
+        if let Some(response) = replayed_response(req.id, control, &req.method) {
+            return response;
         }
         #[cfg(not(feature = "redb"))]
         let _ = control;
     }
 
-    let req_id = req.id;
-    let response = dispatch_request_method(state, req, &verified_context, authority).await;
-    finalize_dispatch_response(req_id, response, session_control)
+    #[cfg(feature = "redb")]
+    let saga_authority = match CarrierAuthority::from_verified(verified_context) {
+        Ok(authority) => authority,
+        Err(error) => return Response::err(req.id, error),
+    };
+    let operation = async {
+        let req_id = req.id;
+        let method_for_finalize = req.method.clone();
+        let response = dispatch_request_method(state, req, verified_context, authority).await;
+        finalize_dispatch_response(req_id, response, &method_for_finalize, session_control)
+    };
+    #[cfg(feature = "redb")]
+    return handlers::admin::scope_admin_saga_authority(saga_authority, operation).await;
+    #[cfg(not(feature = "redb"))]
+    operation.await
 }
 
 #[cfg(test)]

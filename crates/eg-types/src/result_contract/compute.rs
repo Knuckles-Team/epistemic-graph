@@ -16,6 +16,21 @@ use crate::compute_result::mining;
 use crate::compute_result::pipeline;
 #[cfg(feature = "datascience")]
 use crate::wire::FittedModel;
+use serde::{Deserialize, Serialize};
+
+/// One proposed entity-resolution action returned by `ResolveCandidates`.
+///
+/// The compute implementation owns the algorithm and therefore cannot be a
+/// dependency of this bottom-of-DAG crate. This wire mirror keeps the result
+/// contract typed while preserving the implementation's four serialized fields.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct MergeProposal {
+    pub canonical: String,
+    pub members: Vec<String>,
+    pub score: f64,
+    pub kind: String,
+}
 
 method_results! {
     visit_compute;
@@ -36,6 +51,7 @@ method_results! {
     CommunityDetectEphemeral(CommunityDetectEphemeral) => Raw<Vec<Vec<String>>>;
     GraphColoring(GraphColoring) => Json<Vec<(String, usize)>>;
     ComputeSimilarityEdges(ComputeSimilarityEdges) => Raw<Vec<(String, String, f64)>>;
+    ResolveCandidates(ResolveCandidates) => Raw<Vec<MergeProposal>>;
     ClusterHierarchyRefresh(ClusterHierarchyRefresh) => Json<algorithms::ClusterHierarchySummary>;
     ClusterHierarchyClusters(ClusterHierarchyClusters) => Json<algorithms::ClusterLevelView>;
     ClusterHierarchyExpand(ClusterHierarchyExpand) => Json<algorithms::ClusterExpansion>;

@@ -49,8 +49,10 @@ async fn submit_consensus_transaction_command(
         authority.actor_scope().to_string(),
         false,
         placement_epoch,
-        fencing_token,
-        committed_at_ms,
+        crate::raft::RaftMutationTiming {
+            fencing_token,
+            created_at_ms: committed_at_ms,
+        },
     )?;
     let request = crate::raft::RaftRequest {
         graph_fname: crate::persist::sanitize(&route_key),

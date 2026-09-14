@@ -200,6 +200,39 @@ mod consensus_admin_route_tests {
             );
         }
     }
+
+    #[test]
+    fn clustered_commit_replay_terminal_result_keeps_its_keyed_shape() {
+        let response = terminal_native_response(
+            7,
+            NativeCoordination::TransactionCommit,
+            true,
+            ResultPayload::Json(serde_json::json!({
+                "committed": true,
+                "replayed": true,
+            })),
+        );
+        let Some(ResultPayload::Json(value)) = response.result else {
+            panic!("expected keyed replay result");
+        };
+        assert_eq!(value["committed"], true);
+        assert_eq!(value["replayed"], true);
+    }
+
+    #[test]
+    fn clustered_commit_terminal_boolean_is_tagged_with_the_caller_key() {
+        let response = terminal_native_response(
+            8,
+            NativeCoordination::TransactionCommit,
+            true,
+            ResultPayload::Bool(true),
+        );
+        let Some(ResultPayload::Json(value)) = response.result else {
+            panic!("expected keyed commit result");
+        };
+        assert_eq!(value["committed"], true);
+        assert_eq!(value["replayed"], false);
+    }
 }
 
 /// The resolved identity and route of one native consensus proposal, shared by
@@ -213,6 +246,7 @@ pub(super) struct NativeProposal<'a> {
     pub(super) server_secret: &'a str,
     pub(super) graph_name: &'a str,
     pub(super) graph_type: crate::protocol::GraphType,
+    pub(super) commit_keyed: bool,
 }
 
 /// Which consensus coordination a committed native command still needs.
@@ -284,16 +318,24 @@ async fn resolve_native_proposal_route(
 fn build_native_raft_request(
     proposal: &NativeProposal<'_>,
     routed: &crate::raft::multi::RoutedRaftHandle,
-    method: &Method,
     command: crate::raft::NativeMutationCommand,
     identity_bootstrap: bool,
 ) -> Result<crate::raft::RaftRequest, Response> {
     let committed_at_ms = authoritative_now_ms();
-    let batch_id = crate::server::mutation_batch::opaque_request_key(
-        "raft-native",
+    let graph_fname = crate::persist::sanitize(proposal.graph_name);
+    let graph_scope = crate::server::mutation_batch::opaque_idempotency_key_for_context(
+        "raft-graph-scope",
+        proposal.authority.tenant_scope(),
         proposal.graph_name,
-        proposal.request_id,
-        method,
+        None,
+        &graph_fname,
+    );
+    let batch_id = crate::server::mutation_batch::opaque_idempotency_key_for_context(
+        "raft-native",
+        proposal.authority.tenant_scope(),
+        &graph_scope,
+        Some(proposal.authority.actor_scope()),
+        proposal.authority.idempotency_key(),
     );
     let mutation = match crate::raft::RaftMutationContext::from_verified_request(
         batch_id,
@@ -303,14 +345,16 @@ fn build_native_raft_request(
         proposal.authority.actor_scope().to_string(),
         identity_bootstrap,
         routed.epoch,
-        routed.placed.then_some(routed.group_id),
-        committed_at_ms,
+        crate::raft::RaftMutationTiming {
+            fencing_token: routed.placed.then_some(routed.group_id),
+            created_at_ms: committed_at_ms,
+        },
     ) {
         Ok(mutation) => mutation,
         Err(error) => return Err(Response::err(proposal.request_id, error)),
     };
     Ok(crate::raft::RaftRequest {
-        graph_fname: crate::persist::sanitize(proposal.graph_name),
+        graph_fname,
         graph_name: proposal.graph_name.to_string(),
         graph_type: proposal.graph_type,
         command: crate::raft::ReplicatedMutation::Native { command },
@@ -347,8 +391,6 @@ async fn coordinate_native_result(
             .await
         }
         (NativeCoordination::TransactionCommit, ResultPayload::Raw(prepared)) => {
-            // A clustered `Commit` answers the bare committed boolean: the consensus
-            // path does not see the caller idempotency key the local path tags with.
             handlers::txn::tag_commit_response(
                 execute_consensus_transaction(TransactionExecution {
                     state: proposal.state,
@@ -363,13 +405,36 @@ async fn coordinate_native_result(
                 .await,
                 handlers::txn::CommitResponseOptions {
                     replayed: false,
-                    keyed: false,
+                    keyed: proposal.commit_keyed,
                 },
             )
         }
-        (coordination, terminal) => {
-            terminal_native_response(proposal.request_id, coordination, terminal)
-        }
+        (coordination, terminal) => terminal_native_response(
+            proposal.request_id,
+            coordination,
+            proposal.commit_keyed,
+            terminal,
+        ),
+    }
+}
+
+/// A transaction-commit command whose apply already produced its terminal
+/// result, with the commit response shape applied when needed.
+#[cfg(feature = "raft")]
+fn terminal_commit_response(
+    request_id: u64,
+    commit_keyed: bool,
+    terminal: ResultPayload,
+) -> Response {
+    match terminal {
+        ResultPayload::Json(value) => Response::ok(request_id, ResultPayload::Json(value)),
+        terminal => handlers::txn::tag_commit_response(
+            Response::ok(request_id, terminal),
+            handlers::txn::CommitResponseOptions {
+                replayed: false,
+                keyed: commit_keyed,
+            },
+        ),
     }
 }
 
@@ -379,16 +444,13 @@ async fn coordinate_native_result(
 fn terminal_native_response(
     request_id: u64,
     coordination: NativeCoordination,
+    commit_keyed: bool,
     terminal: ResultPayload,
 ) -> Response {
     match coordination {
-        NativeCoordination::TransactionCommit => handlers::txn::tag_commit_response(
-            Response::ok(request_id, terminal),
-            handlers::txn::CommitResponseOptions {
-                replayed: false,
-                keyed: false,
-            },
-        ),
+        NativeCoordination::TransactionCommit => {
+            terminal_commit_response(request_id, commit_keyed, terminal)
+        }
         _ => Response::ok(request_id, terminal),
     }
 }
@@ -460,6 +522,13 @@ pub(super) async fn propose_native_mutation(
         Err(error) => return Response::err(request_id, error),
     };
     let coordination = native_coordination_for(&method);
+    let commit_keyed = matches!(
+        &method,
+        Method::Commit {
+            idempotency_key: Some(_),
+            ..
+        }
+    );
     let server_secret = timed_read(state).await.auth_secret.clone();
     let command = match crate::raft::NativeMutationCommand::from_public_method(
         method.clone(),
@@ -500,11 +569,11 @@ pub(super) async fn propose_native_mutation(
         server_secret: &server_secret,
         graph_name: &graph_name,
         graph_type,
+        commit_keyed,
     };
-    let request =
-        match build_native_raft_request(&proposal, &routed, &method, command, identity_bootstrap) {
-            Ok(request) => request,
-            Err(response) => return response,
-        };
+    let request = match build_native_raft_request(&proposal, &routed, command, identity_bootstrap) {
+        Ok(request) => request,
+        Err(response) => return response,
+    };
     dispatch_native_raft_write(&proposal, coordination, multi, routed, request).await
 }

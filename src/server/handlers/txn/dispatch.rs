@@ -131,6 +131,7 @@ pub(super) async fn dispatch_txn_method(
         #[cfg(feature = "tsdb")]
         measurement_authority: measurement_authority.as_ref(),
     };
+    let lifecycle_method = method.clone();
     let response = dispatch_txn_operation(&dispatch_args, method).await;
     let response = match (lifecycle_receipt, response) {
         (Some(receipt), Ok(response)) if response.error.is_none() => {
@@ -141,7 +142,7 @@ pub(super) async fn dispatch_txn_method(
                 ));
             };
             fault_after_txn_lifecycle_effect(req_id);
-            match finish_txn_lifecycle_receipt(receipt, result) {
+            match finish_txn_lifecycle_receipt(receipt, result, Some(&lifecycle_method)) {
                 Ok(result) => Ok(Response::ok(req_id, result)),
                 Err(error) => Ok(Response::err(req_id, error)),
             }
@@ -200,7 +201,7 @@ async fn dispatch_txn_core(args: &TxnDispatchArgs<'_>, method: Method) -> Result
         Method::Commit {
             txn_id,
             idempotency_key,
-        } => Ok(commit(
+        } => Ok(commit_with_owner(
             state,
             *req_id,
             Some(caller),
@@ -208,6 +209,7 @@ async fn dispatch_txn_core(args: &TxnDispatchArgs<'_>, method: Method) -> Result
             idempotency_key.as_deref(),
             *attempt_nonce,
             Some(carrier_authority.tenant_scope()),
+            Some(carrier_authority.owner_scope()),
         )
         .await),
         Method::Rollback { txn_id } => Ok(rollback(state, *req_id, &txn_id).await),

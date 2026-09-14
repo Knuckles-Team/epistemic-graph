@@ -213,7 +213,19 @@ async fn handle_resolve_candidates(
     })
     .await
     {
-        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Ok(v) => Response::ok(
+            req_id,
+            ResultPayload::of::<results::ResolveCandidates>(
+                v.into_iter()
+                    .map(|proposal| results::MergeProposal {
+                        canonical: proposal.canonical,
+                        members: proposal.members,
+                        score: proposal.score,
+                        kind: proposal.kind,
+                    })
+                    .collect(),
+            ),
+        ),
         Err(resp) => resp,
     }
 }

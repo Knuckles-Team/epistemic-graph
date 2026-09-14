@@ -267,6 +267,29 @@ pub(super) async fn apply_slices_locally(
     slices: &[CommitSlice],
     attempt_nonce: Option<Nonce>,
 ) -> Response {
+    let principal = match txn_receipt_principal(caller) {
+        Ok(principal) => principal,
+        Err(error) => return Response::err(req_id, error),
+    };
+    apply_authorized_slices(
+        state,
+        req_id,
+        &principal,
+        coordinator_id,
+        slices,
+        attempt_nonce,
+    )
+    .await
+}
+
+async fn apply_authorized_slices(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    principal: &str,
+    coordinator_id: &str,
+    slices: &[CommitSlice],
+    attempt_nonce: Option<Nonce>,
+) -> Response {
     let backend = {
         let s = state.read().await;
         s.persistence.clone()
@@ -297,7 +320,7 @@ pub(super) async fn apply_slices_locally(
                 Some(&backend),
                 &core,
                 req_id,
-                caller,
+                Some(principal),
                 &slice.graph_name,
                 &child_id,
                 slice.methods.clone(),

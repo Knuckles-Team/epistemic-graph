@@ -29,16 +29,66 @@ pub enum ReplicatedMutation {
 }
 
 impl ReplicatedMutation {
+    /// Build an engine-owned graph command. Its distinct encrypted payload is
+    /// accepted only with [`RaftMutationContext::internal`] authority; verified
+    /// request carriers cannot mint that authority. Internal Raft producers are
+    /// part of the trusted engine boundary and are inventoried separately from
+    /// the single caller-command constructor below.
     pub(crate) fn graph(method: Method, server_secret: &str) -> Result<Self, String> {
         Ok(Self::Graph {
             sealed_method: SealedNativeMethod::new(server_secret, &method)?,
         })
     }
 
+    /// Build the sole caller-shaped graph command. The raw method is only an
+    /// in-process intermediate and must be destination-bound with
+    /// [`RaftRequest::bind_graph_command`] before it reaches Raft.
+    pub(crate) fn caller_graph(method: Method, server_secret: &str) -> Result<Self, String> {
+        Ok(Self::Graph {
+            sealed_method: SealedNativeMethod::new_caller_graph(server_secret, &method)?,
+        })
+    }
+
     pub(crate) fn open_graph(&self, server_secret: &str) -> Result<Option<Method>, String> {
         match self {
-            Self::Graph { sealed_method } => sealed_method.open(server_secret).map(Some),
+            Self::Graph { sealed_method } => {
+                sealed_method.open_graph_method(server_secret).map(Some)
+            }
             Self::Native { .. } => Ok(None),
+        }
+    }
+
+    pub(crate) fn bind_graph_command(
+        &mut self,
+        server_secret: &str,
+        request: &crate::raft::RaftRequest,
+        group_id: crate::raft::GroupId,
+    ) -> Result<(), String> {
+        match self {
+            Self::Graph { sealed_method } => {
+                sealed_method.bind_graph_command(server_secret, request, group_id)
+            }
+            Self::Native { .. } => Ok(()),
+        }
+    }
+
+    pub(crate) fn validate_graph_command(
+        &self,
+        server_secret: &str,
+        request: &crate::raft::RaftRequest,
+        group_id: crate::raft::GroupId,
+    ) -> Result<(), String> {
+        match self {
+            Self::Graph { sealed_method } => {
+                if request.mutation.is_internal() {
+                    sealed_method.validate_internal_graph(server_secret)
+                } else {
+                    sealed_method
+                        .open_bound_graph(server_secret, request, group_id)
+                        .map(|_| ())
+                }
+            }
+            Self::Native { .. } => Ok(()),
         }
     }
 

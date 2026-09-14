@@ -1,5 +1,7 @@
 //! Declared results of the `messaging` contract domain.
 
+use serde::{Deserialize, Serialize};
+
 use crate::messaging_wire::{
     ChannelCreated, ChannelDeparture, ChannelMessage, ChannelSummary, ConfirmToken,
     IdempotentPublish,
@@ -8,6 +10,25 @@ use crate::messaging_wire::{
 use crate::wire::{
     CdcReadResult, ContinuousQueryResult, FiredTriggersResult, TriggerInfo, WatchBatch,
 };
+
+#[cfg(feature = "streaming")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct CepEvent {
+    pub ts: u64,
+    pub key: String,
+    #[serde(default)]
+    pub attrs: serde_json::Map<String, serde_json::Value>,
+}
+
+#[cfg(feature = "streaming")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct CepMatch {
+    pub events: Vec<CepEvent>,
+    pub start_ts: u64,
+    pub end_ts: u64,
+}
 
 method_results! {
     visit_messaging;
@@ -57,6 +78,10 @@ method_results! {
     ListTriggers(ListTriggers) => Raw<Vec<TriggerInfo>>;
     #[cfg(feature = "streaming")]
     FiredTriggers(FiredTriggers) => Raw<FiredTriggersResult>;
+    #[cfg(feature = "streaming")]
     CepSubscribe(CepSubscribe) => Count<u64>;
+    #[cfg(feature = "streaming")]
+    CepPoll(CepPoll) => Raw<Vec<CepMatch>>;
+    #[cfg(feature = "streaming")]
     CepUnsubscribe(CepUnsubscribe) => Bool<bool>;
 }

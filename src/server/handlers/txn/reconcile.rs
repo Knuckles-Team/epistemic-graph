@@ -34,9 +34,7 @@ async fn collect_reconcile_context(
     let Some(persistence) = persistence else {
         return Ok(None);
     };
-    let caller =
-        caller.ok_or_else(|| "transaction recovery requires a verified principal".to_string())?;
-    let expected_principal = crate::server::mutation_batch::principal_fingerprint(caller)?;
+    let expected_principal = txn_receipt_principal(caller)?;
     let parent_id = commit_receipt_id(txn_id, idempotency_key, expected_tenant);
     let mut lookups = Vec::with_capacity(graphs.len() * 2);
     for (graph, core) in graphs {
@@ -176,6 +174,7 @@ pub(super) async fn reconcile_txn_candidate(
     match reconcile_candidate_mismatch(
         &record,
         &args.batch_id,
+        &args.fname,
         &args.graph,
         args.expected_tenant,
         args.expected_principal,
@@ -193,9 +192,7 @@ pub(super) async fn reconcile_txn_candidate(
         .as_deref()
         .ok_or_else(|| "committed transaction has no durable result".to_string())?;
     let result = decode_txn_result(bytes)?;
-    if !matches!(&result, ResultPayload::Bool(_)) {
-        return Err("committed transaction child has the wrong result type".to_string());
-    }
+    validate_txn_commit_result(&result)?;
     let (snapshot, version) = args
         .persistence
         .read_authoritative_graph_snapshot(&args.fname)
@@ -247,7 +244,8 @@ pub(super) enum ReconcileCandidateMatch {
 pub(super) fn reconcile_candidate_mismatch(
     record: &crate::mutation_batch::MutationBatchRecord,
     batch_id: &str,
-    graph: &str,
+    physical_graph: &str,
+    logical_graph: &str,
     expected_tenant: Option<&str>,
     expected_principal: &str,
 ) -> ReconcileCandidateMatch {
@@ -259,7 +257,7 @@ pub(super) fn reconcile_candidate_mismatch(
             .scope()
             .graph_name()
             .map(|name| name.as_str())
-            != Some(graph)
+            != Some(physical_graph)
     {
         return ReconcileCandidateMatch::OtherCandidate;
     }
@@ -282,7 +280,7 @@ pub(super) fn reconcile_candidate_mismatch(
     // outbox attribution, exactly like the principal `committing_actor()`
     // reads, so reconcile against that.
     if let Some(tenant) = expected_tenant {
-        if committed_scope_digest(record) != Some(caller_scope_digest(tenant, graph)) {
+        if committed_scope_digest(record) != Some(caller_scope_digest(tenant, logical_graph)) {
             return ReconcileCandidateMatch::ForeignAuthority("tenant");
         }
     }

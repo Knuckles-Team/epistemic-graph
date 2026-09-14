@@ -43,6 +43,7 @@ pub(super) struct ModalityReplicationRequest<'a> {
     pub(super) graph_type: crate::protocol::GraphType,
     pub(super) req_id: u64,
     pub(super) attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub(super) idempotency_key: &'a str,
     pub(super) tenant_scope: &'a str,
     pub(super) principal_fingerprint: &'a str,
     pub(super) core: &'a Arc<crate::graph::GraphCore>,
@@ -135,19 +136,25 @@ pub(super) fn modality_receipt_binding_matches(
     ctx: &ModalityReplication<'_>,
     record: &crate::mutation_batch::MutationBatchRecord,
     batch_id: &str,
+    graph_fname: &str,
 ) -> bool {
     record.status == crate::mutation_batch::MutationBatchStatus::Committed
         && record.batch.batch_id == batch_id
-        && record.batch.identity.tenant().as_str() == ctx.tenant_scope
+        && matches!(
+            record.committing_tenant(),
+            Ok(tenant) if tenant == ctx.tenant_scope
+        )
         // A native (non-graph) scope reports no graph name; `map(...) == Some(_)`
-        // fails closed instead of matching `ctx.graph_name` against a sentinel.
+        // fails closed. The durable bind replaces the logical graph with this
+        // sanitized physical key while preserving the logical name in the
+        // protocol scope and opaque request-key inputs.
         && record
             .batch
             .identity
             .scope()
             .graph_name()
             .map(crate::mutation_batch::LogicalName::as_str)
-            == Some(ctx.graph_name)
+            == Some(graph_fname)
         && record.batch.placement_epoch == ctx.placement_epoch
         && record.batch.fencing_token == ctx.fencing_token
         && matches!(
@@ -200,10 +207,19 @@ pub(super) async fn install_modality_committed_image(
     }
 }
 
-/// A client retry with the same request id repairs RAM from the committed image
-/// and returns the exact stored ApplyOutcome. It never re-decodes source bytes
-/// or emits a second Raft entry/outbox/audit/CDC event. `None` ⇒ no receipt yet,
-/// so the caller proceeds with a fresh mutation.
+#[cfg(all(feature = "raft", feature = "modality-serving"))]
+fn modality_operation_digest(method: &Method) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+
+    let encoded = rmp_serde::to_vec_named(method).map_err(|error| error.to_string())?;
+    Ok(format!("sha256:{}", hex::encode(Sha256::digest(encoded))))
+}
+
+/// A client retry with the same authenticated idempotency key repairs RAM from
+/// the committed image and returns the exact stored ApplyOutcome, even when the
+/// transport request id and nonce are fresh. It never re-decodes source bytes or
+/// emits a second Raft entry/outbox/audit/CDC event. `None` ⇒ no receipt yet, so
+/// the caller proceeds with a fresh mutation.
 #[cfg(all(feature = "raft", feature = "modality-serving"))]
 pub(super) async fn try_replay_modality_receipt(
     ctx: &ModalityReplication<'_>,
@@ -211,8 +227,6 @@ pub(super) async fn try_replay_modality_receipt(
     batch_id: &str,
     graph_fname: &str,
 ) -> Option<Response> {
-    use sha2::{Digest, Sha256};
-
     let record = match ctx
         .persistence
         .read_mutation_batch(graph_fname, batch_id)
@@ -222,12 +236,11 @@ pub(super) async fn try_replay_modality_receipt(
         Ok(None) => return None,
         Err(error) => return Some(Response::err(ctx.req_id, error)),
     };
-    let encoded = match rmp_serde::to_vec_named(&inputs.safe_method) {
-        Ok(encoded) => encoded,
-        Err(error) => return Some(Response::err(ctx.req_id, error.to_string())),
+    let expected_operation = match modality_operation_digest(&inputs.safe_method) {
+        Ok(digest) => digest,
+        Err(error) => return Some(Response::err(ctx.req_id, error)),
     };
-    let expected_operation = format!("sha256:{}", hex::encode(Sha256::digest(encoded)));
-    if !modality_receipt_binding_matches(ctx, &record, batch_id)
+    if !modality_receipt_binding_matches(ctx, &record, batch_id, graph_fname)
         || !modality_receipt_operation_matches(&record, &expected_operation)
     {
         return Some(Response::err(
@@ -240,6 +253,76 @@ pub(super) async fn try_replay_modality_receipt(
         Err(response) => return Some(response),
     };
     Some(install_modality_committed_image(ctx, graph_fname, result).await)
+}
+
+#[cfg(all(test, feature = "raft", feature = "modality-serving"))]
+mod replicated_identity_tests {
+    use super::*;
+
+    fn operation(query: &str) -> Method {
+        Method::ApplyMutation {
+            event_type: "served_modality_v1".to_string(),
+            query: query.to_string(),
+        }
+    }
+
+    #[test]
+    fn retry_reuses_identity_and_changed_operation_keeps_the_conflict_row() {
+        let graph_name = "tenant-a:docs/a#b";
+        let graph_fname = crate::persist::sanitize(graph_name);
+        let first = super::super::dispatch_helpers::replicated_graph_batch_id(
+            "raft-modality",
+            "tenant-scope-a",
+            graph_name,
+            &graph_fname,
+            "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "stable-envelope-key",
+        );
+        let retry = super::super::dispatch_helpers::replicated_graph_batch_id(
+            "raft-modality",
+            "tenant-scope-a",
+            graph_name,
+            &graph_fname,
+            "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "stable-envelope-key",
+        );
+        let changed_operation = super::super::dispatch_helpers::replicated_graph_batch_id(
+            "raft-modality",
+            "tenant-scope-a",
+            graph_name,
+            &graph_fname,
+            "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "stable-envelope-key",
+        );
+
+        assert_eq!(first, retry);
+        assert_eq!(first, changed_operation);
+        assert_ne!(
+            modality_operation_digest(&operation("operation-a")).unwrap(),
+            modality_operation_digest(&operation("operation-b")).unwrap()
+        );
+        // Because operation bytes are excluded from `first`, the second digest
+        // probes the same durable row and the receipt/HMAC check rejects it.
+    }
+
+    #[test]
+    fn modality_identity_binds_tenant_logical_and_physical_graph() {
+        let identity = |tenant: &str, logical: &str, physical: &str| {
+            super::super::dispatch_helpers::replicated_graph_batch_id(
+                "raft-modality",
+                tenant,
+                logical,
+                physical,
+                "principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "stable-envelope-key",
+            )
+        };
+        let baseline = identity("tenant-a", "docs/a#b", "docs~2fa~23b");
+
+        assert_ne!(baseline, identity("tenant-b", "docs/a#b", "docs~2fa~23b"));
+        assert_ne!(baseline, identity("tenant-a", "docs/a#c", "docs~2fa~23b"));
+        assert_ne!(baseline, identity("tenant-a", "docs/a#b", "docs~2fa~23c"));
+    }
 }
 
 /// Stage the mutation over the authoritative committed image. When no durable
@@ -281,6 +364,7 @@ pub(super) async fn build_modality_raft_command(
     inputs: &ModalityMutationInputs,
     staged: &crate::graph::GraphCore,
     authority: &handlers::modality::ModalityAuthority,
+    graph_fname: &str,
     payload: &ResultPayload,
 ) -> Result<crate::raft::SanitizedModalityRaftCommand, Response> {
     let node_id = authority.node_id(inputs.modality);
@@ -303,6 +387,7 @@ pub(super) async fn build_modality_raft_command(
     let server_secret = timed_read(ctx.state).await.auth_secret.clone();
     crate::raft::SanitizedModalityRaftCommand::new(
         &server_secret,
+        (ctx.tenant_scope, ctx.graph_name, graph_fname),
         inputs.modality,
         inputs.operation,
         node_id,
@@ -332,8 +417,10 @@ pub(super) async fn submit_modality_replication(
         ctx.principal_fingerprint.to_string(),
         false,
         ctx.placement_epoch,
-        ctx.fencing_token,
-        created_at_ms,
+        crate::raft::RaftMutationTiming {
+            fencing_token: ctx.fencing_token,
+            created_at_ms,
+        },
     ) {
         Ok(context) => context,
         Err(error) => return Response::err(ctx.req_id, error),
@@ -394,13 +481,15 @@ pub(super) async fn replicate_served_modality(request: ModalityReplicationReques
         Ok(decoded) => decoded,
         Err(response) => return response,
     };
-    let batch_id = crate::server::mutation_batch::opaque_request_key(
-        "raft-modality",
-        request.graph_name,
-        request.req_id,
-        &inputs.safe_method,
-    );
     let graph_fname = crate::persist::sanitize(request.graph_name);
+    let batch_id = super::dispatch_helpers::replicated_graph_batch_id(
+        "raft-modality",
+        request.tenant_scope,
+        request.graph_name,
+        &graph_fname,
+        request.principal_fingerprint,
+        request.idempotency_key,
+    );
 
     if let Some(replayed) =
         try_replay_modality_receipt(&ctx, &inputs, &batch_id, &graph_fname).await
@@ -431,10 +520,12 @@ pub(super) async fn prepare_and_replicate_modality(
         Ok(payload) => payload,
         Err(error) => return Response::err(ctx.req_id, error),
     };
-    let command = match build_modality_raft_command(ctx, inputs, &staged, authority, &payload).await
-    {
-        Ok(command) => command,
-        Err(response) => return response,
-    };
+    let command =
+        match build_modality_raft_command(ctx, inputs, &staged, authority, &graph_fname, &payload)
+            .await
+        {
+            Ok(command) => command,
+            Err(response) => return response,
+        };
     submit_modality_replication(ctx, batch_id, graph_fname, command, payload).await
 }

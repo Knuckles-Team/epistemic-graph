@@ -31,6 +31,29 @@ pub(super) async fn commit(
     attempt_nonce: Option<Nonce>,
     tenant_scope: Option<&str>,
 ) -> Response {
+    commit_with_owner(
+        state,
+        req_id,
+        caller,
+        txn_id,
+        idempotency_key,
+        attempt_nonce,
+        tenant_scope,
+        None,
+    )
+    .await
+}
+
+pub(super) async fn commit_with_owner(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    caller: Option<&str>,
+    txn_id: &str,
+    idempotency_key: Option<&str>,
+    attempt_nonce: Option<Nonce>,
+    tenant_scope: Option<&str>,
+    owner_scope: Option<&str>,
+) -> Response {
     if consensus_apply_is_authorized() {
         return Response::err(
             req_id,
@@ -61,6 +84,8 @@ pub(super) async fn commit(
                     caller,
                     txn_id,
                     idempotency_key,
+                    tenant_scope,
+                    owner_scope,
                     keyed,
                     txn_mutex,
                     persistence,
@@ -107,15 +132,17 @@ pub(super) async fn commit(
 /// Arguments for [`commit_open_txn`], grouped so the split-out helper keeps a
 /// readable arity (clippy::too_many_arguments).
 pub(super) struct CommitOpenTxnArgs<'a> {
-    req_id: u64,
-    caller: Option<&'a str>,
-    txn_id: &'a str,
-    idempotency_key: Option<&'a str>,
-    keyed: bool,
-    txn_mutex: parking_lot::Mutex<GraphTxnState>,
-    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    open_map: Arc<dashmap::DashMap<String, parking_lot::Mutex<GraphTxnState>>>,
-    attempt_nonce: Option<Nonce>,
+    pub(super) req_id: u64,
+    pub(super) caller: Option<&'a str>,
+    pub(super) txn_id: &'a str,
+    pub(super) idempotency_key: Option<&'a str>,
+    pub(super) tenant_scope: Option<&'a str>,
+    pub(super) owner_scope: Option<&'a str>,
+    pub(super) keyed: bool,
+    pub(super) txn_mutex: parking_lot::Mutex<GraphTxnState>,
+    pub(super) persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    pub(super) open_map: Arc<dashmap::DashMap<String, parking_lot::Mutex<GraphTxnState>>>,
+    pub(super) attempt_nonce: Option<Nonce>,
 }
 
 /// The `commit`-time path for a txn still open in RAM: authorize the staged
@@ -131,6 +158,8 @@ pub(super) async fn commit_open_txn(
         caller,
         txn_id,
         idempotency_key,
+        tenant_scope,
+        owner_scope,
         keyed,
         txn_mutex,
         persistence,
@@ -143,6 +172,10 @@ pub(super) async fn commit_open_txn(
     // atomic Prepared+encrypted-plan commit returns, the durable plan becomes the
     // sole mutable authority and the transaction is frozen.
     let mut restore = TxnRestoreGuard::new(open_map, txn_id, txn.clone());
+    let owner_check = owner_scope
+        .map(|owner| validate_txn_owner_scope(&txn, tenant_scope, owner))
+        .unwrap_or_else(|| validate_txn_owner(&txn, tenant_scope, caller.unwrap_or_default()));
+    owner_check.map_err(|error| Response::err(req_id, error))?;
     if let Err(error) = authorize_txn_plan(state, caller, &txn).await {
         return Err(Response::err(req_id, error));
     }

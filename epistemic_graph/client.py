@@ -6406,7 +6406,7 @@ class GraphOperationsClient:
             await _gen.compute.send_strongly_connected_components(self._client)
         ).payload
 
-    async def minimum_spanning_tree(self) -> list[tuple[str, str, float]]:
+    async def minimum_spanning_tree(self) -> list[list[Any]]:
         """CONCEPT:EG-KG.memory.forgetting-curve-decay — Kruskal's MST via Tokio service."""
         return (await _gen.compute.send_minimum_spanning_tree(self._client)).payload
 
@@ -6436,7 +6436,7 @@ class GraphOperationsClient:
             )
         ).payload
 
-    async def graph_coloring(self) -> list[tuple[str, int]]:
+    async def graph_coloring(self) -> list[list[Any]]:
         return (await _gen.compute.send_graph_coloring(self._client)).payload
 
     async def compute_similarity_edges(self, threshold: float) -> list[list[Any]]:
@@ -6541,15 +6541,15 @@ class AnalyticsClient:
             self._client, {"node_id": node_id}
         )
 
-    async def degree_centrality_all(self) -> list[tuple[str, float]]:
+    async def degree_centrality_all(self) -> list[list[Any]]:
         return (await _gen.compute.send_degree_centrality_all(self._client)).payload
 
-    async def betweenness_centrality(self) -> list[tuple[str, float]]:
+    async def betweenness_centrality(self) -> list[list[Any]]:
         return (await _gen.compute.send_betweenness_centrality(self._client)).payload
 
     async def pagerank(
         self, damping: float = 0.85, iterations: int = 100
-    ) -> list[tuple[str, float]]:
+    ) -> list[list[Any]]:
         return (
             await _gen.compute.send_page_rank(
                 self._client, {"damping": damping, "iterations": iterations}
@@ -6561,7 +6561,7 @@ class AnalyticsClient:
         seed_nodes: list[tuple[str, float]],
         damping: float = 0.85,
         iterations: int = 100,
-    ) -> list[tuple[str, float]]:
+    ) -> list[list[Any]]:
         return (
             await _gen.compute.send_personalized_page_rank(
                 self._client,
@@ -8211,7 +8211,7 @@ class FinanceClient:
         n_slices: int,
         start_time: int = 0,
         interval_secs: int = 60,
-    ) -> list[tuple[int, float]]:
+    ) -> list[list[Any]]:
         return (
             await _gen.compute.send_finance_twap(
                 self._client,
@@ -8230,7 +8230,7 @@ class FinanceClient:
         volume_profile: list[float],
         start_time: int = 0,
         interval_secs: int = 60,
-    ) -> list[tuple[int, float]]:
+    ) -> list[list[Any]]:
         return (
             await _gen.compute.send_finance_vwap(
                 self._client,

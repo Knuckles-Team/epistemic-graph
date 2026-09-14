@@ -40,17 +40,11 @@ pub(super) async fn multi_graph_batch_update(
     let clustered = timed_read(state).await.multi_raft.is_some();
     #[cfg(not(feature = "raft"))]
     let clustered = false;
-    let saga = match begin_multi_graph_saga(
-        redb,
-        req_id,
-        caller,
-        verified_context.attempt_nonce(),
-        batches_msgpack,
-        clustered,
-    ) {
-        Ok(saga) => saga,
-        Err(response) => return response,
-    };
+    let saga =
+        match begin_multi_graph_saga(redb, req_id, verified_context, batches_msgpack, clustered) {
+            Ok(saga) => saga,
+            Err(response) => return response,
+        };
     let report = if batches.is_empty() {
         txn_results::MultiGraphBatchReport::default()
     } else {
@@ -101,8 +95,7 @@ fn declared_json_response<T: serde::de::DeserializeOwned>(
 fn begin_multi_graph_saga(
     redb: &crate::server::persistence::redb_backend::RedbBackend,
     req_id: u64,
-    caller: Option<&str>,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
+    verified_context: &VerifiedRequestContext,
     batches_msgpack: &[u8],
     clustered: bool,
 ) -> Result<Option<handlers::admin::AdminSaga>, Response> {
@@ -112,17 +105,41 @@ fn begin_multi_graph_saga(
     let method = Method::MultiGraphBatchUpdate {
         batches_msgpack: batches_msgpack.to_vec(),
     };
-    let saga = match handlers::admin::begin_admin_saga_with_nonce(
+    let saga = begin_multi_graph_authorized_saga(redb, req_id, verified_context, &method)?;
+    finish_multi_graph_saga_begin(req_id, saga)
+}
+
+#[cfg(feature = "redb")]
+fn begin_multi_graph_authorized_saga(
+    redb: &crate::server::persistence::redb_backend::RedbBackend,
+    req_id: u64,
+    verified_context: &VerifiedRequestContext,
+    method: &Method,
+) -> Result<handlers::admin::AdminSaga, Response> {
+    let authority = CarrierAuthority::from_verified(verified_context)
+        .map_err(|error| Response::err(req_id, error))?;
+    handlers::admin::begin_authenticated_admin_saga(
         redb,
         req_id,
-        caller,
-        &method,
+        &authority,
+        method,
         crate::mutation_batch::DurabilityDomain::MultiGraph,
-        attempt_nonce,
-    ) {
-        Ok(saga) => saga,
-        Err(error) => return Err(Response::err(req_id, error)),
-    };
+        authority.attempt_nonce(),
+    )
+    .map_err(|error| Response::err(req_id, error))
+}
+
+#[cfg(feature = "redb")]
+fn finish_multi_graph_saga_begin(
+    req_id: u64,
+    saga: handlers::admin::AdminSaga,
+) -> Result<Option<handlers::admin::AdminSaga>, Response> {
+    if saga.prepared {
+        return Err(Response::err(
+            req_id,
+            "multi-graph saga is Prepared; refusing to re-execute",
+        ));
+    }
     if let Some(result) = saga.replayed.clone() {
         return Err(Response::ok(req_id, result));
     }

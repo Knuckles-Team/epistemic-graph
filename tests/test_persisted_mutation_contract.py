@@ -109,9 +109,7 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
         "union.rs",
     }
     child_paths = {
-        path.name
-        for path in family.all_paths
-        if path.parent.name == "graph_ops"
+        path.name for path in family.all_paths if path.parent.name == "graph_ops"
     }
     assert child_paths == expected_children
     assert len(facade.splitlines()) <= 80
@@ -176,7 +174,10 @@ def test_graph_ops_gateway_families_contribute_real_method_arms() -> None:
         ),
         "gateway_broker.rs": ("Method::Publish", "commit_gateway"),
         "gateway_mining.rs": ("Method::MineAssociate", "commit_conditional_mutation"),
-        "gateway_mining_ml.rs": ("Method::GraphLearnFit", "Method::MiningPipelineTrain"),
+        "gateway_mining_ml.rs": (
+            "Method::GraphLearnFit",
+            "Method::MiningPipelineTrain",
+        ),
     }
     for filename, required in markers.items():
         source = module._rust_code_mask(
@@ -259,9 +260,12 @@ def test_terminal_gateway_guards_have_reachable_control_flow() -> None:
     )
     assert "ControlFlow::Break(match $method" not in broker
     assert "match $method" in broker
-    assert "allow(unreachable_code)" not in module.read_compiler_family(
-        "src/server/handlers/graph_ops.rs"
-    ).with_tests
+    assert (
+        "allow(unreachable_code)"
+        not in module.read_compiler_family(
+            "src/server/handlers/graph_ops.rs"
+        ).with_tests
+    )
 
 
 def test_decode_json_object_has_one_visible_owner_and_two_consumers() -> None:
@@ -341,7 +345,9 @@ def test_m1_semantic_inventory_rejects_storage_bypass() -> None:
             )
         ),
     }
-    with pytest.raises(SystemExit, match="semantic authority bypasses the mutation owner"):
+    with pytest.raises(
+        SystemExit, match="semantic authority bypasses the mutation owner"
+    ):
         module._check_m1_semantic_inventory(sources)
 
 
@@ -452,9 +458,7 @@ def test_internal_graph_commit_lock_is_fail_closed() -> None:
 def test_internal_graph_commit_carries_state_msgpack_to_authority() -> None:
     module = _gate_module()
     sources = module.mutation_inventory_sources()
-    body = module._function(
-        sources["mutation_batch"], "commit_prepared_internal_graph"
-    )
+    body = module._function(sources["mutation_batch"], "commit_prepared_internal_graph")
     assert "state_msgpack,\n        descriptor," in body
     assert "commit_mutation_batch_state(\n" in body
     module._check_internal_graph_state_payload(sources["mutation_batch"])
@@ -522,12 +526,7 @@ def test_native_command_catalog_rejects_drift_and_comment_spoofs() -> None:
             )
         )
 
-    arm_tail = (
-        "        }\n"
-        "    };\n"
-        "}\n\n"
-        "macro_rules! declare_native_consensus_methods"
-    )
+    arm_tail = "        }\n    };\n}\n\nmacro_rules! declare_native_consensus_methods"
     assert arm_tail in source
     for delimiter in (";", ","):
         unused_arm = (
@@ -1207,6 +1206,7 @@ def test_module_tree_fails_closed_on_unsupported_module_identifier(
         "custom_attribute",
         "allow::custom",
         "deny::custom",
+        "derive(CustomMacro)",
         "doc::custom",
         "forbid::custom",
         "recursion_limit::custom",
@@ -1241,7 +1241,6 @@ def test_module_tree_accepts_only_complete_inert_conditional_attribute_shapes(
     (tmp_path / "root.rs").write_text(
         '#![cfg_attr(test, recursion_limit = "256")]\n'
         '#[cfg_attr(feature = "ship", allow(dead_code, unused_variables))]\n'
-        '#[cfg_attr(feature = "ship", derive(CustomMacro))]\n'
         '#[cfg_attr(feature = "ship", warn(clippy::pedantic))]\n'
         '#[cfg_attr(feature = "ship", doc = "guarded item")]\n'
         "fn inert_attribute_marker() {}\n",
@@ -1434,9 +1433,7 @@ def test_module_paths_fails_closed_on_invalid_closure(
         (children / "child").mkdir(parents=True)
         (tmp_path / "root.rs").write_text("mod child;\n", encoding="utf-8")
         (children / "child.rs").write_text("fn first() {}\n", encoding="utf-8")
-        (children / "child" / "mod.rs").write_text(
-            "fn second() {}\n", encoding="utf-8"
-        )
+        (children / "child" / "mod.rs").write_text("fn second() {}\n", encoding="utf-8")
     else:
         (tmp_path / "root.rs").write_text(
             '#[path = "root.rs"] mod child;\n', encoding="utf-8"

@@ -282,12 +282,13 @@ pub(super) async fn compile_prepared_batch(
             ));
         }
     };
+    let principal = txn_receipt_principal(caller).map_err(|error| Response::err(req_id, error))?;
     let batch = match crate::server::mutation_batch::compile_methods(
         crate::server::mutation_batch::CompileBatch {
             batch_id,
             request_id: req_id,
             attempt_nonce,
-            principal: caller,
+            principal: Some(&principal),
             tenant: tenant_scope,
             graph: graph_name,
             placement_epoch: 0,
@@ -445,7 +446,7 @@ pub(super) async fn commit_prepared_replayed(
     let Some(bytes) = committed.record.result_msgpack.as_deref() else {
         return Response::err(req_id, "committed MutationBatch has no durable result");
     };
-    match decode_txn_result(bytes) {
+    match decode_validated_txn_result(bytes) {
         Ok(stored) => {
             let (snapshot, version) = match authority.read_authoritative_graph_snapshot(fname).await
             {
@@ -465,4 +466,10 @@ pub(super) async fn commit_prepared_replayed(
         }
         Err(error) => Response::err(req_id, error),
     }
+}
+
+fn decode_validated_txn_result(bytes: &[u8]) -> Result<ResultPayload, String> {
+    let result = decode_txn_result(bytes)?;
+    validate_txn_commit_result(&result)?;
+    Ok(result)
 }

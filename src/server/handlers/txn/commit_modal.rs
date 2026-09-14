@@ -318,12 +318,13 @@ async fn compile_cross_modal_batch(
         args.measurements,
     ))
     .map_err(|error| format!("cross-modal manifest encode failed: {error}"))?;
+    let principal = txn_receipt_principal(args.caller)?;
     let batch = crate::server::mutation_batch::compile_crossmodal(
         crate::server::mutation_batch::CompileBatch {
             batch_id: &batch_id,
             request_id: args.request_id,
             attempt_nonce: args.attempt_nonce,
-            principal: args.caller,
+            principal: Some(&principal),
             tenant: &args.txn.tenant_scope,
             graph: &args.txn.graph,
             placement_epoch: 0,

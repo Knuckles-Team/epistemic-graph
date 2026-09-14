@@ -147,6 +147,7 @@ pub(crate) async fn apply_replicated_transaction_participant(
                         authority.fencing_token,
                         coordinator_id,
                         participant_id,
+                        authority,
                         plan.ok_or_else(|| "participant prepare is missing its plan".to_string())?,
                     )
                     .await
@@ -170,6 +171,7 @@ pub(crate) async fn apply_replicated_transaction_participant(
                 crate::raft::TransactionParticipantPhase::Abort => {
                     handlers::txn::apply_consensus_participant_abort(
                         state,
+                        authority,
                         coordinator_id,
                         participant_id,
                     )
@@ -187,7 +189,36 @@ pub(crate) async fn apply_replicated_transaction_prepare(
     committed_at_ms: u64,
     authority: &crate::raft::RaftMutationContext,
     txn_id: &str,
+    idempotency_key: Option<&str>,
+    expected_tenant: Option<&str>,
 ) -> Response {
+    apply_replicated_transaction_prepare_inner(
+        state,
+        request_id,
+        committed_at_ms,
+        authority,
+        txn_id,
+        idempotency_key,
+        expected_tenant,
+    )
+    .await
+}
+
+#[cfg(feature = "raft")]
+async fn apply_replicated_transaction_prepare_inner(
+    state: &Arc<RwLock<ServerState>>,
+    request_id: u64,
+    committed_at_ms: u64,
+    authority: &crate::raft::RaftMutationContext,
+    txn_id: &str,
+    idempotency_key: Option<&str>,
+    expected_tenant: Option<&str>,
+) -> Response {
+    if let Err(response) =
+        validate_replicated_prepare_tenant(request_id, authority, expected_tenant)
+    {
+        return response;
+    }
     REPLICATED_APPLY
         .scope(
             replicated_apply_scope(committed_at_ms, authority),
@@ -196,9 +227,27 @@ pub(crate) async fn apply_replicated_transaction_prepare(
                 request_id,
                 Some(&authority.principal_fingerprint),
                 txn_id,
+                idempotency_key,
+                expected_tenant,
+                authority.attempt_nonce,
             ),
         )
         .await
+}
+
+#[cfg(feature = "raft")]
+fn validate_replicated_prepare_tenant(
+    request_id: u64,
+    authority: &crate::raft::RaftMutationContext,
+    expected_tenant: Option<&str>,
+) -> Result<(), Response> {
+    if expected_tenant != Some(authority.tenant_scope.as_str()) {
+        return Err(Response::err(
+            request_id,
+            "transaction prepare tenant does not match replicated authority",
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(feature = "raft")]
@@ -214,7 +263,7 @@ pub(crate) async fn apply_replicated_transaction_decision(
             handlers::txn::apply_consensus_transaction_decision(
                 state,
                 coordinator_id,
-                &authority.principal_fingerprint,
+                authority,
                 commit,
             )
             .await
@@ -235,7 +284,7 @@ pub(crate) async fn apply_replicated_transaction_finalize(
             handlers::txn::apply_consensus_transaction_finalize(
                 state,
                 coordinator_id,
-                &authority.principal_fingerprint,
+                authority,
                 commit,
             )
             .await

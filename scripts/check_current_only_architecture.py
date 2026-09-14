@@ -18,6 +18,7 @@ from method_policy_inventory import (
     parse_method_policy_table,
 )
 from rust_callgraph import top_level_fns
+from rust_lexer import _balanced_span_from, _rust_code_mask, _rust_comments_mask
 from rust_module_tree import read_compiler_family, read_module_tree
 
 
@@ -56,6 +57,12 @@ def rdf_update_source() -> str:
     """Read the compiler-declared guarded SPARQL update family."""
 
     return read_compiler_family("crates/eg-rdf/src/update.rs", ROOT).production
+
+
+def raft_store_source() -> str:
+    """Read the complete compiler-declared Raft storage family."""
+
+    return read_compiler_family("src/raft/store.rs", ROOT).production
 
 
 def require(condition: bool, message: str) -> None:
@@ -764,9 +771,10 @@ def _check_identity_order(dispatch: str) -> None:
 
 
 def _check_raft_snapshot_shape(raft_store: str) -> None:
-    raft_graph_snapshot = delimited_body(raft_store, "struct GraphSnapshot {", "\n}")
+    code = _rust_code_mask(raft_store)
+    raft_graph_snapshot = delimited_body(code, "struct GraphSnapshot {", "\n}")
     require(
-        "const RAFT_SNAPSHOT_SCHEMA_VERSION: u16 = 4;" in raft_store
+        "const RAFT_SNAPSHOT_SCHEMA_VERSION: u16 = 4;" in code
         and "durable: crate::server::persistence::online_reshard::RawGraphRows"
         in raft_graph_snapshot
         and all(
@@ -780,25 +788,114 @@ def _check_raft_snapshot_shape(raft_store: str) -> None:
                 "\n    version:",
             )
         )
-        and "export_graph_raw_for_snapshot" in raft_store
-        and "read_authoritative_graph_snapshot" in raft_store,
+        and "export_graph_raw_for_snapshot" in code
+        and "read_authoritative_graph_snapshot" in code,
         "Raft snapshots regained a duplicate decoded/plaintext graph authority",
     )
 
 
 def _check_raft_snapshot_enumeration(raft_store: str) -> None:
+    code = _rust_code_mask(raft_store)
     require(
-        ".list()" in raft_store and ".all_entries()" not in raft_store,
+        ".list()" in code and ".all_entries()" not in code,
         "Raft snapshot enumeration drops catalog-only/evicted graphs",
     )
 
 
-def _check_raft_snapshot_replacement(raft_store: str) -> None:
+def _rust_function_body(source: str, name: str) -> str:
+    """Return the sole compiler-family function body named ``name``."""
+
+    code = _rust_code_mask(source)
+    matches = list(
+        re.finditer(
+            rf"\bfn\s+{re.escape(name)}(?:\s*<[^>{{}}]*>)?\s*\(",
+            code,
+        )
+    )
     require(
-        "let stale_names =" in raft_store
-        and "Raft snapshot omits the mandatory commons graph" in raft_store
-        and "RawGraphRows::default()" in raft_store
-        and "s.registry.delete_graph(&name)?;" in raft_store,
+        len(matches) == 1,
+        f"expected one compiler-reachable Rust function named {name}",
+    )
+    opener = code.find("{", matches[0].end())
+    require(opener >= 0, f"missing Rust function body: {name}")
+    closer = _balanced_span_from(code, opener, "{", "}")
+    return source[opener + 1 : closer]
+
+
+def _squash_rust_body(body: str) -> str:
+    """Normalize whitespace without erasing code tokens."""
+
+    return re.sub(r"\s*\.\s*", ".", re.sub(r"\s+", " ", body))
+
+
+def _snapshot_install_removes_stale_graphs(install: str) -> bool:
+    return (
+        "let stale_names = self.stale_snapshot_graph_names(&names).await?;" in install
+        and re.search(
+            r"for name in stale_names\s*\{\s*"
+            r"self\.remove_stale_snapshot_graph\(&name\)\.await\?;\s*\}",
+            install,
+        )
+        is not None
+    )
+
+
+def _code_compares_to_literal(comments_body: str, code_body: str, literal: str) -> bool:
+    """Require a literal comparison in code, never inside a string decoy."""
+
+    pattern = re.compile(rf"\bname\s*==\s*{re.escape(literal)}")
+    for match in pattern.finditer(comments_body):
+        quote = comments_body.find('"', match.start(), match.end())
+        prefix = code_body[match.start() : quote] if quote >= 0 else ""
+        if re.fullmatch(r"\s*name\s*==\s*", prefix):
+            return True
+    return False
+
+
+def _snapshot_stale_set_is_complete(
+    stale: str, stale_comments: str, stale_code: str
+) -> bool:
+    return (
+        ".registry.list()" in stale
+        and "belongs_to_group && !names.contains(name.as_str())" in stale
+        and _code_compares_to_literal(stale_comments, stale_code, '"__commons__"')
+        and re.search(
+            r"if stale\.iter\(\)\.any\(\|name\| name ==\s+\)\s*\{" r".*return Err\(",
+            stale,
+        )
+        is not None
+    )
+
+
+def _snapshot_removal_clears_both_authorities(remove: str) -> bool:
+    return all(
+        marker in remove
+        for marker in (
+            ".import_graph_raw_from_snapshot(",
+            "RawGraphRows::default(),",
+            "s.registry.delete_graph(name)?;",
+        )
+    )
+
+
+def _check_raft_snapshot_replacement(raft_store: str) -> None:
+    """Prove snapshot replacement through its compiler-reachable call chain."""
+
+    comments = _rust_comments_mask(raft_store)
+    code = _rust_code_mask(raft_store)
+    install = _squash_rust_body(_rust_function_body(code, "install_graphs"))
+    stale_body = _rust_function_body(code, "stale_snapshot_graph_names")
+    stale = _squash_rust_body(stale_body)
+    stale_comments = _rust_function_body(comments, "stale_snapshot_graph_names")
+    remove = _squash_rust_body(_rust_function_body(code, "remove_stale_snapshot_graph"))
+    require(
+        all(
+            (
+                _snapshot_install_removes_stale_graphs(install),
+                _snapshot_stale_set_is_complete(stale, stale_comments, stale_body),
+                _snapshot_removal_clears_both_authorities(remove),
+            )
+        ),
         "Raft snapshot install merges with stale graph authority instead of replacing it",
     )
 
@@ -813,10 +910,13 @@ def _check_raft_restore(registry: str, raft_store: str) -> None:
 
 
 def _check_raft_snapshot_validation(raft_store: str, raft: str) -> None:
+    store_code = _rust_code_mask(raft_store)
+    raft_code = _rust_code_mask(raft)
     require(
-        "self.validate_snapshot_graphs(&body.graphs)" in raft_store
-        and "validate_replay_authentication(&server_secret)" in raft_store
-        and "pub(crate) fn validate_replay_authentication(" in raft,
+        "self.validate_snapshot_graphs(&body.graphs)" in store_code
+        and re.search(r"validate_replay_authentication\(&?server_secret\)", store_code)
+        is not None
+        and "pub(crate) fn validate_replay_authentication(" in raft_code,
         "Raft snapshot install mutates state before validating the complete replay image",
     )
 
@@ -943,7 +1043,10 @@ def main() -> None:
     # compiler-reachable tree so snapshot replay proofs follow that ownership
     # split instead of inspecting only the facade.
     raft = read_module_tree("src/raft/mod.rs", root_dir=ROOT)
-    raft_store = read("src/raft/store.rs")
+    # Snapshot capture/install is likewise declared across the store children;
+    # the family reader rejects an omitted or orphaned child before this gate
+    # can accidentally certify a partial snapshot implementation.
+    raft_store = raft_store_source()
     raw_rows = read("src/server/persistence/online_reshard.rs")
     # The policy ledger lives across the domain-owned `ROWS` modules under
     # `crates/eg-capabilities/src/domains/`, not in `lib.rs`; `load_capability_sources`

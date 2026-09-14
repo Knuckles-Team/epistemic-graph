@@ -38,6 +38,7 @@ pub(crate) struct InternalGraphCommitRequest<'a> {
     pub(crate) request_id: u64,
     pub(crate) principal: Option<&'a str>,
     pub(crate) graph: &'a str,
+    tenant: Option<&'a str>,
     pub(crate) batch_id: &'a str,
     pub(crate) methods: Vec<Method>,
     pub(crate) result: &'a ResultPayload,
@@ -67,11 +68,19 @@ impl<'a> InternalGraphCommitRequest<'a> {
             result,
             attempt_nonce: None,
             strict_promotion: false,
+            tenant: None,
         }
     }
 
     pub(crate) fn with_attempt_nonce(mut self, attempt_nonce: Option<Nonce>) -> Self {
         self.attempt_nonce = attempt_nonce;
+        self
+    }
+
+    /// Preserve verified tenant attribution for caller-owned consensus children.
+    /// Engine-internal callers retain their existing graph-scoped default.
+    pub(crate) fn with_tenant_scope(mut self, tenant: &'a str) -> Self {
+        self.tenant = Some(tenant);
         self
     }
 
@@ -87,6 +96,7 @@ struct InternalGraphCommit<'a> {
     request_id: u64,
     principal: &'a str,
     graph: &'a str,
+    tenant: &'a str,
     batch_id: &'a str,
     methods: Vec<Method>,
     result: &'a ResultPayload,
@@ -137,6 +147,7 @@ pub(super) async fn commit_internal_graph_methods_with_nonce_mode(
         request_id: request.request_id,
         principal,
         graph: request.graph,
+        tenant: request.tenant.unwrap_or(request.graph),
         batch_id: request.batch_id,
         methods: request.methods,
         result: request.result,
@@ -160,6 +171,7 @@ async fn replay_internal_graph(
         request_id,
         principal,
         graph,
+        tenant,
         batch_id,
         methods,
         result,
@@ -167,6 +179,7 @@ async fn replay_internal_graph(
         graph_fname,
         ..
     } = input;
+    validate_internal_replay_tenant(&record, tenant)?;
     let mut descriptor = record
         .batch
         .authoritative_state
@@ -187,7 +200,7 @@ async fn replay_internal_graph(
             request_id,
             attempt_nonce,
             principal: Some(principal),
-            tenant: graph,
+            tenant,
             graph,
             placement_epoch: 0,
             idempotency_key: batch_id,
@@ -217,6 +230,16 @@ async fn replay_internal_graph(
         .ok_or_else(|| "internal child receipt has no authoritative state".to_string())?;
     install_validated_internal_replay_snapshot(core, snapshot, version, committed_descriptor)?;
     Ok(committed)
+}
+
+fn validate_internal_replay_tenant(
+    record: &eg_types::MutationBatchRecord,
+    tenant: &str,
+) -> Result<(), String> {
+    if record.committing_tenant()? != tenant {
+        return Err("internal child replay does not match verified tenant scope".to_string());
+    }
+    Ok(())
 }
 
 fn stage_internal_graph(
@@ -268,6 +291,7 @@ struct PreparedInternalGraphCommit<'a> {
     request_id: u64,
     principal: &'a str,
     graph: &'a str,
+    tenant: &'a str,
     batch_id: &'a str,
     methods: Vec<Method>,
     result: &'a ResultPayload,
@@ -288,6 +312,7 @@ async fn commit_fresh_internal_graph(
         request_id,
         principal,
         graph,
+        tenant,
         batch_id,
         methods,
         result,
@@ -318,6 +343,7 @@ async fn commit_fresh_internal_graph(
         request_id,
         principal,
         graph,
+        tenant,
         batch_id,
         methods,
         result,
@@ -349,6 +375,7 @@ async fn commit_prepared_internal_graph(
         row_delta,
         state_msgpack,
         descriptor,
+        ..
     } = input;
     let created_at_ms = crate::server::dispatch::authoritative_now_ms();
     let batch = compile_methods(
@@ -357,7 +384,7 @@ async fn commit_prepared_internal_graph(
             request_id,
             attempt_nonce,
             principal: Some(principal),
-            tenant: graph,
+            tenant: input.tenant,
             graph,
             placement_epoch: 0,
             idempotency_key: batch_id,

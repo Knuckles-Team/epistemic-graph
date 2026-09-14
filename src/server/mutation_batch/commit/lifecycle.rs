@@ -100,9 +100,21 @@ pub(crate) async fn commit_lifecycle(
         vec![method],
     )?;
     let encoded_result = rmp_serde::to_vec_named(result).map_err(|e| e.to_string())?;
-    persistence
+    let committed = persistence
         .commit_mutation_batch(&fname, &batch, Some(&encoded_result), created_at_ms)
-        .await
+        .await?;
+    validate_lifecycle_replay_result(&committed, &encoded_result)?;
+    Ok(committed)
+}
+
+fn validate_lifecycle_replay_result(
+    committed: &crate::mutation_batch::MutationBatchCommit,
+    encoded_result: &[u8],
+) -> Result<(), String> {
+    if committed.replayed && committed.record.result_msgpack.as_deref() != Some(encoded_result) {
+        return Err("lifecycle receipt has a conflicting terminal result".to_string());
+    }
+    Ok(())
 }
 
 /// Did this exact lifecycle request already reach its durable commit point? Used

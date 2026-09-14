@@ -2,6 +2,10 @@
 
 use super::*;
 
+#[path = "consensus/authority.rs"]
+mod authority;
+pub(crate) use authority::*;
+
 pub(super) const CONSENSUS_TXN_SCHEMA_VERSION: u16 = 1;
 
 /// Transient prepare result returned only to the control-group leader. The staged
@@ -65,9 +69,16 @@ pub(crate) async fn prepare_consensus_commit(
     req_id: u64,
     caller: Option<&str>,
     txn_id: &str,
+    idempotency_key: Option<&str>,
+    expected_tenant: Option<&str>,
+    attempt_nonce: Option<Nonce>,
 ) -> Response {
-    let _coordinator_guard =
-        crate::server::mutation_batch::lock_graph(&transaction_receipt_id(txn_id)).await;
+    let _coordinator_guard = crate::server::mutation_batch::lock_graph(&commit_receipt_id(
+        txn_id,
+        idempotency_key,
+        expected_tenant,
+    ))
+    .await;
     let (open, persistence, open_map) = {
         let s = state.read().await;
         (
@@ -80,12 +91,19 @@ pub(crate) async fn prepare_consensus_commit(
         Some((_id, txn_mutex)) => {
             match prepare_consensus_open_txn(
                 state,
-                req_id,
-                caller,
-                txn_id,
-                txn_mutex,
-                persistence,
-                open_map,
+                CommitOpenTxnArgs {
+                    req_id,
+                    caller,
+                    txn_id,
+                    idempotency_key,
+                    tenant_scope: expected_tenant,
+                    owner_scope: None,
+                    keyed: idempotency_key.is_some(),
+                    txn_mutex,
+                    persistence,
+                    open_map,
+                    attempt_nonce,
+                },
             )
             .await
             {
@@ -94,7 +112,18 @@ pub(crate) async fn prepare_consensus_commit(
             }
         }
         None => {
-            match prepare_consensus_resume_txn(state, req_id, caller, txn_id, persistence).await {
+            match prepare_consensus_resume_txn(
+                state,
+                req_id,
+                caller,
+                txn_id,
+                idempotency_key,
+                expected_tenant,
+                persistence,
+                attempt_nonce,
+            )
+            .await
+            {
                 Ok(pair) => pair,
                 Err(response) => return response,
             }
@@ -121,45 +150,9 @@ pub(crate) async fn prepare_consensus_commit(
 /// its replay). `Err(_)` carries the final `Response` for an early return.
 pub(super) async fn prepare_consensus_open_txn(
     state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    caller: Option<&str>,
-    txn_id: &str,
-    txn_mutex: parking_lot::Mutex<GraphTxnState>,
-    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    open_map: Arc<dashmap::DashMap<String, parking_lot::Mutex<GraphTxnState>>>,
+    args: CommitOpenTxnArgs<'_>,
 ) -> Result<(GraphTxnState, TxnReceipt), Response> {
-    let txn = txn_mutex.into_inner();
-    let mut restore = TxnRestoreGuard::new(open_map, txn_id, txn.clone());
-    if let Err(error) = authorize_txn_plan(state, caller, &txn).await {
-        return Err(Response::err(req_id, error));
-    }
-    // B-9 note: the clustered/consensus prepare phase has no caller
-    // idempotency key of its own (Raft's replicated log is the durability
-    // mechanism here) -- always `None`, byte-identical to pre-B-9 behavior.
-    let (receipt, replayed) = match begin_txn_receipt(
-        persistence.clone(),
-        req_id,
-        caller,
-        txn_id,
-        &txn,
-        None,
-        None,
-    ) {
-        Ok(value) => value,
-        Err(error) => return Err(Response::err(req_id, error)),
-    };
-    restore.complete();
-    if let Some(result) = replayed {
-        let parent_id = transaction_receipt_id(txn_id);
-        if let Err(error) = cleanup_cross_shard_decision(state, &parent_id).await {
-            return Err(Response::err(
-                req_id,
-                format!("transaction cleanup failed: {error}"),
-            ));
-        }
-        return Err(Response::ok(req_id, result));
-    }
-    Ok((txn, receipt))
+    commit_open_txn(state, args).await
 }
 
 /// The `prepare_consensus_commit`-time path when no matching txn is open in
@@ -170,10 +163,31 @@ pub(super) async fn prepare_consensus_resume_txn(
     req_id: u64,
     caller: Option<&str>,
     txn_id: &str,
+    idempotency_key: Option<&str>,
+    expected_tenant: Option<&str>,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    attempt_nonce: Option<Nonce>,
 ) -> Result<(GraphTxnState, TxnReceipt), Response> {
-    match reconcile_committed_txn(state, req_id, caller, txn_id, None, None, None).await {
-        Ok(Some(response)) => return Err(response),
+    match reconcile_committed_txn(
+        state,
+        req_id,
+        caller,
+        txn_id,
+        idempotency_key,
+        expected_tenant,
+        attempt_nonce,
+    )
+    .await
+    {
+        Ok(Some(response)) => {
+            return Err(tag_commit_response(
+                response,
+                CommitResponseOptions {
+                    replayed: true,
+                    keyed: idempotency_key.is_some(),
+                },
+            ))
+        }
         Ok(None) => {}
         Err(error) => {
             return Err(Response::err(
@@ -182,7 +196,15 @@ pub(super) async fn prepare_consensus_resume_txn(
             ));
         }
     }
-    let resumed = match resume_txn_receipt(persistence, req_id, caller, txn_id, None, None, None) {
+    let resumed = match resume_txn_receipt(
+        persistence,
+        req_id,
+        caller,
+        txn_id,
+        idempotency_key,
+        expected_tenant,
+        attempt_nonce,
+    ) {
         Ok(value) => value,
         Err(error) => return Err(Response::err(req_id, error)),
     };
@@ -193,7 +215,13 @@ pub(super) async fn prepare_consensus_resume_txn(
         ));
     };
     if let Some(result) = replayed {
-        return Err(Response::ok(req_id, result));
+        return Err(tag_commit_response(
+            Response::ok(req_id, result),
+            CommitResponseOptions {
+                replayed: true,
+                keyed: idempotency_key.is_some(),
+            },
+        ));
     }
     let Some(txn) = recovered else {
         return Err(Response::err(
@@ -201,6 +229,8 @@ pub(super) async fn prepare_consensus_resume_txn(
             "prepared transaction has no recovery plan",
         ));
     };
+    validate_txn_owner(&txn, expected_tenant, caller.unwrap_or_default())
+        .map_err(|error| Response::err(req_id, error))?;
     Ok((txn, receipt))
 }
 
@@ -441,10 +471,34 @@ pub(crate) async fn apply_consensus_participant_prepare(
     applying_fence: Option<u64>,
     coordinator_id: &str,
     participant_id: u64,
+    authority: &crate::raft::RaftMutationContext,
     plan_bytes: &[u8],
 ) -> Result<bool, String> {
     let _placement_guard = crate::server::txn::consensus_placement_fence_guard().await;
     let (plan, txn) = decode_consensus_participant(plan_bytes, coordinator_id, participant_id)?;
+    let backend = state
+        .read()
+        .await
+        .persistence
+        .clone()
+        .ok_or_else(|| "consensus participant requires durable redb".to_string())?;
+    let redb = backend
+        .as_redb()
+        .ok_or_else(|| "consensus participant requires durable redb".to_string())?;
+    let admission = validate_consensus_participant_authority(
+        redb,
+        coordinator_id,
+        &txn,
+        authority,
+        crate::raft::TransactionParticipantPhase::Prepare,
+    )?;
+    if committed_participant_receipt(backend.as_ref(), &txn, &plan, authority).await? {
+        finish_participant_cleanup(redb, &plan).await?;
+        return Ok(true);
+    }
+    if admission == ParticipantAdmission::ReplayOnly {
+        return Err("terminal participant prepare has no committed child receipt".to_string());
+    }
     let core = validate_consensus_participant_placement(
         state,
         &plan,
@@ -453,33 +507,7 @@ pub(crate) async fn apply_consensus_participant_prepare(
         applying_fence,
     )
     .await?;
-    let backend = state
-        .read()
-        .await
-        .persistence
-        .clone()
-        .ok_or_else(|| "consensus participant requires durable redb".to_string())?;
-    let receipt_id =
-        consensus_participant_receipt_id(&txn, coordinator_id, participant_id, &plan.graph_name);
-    if backend
-        .read_mutation_batch(&crate::persist::sanitize(&plan.graph_name), &receipt_id)
-        .await?
-        .is_some()
-    {
-        crate::server::txn::release_consensus_graph_fence(
-            &plan.graph_name,
-            coordinator_id,
-            participant_id,
-        );
-        return Ok(true);
-    }
-    let methods = participant_methods(&txn, &plan.graph_name)
-        .ok_or_else(|| "consensus participant has no graph slice".to_string())?;
-    let valid = if txn.graph == plan.graph_name {
-        txn.validate(&core)
-    } else {
-        extra_participant_is_valid(&core, methods)
-    };
+    let valid = participant_write_set_is_valid(&txn, &plan.graph_name, &core)?;
     if !valid {
         return Ok(false);
     }
@@ -488,9 +516,6 @@ pub(crate) async fn apply_consensus_participant_prepare(
         coordinator_id,
         participant_id,
     )?;
-    let redb = backend
-        .as_redb()
-        .ok_or_else(|| "consensus participant requires durable redb".to_string())?;
     if let Some(existing_plan) = redb.xshard_prepare_get(coordinator_id, participant_id)? {
         if existing_plan != plan_bytes {
             if acquired {
@@ -518,6 +543,21 @@ pub(crate) async fn apply_consensus_participant_prepare(
         return Err(error);
     }
     Ok(true)
+}
+
+#[cfg(feature = "raft")]
+fn participant_write_set_is_valid(
+    txn: &GraphTxnState,
+    graph_name: &str,
+    core: &crate::graph::GraphCore,
+) -> Result<bool, String> {
+    let methods = participant_methods(txn, graph_name)
+        .ok_or_else(|| "consensus participant has no graph slice".to_string())?;
+    Ok(if txn.graph == graph_name {
+        txn.validate(core)
+    } else {
+        extra_participant_is_valid(core, methods)
+    })
 }
 
 #[cfg(feature = "raft")]
@@ -578,14 +618,6 @@ pub(crate) async fn apply_consensus_participant_commit(
     let principal =
         crate::server::mutation_batch::principal_fingerprint(&authority.principal_fingerprint)?;
     let (plan, txn) = decode_consensus_participant(plan_bytes, coordinator_id, participant_id)?;
-    let core = validate_consensus_participant_placement(
-        state,
-        &plan,
-        applying_group,
-        authority.placement_epoch,
-        authority.fencing_token,
-    )
-    .await?;
     let backend = state
         .read()
         .await
@@ -595,28 +627,35 @@ pub(crate) async fn apply_consensus_participant_commit(
     let redb = backend
         .as_redb()
         .ok_or_else(|| "consensus participant requires durable redb".to_string())?;
+    let admission = validate_consensus_participant_authority(
+        redb,
+        coordinator_id,
+        &txn,
+        authority,
+        crate::raft::TransactionParticipantPhase::Commit,
+    )?;
+    if committed_participant_receipt(backend.as_ref(), &txn, &plan, authority).await? {
+        finish_participant_cleanup(redb, &plan).await?;
+        return Ok(true);
+    }
+    if admission == ParticipantAdmission::ReplayOnly {
+        return Err("terminal participant commit has no committed child receipt".to_string());
+    }
     let prepared = redb.xshard_prepare_get(coordinator_id, participant_id)?;
+    if !matches!(prepared.as_deref(), Some(bytes) if bytes == plan_bytes) {
+        return Err("consensus participant commit has no matching prepared intent".to_string());
+    }
+    let core = validate_consensus_participant_placement(
+        state,
+        &plan,
+        applying_group,
+        authority.placement_epoch,
+        authority.fencing_token,
+    )
+    .await?;
     let child_id = consensus_participant_child_id(coordinator_id, participant_id, &plan.graph_name);
     let participant = isolate_participant_transaction(txn, &plan.graph_name, &core)?;
     let cross_modal = participant.is_cross_modal();
-    let receipt_id = if cross_modal {
-        crate::server::mutation_batch::opaque_coordinator_key(
-            "crossmodal",
-            &plan.graph_name,
-            &child_id,
-        )
-    } else {
-        child_id.clone()
-    };
-    let fname = crate::persist::sanitize(&plan.graph_name);
-    let already_committed = backend
-        .read_mutation_batch(&fname, &receipt_id)
-        .await?
-        .is_some();
-    if !already_committed && !matches!(prepared.as_deref(), Some(bytes) if bytes == plan_bytes) {
-        return Err("consensus participant commit has no matching prepared intent".to_string());
-    }
-
     let committed = if cross_modal {
         commit_cross_modal_txn_with_nonce(
             state,
@@ -641,19 +680,14 @@ pub(crate) async fn apply_consensus_participant_commit(
                 participant.write_set,
                 &ResultPayload::Bool(true),
             )
-            .with_attempt_nonce(authority.attempt_nonce),
+            .with_attempt_nonce(authority.attempt_nonce)
+            .with_tenant_scope(&authority.tenant_scope),
         )
         .await?;
         true
     };
     if committed {
-        redb.xshard_prepare_clear(coordinator_id, participant_id)
-            .await?;
-        crate::server::txn::release_consensus_graph_fence(
-            &plan.graph_name,
-            coordinator_id,
-            participant_id,
-        );
+        finish_participant_cleanup(redb, &plan).await?;
     }
     Ok(committed)
 }
@@ -661,6 +695,7 @@ pub(crate) async fn apply_consensus_participant_commit(
 #[cfg(feature = "raft")]
 pub(crate) async fn apply_consensus_participant_abort(
     state: &Arc<RwLock<ServerState>>,
+    authority: &crate::raft::RaftMutationContext,
     coordinator_id: &str,
     participant_id: u64,
 ) -> Result<bool, String> {
@@ -674,6 +709,13 @@ pub(crate) async fn apply_consensus_participant_abort(
         .as_redb()
         .ok_or_else(|| "consensus participant abort requires durable redb".to_string())?;
     let plan = redb.xshard_prepare_get(coordinator_id, participant_id)?;
+    authorize_participant_abort(
+        redb,
+        coordinator_id,
+        participant_id,
+        authority,
+        plan.as_deref(),
+    )?;
     redb.xshard_prepare_clear(coordinator_id, participant_id)
         .await?;
     if let Some(plan) = plan {
@@ -691,92 +733,29 @@ pub(crate) async fn apply_consensus_participant_abort(
 }
 
 #[cfg(feature = "raft")]
-pub(crate) async fn apply_consensus_transaction_decision(
-    state: &Arc<RwLock<ServerState>>,
+fn authorize_participant_abort(
+    redb: &crate::server::persistence::redb_backend::RedbBackend,
     coordinator_id: &str,
-    principal: &str,
-    commit: bool,
-) -> Result<bool, String> {
-    let principal = crate::server::mutation_batch::principal_fingerprint(principal)?;
-    let backend = state
-        .read()
-        .await
-        .persistence
-        .clone()
-        .ok_or_else(|| "consensus transaction decision requires persistence".to_string())?;
-    let redb = backend
-        .as_redb()
-        .ok_or_else(|| "consensus transaction decision requires durable redb".to_string())?;
-    let parent = crate::server::handlers::admin::resume_named_admin_saga(
-        redb,
-        coordinator_id,
-        Some(&principal),
-    )?
-    .ok_or_else(|| "consensus transaction decision has no prepared parent".to_string())?;
-    if let Some(result) = parent.replayed {
-        return match result {
-            ResultPayload::Bool(value) if value == commit => Ok(value),
-            ResultPayload::Bool(_) => {
-                Err("consensus transaction decision conflicts with its parent".to_string())
-            }
-            _ => Err("consensus transaction parent has an invalid result".to_string()),
-        };
-    }
-    if let Some(existing) = redb.xshard_decision_get(coordinator_id)? {
-        if existing != commit {
-            return Err(
-                "consensus transaction decision conflicts with durable outcome".to_string(),
-            );
-        }
-        return Ok(existing);
-    }
-    redb.xshard_recoverable_decision_put(coordinator_id, commit)
-        .await?;
-    Ok(commit)
-}
-
-#[cfg(feature = "raft")]
-pub(crate) async fn apply_consensus_transaction_finalize(
-    state: &Arc<RwLock<ServerState>>,
-    coordinator_id: &str,
-    principal: &str,
-    commit: bool,
-) -> Result<bool, String> {
-    let principal = crate::server::mutation_batch::principal_fingerprint(principal)?;
-    let backend = state
-        .read()
-        .await
-        .persistence
-        .clone()
-        .ok_or_else(|| "consensus transaction finalize requires persistence".to_string())?;
-    let redb = backend
-        .as_redb()
-        .ok_or_else(|| "consensus transaction finalize requires durable redb".to_string())?;
-    let decision = redb
-        .xshard_decision_get(coordinator_id)?
-        .ok_or_else(|| "consensus transaction finalize has no durable decision".to_string())?;
-    if decision != commit {
-        return Err("consensus transaction finalize conflicts with durable decision".to_string());
-    }
-    let saga = crate::server::handlers::admin::resume_named_admin_saga(
-        redb,
-        coordinator_id,
-        Some(&principal),
-    )?
-    .ok_or_else(|| "consensus transaction finalize has no prepared parent".to_string())?;
-    let result = if let Some(result) = saga.replayed {
-        result
-    } else {
-        crate::server::handlers::admin::finish_admin_saga(
+    participant_id: u64,
+    authority: &crate::raft::RaftMutationContext,
+    plan: Option<&[u8]>,
+) -> Result<(), String> {
+    if let Some(plan_bytes) = plan {
+        let (_, txn) = decode_consensus_participant(plan_bytes, coordinator_id, participant_id)?;
+        validate_consensus_participant_authority(
             redb,
-            saga.batch,
-            saga.created_at_ms,
-            ResultPayload::Bool(commit),
-        )?
-    };
-    if !matches!(result, ResultPayload::Bool(value) if value == commit) {
-        return Err("consensus transaction parent has a conflicting result".to_string());
+            coordinator_id,
+            &txn,
+            authority,
+            crate::raft::TransactionParticipantPhase::Abort,
+        )?;
+    } else {
+        let parent = validate_consensus_parent_authority(redb, coordinator_id, authority)?;
+        participant_phase_admission(
+            redb,
+            &parent,
+            crate::raft::TransactionParticipantPhase::Abort,
+        )?;
     }
-    redb.xshard_decision_clear(coordinator_id).await?;
-    Ok(commit)
+    Ok(())
 }

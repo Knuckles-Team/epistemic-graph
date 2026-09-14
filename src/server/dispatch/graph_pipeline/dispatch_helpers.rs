@@ -288,6 +288,7 @@ async fn try_replicate_served_modality(
                 .1,
             req_id: ctx.req_id,
             attempt_nonce: ctx.verified_context.attempt_nonce(),
+            idempotency_key: ctx.verified_context.idempotency_key(),
             tenant_scope: ctx.tenant_scope,
             principal_fingerprint: &principal_fingerprint,
             core: &ctx.core,
@@ -365,6 +366,39 @@ pub(super) struct RaftWriteBarrierCtx<'a> {
     pub(super) graph_type: crate::protocol::GraphType,
 }
 
+/// Stable replay identity for a replicated graph mutation.
+///
+/// The inner digest binds both names carried by `RaftRequest`: the logical
+/// protocol name and the sanitized physical storage key. The outer digest adds
+/// authenticated tenant, principal, and caller idempotency identity. Transport
+/// request ids, attempt nonces, and operation bytes are deliberately absent so
+/// a retry reaches the same durable row; the replicated command authentication
+/// then distinguishes an exact replay from a changed-operation conflict.
+#[cfg(feature = "raft")]
+pub(super) fn replicated_graph_batch_id(
+    namespace: &str,
+    tenant_scope: &str,
+    graph_name: &str,
+    graph_fname: &str,
+    principal_fingerprint: &str,
+    idempotency_key: &str,
+) -> String {
+    let graph_scope = crate::server::mutation_batch::opaque_idempotency_key_for_context(
+        "raft-graph-scope",
+        tenant_scope,
+        graph_name,
+        None,
+        graph_fname,
+    );
+    crate::server::mutation_batch::opaque_idempotency_key_for_context(
+        namespace,
+        tenant_scope,
+        &graph_scope,
+        Some(principal_fingerprint),
+        idempotency_key,
+    )
+}
+
 /// Replicate one durable mutation through Raft consensus instead of applying it
 /// locally.
 ///
@@ -387,34 +421,45 @@ pub(super) async fn dispatch_op_raft_write_routing_barrier(
         graph_type,
     } = ctx;
     let created_at_ms = authoritative_now_ms();
-    let batch_id =
-        crate::server::mutation_batch::opaque_request_key("raft-rpc", graph_name, req_id, &method);
+    let graph_fname = crate::persist::sanitize(graph_name);
+    let principal_fingerprint = verified_context.principal_persistence_id();
+    let batch_id = replicated_graph_batch_id(
+        "raft-rpc",
+        tenant_scope,
+        graph_name,
+        &graph_fname,
+        &principal_fingerprint,
+        verified_context.idempotency_key(),
+    );
     let mutation = match crate::raft::RaftMutationContext::from_verified_request(
         batch_id,
         req_id,
         verified_context.attempt_nonce(),
         tenant_scope,
-        verified_context.principal_persistence_id(),
+        principal_fingerprint,
         false,
         routed.epoch,
-        Some(routed.group_id),
-        created_at_ms,
+        crate::raft::RaftMutationTiming {
+            fencing_token: Some(routed.group_id),
+            created_at_ms,
+        },
     ) {
         Ok(context) => context,
         Err(error) => return Response::err(req_id, error),
     };
     let server_secret = timed_read(state).await.auth_secret.clone();
-    let command = match crate::raft::ReplicatedMutation::graph(method, &server_secret) {
-        Ok(command) => command,
-        Err(error) => return Response::err(req_id, error),
-    };
-    let req = crate::raft::RaftRequest {
-        graph_fname: crate::persist::sanitize(graph_name),
-        graph_name: graph_name.to_string(),
+    let req = match build_bound_graph_request(BoundGraphRequest {
+        graph_name,
+        graph_fname,
         graph_type,
         committed_at_ms: created_at_ms,
         mutation,
-        command,
+        method,
+        server_secret: &server_secret,
+        group_id: routed.group_id,
+    }) {
+        Ok(request) => request,
+        Err(error) => return Response::err(req_id, error),
     };
     match routed.handle.client_write(req).await {
         Ok(response) => {
@@ -437,6 +482,35 @@ pub(super) async fn dispatch_op_raft_write_routing_barrier(
             Response::stale_route(req_id, graph_name, routed.group_id, routed.epoch, leader, e)
         }
     }
+}
+
+#[cfg(feature = "raft")]
+struct BoundGraphRequest<'a> {
+    graph_name: &'a str,
+    graph_fname: String,
+    graph_type: crate::protocol::GraphType,
+    committed_at_ms: u64,
+    mutation: crate::raft::RaftMutationContext,
+    method: Method,
+    server_secret: &'a str,
+    group_id: crate::raft::GroupId,
+}
+
+#[cfg(feature = "raft")]
+fn build_bound_graph_request(
+    input: BoundGraphRequest<'_>,
+) -> Result<crate::raft::RaftRequest, String> {
+    let command = crate::raft::ReplicatedMutation::caller_graph(input.method, input.server_secret)?;
+    let mut request = crate::raft::RaftRequest {
+        graph_fname: input.graph_fname,
+        graph_name: input.graph_name.to_string(),
+        graph_type: input.graph_type,
+        committed_at_ms: input.committed_at_ms,
+        mutation: input.mutation,
+        command,
+    };
+    request.bind_graph_command(input.server_secret, input.group_id)?;
+    Ok(request)
 }
 
 #[cfg(feature = "raft")]

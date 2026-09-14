@@ -375,8 +375,10 @@ async fn try_replicate_change_envelope(
             .to_string(),
         false,
         envelope.mutation.placement_epoch,
-        envelope.mutation.fencing_token,
-        envelope.mutation.created_at_ms,
+        crate::raft::RaftMutationTiming {
+            fencing_token: envelope.mutation.fencing_token,
+            created_at_ms: envelope.mutation.created_at_ms,
+        },
     ) {
         Ok(context) => context,
         Err(error) => return Some(Response::err(req_id, error)),

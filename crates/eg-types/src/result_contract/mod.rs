@@ -10,10 +10,11 @@
 //! markers ([`visit_all`]) to publish one JSON Schema per body, so the published result
 //! shape and the encoded one are the same Rust type by construction.
 //!
-//! A body whose shape the CALLER chooses at run time -- query rows, property maps the
-//! caller wrote -- is declared with [`Dynamic`] and a [`DynamicReason`]. That is a
-//! reviewed classification with a stated reason, not a default: a method with no marker
-//! at all is reported as unclassified by the generator.
+//! A body whose shape is selected at run time -- query rows, property maps the caller
+//! wrote, or a served-modality body selected by the request -- is declared with
+//! [`Dynamic`] and a [`DynamicReason`]. That is a reviewed classification with a stated
+//! reason, not a default: a method with no marker at all is reported as unclassified by
+//! the generator.
 
 use serde::Serialize;
 
@@ -27,7 +28,7 @@ pub use encoding::{EncodeRef, EncodeScalar, Encoding};
 pub use marker::{MethodResult, ResultVisitor};
 pub use schema::ResultSchema;
 
-/// The body of a result whose shape the caller chooses at run time.
+/// The body of a result whose shape is selected at run time.
 ///
 /// Uninhabited: a dynamic result is built with [`ResultPayload::of_dynamic`], which takes
 /// the run-time value directly. Its schema is the unconstrained schema `true`.
@@ -55,7 +56,7 @@ impl schemars::JsonSchema for Dynamic {
 }
 
 /// Why a result is [`Dynamic`]. Each reason names a class of body whose keys or value
-/// types are supplied by the caller, so no Rust type can describe it.
+/// types are selected at run time, so no single Rust type can describe the result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DynamicReason {
     /// Rows whose columns and value types are chosen by the caller's query text.
@@ -64,6 +65,9 @@ pub enum DynamicReason {
     CallerProperties,
     /// Opaque bytes the caller wrote or a caller-supplied program produced, returned verbatim.
     CallerBytes,
+    /// A concrete served-modality body selected by the request's modality operation and
+    /// returned verbatim from its direct Rust `ServedPage<T>` encoding.
+    RequestedModality,
 }
 
 impl DynamicReason {
@@ -71,7 +75,9 @@ impl DynamicReason {
         match self {
             DynamicReason::QueryRows => "query-rows",
             DynamicReason::CallerProperties => "caller-properties",
-            DynamicReason::CallerBytes => "caller-bytes",
+            DynamicReason::CallerBytes | DynamicReason::RequestedModality => {
+                self.opaque_body_as_str()
+            }
         }
     }
 
@@ -81,9 +87,25 @@ impl DynamicReason {
                 "rows whose columns and value types are chosen by the caller's query text"
             }
             DynamicReason::CallerProperties => "property maps the caller wrote, returned verbatim",
-            DynamicReason::CallerBytes => {
-                "opaque bytes the caller wrote or a caller-supplied program produced"
+            DynamicReason::CallerBytes | DynamicReason::RequestedModality => {
+                self.opaque_body_summary()
             }
+        }
+    }
+
+    const fn opaque_body_as_str(&self) -> &'static str {
+        match self {
+            DynamicReason::RequestedModality => "requested-modality",
+            _ => "caller-bytes",
+        }
+    }
+
+    const fn opaque_body_summary(&self) -> &'static str {
+        match self {
+            DynamicReason::RequestedModality => {
+                "the server-declared served-modality body selected by the request"
+            }
+            _ => "opaque bytes the caller wrote or a caller-supplied program produced",
         }
     }
 }

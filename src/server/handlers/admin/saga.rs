@@ -9,14 +9,73 @@ use crate::mutation_batch::{
     MutationScopeIdentity, MutationSurface,
 };
 use crate::protocol::{Method, Response};
+use crate::server::access::CarrierAuthority;
 use crate::server::state::ServerState;
 use eg_types::contract::Nonce;
+
+// This authority exists only while polling one authenticated request. It is
+// neither process-global state nor inherited by independently spawned tasks.
+tokio::task_local! {
+    static AUTHENTICATED_SAGA_AUTHORITY: CarrierAuthority;
+}
+
+pub(crate) async fn scope_admin_saga_authority<F: std::future::Future>(
+    authority: CarrierAuthority,
+    request: F,
+) -> F::Output {
+    AUTHENTICATED_SAGA_AUTHORITY.scope(authority, request).await
+}
+
+pub(crate) fn current_admin_saga_authority() -> Result<CarrierAuthority, String> {
+    AUTHENTICATED_SAGA_AUTHORITY
+        .try_with(Clone::clone)
+        .map_err(|_| "admin saga requires authenticated request authority".to_string())
+}
 
 #[cfg(feature = "redb")]
 pub(crate) struct AdminSaga {
     pub(crate) batch: MutationBatch,
     pub(crate) created_at_ms: u64,
     pub(crate) replayed: Option<crate::protocol::ResultPayload>,
+    /// A durable operation can be Prepared (resume required) or Execute (first
+    /// attempt); both have no replay payload, so keep that distinction explicit.
+    pub(crate) prepared: bool,
+}
+
+#[cfg(feature = "redb")]
+fn validate_admin_attempt_nonce(
+    authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+) -> Result<(), String> {
+    if attempt_nonce.is_some() && attempt_nonce != authority.attempt_nonce() {
+        Err("admin saga nonce does not match authenticated request".to_string())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "redb")]
+fn require_admin_saga_execution(saga: AdminSaga, refusal: &str) -> Result<AdminSaga, String> {
+    if saga.prepared {
+        Err(refusal.to_string())
+    } else {
+        Ok(saga)
+    }
+}
+
+#[cfg(feature = "redb")]
+fn resolve_admin_saga_step(
+    identity: &MutationScopeIdentity,
+    step: eg_transaction::SagaBegin,
+) -> Result<(Option<crate::protocol::ResultPayload>, bool), String> {
+    match step {
+        eg_transaction::SagaBegin::Committed(record) => {
+            let (_, result) = decode_admin_commit(record, identity, true)?;
+            Ok((Some(result), false))
+        }
+        eg_transaction::SagaBegin::Execute => Ok((None, false)),
+        eg_transaction::SagaBegin::Resume(_) => Ok((None, true)),
+    }
 }
 
 #[cfg(feature = "redb")]
@@ -39,21 +98,121 @@ pub(crate) fn begin_admin_saga_with_nonce(
     domain: DurabilityDomain,
     attempt_nonce: Option<Nonce>,
 ) -> Result<AdminSaga, String> {
-    let batch_id = crate::server::mutation_batch::opaque_request_key(
-        "cluster-admin",
-        "cluster-admin",
-        req_id,
-        method,
-    );
-    begin_named_admin_saga_with_nonce(
+    let authority = current_admin_saga_authority()?;
+    let _ = caller; // The verified scope is the sole durable actor authority.
+    validate_admin_attempt_nonce(&authority, attempt_nonce)?;
+    let saga = begin_authenticated_admin_saga(
         backend,
         req_id,
-        caller,
+        &authority,
         method,
         domain,
-        &batch_id,
-        attempt_nonce,
+        authority.attempt_nonce(),
+    )?;
+    require_admin_saga_execution(
+        saga,
+        "admin saga is Prepared; refusing to re-execute its mutation",
     )
+}
+
+/// Begin a session-control saga under the authenticated carrier's stable
+/// tenant/principal/idempotency scope. The request id remains provenance only;
+/// it must never select a replay row.
+#[cfg(feature = "redb")]
+pub(crate) fn begin_authenticated_admin_saga(
+    backend: &crate::server::persistence::redb_backend::RedbBackend,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    method: &Method,
+    domain: DurabilityDomain,
+    attempt_nonce: Option<Nonce>,
+) -> Result<AdminSaga, String> {
+    let stable_id = authenticated_admin_saga_id(authority);
+    let saga = begin_named_admin_saga_with_nonce(
+        backend,
+        req_id,
+        Some(authority.actor_scope()),
+        method,
+        domain,
+        &stable_id,
+        attempt_nonce,
+    )?;
+    if let Some(result) = saga.replayed.as_ref() {
+        validate_admin_method_result(method, result)?;
+    }
+    Ok(saga)
+}
+
+#[cfg(feature = "redb")]
+fn authenticated_admin_saga_id(authority: &CarrierAuthority) -> String {
+    // Payload belongs to the operation digest, not its lookup key: changing the
+    // method under one authenticated idempotency key must conflict, not execute.
+    authority.namespace("cluster-admin-authenticated", authority.idempotency_key())
+}
+
+/// Check concrete replay bodies while the original method is available, before
+/// opaque durable encoding erases its discriminant.
+#[cfg(feature = "redb")]
+pub(crate) fn validate_admin_method_result(
+    method: &Method,
+    result: &crate::protocol::ResultPayload,
+) -> Result<(), String> {
+    use crate::protocol::ResultPayload;
+    match method {
+        Method::Reshard { .. } => {
+            validate_admin_json::<eg_types::result_contract::cluster::ShardReshardReport>(result)
+        }
+        Method::RebalanceExecute { .. } => {
+            validate_admin_json::<eg_types::result_contract::cluster::RebalanceExecution>(result)
+        }
+        Method::Restore { .. } => {
+            validate_admin_json::<eg_types::storage_wire::RestoreReceipt>(result)
+        }
+        Method::MultiGraphBatchUpdate { .. } => validate_admin_json::<
+            eg_types::result_contract::transactions::MultiGraphBatchReport,
+        >(result),
+        Method::CatalogAssign { .. }
+        | Method::CatalogReassign { .. }
+        | Method::CatalogRemove { .. } => {
+            require_admin_result(matches!(result, ResultPayload::Bool(_)))
+        }
+        #[cfg(feature = "compute-dist")]
+        Method::CreateMatView { .. } | Method::RefreshMatView { .. } => {
+            require_admin_result(matches!(result, ResultPayload::Count(_)))
+        }
+        #[cfg(feature = "matview")]
+        Method::PlanMatViewDefine { .. } | Method::PlanMatViewRefresh { .. } => {
+            require_admin_result(matches!(result, ResultPayload::Count(_)))
+        }
+        #[cfg(feature = "matview")]
+        Method::PlanMatViewDrop { .. } => {
+            require_admin_result(matches!(result, ResultPayload::Bool(_)))
+        }
+        // Session-control and txn lifecycle boundaries retain their method and
+        // validate their own typed contract before returning a replay.
+        _ => Ok(()),
+    }
+}
+
+#[cfg(feature = "redb")]
+fn require_admin_result(valid: bool) -> Result<(), String> {
+    if valid {
+        Ok(())
+    } else {
+        Err("admin saga replay has the wrong result type".to_string())
+    }
+}
+
+#[cfg(feature = "redb")]
+fn validate_admin_json<T: serde::de::DeserializeOwned>(
+    result: &crate::protocol::ResultPayload,
+) -> Result<(), String> {
+    let crate::protocol::ResultPayload::Json(value) = result else {
+        return Err("admin saga replay requires a JSON body".to_string());
+    };
+    serde_json::from_value::<T>(value.clone())
+        .map(|_| ())
+        .map_err(|_| "admin saga replay has an invalid typed JSON body".to_string())
 }
 
 // `admin_saga_request_stamp` is DELETED, not moved.
@@ -106,17 +265,13 @@ pub(crate) fn begin_named_admin_saga_with_nonce(
         domain,
         "cluster_admin_operation",
     )?;
-    let replayed = match backend.admin_saga_step(&batch, now, None)? {
-        eg_transaction::SagaBegin::Committed(record) => {
-            let (_, result) = decode_admin_commit(record, &identity, true)?;
-            Some(result)
-        }
-        eg_transaction::SagaBegin::Execute | eg_transaction::SagaBegin::Resume(_) => None,
-    };
+    let (replayed, prepared) =
+        resolve_admin_saga_step(&identity, backend.admin_saga_step(&batch, now, None)?)?;
     Ok(AdminSaga {
         batch,
         created_at_ms: now,
         replayed,
+        prepared,
     })
 }
 
@@ -177,17 +332,15 @@ pub(crate) fn begin_named_admin_saga_with_private_payload_and_nonce(
         domain,
         event_type,
     )?;
-    let replayed = match backend.admin_saga_step(&batch, now, Some(encrypted_payload))? {
-        eg_transaction::SagaBegin::Committed(record) => {
-            let (_, result) = decode_admin_commit(record, &identity, true)?;
-            Some(result)
-        }
-        eg_transaction::SagaBegin::Execute | eg_transaction::SagaBegin::Resume(_) => None,
-    };
+    let (replayed, prepared) = resolve_admin_saga_step(
+        &identity,
+        backend.admin_saga_step(&batch, now, Some(encrypted_payload))?,
+    )?;
     Ok(AdminSaga {
         batch,
         created_at_ms: now,
         replayed,
+        prepared,
     })
 }
 
@@ -225,6 +378,7 @@ pub(crate) fn resume_named_admin_saga(
                 batch: record.batch,
                 created_at_ms: record.committed_at_ms,
                 replayed: Some(result),
+                prepared: false,
             }));
         }
         crate::mutation_batch::MutationBatchStatus::Aborted => {
@@ -235,6 +389,7 @@ pub(crate) fn resume_named_admin_saga(
         batch: record.batch,
         created_at_ms: record.committed_at_ms,
         replayed,
+        prepared: true,
     }))
 }
 
@@ -245,6 +400,7 @@ pub(crate) fn finish_admin_saga(
     committed_at_ms: u64,
     result: crate::protocol::ResultPayload,
 ) -> Result<crate::protocol::ResultPayload, String> {
+    validate_admin_result(&batch, &result)?;
     let encoded = rmp_serde::to_vec_named(&result).map_err(|error| error.to_string())?;
     let (record, replayed) = backend.admin_saga_end(&batch, encoded, committed_at_ms)?;
     let (_, durable_result) = decode_admin_commit(record, &batch.identity, replayed)?;
@@ -289,7 +445,81 @@ fn decode_admin_commit(
         .as_deref()
         .ok_or_else(|| "committed admin saga has no result".to_string())?;
     let result = rmp_serde::from_slice(bytes).map_err(|error| error.to_string())?;
+    validate_admin_result(&commit.record.batch, &result)?;
     Ok((commit.record, result))
+}
+
+/// Validate the result shape at the durable coordinator boundary for methods
+/// whose replay callers have a fixed wire contract.  The coordinator stores
+/// the outer `ResultPayload`; these checks therefore inspect that payload
+/// directly and deliberately do not route it through `ResultPayload::of_receipt`,
+/// which is reserved for stores that persist a method body without the outer
+/// envelope.
+#[cfg(feature = "redb")]
+fn validate_admin_result(
+    batch: &MutationBatch,
+    result: &crate::protocol::ResultPayload,
+) -> Result<(), String> {
+    let Some(method) = batch.operations.first().map(|operation| &operation.method) else {
+        return Ok(());
+    };
+    // `begin_admin_saga*` intentionally lowers the caller's original method to
+    // an opaque `ApplyMutation` digest before it reaches this coordinator.  The
+    // digest does not retain the original result contract, so only the private
+    // transaction-recovery event has a shape that can be validated here.  The
+    // session-control boundary validates its original method before admission
+    // and again when it serves a replay.
+    let expected = match method {
+        Method::ApplyMutation { event_type, .. } if event_type == "transaction_recovery_plan" => {
+            Some("Bool")
+        }
+        _ => None,
+    };
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    let matches = match expected {
+        "Bool" => matches!(result, crate::protocol::ResultPayload::Bool(_)),
+        "Count" => matches!(result, crate::protocol::ResultPayload::Count(_)),
+        "String" => matches!(result, crate::protocol::ResultPayload::String(_)),
+        "Json" => matches!(result, crate::protocol::ResultPayload::Json(_)),
+        _ => false,
+    };
+    if matches {
+        Ok(())
+    } else {
+        Err(format!(
+            "admin saga result for {} has the wrong payload type; expected {expected}",
+            method.tag_name()
+        ))
+    }
+}
+
+#[cfg(feature = "redb")]
+fn catalog_saga_replay_response(
+    req_id: u64,
+    method: &Method,
+    saga: &AdminSaga,
+) -> Option<Response> {
+    if saga.prepared {
+        return Some(Response::err(
+            req_id,
+            "catalog saga is Prepared; refusing to re-execute its mutation",
+        ));
+    }
+    let Some(result) = saga.replayed.clone() else {
+        return None;
+    };
+    if !matches!(result, crate::protocol::ResultPayload::Bool(_)) {
+        return Some(Response::err(
+            req_id,
+            format!(
+                "catalog saga replay for {} has the wrong payload type; expected Bool",
+                method.tag_name()
+            ),
+        ));
+    }
+    Some(Response::ok(req_id, result))
 }
 
 #[cfg(feature = "redb")]
@@ -318,8 +548,8 @@ where
         Ok(saga) => saga,
         Err(error) => return Response::err(req_id, error),
     };
-    if let Some(result) = saga.replayed {
-        return Response::ok(req_id, result);
+    if let Some(response) = catalog_saga_replay_response(req_id, method, &saga) {
+        return response;
     }
     let Some(catalog) = backend.catalog() else {
         return no_catalog(req_id);
@@ -438,3 +668,7 @@ pub(crate) async fn live_graph_loads(
         .unwrap_or(1);
     (loads, k)
 }
+
+#[cfg(test)]
+#[path = "saga_tests.rs"]
+mod saga_tests;

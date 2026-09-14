@@ -15,25 +15,38 @@
 
 #![cfg(all(feature = "ann-redb", feature = "query"))]
 
-use std::path::PathBuf;
+#[path = "semantic_index/binding.rs"]
+mod binding;
+#[path = "semantic_index/contracts.rs"]
+mod contracts;
+#[path = "semantic_index/dispatch.rs"]
+mod dispatch;
+#[path = "semantic_index/reads.rs"]
+mod reads;
+#[path = "semantic_index/source.rs"]
+mod source;
+#[path = "semantic_index/worker.rs"]
+mod worker;
+
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use eg_core::compute::semantic_ann_codes::OperationAttribution;
 use eg_core::compute::semantic_index_service::SemanticIndexService;
-use eg_transaction::OutboxClaimBudget;
-use eg_types::semantic_index::{
-    SemanticBinding, SemanticBindingPage, SemanticIndexOp, SemanticSqlSourceManifest,
-    SemanticStageLeaseEntry, SemanticStageLeasePage,
-};
+use eg_types::semantic_index::{SemanticBinding, SemanticIndexOp};
 use tokio::sync::RwLock;
 
 use crate::protocol::{Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
-use crate::server::semantic_index::{
-    open_semantic_service, semantic_cursor_secret, SemanticIndexServerAdapter,
-    SqlSourceStageCompletion,
-};
+use crate::server::semantic_index::{open_semantic_service, semantic_cursor_secret};
 use crate::server::state::ServerState;
+
+pub(super) struct SemanticIndexContext<'a> {
+    pub(super) req_id: u64,
+    pub(super) authority: &'a CarrierAuthority,
+    pub(super) persist_dir: &'a Path,
+    pub(super) service: Arc<SemanticIndexService>,
+    pub(super) now_ms: u64,
+}
 
 /// Route one semantic-index operation.
 pub(crate) async fn handle_semantic_index(
@@ -43,533 +56,85 @@ pub(crate) async fn handle_semantic_index(
     op: Box<SemanticIndexOp>,
 ) -> Response {
     let op = *op;
+    let authority = match authorize(req_id, verified, &op) {
+        Ok(authority) => authority,
+        Err(response) => return response,
+    };
+    let (persist_dir, service) = match open_service(state, req_id, &authority, &op).await {
+        Ok(opened) => opened,
+        Err(response) => return response,
+    };
+    let now_ms = crate::server::dispatch::authoritative_now_ms();
+    let context = SemanticIndexContext {
+        req_id,
+        authority: &authority,
+        persist_dir: &persist_dir,
+        service,
+        now_ms,
+    };
+    dispatch::handle(&context, op).await
+}
+
+fn authorize(
+    req_id: u64,
+    verified: &crate::server::auth::VerifiedRequestContext,
+    op: &SemanticIndexOp,
+) -> Result<CarrierAuthority, Response> {
     if let Err(error) = op.validate() {
-        return Response::err(req_id, format!("semantic operation rejected: {error:?}"));
+        return Err(Response::err(
+            req_id,
+            format!("semantic operation rejected: {error:?}"),
+        ));
     }
-    // Tenant isolation, checked ONCE here rather than per arm so a new arm
-    // cannot forget it. Resolution by binding id alone would be an execution
-    // grant: one tenant naming another's binding id must not reach its owner.
+    // Tenant isolation, checked ONCE rather than per arm, keeps a binding id
+    // from becoming an execution grant across tenants.
     if op.tenant_id() != verified.tenant() {
-        return Response::err(
+        return Err(Response::err(
             req_id,
             "ACCESS_DENIED: semantic index tenant must match verified request tenant",
-        );
+        ));
     }
-    let authority = match CarrierAuthority::from_verified(verified) {
-        Ok(authority) => authority,
-        Err(error) => return Response::err(req_id, error),
-    };
-    // The capability ledger already gated the op's authz action; this is the
-    // carrier's own read/write capability, the same two-sided check the adapter
-    // makes on its binding paths.
+    let authority =
+        CarrierAuthority::from_verified(verified).map_err(|error| Response::err(req_id, error))?;
+    // The carrier's own capability is checked in addition to the ledger gate.
     if op.is_mutation() && !authority.can_write() {
-        return Response::err(
+        return Err(Response::err(
             req_id,
             "ACCESS_DENIED: semantic index mutation requires kg:write",
-        );
+        ));
     }
     if !op.is_mutation() && !authority.can_read() {
-        return Response::err(
+        return Err(Response::err(
             req_id,
             "ACCESS_DENIED: semantic index read requires kg:read",
-        );
+        ));
     }
+    Ok(authority)
+}
 
+async fn open_service(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    op: &SemanticIndexOp,
+) -> Result<(PathBuf, Arc<SemanticIndexService>), Response> {
     let persist_dir: PathBuf = {
         let guard = state.read().await;
         match guard.persist_dir.as_deref() {
             Some(dir) => PathBuf::from(dir),
             None => {
-                return Response::err(
+                return Err(Response::err(
                     req_id,
                     "the semantic index requires a configured persist directory",
-                )
+                ));
             }
         }
     };
-    // The OWNER is keyed by the carrier's opaque tenant scope, not by the wire
-    // `tenant_id` that was just compared against the verified tenant. The wire
-    // value is what a connector knows and what the equality check above is
-    // about; the opaque scope is what every other durable owner in the engine
-    // is namespaced by, and it is collision-proof across tenants whose visible
-    // names differ only in characters a path or key would fold together.
-    let service =
-        match open_semantic_service(&persist_dir, authority.tenant_scope(), op.binding_id()) {
-            Ok(service) => service,
-            Err(error) => return Response::err(req_id, error),
-        };
-    let adapter = SemanticIndexServerAdapter::new(Arc::clone(&service));
-    let now_ms = crate::server::dispatch::authoritative_now_ms();
-
-    match op {
-        SemanticIndexOp::AdmitBinding {
-            mut draft,
-            idempotency_key,
-            ..
-        } => {
-            stamp_draft_identity(&mut draft, &authority);
-            let binding = match SemanticBinding::create(*draft) {
-                Ok(binding) => binding,
-                Err(error) => {
-                    return Response::err(req_id, format!("semantic binding rejected: {error:?}"))
-                }
-            };
-            let nonce = match authority.attempt_nonce() {
-                Some(nonce) => nonce,
-                None => {
-                    return Response::err(
-                        req_id,
-                        "ACCESS_DENIED: semantic mutation requires a verified attempt nonce",
-                    )
-                }
-            };
-            let actor = authority.agent_id().to_string();
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service.admit_binding_operation(
-                        &binding,
-                        now_ms,
-                        &actor,
-                        &idempotency_key,
-                        nonce,
-                    )
-                })
-                .await,
-            )
-        }
-        SemanticIndexOp::RefreshBinding {
-            expected_generation,
-            mut draft,
-            source_manifest,
-            idempotency_key,
-            ..
-        } => {
-            stamp_draft_identity(&mut draft, &authority);
-            let replacement = match SemanticBinding::create(*draft) {
-                Ok(binding) => binding,
-                Err(error) => {
-                    return Response::err(req_id, format!("semantic binding rejected: {error:?}"))
-                }
-            };
-            let manifest = match SemanticSqlSourceManifest::create(*source_manifest) {
-                Ok(manifest) => manifest,
-                Err(error) => {
-                    return Response::err(
-                        req_id,
-                        format!("semantic source manifest rejected: {error:?}"),
-                    )
-                }
-            };
-            if let Err(error) = adapter.authorize_binding_worker(&replacement, &authority) {
-                return Response::err(req_id, error);
-            }
-            let nonce = match authority.attempt_nonce() {
-                Some(nonce) => nonce,
-                None => {
-                    return Response::err(
-                        req_id,
-                        "ACCESS_DENIED: semantic mutation requires a verified attempt nonce",
-                    )
-                }
-            };
-            let actor = authority.agent_id().to_string();
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service.refresh_binding_operation(
-                        expected_generation,
-                        &replacement,
-                        &manifest,
-                        now_ms,
-                        OperationAttribution {
-                            actor: &actor,
-                            idempotency_key: &idempotency_key,
-                            nonce,
-                        },
-                    )
-                })
-                .await,
-            )
-        }
-        SemanticIndexOp::TransitionBinding {
-            expected_generation,
-            next_state,
-            idempotency_key,
-            ..
-        } => {
-            let nonce = match authority.attempt_nonce() {
-                Some(nonce) => nonce,
-                None => {
-                    return Response::err(
-                        req_id,
-                        "ACCESS_DENIED: semantic mutation requires a verified attempt nonce",
-                    )
-                }
-            };
-            let actor = authority.agent_id().to_string();
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service.transition_binding_operation(
-                        expected_generation,
-                        next_state,
-                        now_ms,
-                        &actor,
-                        &idempotency_key,
-                        nonce,
-                    )
-                })
-                .await,
-            )
-        }
-        SemanticIndexOp::DropBinding {
-            expected_generation,
-            idempotency_key,
-            ..
-        } => {
-            let nonce = match authority.attempt_nonce() {
-                Some(nonce) => nonce,
-                None => {
-                    return Response::err(
-                        req_id,
-                        "ACCESS_DENIED: semantic mutation requires a verified attempt nonce",
-                    )
-                }
-            };
-            let actor = authority.agent_id().to_string();
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service.drop_binding_operation(
-                        expected_generation,
-                        now_ms,
-                        &actor,
-                        &idempotency_key,
-                        nonce,
-                    )
-                })
-                .await,
-            )
-        }
-
-        // ------------------------------------------------------ S1 admission
-        //
-        // Every arm below hands the service an AUTHORIZED read port rather than
-        // source text. The port re-reads the row from the tenant's SQL catalog
-        // under this caller's ACL decision, so a caller cannot index bytes it
-        // is not allowed to read by describing them in the request.
-        SemanticIndexOp::AdmitSourceRecord { record, .. } => {
-            let port = read_port(&persist_dir, &authority);
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service.admit_sql_source_dirty_record(&record, &port, now_ms)
-                })
-                .await,
-            )
-        }
-        SemanticIndexOp::AdmitSourcePage { record, cursor, .. } => {
-            let cursor = match decode_cursor(cursor) {
-                Ok(cursor) => cursor,
-                Err(error) => return Response::err(req_id, error),
-            };
-            let port = read_port(&persist_dir, &authority);
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service.admit_sql_source_dirty_page(&record, &port, cursor.as_deref(), now_ms)
-                })
-                .await,
-            )
-        }
-        SemanticIndexOp::AdmitSourceReconcile { record, .. } => {
-            let port = read_port(&persist_dir, &authority);
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service.admit_sql_source_dirty_reconcile(&record, &port, now_ms)
-                })
-                .await,
-            )
-        }
-        SemanticIndexOp::AdmitSourceReplacement {
-            mut draft,
-            source_manifest,
-            record,
-            ..
-        } => {
-            stamp_draft_identity(&mut draft, &authority);
-            let replacement = match SemanticBinding::create(*draft) {
-                Ok(binding) => binding,
-                Err(error) => {
-                    return Response::err(req_id, format!("semantic binding rejected: {error:?}"))
-                }
-            };
-            let manifest = match SemanticSqlSourceManifest::create(*source_manifest) {
-                Ok(manifest) => manifest,
-                Err(error) => {
-                    return Response::err(
-                        req_id,
-                        format!("semantic source manifest rejected: {error:?}"),
-                    )
-                }
-            };
-            if let Err(error) = adapter.authorize_binding_worker(&replacement, &authority) {
-                return Response::err(req_id, error);
-            }
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service.admit_sql_source_dirty_replacement(
-                        &replacement,
-                        &manifest,
-                        &record,
-                        now_ms,
-                    )
-                })
-                .await,
-            )
-        }
-
-        // -------------------------------------------------- consumer / worker
-        SemanticIndexOp::SubscribeStageConsumer { .. } => {
-            // The DURABLE consumer identity is the verified agent, never a name
-            // from the body: a caller that could pick its own consumer id could
-            // subscribe as, and then claim the leases of, another worker.
-            let consumer = authority.agent_id().to_string();
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service
-                        .subscribe_stage_consumer(&consumer)
-                        .map(|()| consumer_ack())
-                })
-                .await,
-            )
-        }
-        SemanticIndexOp::ClaimStageLeases {
-            queue_class,
-            limit,
-            lease_ms,
-            ..
-        } => {
-            let consumer = authority.agent_id().to_string();
-            let claimed = blocking(req_id, move || {
-                let mut budget = OutboxClaimBudget::new(limit, lease_ms, now_ms)
-                    .map_err(eg_core::compute::semantic_ann_codes::SemanticCodeError::Refused)?;
-                let outcome = service.claim_stage_leases(&consumer, &mut budget)?;
-                let mut entries = Vec::with_capacity(outcome.claims.len());
-                let mut released_other_class = 0u32;
-                for lease in outcome.claims {
-                    let intent = service.validate_stage_lease(&lease, &consumer, now_ms)?;
-                    if intent.stage.queue_class() == queue_class {
-                        entries.push(SemanticStageLeaseEntry {
-                            lease,
-                            queue_class,
-                            intent,
-                        });
-                    } else {
-                        // Tier selection is the point of a tiered queue: a Fast
-                        // worker must not be handed SlowHeavy work. The row goes
-                        // straight back so another consumer can take it, rather
-                        // than being held for the lease duration.
-                        service.release_stage_lease(&lease)?;
-                        released_other_class = released_other_class.saturating_add(1);
-                    }
-                }
-                Ok(SemanticStageLeasePage {
-                    queue_class,
-                    entries,
-                    more_available: outcome.more_available,
-                    released_other_class,
-                })
-            })
-            .await;
-            reply(req_id, claimed)
-        }
-        SemanticIndexOp::ValidateStageLease { lease, .. } => {
-            let consumer = authority.agent_id().to_string();
-            if lease.consumer != consumer {
-                return Response::err(
-                    req_id,
-                    "ACCESS_DENIED: semantic lease owner does not match verified carrier",
-                );
-            }
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service.validate_stage_lease(&lease, &consumer, now_ms)
-                })
-                .await,
-            )
-        }
-        SemanticIndexOp::StageStatus { .. } => {
-            let consumer = authority.agent_id().to_string();
-            reply(
-                req_id,
-                blocking(req_id, move || service.stage_status(&consumer, now_ms)).await,
-            )
-        }
-        SemanticIndexOp::CompleteStage {
-            lease,
-            transition,
-            artifact,
-            successor,
-            ..
-        } => {
-            if let Err(error) = own_lease(&lease, &authority) {
-                return Response::err(req_id, error);
-            }
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service.complete_stage(
-                        &lease,
-                        &transition,
-                        &artifact,
-                        successor.as_deref(),
-                        now_ms,
-                    )
-                })
-                .await,
-            )
-        }
-        SemanticIndexOp::CompleteGenerationStage {
-            lease,
-            transition,
-            artifact,
-            successor,
-            ..
-        } => {
-            if let Err(error) = own_lease(&lease, &authority) {
-                return Response::err(req_id, error);
-            }
-            reply(
-                req_id,
-                blocking(req_id, move || {
-                    service.complete_generation_stage(
-                        &lease,
-                        &transition,
-                        &artifact,
-                        successor.as_deref(),
-                        now_ms,
-                    )
-                })
-                .await,
-            )
-        }
-        SemanticIndexOp::CompleteSqlSourceStage {
-            lease,
-            transition,
-            successor,
-            page_cursor,
-            ..
-        } => {
-            if let Err(error) = own_lease(&lease, &authority) {
-                return Response::err(req_id, error);
-            }
-            let page_cursor = match decode_cursor(page_cursor) {
-                Ok(cursor) => cursor,
-                Err(error) => return Response::err(req_id, error),
-            };
-            let binding = match current_binding(req_id, &service).await {
-                Ok(binding) => binding,
-                Err(response) => return response,
-            };
-            if let Err(error) = adapter.authorize_binding_worker(&binding, &authority) {
-                return Response::err(req_id, error);
-            }
-            let claim = match adapter
-                .claim_sql_source(
-                    req_id,
-                    read_port(&persist_dir, &authority),
-                    binding.clone(),
-                    transition.intent.clone(),
-                    page_cursor.clone(),
-                )
-                .await
-            {
-                Ok(claim) => claim,
-                Err(response) => return response,
-            };
-            match adapter
-                .complete_sql_source_stage(
-                    req_id,
-                    read_port(&persist_dir, &authority),
-                    binding,
-                    SqlSourceStageCompletion {
-                        lease: *lease,
-                        transition: *transition,
-                        claim,
-                        successor: successor.map(|successor| *successor),
-                    },
-                    now_ms,
-                )
-                .await
-            {
-                Ok(receipt) => payload(req_id, &receipt),
-                Err(response) => response,
-            }
-        }
-        SemanticIndexOp::ReplayCompletedSqlSourceStage {
-            lease,
-            expected_intent,
-            ..
-        } => {
-            if let Err(error) = own_lease(&lease, &authority) {
-                return Response::err(req_id, error);
-            }
-            match adapter
-                .replay_sql_source_stage(req_id, authority, *lease, *expected_intent, now_ms)
-                .await
-            {
-                Ok(receipt) => payload(req_id, &receipt),
-                Err(response) => response,
-            }
-        }
-        SemanticIndexOp::ReleaseStageLease { lease, .. } => {
-            if let Err(error) = own_lease(&lease, &authority) {
-                return Response::err(req_id, error);
-            }
-            reply(
-                req_id,
-                blocking(req_id, move || service.release_stage_lease(&lease)).await,
-            )
-        }
-
-        // --------------------------------------------------------------- reads
-        SemanticIndexOp::Binding { .. } => {
-            reply(req_id, blocking(req_id, move || service.binding()).await)
-        }
-        SemanticIndexOp::SqlSourceManifest {
-            generation,
-            source_entity_id,
-            ..
-        } => reply(
-            req_id,
-            blocking(req_id, move || {
-                service.sql_source_manifest(generation, &source_entity_id)
-            })
-            .await,
-        ),
-        SemanticIndexOp::ListBindings { filter, cursor, .. } => {
-            let page = blocking(req_id, move || {
-                service
-                    .list_bindings(&filter, cursor.as_deref())
-                    .map(|(entries, next_cursor)| SemanticBindingPage {
-                        entries,
-                        next_cursor,
-                    })
-            })
-            .await;
-            reply(req_id, page)
-        }
-        SemanticIndexOp::LiveGeneration { .. } => reply(
-            req_id,
-            blocking(req_id, move || service.live_generation()).await,
-        ),
-    }
+    // The durable owner uses the carrier's opaque tenant scope, while the
+    // wire tenant was checked above against the verified request tenant.
+    let service = open_semantic_service(&persist_dir, authority.tenant_scope(), op.binding_id())
+        .map_err(|error| Response::err(req_id, error))?;
+    Ok((persist_dir, service))
 }
 
 /// Replace a draft's identity fields with the verified carrier's.
@@ -579,7 +144,7 @@ pub(crate) async fn handle_semantic_index(
 /// unchecked is an assertion. Overwriting is stronger than comparing -- there is
 /// no path on which a draft reaches admission carrying an identity the carrier
 /// did not prove.
-fn stamp_draft_identity(
+pub(super) fn stamp_draft_identity(
     draft: &mut eg_types::semantic_index::SemanticBindingDraft,
     authority: &CarrierAuthority,
 ) {
@@ -589,7 +154,7 @@ fn stamp_draft_identity(
 }
 
 /// A lease may only be presented by the consumer it was issued to.
-fn own_lease(
+pub(super) fn own_lease(
     lease: &eg_types::mutation_batch::MutationOutboxLease,
     authority: &CarrierAuthority,
 ) -> Result<(), String> {
@@ -601,8 +166,8 @@ fn own_lease(
     Ok(())
 }
 
-fn read_port(
-    persist_dir: &std::path::Path,
+pub(super) fn read_port(
+    persist_dir: &Path,
     authority: &CarrierAuthority,
 ) -> crate::server::semantic_index::AuthorizedSqlSourceReadPort {
     crate::server::semantic_index::AuthorizedSqlSourceReadPort::new(
@@ -615,7 +180,7 @@ fn read_port(
 /// Decode one opaque engine-minted cursor. Hex on the wire, bytes inside; the
 /// bytes themselves are MAC-bound to the tenant that was issued them, so a
 /// decoded cursor from another tenant fails its MAC rather than resuming.
-fn decode_cursor(cursor: Option<String>) -> Result<Option<Vec<u8>>, String> {
+pub(super) fn decode_cursor(cursor: Option<String>) -> Result<Option<Vec<u8>>, String> {
     match cursor {
         None => Ok(None),
         Some(cursor) => hex::decode(&cursor)
@@ -624,7 +189,7 @@ fn decode_cursor(cursor: Option<String>) -> Result<Option<Vec<u8>>, String> {
     }
 }
 
-async fn current_binding(
+pub(super) async fn current_binding(
     req_id: u64,
     service: &Arc<SemanticIndexService>,
 ) -> Result<SemanticBinding, Response> {
@@ -640,12 +205,12 @@ async fn current_binding(
 }
 
 /// Marker for the one operation whose success carries no payload of its own.
-fn consumer_ack() -> bool {
+pub(super) fn consumer_ack() -> bool {
     true
 }
 
 /// Run one synchronous owner operation off the async worker.
-async fn blocking<T, F>(req_id: u64, work: F) -> Result<T, Response>
+pub(super) async fn blocking<T, F>(req_id: u64, work: F) -> Result<T, Response>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, eg_core::compute::semantic_ann_codes::SemanticCodeError>
@@ -662,15 +227,23 @@ where
     }
 }
 
-fn reply<T: serde::Serialize>(req_id: u64, result: Result<T, Response>) -> Response {
+pub(super) fn reply<M, T>(req_id: u64, result: Result<T, Response>) -> Response
+where
+    M: eg_types::result_contract::MethodResult<Body = T>,
+    M::Encoding: eg_types::result_contract::EncodeRef<T>,
+{
     match result {
-        Ok(value) => payload(req_id, &value),
+        Ok(value) => typed_payload::<M, _>(req_id, &value),
         Err(response) => response,
     }
 }
 
-fn payload<T: serde::Serialize>(req_id: u64, value: &T) -> Response {
-    match ResultPayload::raw(value) {
+pub(super) fn typed_payload<M, T>(req_id: u64, value: &T) -> Response
+where
+    M: eg_types::result_contract::MethodResult<Body = T>,
+    M::Encoding: eg_types::result_contract::EncodeRef<T>,
+{
+    match ResultPayload::of_ref::<M>(value) {
         Ok(payload) => Response::ok(req_id, payload),
         Err(error) => Response::err(req_id, error),
     }

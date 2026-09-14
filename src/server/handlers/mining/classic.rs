@@ -370,7 +370,7 @@ pub(in crate::server::handlers) fn handle_text(
                 doc_terms: Vec::new(),
                 topics: Vec::new(),
                 doc_topics: Vec::new(),
-                algorithm: None,
+                algorithm: Some(text_algo_name(algorithm).to_string()),
                 n_docs: 0,
                 written_back: 0,
             }),

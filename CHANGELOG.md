@@ -268,6 +268,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   doc comment). agent-utilities' `GraphSession._apply_spawn_delegation` now
   forwards `SpawnDelegation.oidc_token` onto the envelope in `on`-mode delegation.
 
+### Changed
+- **Breaking: typed result construction is now contract-governed** —
+  `ResultPayload::raw` is no longer part of `eg-types`' supported public
+  construction surface. External integrations must use a declared result marker
+  through `ResultPayload::of_ref` or `ResultPayload::of_dynamic`, or use
+  `ResultPayload::scalar` for declared scalar results. The public `Raw` wire
+  variant remains available for decoding and compatibility; served source is
+  gated against using it as an unclassified construction bypass.
+
 ### Fixed
 - **MQTT delivery latency was scheduling-dependent, not event-driven (EG-281, GOC-70)** — `server::mqtt_wire::tests::eg281_listener_connect_subscribe_publish_deliver_roundtrip`
   was the last failure in the facade-full suite (1023 passed / 1 failed
