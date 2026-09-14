@@ -41,6 +41,23 @@ def protocol_source() -> str:
     return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
 
 
+def rdf_handler_source() -> str:
+    """Read the compiler-declared native RDF handler family.
+
+    The handler is a facade whose integrity-guard branches live in declared
+    children.  Following the compiler family keeps this check fail closed when
+    the implementation is split again or a child becomes unreachable.
+    """
+
+    return read_compiler_family("src/server/handlers/rdf.rs", ROOT).production
+
+
+def rdf_update_source() -> str:
+    """Read the compiler-declared guarded SPARQL update family."""
+
+    return read_compiler_family("crates/eg-rdf/src/update.rs", ROOT).production
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise SystemExit(f"current-only architecture gate failed: {message}")
@@ -892,8 +909,8 @@ def main() -> None:
     dist_handler = read("src/server/handlers/dist_compute.rs")
     icv_policy = read("crates/eg-shacl/src/policy.rs")
     rdf_guard = read("crates/eg-rdf/src/guard.rs")
-    rdf_update = read("crates/eg-rdf/src/update.rs")
-    rdf_handler = read("src/server/handlers/rdf.rs")
+    rdf_update = rdf_update_source()
+    rdf_handler = rdf_handler_source()
     rbac = read("crates/eg-core/src/rbac.rs")
     rbac_persist = read("crates/eg-core/src/rbac_persist.rs")
     isolation = read_sources(

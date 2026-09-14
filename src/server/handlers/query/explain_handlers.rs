@@ -31,7 +31,7 @@ pub(crate) async fn handle_explain_plan(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::ExplainPlan>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainPlan error: {msg}")),
         Err(resp) => resp,
     };
@@ -65,7 +65,7 @@ pub(crate) async fn handle_explain_provenance(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::ExplainProvenance>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenance error: {msg}")),
         Err(resp) => resp,
     };
@@ -98,7 +98,7 @@ pub(crate) async fn handle_explain_provenance_by_ids(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::ExplainProvenanceByIds>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainProvenanceByIds error: {msg}")),
         Err(resp) => resp,
     };
@@ -136,7 +136,7 @@ pub(crate) async fn handle_explain_policy(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::ExplainPolicy>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ExplainPolicy error: {msg}")),
         Err(resp) => resp,
     };
@@ -164,7 +164,10 @@ pub(crate) async fn handle_explain_belief(
     let rls = rls.clone();
     let resp = match disclosure_level {
         None => match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
-            Ok(result) => raw_response(req_id, &result),
+            Ok(result) => result_response::<query_results::ExplainBelief>(
+                req_id,
+                &crate::protocol::ExplainBeliefResponse::Classic(result),
+            ),
             Err(resp) => resp,
         },
         Some(cap) => {
@@ -173,7 +176,10 @@ pub(crate) async fn handle_explain_belief(
             })
             .await
             {
-                Ok(result) => raw_response(req_id, &result),
+                Ok(result) => result_response::<query_results::ExplainBelief>(
+                    req_id,
+                    &crate::protocol::ExplainBeliefResponse::Redacted(result),
+                ),
                 Err(resp) => resp,
             }
         }
@@ -203,7 +209,10 @@ pub(crate) async fn handle_explain_belief(
     }
     let snap = core.analysis_snapshot();
     let resp = match compute_off_lock(req_id, move || explain_belief(&node_id, &snap)).await {
-        Ok(result) => raw_response(req_id, &result),
+        Ok(result) => result_response::<query_results::ExplainBelief>(
+            req_id,
+            &crate::protocol::ExplainBeliefResponse::Classic(result),
+        ),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -220,7 +229,7 @@ pub(crate) async fn handle_epistemic_status(
     let snap = core.analysis_snapshot();
     let resp = match compute_off_lock(req_id, move || epistemic_status_wire(&node_id, &snap)).await
     {
-        Ok(result) => raw_response(req_id, &result),
+        Ok(result) => result_response::<query_results::EpistemicStatus>(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -239,7 +248,7 @@ pub(crate) async fn handle_what_changed(
     let snap = core.analysis_snapshot();
     let resp =
         match compute_off_lock(req_id, move || what_changed_wire(&snap, tx_from, tx_to)).await {
-            Ok(result) => raw_response(req_id, &result),
+            Ok(result) => result_response::<query_results::WhatChanged>(req_id, &result),
             Err(resp) => resp,
         };
     Ok(resp)
@@ -311,10 +320,11 @@ pub(crate) async fn handle_recompute_materialization(
             fence_epoch: 0,
             projection_pending: true,
         };
-        let payload = match ResultPayload::raw(&result) {
-            Ok(payload) => payload,
-            Err(error) => return Ok(Response::err(req_id, error)),
-        };
+        let payload =
+            match ResultPayload::of_ref::<query_results::RecomputeMaterialization>(&result) {
+                Ok(payload) => payload,
+                Err(error) => return Ok(Response::err(req_id, error)),
+            };
         let batch_id = crate::server::mutation_batch::opaque_request_key(
             "reasoning-recompute",
             graph_name,
@@ -365,7 +375,9 @@ pub(crate) async fn handle_recompute_materialization(
         fence_epoch,
         projection_pending: false,
     };
-    Ok(raw_response(req_id, &result))
+    Ok(result_response::<query_results::RecomputeMaterialization>(
+        req_id, &result,
+    ))
 }
 
 // Read-only status lookup on the durable per-graph projection.
@@ -393,7 +405,9 @@ pub(crate) async fn handle_materialization_status(
         status: status.map(|status| format!("{status:?}")),
         source_graph_version,
     };
-    Ok(raw_response(req_id, &result))
+    Ok(result_response::<query_results::MaterializationStatus>(
+        req_id, &result,
+    ))
 }
 
 // Bulk "what's stale" read on the same durable per-graph projection.
@@ -419,7 +433,9 @@ pub(crate) async fn handle_stale_materializations(
         ids,
         source_graph_version,
     };
-    Ok(raw_response(req_id, &result))
+    Ok(result_response::<query_results::StaleMaterializations>(
+        req_id, &result,
+    ))
 }
 
 // EPI-P3-7 (gap-fill): standalone Dung argumentation conflict resolution. A
@@ -453,7 +469,7 @@ pub(crate) async fn handle_resolve_conflict(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::ResolveConflict>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("ResolveConflict error: {msg}")),
         Err(resp) => resp,
     };
@@ -496,7 +512,7 @@ pub(crate) async fn handle_explain_evidence(
     })
     .await
     {
-        Ok(result) => raw_response(req_id, &result),
+        Ok(result) => result_response::<query_results::ExplainEvidence>(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -518,7 +534,7 @@ pub(crate) async fn handle_explain_evidence(
     rls.filter_view(caller, &mut snap);
     let resp = match compute_off_lock(req_id, move || explain_evidence_wire(&node_id, &snap)).await
     {
-        Ok(result) => raw_response(req_id, &result),
+        Ok(result) => result_response::<query_results::ExplainEvidence>(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)
@@ -541,7 +557,7 @@ pub(crate) async fn handle_causal_estimate(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::CausalEstimate>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("CausalEstimate error: {msg}")),
         Err(resp) => resp,
     };
@@ -565,7 +581,7 @@ pub(crate) async fn handle_causal_counterfactual(
     })
     .await
     {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => result_response::<query_results::CausalCounterfactual>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("CausalCounterfactual error: {msg}")),
         Err(resp) => resp,
     };
@@ -587,7 +603,7 @@ pub(crate) async fn handle_rank_by_provenance(
     })
     .await
     {
-        Ok(result) => raw_response(req_id, &result),
+        Ok(result) => result_response::<query_results::RankByProvenance>(req_id, &result),
         Err(resp) => resp,
     };
     Ok(resp)

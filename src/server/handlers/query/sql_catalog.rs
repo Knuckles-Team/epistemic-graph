@@ -115,8 +115,8 @@ pub(crate) async fn exec_sql_graph_table_read(
 ) -> Response {
     let rows = compute_off_lock(req_id, move || graph_table_rows(&store, &read_core, &query)).await;
     match rows {
-        Ok(Ok(typed)) => match typed.rows.iter().map(raw_result_bytes).collect() {
-            Ok(rows) => raw_response(
+        Ok(Ok(typed)) => match typed.rows.iter().map(msgpack_bytes).collect() {
+            Ok(rows) => dynamic_response::<query_results::Sql, _>(
                 req_id,
                 &crate::protocol::QueryResult {
                     columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
@@ -184,7 +184,7 @@ pub(crate) fn sql_write_ack(
 ) -> Response {
     match outcome {
         Ok(Ok(n)) => {
-            let row = match raw_result_bytes(&vec![serde_json::Value::from(n as u64)]) {
+            let row = match msgpack_bytes(&vec![serde_json::Value::from(n as u64)]) {
                 Ok(row) => row,
                 Err(error) => return Response::err(req_id, error),
             };
@@ -192,7 +192,7 @@ pub(crate) fn sql_write_ack(
                 columns: vec![tag.to_string()],
                 rows: vec![row],
             };
-            raw_response(req_id, &result)
+            dynamic_response::<query_results::Sql, _>(req_id, &result)
         }
         Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
         Err(resp) => resp,

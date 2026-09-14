@@ -337,7 +337,7 @@ async fn try_handle_memory(
             );
             commit_gateway(ctx, plan, method, move |core| {
                 let out = core.maintain(&ids, now_ms, half_life_ms, evict_threshold, delete);
-                ResultPayload::raw(&out)
+                ResultPayload::of::<eg_types::result_contract::graph::Maintain>(out)
             })
             .await
         }
@@ -430,7 +430,7 @@ async fn try_handle_trajectory(
                     next_state_ref.as_deref(),
                     t,
                 );
-                ResultPayload::raw(&step_id)
+                ResultPayload::of::<eg_types::result_contract::graph::AppendStep>(step_id)
             })
             .await
         }
@@ -529,9 +529,7 @@ async fn try_handle_lifecycle(
                     .unwrap_or_default()
                     .as_secs();
                 let stats = core.decay_sweep(now, half_life_secs, floor, prune);
-                serde_json::to_value(&stats)
-                    .map(ResultPayload::Json)
-                    .map_err(|e| e.to_string())
+                ResultPayload::of::<eg_types::result_contract::graph::DecaySweep>(stats)
             })
             .await
         }
@@ -662,9 +660,7 @@ async fn try_handle_analytics(
             let (max_age_secs, min_score) = (*max_age_secs, *min_score);
             commit_gateway(ctx, plan, method, move |core| {
                 let stats = crate::algorithms::prune_by_lifecycle(core, max_age_secs, min_score);
-                serde_json::to_value(&stats)
-                    .map(ResultPayload::Json)
-                    .map_err(|e| e.to_string())
+                ResultPayload::of::<eg_types::result_contract::graph::PruneByLifecycle>(stats)
             })
             .await
         }
@@ -702,9 +698,11 @@ async fn try_handle_analytics(
             let (node_type, threshold) = (node_type.clone(), *threshold);
             commit_gateway(ctx, plan, method, move |core| {
                 let removed = core.compact_nodes_by_type(&node_type, threshold);
-                Ok(ResultPayload::Json(
-                    serde_json::json!({ "removed_nodes": removed }),
-                ))
+                ResultPayload::of::<eg_types::result_contract::graph::CompactNodesByType>(
+                    eg_types::types::CompactNodesResult {
+                        removed_nodes: removed,
+                    },
+                )
             })
             .await
         }

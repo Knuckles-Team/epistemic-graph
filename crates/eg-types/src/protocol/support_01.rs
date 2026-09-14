@@ -264,6 +264,7 @@ pub struct QueryResult {
 /// wire-DTO crate) so the protocol can embed it; the evaluator lives in eg-rdf.
 #[cfg(feature = "sparql")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SparqlResult {
     pub vars: Vec<String>,
     pub rows: Vec<Vec<Option<String>>>,
@@ -273,6 +274,7 @@ pub struct SparqlResult {
 /// `ResultPayload::raw`. The reasoner lives in eg-rdf; this is the wire projection.
 #[cfg(feature = "owl")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct OwlReasonResult {
     /// Derived named-class subsumptions `(sub, sup)` (the reflexive/asserted ones are
     /// included; the closure is the full classification hierarchy).
@@ -307,6 +309,7 @@ pub struct OwlReasonResult {
 /// flattened), so a client walks it exactly like the reasoner derived it.
 #[cfg(feature = "owl")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ProofNodeWire {
     pub sub: String,
     pub sup: String,
@@ -322,6 +325,7 @@ pub struct ProofNodeWire {
 /// json-decode the top level.
 #[cfg(feature = "owl")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct OwlExplainResult {
     /// Whether `sub ⊑ sup` holds under the classification (`tree.is_some()`).
     pub found: bool,
@@ -351,6 +355,7 @@ pub struct OwlExplainResult {
 /// `eg-types` Rule R1: cost metadata lives on this wire projection, never on `Op` itself).
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ExplainNodeWire {
     pub id: usize,
     /// `Debug`-rendered `eg_plan::Op`.
@@ -377,6 +382,7 @@ pub struct ExplainNodeWire {
 /// Materialized result of a `Method::ExplainPlan` run. Returned via `ResultPayload::raw`.
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ExplainPlanResult {
     /// The plan as a `PlanDag` BEFORE the DAG-aware cost optimizer.
     pub before: Vec<ExplainNodeWire>,
@@ -390,6 +396,7 @@ pub struct ExplainPlanResult {
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "id", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum EvidenceResourceWire {
     Artifact(String),
     Occurrence(String),
@@ -403,6 +410,7 @@ pub enum EvidenceResourceWire {
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum EvidenceAddressWire {
     CharacterRange {
         start: u64,

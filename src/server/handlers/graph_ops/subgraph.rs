@@ -15,21 +15,28 @@ fn handle_get_subgraph(req_id: u64, core: &Arc<GraphCore>, node_ids: &[String]) 
     for (id, blob) in &sub.node_properties {
         let props =
             eg_types::msgpack::decode_property_value(blob).unwrap_or(serde_json::Value::Null);
-        nodes.push(serde_json::json!({ "id": id, "properties": props }));
+        nodes.push(eg_types::types::SubgraphNode {
+            id: id.clone(),
+            properties: props,
+        });
     }
     let mut edges = Vec::new();
     for ((src, tgt), blobs) in &sub.edge_properties {
         for blob in blobs {
             let props =
                 eg_types::msgpack::decode_property_value(blob).unwrap_or(serde_json::Value::Null);
-            edges.push(serde_json::json!({
-                "source": src, "target": tgt, "properties": props
-            }));
+            edges.push(eg_types::types::SubgraphEdge {
+                source: src.clone(),
+                target: tgt.clone(),
+                properties: props,
+            });
         }
     }
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({ "nodes": nodes, "edges": edges })),
+        ResultPayload::of::<eg_types::result_contract::graph::GetSubgraph>(
+            eg_types::types::SubgraphResult { nodes, edges },
+        ),
     )
 }
 
@@ -43,7 +50,10 @@ fn handle_fork(req_id: u64, core: &Arc<GraphCore>) -> Response {
     let sub = g.fork();
     match sub.to_msgpack() {
         Ok(json) => match serde_json::from_slice::<serde_json::Value>(&json) {
-            Ok(val) => Response::ok(req_id, ResultPayload::Json(val)),
+            Ok(val) => Response::ok(
+                req_id,
+                ResultPayload::of_dynamic::<eg_types::result_contract::graph::Fork, _>(&val),
+            ),
             Err(e) => Response::err(req_id, e.to_string()),
         },
         Err(e) => Response::err(req_id, e),

@@ -1,18 +1,5 @@
 use super::*;
 
-#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
-pub(crate) fn raw_result_bytes<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, String> {
-    let ResultPayload::Raw(bytes) = ResultPayload::raw(value)? else {
-        unreachable!("ResultPayload::raw always constructs the Raw variant")
-    };
-    Ok(bytes)
-}
-
-#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
-pub(crate) fn raw_response<T: serde::Serialize>(req_id: u64, value: &T) -> Response {
-    Response::ok(req_id, ResultPayload::raw(value))
-}
-
 /// Verify that Cypher's explicit wire mode agrees with the native parser.
 ///
 /// The mode is an authorization and durability claim, not a parser hint. Callers

@@ -39,6 +39,38 @@ use eg_core::result_cache::ResultCache;
 #[cfg(feature = "graphql")]
 use eg_graphql::parser::{Field, GqlValue};
 
+#[cfg(feature = "query")]
+use eg_types::result_contract::EncodeRef;
+#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
+use eg_types::result_contract::{encoding, query as query_results, Dynamic, MethodResult};
+
+/// MessagePack bytes of a value that is not itself a result: a result-cache key, or one
+/// row of a SQL result.
+#[cfg(feature = "query")]
+fn msgpack_bytes<T: serde::Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, String> {
+    rmp_serde::to_vec_named(value).map_err(|error| format!("result serialization failed: {error}"))
+}
+
+/// Answer with `body` encoded as `M`'s declared result.
+#[cfg(feature = "query")]
+fn result_response<M>(req_id: u64, body: &M::Body) -> Response
+where
+    M: MethodResult,
+    M::Encoding: EncodeRef<M::Body>,
+{
+    Response::ok(req_id, ResultPayload::of_ref::<M>(body))
+}
+
+/// Answer with a caller-shaped `body` encoded as `M`'s declared `Raw` result.
+#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
+fn dynamic_response<M, T>(req_id: u64, body: &T) -> Response
+where
+    M: MethodResult<Body = Dynamic, Encoding = encoding::Raw>,
+    T: serde::Serialize + ?Sized,
+{
+    Response::ok(req_id, ResultPayload::of_dynamic::<M, T>(body))
+}
+
 mod base;
 pub(crate) use base::*;
 mod dispatch;

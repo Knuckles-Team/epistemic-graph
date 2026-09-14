@@ -111,7 +111,7 @@ pub(crate) async fn run_unified_overlaid_staged_series(
 }
 
 #[cfg(feature = "query")]
-pub(crate) async fn run_unified_overlaid(
+pub(crate) async fn run_unified_overlaid<M>(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     txn_id: &str,
@@ -119,7 +119,11 @@ pub(crate) async fn run_unified_overlaid(
     read_authority: Option<&GraphReadAuthority>,
     caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
-) -> Response {
+) -> Response
+where
+    M: MethodResult<Body = Vec<(String, Option<f32>)>, Encoding = encoding::Raw>,
+    M::Encoding: EncodeRef<M::Body>,
+{
     // Resolve the txn's target core + snapshot its staged write-set/embeddings while
     // holding only the cheap state read + per-txn lock; everything moved into the
     // off-lock closure is OWNED, so no lock is held across the compute.
@@ -250,7 +254,7 @@ pub(crate) async fn run_unified_overlaid(
     })
     .await
     {
-        Ok(Ok(rows)) => raw_response(req_id, &rows),
+        Ok(Ok(rows)) => result_response::<M>(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     }

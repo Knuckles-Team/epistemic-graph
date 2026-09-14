@@ -201,7 +201,9 @@ fn apply_coalescable_add_node(
         change.record_add_node(node_id.to_string());
     }
     txn.add_node(node_id.to_string(), properties_msgpack.to_vec());
-    Ok(ResultPayload::String("ok".to_string()))
+    Ok(ResultPayload::scalar::<
+        eg_types::result_contract::graph::AddNode,
+    >("ok".to_string()))
 }
 
 fn apply_coalescable_remove_node(
@@ -216,7 +218,9 @@ fn apply_coalescable_remove_node(
     }
     txn.remove_node(node_id.to_string());
     core.semantic_store.write().remove_embedding(node_id);
-    Ok(ResultPayload::String("ok".to_string()))
+    Ok(ResultPayload::scalar::<
+        eg_types::result_contract::graph::RemoveNode,
+    >("ok".to_string()))
 }
 
 fn apply_coalescable_add_edge(
@@ -247,7 +251,9 @@ fn apply_coalescable_remove_edge(
 ) -> Result<ResultPayload, String> {
     change.record_remove_edge(source_id.to_string(), target_id.to_string());
     txn.remove_edge(source_id.to_string(), target_id.to_string());
-    Ok(ResultPayload::String("ok".to_string()))
+    Ok(ResultPayload::scalar::<
+        eg_types::result_contract::graph::RemoveEdge,
+    >("ok".to_string()))
 }
 
 fn apply_coalescable_cas_fields(

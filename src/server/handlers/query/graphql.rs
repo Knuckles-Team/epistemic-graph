@@ -81,7 +81,7 @@ pub(crate) async fn handle_graphql_commit_txn(
     )
     .await;
     let resp = match committed {
-        Ok(committed) => raw_response(
+        Ok(committed) => dynamic_response::<query_results::GraphQl, _>(
             req_id,
             &serde_json::json!({
                 "data": {"commitTransaction": {"committed": committed}}
@@ -218,7 +218,8 @@ fn graphql_staging_payload(
     req_id: u64,
     value: &serde_json::Value,
 ) -> Result<ResultPayload, Response> {
-    ResultPayload::raw(value).map_err(|error| Response::err(req_id, error))
+    ResultPayload::of_dynamic::<query_results::GraphQl, _>(value)
+        .map_err(|error| Response::err(req_id, error))
 }
 
 /// The `CrossModalRoute::NotCrossModal` arm of [`handle_graphql_mutation`]: an
@@ -235,7 +236,7 @@ pub(crate) async fn handle_graphql_plain_mutation(
     })
     .await
     {
-        Ok(Ok(value)) => raw_response(req_id, &value),
+        Ok(Ok(value)) => dynamic_response::<query_results::GraphQl, _>(req_id, &value),
         Ok(Err(msg)) => Response::err(req_id, format!("GraphQL mutation error: {msg}")),
         Err(resp) => resp,
     };
@@ -320,7 +321,10 @@ pub(crate) async fn handle_graphql(
         // ever checking for a hit). Only a genuine MISS reaches the
         // per-(actor,version) `FilteredViewCache` probe-then-build below.
         if let Some(bytes) = core.result_cache().get(hash, core.version()) {
-            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+            return Ok(Response::ok(
+                req_id,
+                ResultPayload::of_encoded::<query_results::GraphQl>(bytes),
+            ));
         }
         #[cfg(feature = "security")]
         let (snap, version) = versioned_rls_snapshot(&core, caller, rls);
@@ -345,11 +349,11 @@ pub(crate) async fn handle_graphql(
     })
     .await
     {
-        Ok(Ok(value)) => match raw_result_bytes(&value) {
-            Ok(bytes) => {
+        Ok(Ok(value)) => match ResultPayload::of_dynamic::<query_results::GraphQl, _>(&value) {
+            Ok(payload) => {
                 #[cfg(feature = "result-cache")]
-                core.result_cache().put(hash, version, bytes.clone());
-                Response::ok(req_id, ResultPayload::Raw(bytes))
+                eg_core::result_cache::cache_result(core.result_cache(), hash, version, &payload);
+                Response::ok(req_id, payload)
             }
             Err(error) => Response::err(req_id, error),
         },

@@ -14,7 +14,7 @@ pub(crate) async fn handle_cypher_write(
 ) -> Response {
     let core_w = core.clone();
     match compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query)).await {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => dynamic_response::<query_results::CypherQuery, _>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
         Err(resp) => resp,
     }
@@ -88,7 +88,10 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
         // recompute (the `put` below still lands under this call's own fresh
         // `version`, so nothing stale or cross-actor is ever served).
         if let Some(bytes) = core.result_cache().get(hash, core.version()) {
-            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+            return Ok(Response::ok(
+                req_id,
+                ResultPayload::of_encoded::<query_results::CypherQuery>(bytes),
+            ));
         }
         // perf/cold-query-floor-analysis (UNCOMPILED PROPOSAL — see
         // `crate::rls_view_cache` in eg-core, not yet exercised by any test or
@@ -161,10 +164,11 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
     })
     .await
     {
-        Ok(Ok(result)) => match raw_result_bytes(&result) {
-            Ok(bytes) => {
-                core.result_cache().put(hash, version, bytes.clone());
-                Response::ok(req_id, ResultPayload::Raw(bytes))
+        Ok(Ok(result)) => match ResultPayload::of_dynamic::<query_results::CypherQuery, _>(&result)
+        {
+            Ok(payload) => {
+                eg_core::result_cache::cache_result(core.result_cache(), hash, version, &payload);
+                Response::ok(req_id, payload)
             }
             Err(error) => Response::err(req_id, error),
         },
@@ -173,7 +177,7 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
     };
     #[cfg(not(feature = "result-cache"))]
     let resp = match compute_off_lock(req_id, move || eg_query::exec_cypher(&snap, &query)).await {
-        Ok(Ok(result)) => raw_response(req_id, &result),
+        Ok(Ok(result)) => dynamic_response::<query_results::CypherQuery, _>(req_id, &result),
         Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
         Err(resp) => resp,
     };

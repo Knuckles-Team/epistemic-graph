@@ -87,7 +87,10 @@ fn handle_get_neighbors_batch(
     // [node_id, Vec<neighbor_id>] in input order — one round-trip and one
     // topo-lock acquisition for N nodes (D-DPF-1) instead of N of each.
     let out = g.get_neighbors_batch(node_ids);
-    Response::ok(req_id, ResultPayload::raw(&out))
+    Response::ok(
+        req_id,
+        ResultPayload::of_ref::<eg_types::result_contract::graph::GetNeighborsBatch>(&out),
+    )
 }
 
 /// `BetweennessCentrality`: pure extract-method from `try_handle`'s match arm,
@@ -282,10 +285,10 @@ async fn handle_metrics(req_id: u64, core: &Arc<GraphCore>, raw_ledger_len: u64)
         Ok(m) => m,
         Err(resp) => return resp,
     };
-    match serde_json::to_value(&m) {
-        Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-        Err(e) => Response::err(req_id, e.to_string()),
-    }
+    Response::ok(
+        req_id,
+        ResultPayload::of::<eg_types::result_contract::graph::Metrics>(m),
+    )
 }
 
 /// `CommunityDetectEphemeral`: pure extract-method from `try_handle`'s match arm,

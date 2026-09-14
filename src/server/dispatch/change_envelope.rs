@@ -708,12 +708,17 @@ async fn read_change_envelope(
                     .map(crate::mutation_batch::LogicalName::as_str)
                     == Some(graph_name) =>
         {
-            Response::ok(req_id, ResultPayload::raw(&record))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::query::GetChangeEnvelope>(Some(
+                    record,
+                )),
+            )
         }
         Ok(Some(_)) => Response::err(req_id, "ACCESS_DENIED: envelope tenant mismatch"),
         Ok(None) => Response::ok(
             req_id,
-            ResultPayload::raw(&Option::<crate::change_envelope::ChangeEnvelopeRecord>::None),
+            ResultPayload::of::<eg_types::result_contract::query::GetChangeEnvelope>(None),
         ),
         Err(error) => Response::err(req_id, format!("ChangeEnvelope read failed: {error}")),
     }
@@ -734,7 +739,10 @@ async fn read_content_version(
         .read_content_version(&fname, &tenant, &object_id)
         .await
     {
-        Ok(version) => Response::ok(req_id, ResultPayload::raw(&version)),
+        Ok(version) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::query::GetContentVersion>(&version),
+        ),
         Err(error) => Response::err(req_id, format!("content-version read failed: {error}")),
     }
 }
@@ -755,7 +763,10 @@ async fn read_change_cursor(
         .read_change_cursor(&fname, &tenant, &source, &partition)
         .await
     {
-        Ok(cursor) => Response::ok(req_id, ResultPayload::raw(&cursor)),
+        Ok(cursor) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::query::GetChangeCursor>(&cursor),
+        ),
         Err(error) => Response::err(req_id, format!("change-cursor read failed: {error}")),
     }
 }

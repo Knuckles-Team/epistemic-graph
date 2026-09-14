@@ -246,17 +246,19 @@ async fn dispatch_txn_query_method(
     method: Method,
 ) -> Result<Response, Method> {
     match method {
-        Method::TxnUnifiedQuery { txn_id, plan } => Ok(run_unified_overlaid(
-            ctx.state,
-            ctx.req_id,
-            &txn_id,
-            plan,
-            ctx.read_authority,
-            ctx.caller,
-            #[cfg(feature = "security")]
-            ctx.rls,
-        )
-        .await),
+        Method::TxnUnifiedQuery { txn_id, plan } => {
+            Ok(run_unified_overlaid::<query_results::TxnUnifiedQuery>(
+                ctx.state,
+                ctx.req_id,
+                &txn_id,
+                plan,
+                ctx.read_authority,
+                ctx.caller,
+                #[cfg(feature = "security")]
+                ctx.rls,
+            )
+            .await)
+        }
         Method::TxnUnifiedQueryText { txn_id, text } => {
             handle_txn_unified_query_text(ctx, txn_id, text).await
         }
@@ -491,8 +493,8 @@ pub(crate) async fn handle_sql_with_lease(
     })
     .await
     {
-        Ok(Ok(typed)) => match typed.rows.iter().map(raw_result_bytes).collect() {
-            Ok(rows) => raw_response(
+        Ok(Ok(typed)) => match typed.rows.iter().map(msgpack_bytes).collect() {
+            Ok(rows) => dynamic_response::<query_results::Sql, _>(
                 req_id,
                 &crate::protocol::QueryResult {
                     columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
@@ -542,7 +544,7 @@ pub(crate) async fn handle_unified_query_text_with_lease(
     )
     .await
     {
-        Ok(Ok(rows)) => raw_response(req_id, &rows),
+        Ok(Ok(rows)) => result_response::<query_results::UnifiedQueryText>(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,
     };

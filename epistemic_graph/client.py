@@ -6104,14 +6104,18 @@ class EdgeClient:
             )
         ).payload
 
-    async def properties(self, source_id: str, target_id: str) -> dict[str, Any] | None:
+    async def properties(
+        self, source_id: str, target_id: str
+    ) -> builtins.list[dict[str, Any]]:
+        """The decoded property object of every parallel edge from ``source_id`` to
+        ``target_id``; an empty list when there is no such edge."""
         raw_val = (
             await _gen.graph.send_get_edge_properties(
                 self._client, {"source_id": source_id, "target_id": target_id}
             )
         ).payload
         if raw_val is None:
-            return None
+            return []
         if isinstance(raw_val, bytes):
             import msgpack
 
@@ -6576,14 +6580,18 @@ class LifecycleClient:
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
 
-    async def prune(self, max_age_secs: int, min_score: float) -> int:
+    async def prune(self, max_age_secs: int, min_score: float) -> dict[str, Any]:
+        """Lifecycle-aware pruning. Returns ``{nodes_removed, edges_removed, nodes_archived}``."""
         return (
             await _gen.graph.send_prune_by_lifecycle(
                 self._client, {"max_age_secs": max_age_secs, "min_score": min_score}
             )
         ).payload
 
-    async def get_context_view(self, agent_id: str, max_tokens: int = 4096) -> str:
+    async def get_context_view(
+        self, agent_id: str, max_tokens: int = 4096
+    ) -> dict[str, Any]:
+        """The agent's context view. Returns ``{agent_id, nodes, edges, budget_used, budget_max}``."""
         return (
             await _gen.query.send_get_context_view(
                 self._client, {"agent_id": agent_id, "max_tokens": max_tokens}

@@ -151,6 +151,7 @@ pub struct KnowledgeStreamRequest {
 
 /// One bounded native Arrow batch.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct KnowledgeStreamBatch {
     pub schema_version: u16,
     pub family: KnowledgeResultFamily,
@@ -158,6 +159,7 @@ pub struct KnowledgeStreamBatch {
     pub cursor: KnowledgeStreamCursor,
     /// Arrow IPC stream bytes for `ArrowIpc`.
     #[serde(with = "serde_bytes")]
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
     pub payload: Vec<u8>,
 }
 

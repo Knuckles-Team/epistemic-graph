@@ -4,6 +4,7 @@ use super::*;
 /// the final blended score plus its components, kept separate for explainability.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RankedResultWire {
     pub id: String,
     pub score: f64,
@@ -15,6 +16,7 @@ pub struct RankedResultWire {
 /// Returned via `ResultPayload::raw`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RankByProvenanceResult {
     pub ranked: Vec<RankedResultWire>,
 }

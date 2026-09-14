@@ -130,8 +130,8 @@ async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
     })
     .await
     {
-        Ok(Ok(typed)) => match typed.rows.iter().map(raw_result_bytes).collect() {
-            Ok(rows) => raw_response(
+        Ok(Ok(typed)) => match typed.rows.iter().map(msgpack_bytes).collect() {
+            Ok(rows) => dynamic_response::<query_results::Sql, _>(
                 req_id,
                 &crate::protocol::QueryResult {
                     columns: typed
@@ -213,26 +213,39 @@ pub(crate) async fn handle_sql(
 }
 
 #[cfg(feature = "query")]
-fn unified_response(
+fn unified_response<M>(
     req_id: u64,
     result: Result<Result<Vec<(String, Option<f32>)>, String>, Response>,
     #[cfg(feature = "result-cache")] core: &Arc<GraphCore>,
     #[cfg(feature = "result-cache")] dep: &Option<eg_core::dep_scope::DepSet>,
     #[cfg(feature = "result-cache")] version: u64,
     #[cfg(feature = "result-cache")] hash: u128,
-) -> Response {
+) -> Response
+where
+    M: MethodResult<Body = Vec<(String, Option<f32>)>, Encoding = encoding::Raw>,
+    M::Encoding: EncodeRef<M::Body>,
+{
     match result {
-        Ok(Ok(rows)) => match raw_result_bytes(&rows) {
-            Ok(bytes) => {
+        Ok(Ok(rows)) => match ResultPayload::of_ref::<M>(&rows) {
+            Ok(payload) => {
                 #[cfg(feature = "result-cache")]
                 match dep {
-                    Some(deps) => {
-                        core.result_cache()
-                            .put_dep(hash, 0, version, deps.clone(), bytes.clone())
-                    }
-                    None => core.result_cache().put(hash, version, bytes.clone()),
+                    Some(deps) => eg_core::result_cache::cache_dep_result(
+                        core.result_cache(),
+                        hash,
+                        0,
+                        version,
+                        deps.clone(),
+                        &payload,
+                    ),
+                    None => eg_core::result_cache::cache_result(
+                        core.result_cache(),
+                        hash,
+                        version,
+                        &payload,
+                    ),
                 }
-                Response::ok(req_id, ResultPayload::Raw(bytes))
+                Response::ok(req_id, payload)
             }
             Err(error) => Response::err(req_id, error),
         },
@@ -273,7 +286,7 @@ pub(crate) async fn handle_unified_query(
     let dep = plan_dependency_set(&plan);
     #[cfg(feature = "result-cache")]
     let (snap, version, hash) = {
-        let mut payload = match raw_result_bytes(&plan) {
+        let mut payload = match msgpack_bytes(&plan) {
             Ok(payload) => payload,
             Err(error) => return Ok(Response::err(req_id, error)),
         };
@@ -316,7 +329,10 @@ pub(crate) async fn handle_unified_query(
             None => core.result_cache().get(hash, core.version()),
         };
         if let Some(bytes) = probe {
-            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+            return Ok(Response::ok(
+                req_id,
+                ResultPayload::of_cache_hit::<query_results::UnifiedQuery>(bytes),
+            ));
         }
         // perf/row-visibility-index (B-sweep): a result-cache MISS still
         // used to unconditionally pay for `filter_view`'s full per-node RLS
@@ -349,7 +365,7 @@ pub(crate) async fn handle_unified_query(
         tsdb_scope,
     )
     .await;
-    let resp = unified_response(
+    let resp = unified_response::<query_results::UnifiedQuery>(
         req_id,
         result,
         #[cfg(feature = "result-cache")]
@@ -422,7 +438,10 @@ pub(crate) async fn handle_unified_query_text(
             None => core.result_cache().get(hash, core.version()),
         };
         if let Some(bytes) = probe {
-            return Ok(Response::ok(req_id, ResultPayload::Raw(bytes)));
+            return Ok(Response::ok(
+                req_id,
+                ResultPayload::of_cache_hit::<query_results::UnifiedQueryText>(bytes),
+            ));
         }
         // perf/row-visibility-index (B-sweep): a result-cache MISS still
         // used to unconditionally pay for `filter_view`'s full per-node RLS
@@ -455,7 +474,7 @@ pub(crate) async fn handle_unified_query_text(
         tsdb_scope,
     )
     .await;
-    let resp = unified_response(
+    let resp = unified_response::<query_results::UnifiedQueryText>(
         req_id,
         result,
         #[cfg(feature = "result-cache")]

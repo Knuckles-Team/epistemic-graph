@@ -263,10 +263,12 @@ fn apply_run_datalog_reasoning(
             input.property_chains,
         ));
     }
-    Ok(ResultPayload::Json(serde_json::json!({
-        "inferred_count": all_inferred.len(),
-        "inferred_triples": all_inferred,
-    })))
+    ResultPayload::of::<eg_types::result_contract::reasoning::RunDatalogReasoning>(
+        eg_types::types::DatalogReasoningResult {
+            inferred_count: all_inferred.len(),
+            inferred_triples: all_inferred,
+        },
+    )
 }
 
 /// `ClaimNext`: pure extract-method from `try_handle_gateway`'s closure,
@@ -297,7 +299,9 @@ fn apply_add_scene_object(
         return Err("AddSceneObject: undecodable pose_msgpack".to_string());
     };
     let id = core.add_scene_object(&pose, parent);
-    Ok(ResultPayload::String(id))
+    Ok(ResultPayload::scalar::<
+        eg_types::result_contract::graph::AddSceneObject,
+    >(id))
 }
 
 /// `SetPose`: pure extract-method from `try_handle_gateway`'s closure,
@@ -311,7 +315,9 @@ fn apply_set_pose(
         return Err("SetPose: undecodable pose_msgpack".to_string());
     };
     let ok = core.set_pose(node_id, &pose);
-    Ok(ResultPayload::Bool(ok))
+    Ok(ResultPayload::scalar::<
+        eg_types::result_contract::graph::SetPose,
+    >(ok))
 }
 
 /// `AddEmbedding`: pure extract-method from `try_handle_gateway`'s closure,
@@ -365,7 +371,9 @@ fn apply_supersede_edge(
         input.valid_at,
         input.tx_now,
     ) {
-        Ok(()) => Ok(ResultPayload::String("ok".to_string())),
+        Ok(()) => Ok(ResultPayload::scalar::<
+            eg_types::result_contract::graph::SupersedeEdge,
+        >("ok".to_string())),
         Err(e) => Err(e),
     }
 }

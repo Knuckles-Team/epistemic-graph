@@ -18,7 +18,7 @@ pub(crate) async fn handle_txn_unified_query_text(
         Ok(p) => p,
         Err(e) => return Ok(Response::err(req_id, e.render(&text))),
     };
-    Ok(run_unified_overlaid(
+    Ok(run_unified_overlaid::<query_results::TxnUnifiedQueryText>(
         state,
         req_id,
         &txn_id,
@@ -182,7 +182,7 @@ pub(crate) async fn handle_nl_query(
     })
     .await
     {
-        Ok(Ok(rows)) => raw_response(req_id, &rows),
+        Ok(Ok(rows)) => result_response::<query_results::NlQuery>(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
         Err(resp) => resp,
     };

@@ -4,6 +4,7 @@ use super::*;
 /// unsafe references and malformed coordinates before a request reaches a handler.
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct EvidenceLocusWire {
     pub id: String,
     pub subject: EvidenceResourceWire,
@@ -203,6 +204,7 @@ impl<'de> Deserialize<'de> for EvidenceLocusWire {
 /// Returned via `ResultPayload::raw`.
 #[cfg(feature = "query")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ExplainPolicyResult {
     /// Ids the caller's RLS-filtered view actually returns.
     pub visible_ids: Vec<String>,
@@ -217,6 +219,7 @@ pub struct ExplainPolicyResult {
 /// (`"Asserted"`, `"DerivedSupport"`, `"DerivedContradiction"`, `"BayesianUpdate"`).
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct JustificationNodeWire {
     pub claim: String,
     pub rule: String,
@@ -227,6 +230,7 @@ pub struct JustificationNodeWire {
 /// Materialized result of a `Method::ExplainBelief` run. Returned via `ResultPayload::raw`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ExplainBeliefResult {
     pub root: JustificationNodeWire,
 }
@@ -248,6 +252,7 @@ pub enum DisclosureLevelWire {
 /// Wire mirror of `eg_epistemic::redact::ExistenceSignal`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ExistenceSignalWire {
     Supported,
     Contradicted,
@@ -259,6 +264,7 @@ pub enum ExistenceSignalWire {
 /// when the requesting actor's RLS access does not extend to that proof-tree node.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RedactedJustificationNodeWire {
     pub claim: Option<String>,
     pub redaction_label: Option<String>,
@@ -274,6 +280,7 @@ pub struct RedactedJustificationNodeWire {
 /// `eg_epistemic::redact::RedactedJustificationGraph`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ExplainBeliefRedactedResult {
     pub level: DisclosureLevelWire,
     pub existence: ExistenceSignalWire,
@@ -281,10 +288,24 @@ pub struct ExplainBeliefRedactedResult {
     pub root: Option<RedactedJustificationNodeWire>,
 }
 
+/// Unified response body for `Method::ExplainBelief`.
+///
+/// The classic and disclosure-aware forms remain distinct on the wire while the
+/// method has one stable result type for callers that support both modes.
+#[cfg(feature = "epistemic")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ExplainBeliefResponse {
+    Redacted(ExplainBeliefRedactedResult),
+    Classic(ExplainBeliefResult),
+}
+
 /// Wire mirror of `eg_epistemic::AuthorityPolicy` — the confidence-weighting policy an
 /// `EpistemicStatus` was computed under ("under whose authority").
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct AuthorityPolicyWire {
     pub source_reliability: f64,
     pub attack_multiplier: f64,
@@ -298,6 +319,7 @@ pub struct AuthorityPolicyWire {
 /// other `*Wire` type here).
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct WhyNotWire {
     pub claim: String,
     /// One of `"Unknown"`, `"InsufficientConfidence"`, `"Contradicted"`, `"Undecided"`.
@@ -312,6 +334,7 @@ pub struct WhyNotWire {
 /// Wire mirror of `eg_epistemic::query::MinimalFlipSet` — "what would invalidate it".
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MinimalFlipSetWire {
     pub claim: String,
     pub believed_now: bool,
@@ -323,6 +346,7 @@ pub struct MinimalFlipSetWire {
 /// capstone (see `Method::EpistemicStatus` docs).
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct EpistemicStatusWire {
     pub claim: String,
     pub believed: bool,
@@ -343,6 +367,7 @@ pub struct EpistemicStatusWire {
 /// `ResultPayload::raw`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct EpistemicStatusResult {
     pub status: EpistemicStatusWire,
 }
@@ -351,6 +376,7 @@ pub struct EpistemicStatusResult {
 /// `Method::WhatChanged` result.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ChangedBeliefWire {
     pub id: String,
     pub believed_before: bool,
@@ -366,6 +392,7 @@ pub struct ChangedBeliefWire {
 /// `ResultPayload::raw`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct WhatChangedResult {
     pub changed: Vec<ChangedBeliefWire>,
 }

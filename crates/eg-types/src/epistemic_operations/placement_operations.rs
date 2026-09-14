@@ -41,6 +41,7 @@ pub enum ClaimWorkItemResultReason {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum EvidenceBundleSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -147,6 +148,7 @@ pub struct ClaimWorkItemResult {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct EvidenceBundle {
     pub schema_version: EvidenceBundleSchemaVersion,
     pub bundle_id: String,
@@ -160,6 +162,7 @@ pub struct EvidenceBundle {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct EvidenceClaim {
     pub claim_ref: String,
     pub kind: String,
@@ -177,6 +180,7 @@ pub struct EvidenceClaim {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct EvidenceTimeRange {
     #[serde(deserialize_with = "deserialize_required_option")]
     pub start_ms: Option<u64>,

@@ -35,6 +35,12 @@ def protocol_source() -> str:
     return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
 
 
+def rdf_handler_source() -> str:
+    """Read the complete compiler-declared native RDF handler family."""
+
+    return read_compiler_family("src/server/handlers/rdf.rs", ROOT).production
+
+
 def require_query_result_cache_rls(query: str, rdf: str, dispatch: str) -> None:
     """Pin actor-scoped cache keys across the compiler-owned query family."""
 
@@ -109,9 +115,7 @@ def _method_enum_body(protocol: str) -> str:
 
 def _method_chunk_bodies(protocol: str) -> list[str]:
     chunk_bodies: list[str] = []
-    for chunk in re.finditer(
-        r"macro_rules!\s+__eg_method_chunk_\d+\s*\{", protocol
-    ):
+    for chunk in re.finditer(r"macro_rules!\s+__eg_method_chunk_\d+\s*\{", protocol):
         end = protocol.find("pub(crate) use __eg_method_chunk_", chunk.end())
         require(
             end >= 0,
@@ -163,7 +167,9 @@ def capability_inventory() -> dict[str, bool]:
     """
     inventory: dict[str, bool] = {}
     for row in parse_method_policy_table(load_capability_sources(ROOT)):
-        require(row.name not in inventory, f"duplicate capability policy for {row.name}")
+        require(
+            row.name not in inventory, f"duplicate capability policy for {row.name}"
+        )
         inventory[row.name] = row.mutates
     return inventory
 
@@ -222,15 +228,18 @@ def _check_sql_wire_read_contract(wire: str) -> None:
     require(
         all(
             (
-                "self.filter_view_for_verified_actor(&mut snap).await?" in wire_sql_read,
+                "self.filter_view_for_verified_actor(&mut snap).await?"
+                in wire_sql_read,
                 "self.filter_view_for_verified_actor(&mut view).await?"
                 in wire_overlay_read,
-                "self.filter_view_for_verified_actor(&mut view).await?" in wire_uql_read,
+                "self.filter_view_for_verified_actor(&mut view).await?"
+                in wire_uql_read,
                 "exec_sql_typed_with_tables(&snap, projection.store(), &sql)"
                 in wire_sql_read,
                 "fn verified_actor(&self) -> WireResult<String>" in wire,
                 "self.check_access_for_kind(&graph, &kind).await?" in wire_execute,
-                ".check_access(graph, Self::crossmodal_access(&stmt))" in wire_crossmodal,
+                ".check_access(graph, Self::crossmodal_access(&stmt))"
+                in wire_crossmodal,
                 wire_execute.find("self.check_access_for_kind(&graph, &kind).await?")
                 < wire_execute.find("self.execute_dispatch_and_finish("),
             )
@@ -247,12 +256,10 @@ def main() -> None:
     access = read("src/server/access.rs")
     isolation, can_see_row = isolation_source()
     dispatch = read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
-    graph_ops = read_module_tree(
-        "src/server/handlers/graph_ops.rs", root_dir=ROOT
-    )
+    graph_ops = read_module_tree("src/server/handlers/graph_ops.rs", root_dir=ROOT)
     knowledge = knowledge_stream_handler_source()
     query = read_module_tree("src/server/handlers/query.rs", root_dir=ROOT)
-    rdf = read("src/server/handlers/rdf.rs")
+    rdf = rdf_handler_source()
     distributed = read("src/server/handlers/dist_compute.rs")
     pregel = read("src/raft/pregel.rs")
     wire = read("src/server/wire/mod.rs")
@@ -483,7 +490,7 @@ def main() -> None:
         all(
             (
                 rdf.count("must carry the universal served-read authority") >= 5,
-                "let core = authority.project_core(&core);" in rdf,
+                rdf.count("let projected = authority.project_core") >= 5,
                 "rls.filter_view(caller, &mut snap);" in rdf,
             )
         ),

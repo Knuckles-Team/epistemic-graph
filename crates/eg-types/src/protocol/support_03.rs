@@ -4,6 +4,7 @@ use super::*;
 /// All identifiers are domain-separated opaque projection references.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RecomputeMaterializationResult {
     pub id: String,
     pub depends_on: Vec<String>,
@@ -22,6 +23,7 @@ pub struct RecomputeMaterializationResult {
 /// Returned via `ResultPayload::raw`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct MaterializationStatusResult {
     pub status: Option<String>,
     pub source_graph_version: u64,
@@ -34,6 +36,7 @@ pub struct MaterializationStatusResult {
 /// Returned via `ResultPayload::raw`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct StaleMaterializationsResult {
     pub ids: Vec<String>,
     pub source_graph_version: u64,
@@ -58,6 +61,7 @@ pub struct StaleMaterializationsResult {
 /// zero-or-more for `preferred`/`stable`. Returned via `ResultPayload::raw`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ResolveConflictResult {
     pub semantics: String,
     pub surviving: Vec<String>,
@@ -78,6 +82,7 @@ pub struct ResolveConflictResult {
 /// `epistemic` implies `query`, so it is always nameable here).
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct EvidenceCitationWire {
     pub evidence_id: String,
     /// One of `"Supports"`, `"Contradicts"`, `"Attacks"`.
@@ -105,6 +110,7 @@ pub struct EvidenceCitationWire {
 /// silently reporting a raw digest as if it were that region; see `reason`).
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ResolvedArtifactWire {
     /// `"text"`, `"blob"`, or `"unresolved"`.
     pub kind: String,
@@ -127,6 +133,7 @@ pub struct ResolvedArtifactWire {
 /// `ResultPayload::raw`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ExplainEvidenceResult {
     pub citations: Vec<EvidenceCitationWire>,
 }
@@ -157,6 +164,7 @@ pub struct StructuralEquationWire {
 /// variance/credible-interval result of one causal query for one variable.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CausalEstimateWire {
     pub mean: f64,
     pub variance: f64,
@@ -169,6 +177,7 @@ pub struct CausalEstimateWire {
 /// `ResultPayload::raw`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CausalEstimateResult {
     pub estimates: Vec<(String, CausalEstimateWire)>,
 }
@@ -190,6 +199,7 @@ pub enum CausalQueryModeWire {
 /// `ResultPayload::raw`.
 #[cfg(feature = "epistemic")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CausalCounterfactualResult {
     pub values: Vec<(String, f64)>,
 }

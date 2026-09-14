@@ -325,6 +325,5 @@ pub use support_04::*;
 
 mod method;
 pub use method::Method;
-
 #[cfg(test)]
 mod tests;
