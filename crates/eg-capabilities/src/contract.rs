@@ -16,6 +16,7 @@ use crate::{ConsumerProfile, MethodDescriptor, Stability};
 
 mod format_identity;
 mod python;
+mod python_render;
 mod results;
 mod schema;
 

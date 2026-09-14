@@ -65,9 +65,11 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         'if [ -n "${KISS_REJECT_PATH:-}" ] && [ -e "$KISS_REJECT_PATH" ]; then\n'
         "  exit 8\n"
         "fi\n"
-        "printf 'Analyzed: 1 files, 0 code_units, 0 statements, 1 graph_nodes, 0 graph_edges\\n'\n"
+        "printf 'Analyzed: 1 files, 0 code_units, 0 statements, "
+        "1 graph_nodes, 0 graph_edges\\n'\n"
         'if grep -q violation "$source"; then\n'
-        "  printf 'VIOLATION:lines_per_file:%s:1:example.rs: File has 901 lines (threshold: 900) Split it.\\n' \"$source\"\n"
+        "  printf 'VIOLATION:lines_per_file:%s:1:example.rs: File has 901 lines "
+        '(threshold: 900) Split it.\\n\' "$source"\n'
         "  exit 1\n"
         "fi\n"
         "printf 'NO VIOLATIONS\\n'\n",
@@ -228,7 +230,7 @@ def test_hook_materializes_nested_cfg_path_and_include_closure(
     (repo / "src/special").mkdir()
     (repo / "src/root.rs").write_text(
         "mod child;\n"
-        "#[cfg(feature = \"extra\")]\n#[path = \"special/extra.rs\"]\nmod extra;\n"
+        '#[cfg(feature = "extra")]\n#[path = "special/extra.rs"]\nmod extra;\n'
         'include!("included.inc");\n',
         encoding="utf-8",
     )
@@ -364,7 +366,10 @@ def test_hook_handles_newline_in_staged_rust_path(
 
 @pytest.mark.parametrize(
     ("declaration", "child_path"),
-    [("mod child;\n", "src/root/child.rs"), ('include!("child.rs");\n', "src/child.rs")],
+    [
+        ("mod child;\n", "src/root/child.rs"),
+        ('include!("child.rs");\n', "src/child.rs"),
+    ],
 )
 def test_hook_rejects_nested_module_or_include_symlink(
     repository: tuple[Path, Path, Path], declaration: str, child_path: str
@@ -403,9 +408,7 @@ def test_hook_uses_staged_config_and_scanner_contract_module(
         'raise RuntimeError("unstaged module spoof")\n', encoding="utf-8"
     )
 
-    result = _run_hook(
-        repo, kiss, log, KISS_EXPECT_CONFIG_TEXT="staged-policy-marker"
-    )
+    result = _run_hook(repo, kiss, log, KISS_EXPECT_CONFIG_TEXT="staged-policy-marker")
 
     assert result.returncode == 0, result.stderr
     assert log.read_text(encoding="utf-8") == "staged clean\n"
@@ -433,7 +436,9 @@ def test_hook_uses_staged_pyproject_scanner_version(
     assert not log.exists()
 
 
-@pytest.mark.parametrize("policy_path", ["pyproject.toml", "scripts/scanner_contract.py"])
+@pytest.mark.parametrize(
+    "policy_path", ["pyproject.toml", "scripts/scanner_contract.py"]
+)
 def test_hook_rejects_staged_policy_input_symlink(
     repository: tuple[Path, Path, Path], tmp_path: Path, policy_path: str
 ) -> None:
