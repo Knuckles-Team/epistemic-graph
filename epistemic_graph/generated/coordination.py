@@ -31,7 +31,7 @@ async def send_claim_next(
 ) -> OpaqueResult:
     """ClaimNext - node:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ClaimNextRequest.model_validate(params or {})
@@ -61,7 +61,7 @@ async def send_claim_work_item(
 ) -> OpaqueResult:
     """ClaimWorkItem - work:claim, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ClaimWorkItemRequest.model_validate(params or {})
@@ -91,7 +91,7 @@ async def send_acquire_capacity(
 ) -> OpaqueResult:
     """AcquireCapacity - capacity:lease, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     AcquireCapacityRequest.model_validate(params or {})
@@ -121,7 +121,7 @@ async def send_renew_capacity(
 ) -> OpaqueResult:
     """RenewCapacity - capacity:lease, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RenewCapacityRequest.model_validate(params or {})
@@ -151,7 +151,7 @@ async def send_release_capacity(
 ) -> OpaqueResult:
     """ReleaseCapacity - capacity:lease, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ReleaseCapacityRequest.model_validate(params or {})
@@ -181,7 +181,7 @@ async def send_reclaim_expired_capacity(
 ) -> OpaqueResult:
     """ReclaimExpiredCapacity - capacity:lease, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ReclaimExpiredCapacityRequest.model_validate(params or {})
@@ -211,7 +211,7 @@ async def send_reconcile_capacity(
 ) -> OpaqueResult:
     """ReconcileCapacity - capacity:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ReconcileCapacityRequest.model_validate(params or {})
@@ -241,7 +241,7 @@ async def send_capacity_status(
 ) -> OpaqueResult:
     """CapacityStatus - capacity:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     CapacityStatusRequest.model_validate(params or {})
@@ -271,7 +271,7 @@ async def send_update_capacity_cell(
 ) -> OpaqueResult:
     """UpdateCapacityCell - capacity:admin, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Raw) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     UpdateCapacityCellRequest.model_validate(params or {})
@@ -301,7 +301,7 @@ async def send_kg_delegate(
 ) -> OpaqueResult:
     """KgDelegate - work:delegate, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: ResultPayload::Raw (contract/schemas/result.coordination.json#/methods/KgDelegate).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     KgDelegateRequest.model_validate(params or {})
@@ -331,7 +331,7 @@ async def send_submit_work_item(
 ) -> OpaqueResult:
     """SubmitWorkItem - work:submit, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     SubmitWorkItemRequest.model_validate(params or {})
@@ -361,7 +361,7 @@ async def send_submit_work_items(
 ) -> OpaqueResult:
     """SubmitWorkItems - work:submit, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     SubmitWorkItemsRequest.model_validate(params or {})
@@ -391,7 +391,7 @@ async def send_mint_work_item_claim_capability(
 ) -> OpaqueResult:
     """MintWorkItemClaimCapability - work:claim-capability, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MintWorkItemClaimCapabilityRequest.model_validate(params or {})
@@ -421,7 +421,7 @@ async def send_verify_work_item_claim_capability(
 ) -> OpaqueResult:
     """VerifyWorkItemClaimCapability - work:claim-capability, GraphRedb, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     VerifyWorkItemClaimCapabilityRequest.model_validate(params or {})
@@ -457,7 +457,7 @@ async def send_renew_work_item_lease(
 ) -> OpaqueResult:
     """RenewWorkItemLease - work:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RenewWorkItemLeaseRequest.model_validate(params or {})
@@ -498,7 +498,7 @@ async def send_commit_work_item_result(
 ) -> OpaqueResult:
     """CommitWorkItemResult - work:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CommitWorkItemResultRequest.model_validate(params or {})
@@ -532,7 +532,7 @@ async def send_cancel_work_item(
 ) -> OpaqueResult:
     """CancelWorkItem - work:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CancelWorkItemRequest.model_validate(params or {})
@@ -570,7 +570,7 @@ async def send_defer_work_item(
 ) -> OpaqueResult:
     """DeferWorkItem - work:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     DeferWorkItemRequest.model_validate(params or {})
@@ -600,7 +600,7 @@ async def send_cas_work_item_metadata(
 ) -> OpaqueResult:
     """CasWorkItemMetadata - work:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CasWorkItemMetadataRequest.model_validate(params or {})
@@ -630,7 +630,7 @@ async def send_reserve_work_item_resources(
 ) -> OpaqueResult:
     """ReserveWorkItemResources - resource:reserve, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ReserveWorkItemResourcesRequest.model_validate(params or {})
@@ -660,7 +660,7 @@ async def send_release_work_item_resources(
 ) -> OpaqueResult:
     """ReleaseWorkItemResources - resource:reserve, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ReleaseWorkItemResourcesRequest.model_validate(params or {})
@@ -690,7 +690,7 @@ async def send_reclaim_work_item_resources(
 ) -> OpaqueResult:
     """ReclaimWorkItemResources - resource:reserve, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ReclaimWorkItemResourcesRequest.model_validate(params or {})
@@ -720,7 +720,7 @@ async def send_query_work_item_reservation(
 ) -> OpaqueResult:
     """QueryWorkItemReservation - resource:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     QueryWorkItemReservationRequest.model_validate(params or {})
@@ -750,7 +750,7 @@ async def send_resource_reservation_status(
 ) -> OpaqueResult:
     """ResourceReservationStatus - resource:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ResourceReservationStatusRequest.model_validate(params or {})
@@ -780,7 +780,7 @@ async def send_update_resource_host(
 ) -> OpaqueResult:
     """UpdateResourceHost - resource:host, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     UpdateResourceHostRequest.model_validate(params or {})
@@ -810,7 +810,7 @@ async def send_reserve_development_lane(
 ) -> OpaqueResult:
     """ReserveDevelopmentLane - lane:reserve, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ReserveDevelopmentLaneRequest.model_validate(params or {})
@@ -840,7 +840,7 @@ async def send_renew_development_lane(
 ) -> OpaqueResult:
     """RenewDevelopmentLane - lane:reserve, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RenewDevelopmentLaneRequest.model_validate(params or {})
@@ -870,7 +870,7 @@ async def send_observe_development_lane(
 ) -> OpaqueResult:
     """ObserveDevelopmentLane - lane:reserve, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ObserveDevelopmentLaneRequest.model_validate(params or {})
@@ -900,7 +900,7 @@ async def send_finish_development_lane(
 ) -> OpaqueResult:
     """FinishDevelopmentLane - lane:reserve, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     FinishDevelopmentLaneRequest.model_validate(params or {})
@@ -930,7 +930,7 @@ async def send_cleanup_development_lane(
 ) -> OpaqueResult:
     """CleanupDevelopmentLane - lane:cleanup, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CleanupDevelopmentLaneRequest.model_validate(params or {})
@@ -960,7 +960,7 @@ async def send_query_development_lane(
 ) -> OpaqueResult:
     """QueryDevelopmentLane - lane:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     QueryDevelopmentLaneRequest.model_validate(params or {})
@@ -990,7 +990,7 @@ async def send_development_lane_status(
 ) -> OpaqueResult:
     """DevelopmentLaneStatus - lane:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DevelopmentLaneStatusRequest.model_validate(params or {})
@@ -1020,7 +1020,7 @@ async def send_update_development_lane_quota(
 ) -> OpaqueResult:
     """UpdateDevelopmentLaneQuota - lane:quota, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Raw) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     UpdateDevelopmentLaneQuotaRequest.model_validate(params or {})
@@ -1052,7 +1052,7 @@ async def send_resource_stats_page(
 ) -> OpaqueResult:
     """ResourceStatsPage - service:control, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ResourceStatsPageRequest.model_validate(params or {})
@@ -1082,7 +1082,7 @@ async def send_analytics_job(
 ) -> OpaqueResult:
     """AnalyticsJob - jobs:write, JobsRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     AnalyticsJobRequest.model_validate(params or {})
@@ -1112,7 +1112,7 @@ async def send_statechart(
 ) -> OpaqueResult:
     """Statechart - statechart:write, StatechartRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     StatechartRequest.model_validate(params or {})

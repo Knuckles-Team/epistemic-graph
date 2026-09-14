@@ -37,12 +37,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CreateGraph"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -80,12 +76,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DeleteGraph"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -115,12 +107,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ListGraphs"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -157,12 +145,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Reshard"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -199,12 +183,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CatalogAssign"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/CatalogAssign",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -241,12 +229,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CatalogReassign"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/CatalogReassign",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -283,12 +275,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CatalogRemove"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/CatalogRemove",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -318,12 +314,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CatalogList"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -353,12 +345,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RebalancePlan"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -395,12 +383,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RebalanceExecute"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -430,12 +414,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PlacementRoute"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -472,12 +452,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RaftAddLearner"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/RaftAddLearner",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -514,12 +498,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RaftChangeMembership"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/RaftChangeMembership",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -549,12 +537,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ClusterMembers"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -592,12 +576,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RegisterServer"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -634,12 +614,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PlacementAdmin"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -669,12 +645,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Ping"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/Ping",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -704,12 +684,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Health"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -740,12 +716,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Shutdown"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/Shutdown",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -775,12 +755,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CancelRequest"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/CancelRequest",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -817,12 +801,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RegisterForeignSource"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/RegisterForeignSource",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -857,12 +845,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RegisterUdf"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/RegisterUdf",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -897,12 +889,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CreateMatView"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -930,12 +918,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetMatView"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -970,12 +954,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RefreshMatView"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -1012,12 +992,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PlanMatViewDefine"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1047,12 +1023,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PlanMatViewGet"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1089,12 +1061,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PlanMatViewRefresh"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1131,12 +1099,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PlanMatViewDrop"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1166,12 +1130,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TopologicalSort"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Ids.json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1201,12 +1161,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FindCycle"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1236,12 +1192,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetShortestPath"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1271,14 +1223,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetBlastRadius"
       },
-      "result_provenance": {
-        "client_annotation_said": "Ids",
-        "dispatch_said": "Json",
-        "kind": "contradicted"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Conflicting"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1308,12 +1254,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DegreeCentrality"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DegreeCentrality",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1343,12 +1293,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DegreeCentralityAll"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1378,12 +1324,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BetweennessCentrality"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1413,12 +1355,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PageRank"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1448,12 +1386,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PersonalizedPageRank"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1483,12 +1417,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ConnectedComponents"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1518,12 +1448,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/StronglyConnectedComponents"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1553,12 +1479,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MinimumSpanningTree"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1588,12 +1510,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CommunityDetection"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1623,12 +1541,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CommunityDetectEphemeral"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1658,12 +1572,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GraphColoring"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1693,12 +1603,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ComputeSimilarityEdges"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1728,12 +1634,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ResolveCandidates"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1763,12 +1665,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ClusterHierarchyRefresh"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1798,12 +1696,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ClusterHierarchyClusters"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1833,12 +1727,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ClusterHierarchyExpand"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1868,12 +1758,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Vf2SubgraphMatch"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1903,12 +1789,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MatchOntologyTerms"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1938,12 +1820,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BatchL2Normalize"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -1973,12 +1851,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceOptimizePortfolio"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2008,12 +1882,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceRiskParity"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2043,12 +1913,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceBlackLitterman"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2078,12 +1944,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceEfficientFrontier"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2113,12 +1975,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsLinearRegression"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2148,12 +2006,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsKMeans"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2183,12 +2037,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsPca"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2218,12 +2068,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsComputeStats"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2253,12 +2099,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsTrainTestSplit"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2288,12 +2130,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsFitEstimator"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2323,12 +2161,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsPredictEstimator"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2358,12 +2192,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsSoftmax"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2393,12 +2223,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsLogSoftmax"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2428,12 +2254,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsCrossEntropy"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2463,12 +2285,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsDpoLoss"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2498,12 +2316,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsGrpoSurrogate"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2533,12 +2347,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsKlDivergence"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsKlDivergence",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2568,12 +2386,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsAdamStep"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2603,12 +2417,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DsSgdStep"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2638,12 +2448,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceVar"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceVar",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2673,12 +2487,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceCvar"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceCvar",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2708,12 +2526,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceMaxDrawdown"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceMaxDrawdown",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2743,12 +2565,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceDrawdownSeries"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2778,12 +2596,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceDownsideDeviation"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceDownsideDeviation",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2813,12 +2635,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceRiskMetrics"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2848,12 +2666,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceMonteCarloVar"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceMonteCarloVar",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2883,12 +2705,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceStressTest"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2918,12 +2736,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceDetectRegimes"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2953,12 +2767,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceRollingZscore"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -2988,12 +2798,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceEwma"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3023,12 +2829,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceSignalDecay"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3058,12 +2860,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceCombineAlphas"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3093,12 +2891,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceCrossSectionalRank"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3128,12 +2922,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceMomentum"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3163,12 +2953,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceMeanReversion"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3198,12 +2984,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceInformationCoefficient"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceInformationCoefficient",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3233,12 +3023,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceTwap"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3268,12 +3054,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceVwap"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3303,12 +3085,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceMarketImpact"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceMarketImpact",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3338,12 +3124,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinancePairsTrading"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3373,12 +3155,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceMatchOrders"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3408,12 +3186,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceAvellanedaStoikov"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3443,12 +3217,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceGltQuotes"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3478,12 +3248,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceLogitQuotes"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3513,12 +3279,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceGlostenMilgromSpread"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceGlostenMilgromSpread",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3548,12 +3318,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceExpectedPnlRate"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceExpectedPnlRate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3583,12 +3357,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceBreakevenAlpha"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceBreakevenAlpha",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3618,12 +3396,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceOfiSeries"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3653,12 +3427,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceMicropriceSeries"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3688,12 +3458,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceVpinPm"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceVpinPm",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3723,12 +3497,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceHawkesMle"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3758,12 +3528,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceHardimanBouchaud"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceHardimanBouchaud",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3793,12 +3567,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceKyleLambda"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceKyleLambda",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3828,12 +3606,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceSurveillanceRisk"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3863,12 +3637,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceKellyFraction"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceKellyFraction",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3898,12 +3676,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceBayesianKelly"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceBayesianKelly",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3933,12 +3715,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinancePosteriorCredibleInterval"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -3968,12 +3746,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinancePurgedCpcv"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4003,12 +3777,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceDeflatedSharpe"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceDeflatedSharpe",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4038,12 +3816,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceProbabilityBacktestOverfit"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceProbabilityBacktestOverfit",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4073,12 +3855,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceDieboldMariano"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4108,12 +3886,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceForensicReport"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4143,12 +3917,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceKalmanFilter1d"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4178,12 +3948,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceKalmanBeta"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4213,12 +3979,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceKalmanVolatility"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4248,12 +4010,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceAdfTest"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4283,12 +4041,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceOuCalibrate"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4318,12 +4072,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceOuOptimalThresholds"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4353,12 +4103,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceMarkovTransitionMatrix"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4388,12 +4134,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceOrderBookImbalance"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4423,12 +4165,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceQueueImbalance"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4458,12 +4196,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceRealizedVolTick"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4493,12 +4227,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceSpreadReversion"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4528,12 +4258,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceInformationRatio"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceInformationRatio",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4563,12 +4297,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceEffectiveIndependentN"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceEffectiveIndependentN",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4598,12 +4336,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceAlphaCombinationEngine"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4633,12 +4367,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceBrierScore"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceBrierScore",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4668,12 +4406,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceConvergenceGate"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4703,12 +4437,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceEmpiricalKelly"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceEmpiricalKelly",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4738,12 +4476,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceSabrImpliedVol"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceSabrImpliedVol",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4773,12 +4515,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceSabrSmile"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4808,12 +4546,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinanceSabrCalibrate"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4841,12 +4575,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RunUdf"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Raw"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -4874,12 +4604,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DistributedCompute"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -4917,12 +4643,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineAssociate"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -4960,12 +4682,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineCluster"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5003,12 +4721,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineAnomaly"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5038,12 +4752,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineClassifyFit"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5081,12 +4791,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineClassifyPredict"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5124,12 +4830,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineReduce"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5167,12 +4869,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GraphLearnFit"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5210,12 +4908,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GraphLearnPredict"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5253,12 +4947,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MiningPipelineTrain"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5296,12 +4986,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MiningPipelineServe"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5339,12 +5025,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MiningPipelinePredict"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5374,12 +5056,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MiningPipelineEvaluate"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5409,12 +5087,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MiningPipelineCompare"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5452,12 +5126,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineSequence"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5495,12 +5165,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineForecast"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5538,12 +5204,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineText"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5581,12 +5243,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineSubgraph"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5624,12 +5282,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineEntityResolve"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5667,12 +5321,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineCausalImpact"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5710,12 +5360,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineProcess"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5753,12 +5399,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineRootCause"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5796,12 +5438,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineRiskPropagation"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5839,12 +5477,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineOntologyGap"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5882,12 +5516,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineRetrievalQuality"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5925,12 +5555,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MineCommunity"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -5968,12 +5594,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ClaimNext"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6011,12 +5633,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ClaimWorkItem"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6054,12 +5672,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AcquireCapacity"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6097,12 +5711,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RenewCapacity"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6140,12 +5750,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ReleaseCapacity"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6183,12 +5789,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ReclaimExpiredCapacity"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6218,12 +5820,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ReconcileCapacity"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6253,12 +5851,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CapacityStatus"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6296,12 +5890,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/UpdateCapacityCell"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Raw"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6339,12 +5929,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/KgDelegate"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/KgDelegate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6382,12 +5976,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SubmitWorkItem"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6425,12 +6015,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SubmitWorkItems"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6468,12 +6054,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MintWorkItemClaimCapability"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6507,12 +6089,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/VerifyWorkItemClaimCapability"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6550,12 +6128,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RenewWorkItemLease"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6593,12 +6167,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CommitWorkItemResult"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6636,12 +6206,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CancelWorkItem"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6679,12 +6245,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DeferWorkItem"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6722,12 +6284,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CasWorkItemMetadata"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6765,12 +6323,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ReserveWorkItemResources"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6808,12 +6362,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ReleaseWorkItemResources"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6851,12 +6401,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ReclaimWorkItemResources"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6886,12 +6432,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/QueryWorkItemReservation"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6921,12 +6463,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ResourceReservationStatus"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -6964,12 +6502,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/UpdateResourceHost"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7007,12 +6541,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ReserveDevelopmentLane"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7050,12 +6580,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RenewDevelopmentLane"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7093,12 +6619,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ObserveDevelopmentLane"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7136,12 +6658,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FinishDevelopmentLane"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7179,12 +6697,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CleanupDevelopmentLane"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7214,12 +6728,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/QueryDevelopmentLane"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7249,12 +6759,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DevelopmentLaneStatus"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7292,12 +6798,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/UpdateDevelopmentLaneQuota"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Raw"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7327,12 +6829,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ResourceStatsPage"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7369,12 +6867,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AnalyticsJob"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7411,12 +6905,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Statechart"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7454,12 +6944,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AddNode"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7497,12 +6983,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CreateNodeIfAbsent"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/CreateNodeIfAbsent",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7540,12 +7030,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RemoveNode"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7575,12 +7061,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/HasNode"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/HasNode",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7610,12 +7100,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetNodes"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.NodeList.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "NodeList"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetNodes",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7645,12 +7139,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetNodesByLabel"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.NodeList.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "NodeList"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetNodesByLabel",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7680,12 +7178,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetNodeProperties"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -7723,12 +7217,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CompareAndSetNodeFields"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/CompareAndSetNodeFields",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7766,12 +7264,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CreateSummaryNode"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/CreateSummaryNode",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7809,12 +7311,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Consolidate"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/Consolidate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7852,12 +7358,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Reinforce"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/Reinforce",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7895,12 +7405,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DecayNode"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/DecayNode",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7938,12 +7452,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DecayMemories"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/DecayMemories",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7981,12 +7499,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/EvictBelow"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Ids.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Ids"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/EvictBelow",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8024,12 +7546,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Maintain"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -8059,12 +7577,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SummaryChildren"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Ids.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Ids"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/SummaryChildren",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8094,12 +7616,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SummariesAtLevel"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Ids.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Ids"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/SummariesAtLevel",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8135,12 +7661,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AddSceneObject"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -8176,12 +7698,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SetPose"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -8217,12 +7735,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Reparent"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/Reparent",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -8250,12 +7772,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/WorldTransform"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -8283,12 +7801,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SceneChildren"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Ids.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Ids"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/SceneChildren",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -8326,12 +7848,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/StartTrajectory"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/StartTrajectory",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8369,12 +7895,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AppendStep"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -8404,12 +7926,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DiscountedReturn"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Float.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Float"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/DiscountedReturn",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8439,12 +7965,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BestTrajectory"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -8474,12 +7996,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetNodePropertiesBatch"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -8509,12 +8027,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/HasNodesBatch"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -8544,12 +8058,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/NodeCount"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/NodeCount",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8579,12 +8097,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/NodeIds"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Ids.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Ids"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/NodeIds",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8622,12 +8144,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AddEdge"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/AddEdge",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8665,12 +8191,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RemoveEdge"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -8708,12 +8230,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/InvalidateEdge"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/InvalidateEdge",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8751,12 +8277,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SupersedeEdge"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -8786,12 +8308,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/HasEdge"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/HasEdge",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8821,12 +8347,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetEdges"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.EdgeList.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "EdgeList"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetEdges",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8856,12 +8386,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetEdgesPage"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -8899,12 +8425,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ClearGraph"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/ClearGraph",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8934,12 +8464,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetEdgeProperties"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -8969,12 +8495,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetEdgePropertiesBatch"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9004,12 +8526,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/EdgeCount"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/EdgeCount",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9039,12 +8565,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/InDegree"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/InDegree",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9074,12 +8604,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/OutDegree"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/OutDegree",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9109,12 +8643,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetPredecessors"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Ids.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Ids"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetPredecessors",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9144,12 +8682,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetSuccessors"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Ids.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Ids"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetSuccessors",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9179,12 +8721,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetNeighbors"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Ids.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Ids"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetNeighbors",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9214,12 +8760,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetNeighborsBatch"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9249,12 +8791,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/UnionGetNodeProperties"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9284,12 +8822,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/UnionGetNodesByLabel"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9319,12 +8853,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/UnionGetNeighbors"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Ids.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Ids"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/UnionGetNeighbors",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9362,14 +8900,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PruneByLifecycle"
       },
-      "result_provenance": {
-        "client_annotation_said": "Count",
-        "dispatch_said": "Json",
-        "kind": "contradicted"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Conflicting"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9399,12 +8931,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Metrics"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9442,12 +8970,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/EvictLRU"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/EvictLRU",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9485,12 +9017,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DecaySweep"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9528,12 +9056,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TouchNodes"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/TouchNodes",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9563,12 +9095,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetSubgraph"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9598,12 +9126,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Fork"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9633,12 +9157,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DiffAgainst"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9674,12 +9194,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CompactNodesByType"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -9717,12 +9233,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Reconcile"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/Reconcile",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9760,12 +9280,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ApplyMutation"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9803,12 +9319,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AddTriples"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9846,12 +9358,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RemoveTriples"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9889,12 +9397,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DropNamedGraph"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/DropNamedGraph",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9932,12 +9444,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ServedModality"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -9967,12 +9475,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ParseFile"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10002,12 +9506,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ParseFiles"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10037,12 +9537,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/IndexRepository"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10072,12 +9568,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ObserveScreen"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10115,12 +9607,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AddEmbedding"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/AddEmbedding",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10156,12 +9652,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SemanticIndex"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Raw"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10191,12 +9683,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SemanticSearch"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10226,12 +9714,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Discover"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10261,12 +9745,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Quantum"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10296,12 +9776,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Asr"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10331,12 +9807,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Viz"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10372,12 +9844,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DeclareExchange"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/DeclareExchange",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10413,12 +9889,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DeleteExchange"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/DeleteExchange",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10454,12 +9934,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BindQueue"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/BindQueue",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10495,12 +9979,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/UnbindQueue"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/UnbindQueue",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10536,12 +10024,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Publish"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/Publish",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10577,12 +10069,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DeclareQueue"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/DeclareQueue",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10618,12 +10114,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PublishEx"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/PublishEx",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10659,12 +10159,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BrokerConsume"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10700,12 +10196,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BrokerAck"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/BrokerAck",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10741,12 +10241,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BrokerReject"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/BrokerReject",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10782,12 +10286,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SweepExpired"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/SweepExpired",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10823,12 +10331,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/StreamDeclare"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/StreamDeclare",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10864,12 +10376,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/StreamPublish"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/StreamPublish",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10899,12 +10415,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/StreamRead"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -10940,12 +10452,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/StreamTrim"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/StreamTrim",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10981,12 +10497,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/StreamCommitOffset"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/StreamCommitOffset",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11016,12 +10536,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/StreamCommittedOffset"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11057,12 +10573,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PublishConfirmed"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11098,12 +10610,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/PublishIdempotent"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11139,12 +10647,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BrokerAckTag"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/BrokerAckTag",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11180,12 +10692,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BrokerNackTag"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/BrokerNackTag",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11221,12 +10737,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BrokerRenewTag"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/BrokerRenewTag",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11263,12 +10783,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CreateChannel"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11305,12 +10821,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/JoinChannel"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11347,12 +10859,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/LeaveChannel"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11389,12 +10897,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CloseChannel"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11431,12 +10935,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SendMessage"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11466,12 +10966,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetChannelMessages"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11501,12 +10997,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ListChannels"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11536,12 +11028,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetChannelMembers"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Ids.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Ids"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/GetChannelMembers",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11571,12 +11067,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CdcRead"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11613,12 +11105,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RegisterContinuousQuery"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/RegisterContinuousQuery",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11648,12 +11144,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ReadContinuousQuery"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11690,12 +11182,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DropContinuousQuery"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/DropContinuousQuery",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11725,12 +11221,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Watch"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11767,12 +11259,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RegisterTrigger"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/RegisterTrigger",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11809,12 +11305,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/DropTrigger"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/DropTrigger",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11844,12 +11344,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ListTriggers"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11879,12 +11375,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FiredTriggers"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11921,12 +11413,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CepSubscribe"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/CepSubscribe",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11956,12 +11452,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CepPoll"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -11998,12 +11490,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CepUnsubscribe"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/CepUnsubscribe",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12033,14 +11529,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetContextView"
       },
-      "result_provenance": {
-        "client_annotation_said": "String",
-        "dispatch_said": "Json",
-        "kind": "contradicted"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Conflicting"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12070,12 +11560,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetChangeEnvelope"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12105,12 +11591,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetContentVersion"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12140,12 +11622,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetChangeCursor"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12183,12 +11661,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Sql"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12226,12 +11700,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CypherQuery"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12269,12 +11739,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GraphQl"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12304,12 +11770,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/KnowledgeStream"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12339,12 +11801,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/UnifiedQuery"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12374,12 +11832,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/UnifiedQueryText"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12409,12 +11863,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ExplainPlan"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12444,12 +11894,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ExplainProvenance"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12479,12 +11925,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ExplainProvenanceByIds"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12514,12 +11956,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ExplainPolicy"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12549,12 +11987,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ExplainBelief"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12584,12 +12018,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/EpistemicStatus"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12619,12 +12049,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/WhatChanged"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12660,12 +12086,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RecomputeMaterialization"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12695,12 +12117,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MaterializationStatus"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12730,12 +12148,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/StaleMaterializations"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12765,12 +12179,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ResolveConflict"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12800,12 +12210,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ExplainEvidence"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12835,12 +12241,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CausalEstimate"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12870,12 +12272,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/CausalCounterfactual"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12905,12 +12303,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RankByProvenance"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12940,12 +12334,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/NlQuery"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -12975,12 +12365,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnUnifiedQuery"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13010,12 +12396,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnUnifiedQueryText"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13053,12 +12435,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RunDatalogReasoning"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13088,12 +12466,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetRdf"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13123,12 +12497,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Sparql"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Raw"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13158,12 +12528,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/SparqlVirtual"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13193,12 +12559,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/OwlReason"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13228,12 +12590,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/OwlReasonDistributed"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13263,12 +12621,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/OwlExplain"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13296,12 +12650,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RunRules"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -13331,12 +12681,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ShaclValidate"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13374,12 +12720,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/IcvConfigure"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/IcvConfigure",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13407,12 +12757,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ShexValidate"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -13442,12 +12788,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetLedger"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13477,12 +12819,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AuditVerify"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13512,12 +12850,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AuditProveInclusion"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13554,12 +12888,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RegisterIdentity"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/RegisterIdentity",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13596,12 +12934,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/RbacAdmin"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13631,12 +12965,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/GetIdentity"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13666,12 +12996,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ToMsgpack"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13709,12 +13035,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/FromMsgpack"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/FromMsgpack",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13752,12 +13082,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ClearLedger"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/ClearLedger",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13795,12 +13129,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ApplyLedger"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/ApplyLedger",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13830,12 +13168,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Backup"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13872,12 +13206,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Restore"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -13914,12 +13244,32 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AgentLibrary"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Raw"
+        "bodies": {
+          "current": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "history": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "publish": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "retire": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "status": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/AgentLibrary",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -13956,12 +13306,32 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AgentGraph"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Raw"
+        "bodies": {
+          "current": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "history": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "publish": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "retire": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "status": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/AgentGraph",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -13998,12 +13368,36 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AgentComponent"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Raw"
+        "bodies": {
+          "current": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "history": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "publish": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "retire": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "search": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "status": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/AgentComponent",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -14040,12 +13434,36 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/AgentTemplate"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Raw"
+        "bodies": {
+          "current": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "history": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "instantiate": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "publish": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "retire": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "status": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/AgentTemplate",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -14081,12 +13499,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TsAppend"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/TsAppend",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14116,12 +13538,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TsRange"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -14151,12 +13569,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TsAsofJoin"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -14186,12 +13600,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TsWindow"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -14221,12 +13631,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TsGapFill"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -14262,12 +13668,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TsEvict"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/TsEvict",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14303,12 +13713,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TsDeleteSeries"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/TsDeleteSeries",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14338,12 +13752,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TsListSeries"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -14379,12 +13789,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BlobBegin"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/BlobBegin",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14420,12 +13834,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BlobChunkPut"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/BlobChunkPut",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14461,12 +13879,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BlobCommit"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/BlobCommit",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14496,12 +13918,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BlobFetchBegin"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -14531,12 +13949,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BlobChunkGet"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -14566,12 +13980,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BlobFetchEnd"
       },
-      "result_provenance": {
-        "kind": "confirmed"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/BlobFetchEnd",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14607,12 +14025,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BlobRef"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/BlobRef",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14648,12 +14070,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BlobUnref"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Count.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/BlobUnref",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14689,12 +14115,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BlobGc"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -14722,12 +14144,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/KvGet"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -14761,12 +14179,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/KvPut"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/KvPut",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -14800,12 +14222,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/KvDelete"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/KvDelete",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -14833,12 +14259,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/KvScan"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "internal"
     },
@@ -14872,12 +14294,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/KvCas"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/KvCas",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -14914,12 +14340,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ImportSqliteFile"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -14949,12 +14371,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ExportSqliteFile"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -14992,12 +14410,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BatchUpdate"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -15034,12 +14448,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/MultiGraphBatchUpdate"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -15077,12 +14487,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ApplyChangeEnvelope"
       },
-      "result_provenance": {
-        "kind": "dispatch-only"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -15120,12 +14526,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ApplyChangeEnvelopes"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -15163,14 +14565,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/ApplyMultisigMutation"
       },
-      "result_provenance": {
-        "client_annotation_said": "String",
-        "dispatch_said": "Bool",
-        "kind": "contradicted"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Conflicting"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -15207,12 +14603,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/BeginTxn"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.String.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/BeginTxn",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15249,12 +14649,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnAddNode"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnAddNode",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15291,12 +14695,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnRemoveNode"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnRemoveNode",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15333,12 +14741,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnAddEdge"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnAddEdge",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15375,12 +14787,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnRemoveEdge"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnRemoveEdge",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15417,12 +14833,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnCas"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnCas",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15459,12 +14879,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnAddEmbedding"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnAddEmbedding",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15501,12 +14925,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnBlobRef"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnBlobRef",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15543,12 +14971,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnAddMeasurement"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnAddMeasurement",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15585,12 +15017,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnAxiom"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnAxiom",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15627,12 +15063,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnConstruct"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnConstruct",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15669,12 +15109,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnPlanWriteback"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnPlanWriteback",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15711,12 +15155,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/TxnMaterializeBelief"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -15753,12 +15193,8 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Commit"
       },
-      "result_provenance": {
-        "kind": "undeclared"
-      },
       "result_schema": {
-        "kind": "opaque",
-        "payload": "Undeclared"
+        "kind": "unclassified"
       },
       "stability": "stable"
     },
@@ -15795,12 +15231,16 @@
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/Rollback"
       },
-      "result_provenance": {
-        "kind": "annotation-only"
-      },
       "result_schema": {
-        "kind": "named",
-        "schema": "contract/schemas/result.Bool.json"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/Rollback",
+        "selected_by": null
       },
       "stability": "stable"
     }

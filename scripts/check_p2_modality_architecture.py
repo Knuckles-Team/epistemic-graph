@@ -11,7 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, top_level_fns
-from rust_module_tree import read_module_tree
+from rust_lexer import (
+    _balanced_span_from,
+    _item_end,
+    _rust_code_mask,
+    _rust_comments_mask,
+)
+from rust_module_tree import read_compiler_family, read_module_tree
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,6 +30,18 @@ def compiler_source(relative: str) -> str:
     """Return a Rust module's compiler-reachable source tree."""
 
     return read_module_tree(relative, root_dir=ROOT, include_tests=True)
+
+
+def protocol_source() -> str:
+    """Return the production source of the compiler-declared protocol family."""
+
+    return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
+
+
+def raft_store_source() -> str:
+    """Return the production source of the compiler-declared Raft store family."""
+
+    return read_compiler_family("src/raft/store.rs", ROOT).production
 
 
 def knowledge_stream_handler_source() -> str:
@@ -47,7 +65,7 @@ def knowledge_stream_handler_source() -> str:
 def require_knowledge_stream_authority(handler: str) -> None:
     """Pin the sole lease-bound served authority and page fences."""
 
-    router = read("src/server/dispatch/router.rs")
+    router = read_module_tree("src/server/dispatch/router.rs", root_dir=ROOT)
     authority_path = reachable_source(router, "dispatch_governed_stream_write_methods")
     require(
         all(
@@ -89,18 +107,79 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(f"P2 architecture gate failed: {message}")
 
 
+def rust_function_bodies(source: str, name: str) -> list[tuple[str, str]]:
+    """Return headers and bodies for compiler-reachable Rust functions by name."""
+
+    code = _rust_code_mask(source)
+    functions: list[tuple[str, str]] = []
+    for match in re.finditer(
+        rf"\bfn\s+{re.escape(name)}(?:\s*<[^>{{}}]*>)?\s*\(", code
+    ):
+        opener = code.find("{", match.end())
+        require(opener >= 0, f"{name} has no function body")
+        closer = _balanced_span_from(code, opener, "{", "}")
+        line_start = code.rfind("\n", 0, match.start()) + 1
+        functions.append((source[line_start:opener], source[opener + 1 : closer]))
+    return functions
+
+
+def _public_probe_bodies(probes: list[tuple[str, str]]) -> list[str]:
+    return [body for header, body in probes if re.search(r"\bpub\s+fn\b", header)]
+
+
+def _concrete_probe_bodies(probes: list[tuple[str, str]]) -> list[str]:
+    return [
+        body
+        for _, body in probes
+        if "NativeProductionProbe {" in body
+        and re.search(r"\blet\s+malformed_and_resource_bounds\s*=", body)
+    ]
+
+
+def _public_probe_executes_concrete_probe(
+    public_probes: list[str], concrete_probes: list[str]
+) -> bool:
+    return (
+        len(public_probes) == 1
+        and bool(concrete_probes)
+        and (
+            public_probes[0] in concrete_probes
+            or "probe::production_probe()" in public_probes[0]
+        )
+    )
+
+
 def require_native_runtime_contract(modality: str, runtime: str) -> None:
     """Require the concrete runtime's executed production probe contract."""
 
-    require("Noop" not in runtime, f"{modality} runtime still contains a no-op")
+    code = _rust_code_mask(runtime)
+    require("Noop" not in code, f"{modality} runtime still contains a no-op")
     require(
-        f"Native{modality.title()}Runtime" in runtime,
+        f"Native{modality.title()}Runtime" in code,
         f"{modality} lacks a concrete native runtime",
     )
+    probes = rust_function_bodies(runtime, "production_probe")
     require(
-        "production_probe" in runtime
-        and "malformed_and_resource_bounds" in runtime,
+        _public_probe_executes_concrete_probe(
+            _public_probe_bodies(probes), _concrete_probe_bodies(probes)
+        ),
         f"{modality} lacks an executed native production probe",
+    )
+
+
+def require_native_probe_wiring(modality: str, contract: str, runtime: str) -> None:
+    """Prove the governed contract calls the runtime probe certified above."""
+
+    require_native_runtime_contract(modality, runtime)
+    methods = rust_function_bodies(contract, "native_production_probe")
+    require(
+        len(methods) == 1
+        and re.search(
+            r"\bSome\s*\(\s*crate::runtime::production_probe\s*\(\s*\)\s*\)",
+            _rust_code_mask(methods[0][1]),
+        )
+        is not None,
+        f"{modality} governed contract does not call its native production probe",
     )
 
 
@@ -133,26 +212,34 @@ def require_graph_dispatch_ordering(dispatch: str) -> None:
     fns = top_level_fns(dispatch)
     inner = fns.get("dispatch_graph_op_inner", "")
     require(inner != "", "dispatch_graph_op_inner is absent from dispatch.rs")
-    acl = call_offset(inner, "gate_graph_op_under_lock")
+    acl = call_offset(inner, "capture_graph_dispatch")
     placement = call_offset(inner, "resolve_routed_raft")
     routing = call_offset(inner, "route_graph_op_method")
     require(
-        acl >= 0 and placement > acl and routing > placement,
+        all((acl >= 0, placement > acl, routing > placement)),
         "KnowledgeStream is routed before graph ACL/placement semantics",
     )
     # ...and each delegate still does what its name claims. Without these, the
     # ordering above could be satisfied by three helpers that check nothing.
+    capture_path = reachable_source(dispatch, "capture_graph_dispatch")
     require(
-        "check_graph_access(" in fns.get("check_graph_op_access", ""),
+        all(
+            marker in capture_path
+            for marker in ("gate_graph_op_under_lock(", "check_graph_access(")
+        ),
         "the graph ACL gate no longer performs the graph ACL check",
     )
     ks_arm = "if matches!(&method, Method::KnowledgeStream"
     ks_routers = [name for name, body in fns.items() if ks_arm in body]
     post_lock = reachable_source(dispatch, "route_graph_op_method")
     require(
-        ks_routers != []
-        and all(fns[name] in post_lock for name in ks_routers)
-        and "dispatch_graph_op_inner" not in ks_routers,
+        all(
+            (
+                bool(ks_routers),
+                all(fns[name] in post_lock for name in ks_routers),
+                "dispatch_graph_op_inner" not in ks_routers,
+            )
+        ),
         "KnowledgeStream is routed outside the post-lock router, so it no "
         "longer sits behind graph ACL and placement resolution",
     )
@@ -196,9 +283,7 @@ def require_modality_governed_contracts() -> None:
             f"{modality} has no fail-closed payload privacy validation",
         )
         require(
-            "native_production_probe" in contract
-            and "native_index_keys" in contract
-            and "matches_native_predicate" in contract,
+            "native_index_keys" in contract and "matches_native_predicate" in contract,
             f"{modality} is not bound to native production certification",
         )
         cargo = read(f"crates/eg-{modality}/Cargo.toml")
@@ -206,7 +291,8 @@ def require_modality_governed_contracts() -> None:
 
     for modality in ("document", "image", "audio", "video"):
         runtime = compiler_source(f"crates/eg-{modality}/src/runtime.rs")
-        require_native_runtime_contract(modality, runtime)
+        contract = compiler_source(f"crates/eg-{modality}/src/contract.rs")
+        require_native_probe_wiring(modality, contract, runtime)
         cargo = read(f"crates/eg-{modality}/Cargo.toml")
         require('sha2 = "0.10"' in cargo, f"{modality} content identity is not SHA-256")
         require(
@@ -304,6 +390,16 @@ def require_knowledge_batch_result_stream() -> None:
     require("safe_reference(&row.id)" in stream, "result ids are not forced opaque")
 
 
+def require_governed_protocol_method(protocol: str, method: str) -> None:
+    """Require a method in both the capability ledger and protocol family."""
+
+    registry_rows = parse_method_policy_table(load_capability_sources(ROOT))
+    require(
+        any(row.name == method for row in registry_rows) and f"{method} {{" in protocol,
+        f"{method} is not a governed served protocol method",
+    )
+
+
 def require_served_knowledge_stream_wire() -> None:
     """The served KnowledgeStream wire: typed query, bound cursor, ACL ordering."""
 
@@ -343,13 +439,7 @@ def require_served_knowledge_stream_wire() -> None:
         "retired KnowledgeStream compatibility projection is still present",
     )
 
-    protocol = read("crates/eg-types/src/protocol.rs")
-    registry_rows = parse_method_policy_table(load_capability_sources(ROOT))
-    require(
-        any(row.name == "KnowledgeStream" for row in registry_rows)
-        and "KnowledgeStream {" in protocol,
-        "KnowledgeStream is not a governed served protocol method",
-    )
+    require_governed_protocol_method(protocol_source(), "KnowledgeStream")
     for adapter in (
         "graph_result_stream",
         "sql_result_stream",
@@ -419,7 +509,7 @@ def require_served_modality_plane() -> None:
 def require_served_modality_protocol() -> None:
     """The served modality protocol method and its complete wire operation set."""
 
-    wire = read("crates/eg-types/src/protocol.rs")
+    wire = protocol_source()
     require("ServedModality" in wire, "main protocol has no served modality method")
     wire_types = read("crates/eg-types/src/modality.rs")
     for operation in (
@@ -553,7 +643,7 @@ def require_modality_transport_path() -> None:
 def require_modality_mutation_governance() -> None:
     """Mutation, audit, and raft governance of served modality state."""
 
-    mutation = read("src/server/mutation.rs")
+    mutation = read_module_tree("src/server/mutation.rs", root_dir=ROOT)
     receipt = mutation[
         mutation.find("fn durable_receipt_method") : mutation.find(
             "/// Try to apply a coalescable", mutation.find("fn durable_receipt_method")
@@ -580,37 +670,138 @@ def require_modality_audit_and_replication() -> None:
     )
 
 
-def require_modality_raft_replication() -> None:
-    """Raft replication of sanitized served-modality commands."""
+def _sole_rust_body(source: str, name: str) -> str:
+    """Return one normalized compiler-reachable function body, or fail closed."""
 
-    raft = read("src/raft/mod.rs")
-    command_name = raft.find("pub struct SanitizedModalityRaftCommand")
+    matches = rust_function_bodies(source, name)
+    require(len(matches) == 1, f"expected one Rust function named {name}")
+    return re.sub(r"\s+", " ", matches[0][1])
+
+
+def _sanitized_command_shape(command: str) -> bool:
+    return (
+        "sealed_runtime_state" in command
+        and "source_bytes" not in command
+        and "deny_unknown_fields" in command
+    )
+
+
+def _command_validation_body(raft: str) -> str | None:
+    """Find the command validator that wires both integrity subchecks."""
+
+    matches = [
+        body
+        for _, body in rust_function_bodies(raft, "validate")
+        if "self.validate_runtime_state(server_secret)?;" in body
+        and "self.validate_authentication(server_secret)?;" in body
+    ]
+    if len(matches) != 1:
+        return None
+    return re.sub(r"\s+", " ", matches[0])
+
+
+def _sanitized_integrity_helpers_are_wired(raft: str) -> bool:
+    request_body = _sole_rust_body(raft, "validate_for_request")
+    runtime_body = _sole_rust_body(raft, "validate_runtime_state")
+    authentication_body = _sole_rust_body(raft, "validate_authentication")
+    command_body = _command_validation_body(raft)
+    if command_body is None:
+        return False
+    return all(
+        marker
+        for marker in (
+            "self.validate(server_secret)?;" in request_body,
+            "self.validate_runtime_state(server_secret)?;" in command_body,
+            "self.validate_authentication(server_secret)?;" in command_body,
+            "MAX_REPLICATED_MODALITY_STATE_BYTES" in runtime_body,
+            "crate::crypto::is_sealed(&self.sealed_runtime_state)" in runtime_body,
+            "sanitized_modality_tag(" in authentication_body,
+        )
+    )
+
+
+def _check_sanitized_modality_command(raft: str) -> None:
+    """Require the source-free, bounded command item and its integrity helpers."""
+
+    command_match = re.search(r"\bpub\s+struct\s+SanitizedModalityRaftCommand\b", raft)
+    require(
+        command_match is not None,
+        "the current sanitized modality Raft command is absent",
+    )
+    assert command_match is not None
+    command_name = command_match.start()
     command_start = raft.rfind("#[serde(deny_unknown_fields)]", 0, command_name)
-    command_end = raft.find("/// The application request replicated through Raft")
+    command_end = _item_end(raft, command_name, len(raft))
     require(
         0 <= command_start < command_end,
         "the current sanitized modality Raft command is absent",
     )
     command = raft[command_start:command_end]
     require(
-        "sealed_runtime_state" in command
-        and "source_bytes" not in command
-        and "deny_unknown_fields" in command
-        and "sanitized_modality_tag" in command
-        and "MAX_REPLICATED_MODALITY_STATE_BYTES" in command
-        and "is_sealed" in command,
+        _sanitized_command_shape(command),
         "Raft modality command is not encrypted, authenticated, bounded, and source-free",
     )
     require(
-        "encrypted_command_round_trips_without_raw_source" in raft
-        and "unsealed_or_forged_replica_state_fails_closed" in raft,
+        _sanitized_integrity_helpers_are_wired(raft),
+        "Raft modality command is not encrypted, authenticated, bounded, and source-free",
+    )
+
+
+def _check_sanitized_modality_correctness_tests(raft_tests: str) -> None:
+    bodies = [
+        rust_function_bodies(raft_tests, name)
+        for name in (
+            "encrypted_command_round_trips_without_raw_source",
+            "unsealed_or_forged_replica_state_fails_closed",
+        )
+    ]
+    require(
+        all(len(matches) == 1 and "assert!" in matches[0][1] for matches in bodies),
         "sanitized modality Raft correctness/privacy tests are absent",
     )
+
+
+def _check_sanitized_modality_privacy_tests(
+    raft_tests: str, raft_test_text: str
+) -> None:
+    code_matches = rust_function_bodies(
+        raft_tests, "mutation_batch_audit_and_outbox_retain_only_the_safe_receipt"
+    )
+    text_matches = rust_function_bodies(
+        raft_test_text, "mutation_batch_audit_and_outbox_retain_only_the_safe_receipt"
+    )
+    body = re.sub(r"\s+", " ", text_matches[0][1]) if len(text_matches) == 1 else ""
     require(
-        "mutation_batch_audit_and_outbox_retain_only_the_safe_receipt" in raft
-        and "AUTHORITATIVE_STATE_MUTATION|sha256:" in raft,
+        len(code_matches) == 1
+        and len(text_matches) == 1
+        and "let safe_receipt = command.receipt_method();" in body
+        and "vec![safe_receipt]" in body
+        and "assert!(!encoded.windows(source.len()).any(|window| window == source));"
+        in body
+        and "assert!(!encoded.windows(sealed.len()).any(|window| window == sealed));"
+        in body
+        and "assert_eq!(batch.outbox.len(), 1);" in body
+        and re.search(
+            r"assert!\(crate::audit::audit_line\(&batch\.operations\[0\]\.method\)"
+            r"\s*\.is_some_and\(\|line\| line\.starts_with\("
+            r'"AUTHORITATIVE_STATE_MUTATION\|sha256:"\)\)\);',
+            body,
+        )
+        is not None,
         "Raft privacy test does not cover MutationBatch, audit, and outbox surfaces",
     )
+
+
+def require_modality_raft_replication() -> None:
+    """Raft replication of sanitized served-modality commands."""
+
+    family = read_compiler_family("src/raft/mod.rs", ROOT)
+    raft = _rust_code_mask(family.production)
+    raft_tests = _rust_code_mask(family.with_tests)
+    raft_test_text = _rust_comments_mask(family.with_tests)
+    _check_sanitized_modality_command(raft)
+    _check_sanitized_modality_correctness_tests(raft_tests)
+    _check_sanitized_modality_privacy_tests(raft_tests, raft_test_text)
 
 
 def require_modality_replication_dispatch() -> None:
@@ -639,6 +830,38 @@ def require_modality_replication_dispatch() -> None:
     )
 
 
+def _follower_modality_validation_is_bound(validation: str, apply: str) -> bool:
+    request_bound_call = re.search(
+        r"command\s*\.\s*validate_for_request\s*\(\s*server_secret\s*,\s*"
+        r"&req\.mutation\.tenant_scope\s*,\s*&req\.graph_name\s*,\s*"
+        r"&req\.graph_fname\s*,?\s*\)\s*\?;",
+        validation,
+    )
+    return all(
+        (
+            "NativeMutationCommand::ServedModality { command }" in validation,
+            request_bound_call is not None,
+            "Self::validate_modality_command(req, server_secret)?" in apply,
+        )
+    )
+
+
+def _follower_modality_commit_is_sanitized(
+    durable_method: str, staged_apply: str, result: str
+) -> bool:
+    return all(
+        (
+            re.search(
+                r"\.map\((?:super::)+SanitizedModalityRaftCommand::receipt_method\)",
+                durable_method,
+            )
+            is not None,
+            "command.sealed_runtime_state.clone()" in staged_apply,
+            "command.result_msgpack.clone()" in result,
+        )
+    )
+
+
 def require_modality_durability() -> None:
     """Source-free durability and deterministic follower commit of modality state."""
 
@@ -648,18 +871,20 @@ def require_modality_durability() -> None:
         and "if let Method::ServedModality { op }" in mutation_apply,
         "durability policy does not document the state-backed source-free modality path",
     )
-    raft_store = read("src/raft/store.rs")
+    raft_store = raft_store_source()
+    validation_body = _sole_rust_body(raft_store, "validate_modality_command")
+    apply_body = _sole_rust_body(raft_store, "apply_ordinary_graph_mutation")
+    durable_method_body = _sole_rust_body(raft_store, "compute_durable_method")
+    staged_apply_body = _sole_rust_body(raft_store, "apply_staged_ordinary_mutation")
+    result_body = _sole_rust_body(raft_store, "modality_or_default_bool_result")
     require(
-        "NativeMutationCommand::ServedModality { command }" in raft_store
-        # `&server_secret` or `server_secret`: WB1-EG-01 extracted this into
-        # `validate_modality_command`, whose parameter is already `&str`, so
-        # the borrow moved to the call site. The property is that the replica
-        # validates the command before committing it.
-        and re.search(r"command\.validate\(&?server_secret\)\?;", raft_store)
-        is not None
-        and "command.sealed_runtime_state.clone()" in raft_store
-        and "command.result_msgpack.clone()" in raft_store
-        and ".map(super::SanitizedModalityRaftCommand::receipt_method)" in raft_store,
+        _follower_modality_validation_is_bound(validation_body, apply_body),
+        "followers do not validate and deterministically commit sanitized modality state",
+    )
+    require(
+        _follower_modality_commit_is_sanitized(
+            durable_method_body, staged_apply_body, result_body
+        ),
         "followers do not validate and deterministically commit sanitized modality state",
     )
 

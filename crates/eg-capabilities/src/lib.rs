@@ -44,8 +44,7 @@ pub use catalog::{method_schema, CONTRACT_CATALOG_DIGEST, METHOD_CATALOG};
 
 pub use descriptor::{
     error_set_for, format_identities_for, replay_class_for, ConsumerProfile, MethodDescriptor,
-    MethodId, MethodSpec, OpaqueKind, PayloadShape, ReplayClass, SchemaProvenance, SchemaRef,
-    Stability,
+    MethodId, MethodSpec, ReplayClass, Stability,
 };
 
 use eg_types::protocol::{CypherMode, Method};

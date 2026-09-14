@@ -32,7 +32,7 @@ async def send_batch_update(
 ) -> OpaqueResult:
     """BatchUpdate - node:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BatchUpdateRequest.model_validate(params or {})
@@ -62,7 +62,7 @@ async def send_multi_graph_batch_update(
 ) -> OpaqueResult:
     """MultiGraphBatchUpdate - node:write, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MultiGraphBatchUpdateRequest.model_validate(params or {})
@@ -92,7 +92,7 @@ async def send_apply_change_envelope(
 ) -> OpaqueResult:
     """ApplyChangeEnvelope - ingest:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ApplyChangeEnvelopeRequest.model_validate(params or {})
@@ -122,7 +122,7 @@ async def send_apply_change_envelopes(
 ) -> OpaqueResult:
     """ApplyChangeEnvelopes - ingest:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ApplyChangeEnvelopesRequest.model_validate(params or {})
@@ -155,7 +155,7 @@ async def send_apply_multisig_mutation(
 ) -> OpaqueResult:
     """ApplyMultisigMutation - security:admin, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Conflicting) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ApplyMultisigMutationRequest.model_validate(params or {})
@@ -186,7 +186,7 @@ async def send_begin_txn(
 ) -> str:
     """BeginTxn - txn:control, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.transactions.json#/methods/BeginTxn).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BeginTxnRequest.model_validate(params or {})
@@ -219,7 +219,7 @@ async def send_txn_add_node(
 ) -> bool:
     """TxnAddNode - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/TxnAddNode).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnAddNodeRequest.model_validate(params or {})
@@ -251,7 +251,7 @@ async def send_txn_remove_node(
 ) -> bool:
     """TxnRemoveNode - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/TxnRemoveNode).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnRemoveNodeRequest.model_validate(params or {})
@@ -285,7 +285,7 @@ async def send_txn_add_edge(
 ) -> bool:
     """TxnAddEdge - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/TxnAddEdge).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnAddEdgeRequest.model_validate(params or {})
@@ -318,7 +318,7 @@ async def send_txn_remove_edge(
 ) -> bool:
     """TxnRemoveEdge - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/TxnRemoveEdge).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnRemoveEdgeRequest.model_validate(params or {})
@@ -352,7 +352,7 @@ async def send_txn_cas(
 ) -> bool:
     """TxnCas - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/TxnCas).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnCasRequest.model_validate(params or {})
@@ -385,7 +385,7 @@ async def send_txn_add_embedding(
 ) -> bool:
     """TxnAddEmbedding - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/TxnAddEmbedding).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnAddEmbeddingRequest.model_validate(params or {})
@@ -418,7 +418,7 @@ async def send_txn_blob_ref(
 ) -> bool:
     """TxnBlobRef - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/TxnBlobRef).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnBlobRefRequest.model_validate(params or {})
@@ -451,7 +451,7 @@ async def send_txn_add_measurement(
 ) -> bool:
     """TxnAddMeasurement - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/TxnAddMeasurement).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnAddMeasurementRequest.model_validate(params or {})
@@ -483,7 +483,7 @@ async def send_txn_axiom(
 ) -> bool:
     """TxnAxiom - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/TxnAxiom).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnAxiomRequest.model_validate(params or {})
@@ -515,7 +515,7 @@ async def send_txn_construct(
 ) -> bool:
     """TxnConstruct - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/TxnConstruct).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnConstructRequest.model_validate(params or {})
@@ -549,7 +549,7 @@ async def send_txn_plan_writeback(
 ) -> bool:
     """TxnPlanWriteback - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/TxnPlanWriteback).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnPlanWritebackRequest.model_validate(params or {})
@@ -578,10 +578,10 @@ async def send_txn_materialize_belief(
     graph: str | None = None,
     *,
     idempotency_key: str | None = None,
-) -> bool:
+) -> OpaqueResult:
     """TxnMaterializeBelief - txn:write, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TxnMaterializeBeliefRequest.model_validate(params or {})
@@ -591,7 +591,7 @@ async def send_txn_materialize_belief(
         graph,
         idempotency_key=idempotency_key,
     )
-    return expect_bool("TxnMaterializeBelief", payload)
+    return OpaqueResult("TxnMaterializeBelief", payload)
 
 
 class CommitRequest(BaseModel):
@@ -612,7 +612,7 @@ async def send_commit(
 ) -> OpaqueResult:
     """Commit - txn:control, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CommitRequest.model_validate(params or {})
@@ -642,7 +642,7 @@ async def send_rollback(
 ) -> bool:
     """Rollback - txn:control, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.transactions.json#/methods/Rollback).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RollbackRequest.model_validate(params or {})

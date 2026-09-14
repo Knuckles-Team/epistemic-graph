@@ -86,10 +86,12 @@ pub(crate) async fn handle(
     let actor = authority.actor_scope();
 
     let result = match op {
-        StatechartOp::Define { def_msgpack } => op_define(&store, &def_msgpack),
-        StatechartOp::Instantiate { def_id, context } => {
-            op_instantiate(&store, req_id, authority, &def_id, context)
-        }
+        StatechartOp::Define { def_msgpack } => op_define(&store, &def_msgpack)
+            .and_then(declared::<eg_types::result_contract::coordination::StatechartDefine>),
+        StatechartOp::Instantiate { def_id, context } => op_instantiate(
+            &store, req_id, authority, &def_id, context,
+        )
+        .and_then(declared::<eg_types::result_contract::coordination::StatechartInstantiate>),
         StatechartOp::SendEvent {
             instance_id,
             event,
@@ -103,15 +105,34 @@ pub(crate) async fn handle(
             event,
             payload,
             expected_version,
-        ),
-        StatechartOp::GetState { instance_id } => op_get_state(&store, tenant, actor, &instance_id),
-        StatechartOp::List { def_id } => op_list(&store, tenant, actor, def_id.as_deref()),
+        )
+        .and_then(declared::<eg_types::result_contract::coordination::StatechartSendEvent>),
+        StatechartOp::GetState { instance_id } => op_get_state(&store, tenant, actor, &instance_id)
+            .and_then(declared::<eg_types::result_contract::coordination::StatechartGetState>),
+        StatechartOp::List { def_id } => op_list(&store, tenant, actor, def_id.as_deref())
+            .and_then(declared::<eg_types::result_contract::coordination::StatechartList>),
     };
 
     match result {
-        Ok(value) => Response::ok(req_id, ResultPayload::Json(value)),
+        Ok(payload) => Response::ok(req_id, payload),
         Err(error) => Response::err(req_id, error),
     }
+}
+
+/// Decode an op's JSON answer strictly as `M`'s declared body and encode it as `M`,
+/// so an engine answer that drifts from the declared projection is refused.
+fn declared<M>(value: serde_json::Value) -> Result<ResultPayload, String>
+where
+    M: eg_types::result_contract::MethodResult,
+    M::Body: serde::de::DeserializeOwned,
+{
+    let body = serde_json::from_value::<M::Body>(value).map_err(|error| {
+        format!(
+            "statechart {} answer is not its declared result: {error}",
+            M::OP
+        )
+    })?;
+    ResultPayload::of::<M>(body)
 }
 
 // ── Per-op logic (pure of ServerState / async, so it is directly unit-testable) ──────

@@ -23,9 +23,12 @@ pub(crate) use commit::commit_internal_graph_methods;
 pub(crate) use commit::{
     commit_internal_graph_methods_with_nonce, commit_lifecycle, commit_work_item,
     lifecycle_was_committed, lock_graph, publish_change_envelope_projection,
+    InternalGraphCommitRequest, LifecycleCommitRequest, WorkItemCommitRequest,
 };
 #[cfg(feature = "program-optimization")]
-pub(crate) use commit::{commit_program_promotion, resolve_program_promotion_identity};
+pub(crate) use commit::{
+    commit_program_promotion, resolve_program_promotion_identity, ProgramPromotionRequest,
+};
 pub(crate) use compile::{
     authoritative_graph_version, compile_crossmodal, compile_methods, CompileBatch,
 };

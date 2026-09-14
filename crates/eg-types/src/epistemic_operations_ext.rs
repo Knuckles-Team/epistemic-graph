@@ -49,6 +49,7 @@ pub enum WorkItemClaimCapabilityRequestSchemaVersion {
 
 /// Stable result schema for the narrow native claim-capability checkpoint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum WorkItemClaimCapabilityResultSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -57,6 +58,7 @@ pub enum WorkItemClaimCapabilityResultSchemaVersion {
 /// Privacy-safe decision vocabulary.  No authority tuple, owner, lease, or
 /// capability metadata is projected in the result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum WorkItemClaimCapabilityDecision {
     #[serde(rename = "minted")]
     Minted,
@@ -106,6 +108,7 @@ pub struct WorkItemClaimCapabilityVerifyRequest {
 /// Capability operation result.  Only mint/replay returns the opaque bytes;
 /// verification returns a boolean and a privacy-safe decision.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct WorkItemClaimCapabilityResult {
     pub schema_version: WorkItemClaimCapabilityResultSchemaVersion,
@@ -142,6 +145,7 @@ pub enum CasWorkItemMetadataRequestSchemaVersion {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CasWorkItemMetadataResultSchemaVersion {
     #[serde(rename = "1")]
     V1,
@@ -153,6 +157,7 @@ pub enum CasWorkItemMetadataResultSchemaVersion {
 /// "I lost a race" from "the item vanished" cannot safely decide whether to
 /// retry, re-read, or abandon its lease.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CasWorkItemMetadataOutcome {
     /// The compare-and-set matched and the field was durably written.
     #[serde(rename = "applied")]
@@ -216,6 +221,7 @@ pub struct CasWorkItemMetadataRequest {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct CasWorkItemMetadataResult {
     pub schema_version: CasWorkItemMetadataResultSchemaVersion,

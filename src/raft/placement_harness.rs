@@ -700,7 +700,7 @@ async fn wire_placement_route_resolves_through_dispatch() {
             // (extra `endpoints` key); the canonical deny_unknown_fields DTO
             // rejects it, so the wire type is the only correct reader.
             Some(ResultPayload::Raw(bytes)) => {
-                let route: crate::server::handlers::placement::PlacementRouteWire =
+                let route: eg_types::result_contract::cluster::PlacementRouteWire =
                     rmp_serde::from_slice(&bytes).expect("typed PlacementRouteWire");
                 serde_json::to_value(route).expect("PlacementRouteWire JSON projection")
             }

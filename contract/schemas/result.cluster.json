@@ -1,0 +1,128 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {},
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "CancelRequest": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CatalogAssign": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CatalogReassign": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CatalogRemove": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Ping": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RaftAddLearner": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RaftChangeMembership": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RegisterForeignSource": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RegisterUdf": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Shutdown": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "cluster method results"
+}

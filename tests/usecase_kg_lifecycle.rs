@@ -194,7 +194,10 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
     ))
     .await;
     assert!(
-        matches!(commit.result, Some(ResultPayload::Bool(true))),
+        matches!(
+            commit.result,
+            Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+        ),
         "the cross-modal lifecycle txn must commit atomically: {:?}",
         commit.error
     );
@@ -273,7 +276,10 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                 ),
             ))
             .await;
-            assert!(matches!(c.result, Some(ResultPayload::Bool(true))));
+            assert!(matches!(
+                c.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+            ));
         })
     };
 

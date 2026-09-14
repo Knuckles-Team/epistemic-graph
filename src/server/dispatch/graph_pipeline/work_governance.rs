@@ -68,7 +68,12 @@ pub(super) async fn dispatch_op_resource_reservation_query(
     match &method {
         crate::protocol::Method::QueryWorkItemReservation { request } => {
             match backend.read_resource_reservation(&fname, request).await {
-                Ok(result) => Response::ok(req_id, ResultPayload::raw(&result)),
+                Ok(result) => Response::ok(
+                    req_id,
+                    ResultPayload::of::<
+                        eg_types::result_contract::coordination::QueryWorkItemReservation,
+                    >(result),
+                ),
                 Err(error) => {
                     Response::err(req_id, format!("native reservation read failed: {error}"))
                 }
@@ -124,6 +129,30 @@ fn capacity_owner_matches(method: &Method, verified_context: &VerifiedRequestCon
     }
 }
 
+/// The declared result a capacity-ledger commit receipt is served as.
+fn capacity_commit_result(method: &Method) -> fn(&[u8]) -> Result<ResultPayload, String> {
+    match method {
+        Method::AcquireCapacity { .. } => {
+            ResultPayload::of_receipt::<eg_types::result_contract::coordination::AcquireCapacity>
+        }
+        Method::RenewCapacity { .. } => {
+            ResultPayload::of_receipt::<eg_types::result_contract::coordination::RenewCapacity>
+        }
+        Method::ReleaseCapacity { .. } => {
+            ResultPayload::of_receipt::<eg_types::result_contract::coordination::ReleaseCapacity>
+        }
+        Method::ReclaimExpiredCapacity { .. } => {
+            ResultPayload::of_receipt::<
+                eg_types::result_contract::coordination::ReclaimExpiredCapacity,
+            >
+        }
+        Method::UpdateCapacityCell { .. } => {
+            ResultPayload::of_receipt::<eg_types::result_contract::coordination::UpdateCapacityCell>
+        }
+        _ => |_| Err("capacity commit receipt for a non-capacity method".to_string()),
+    }
+}
+
 pub(super) async fn dispatch_op_capacity_ops(
     ctx: NativeOpCtx<'_>,
     state_machine_authorized: bool,
@@ -163,30 +192,71 @@ pub(super) async fn dispatch_op_capacity_ops(
     let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
     match method {
         Method::CapacityStatus { ref request } | Method::ReconcileCapacity { ref request } => {
-            backend
-                .read_capacity_status(&fname, request)
-                .await
-                .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
-                .unwrap_or_else(|error| {
-                    Response::err(
-                        req_id,
-                        format!("native capacity status read failed: {error}"),
-                    )
-                })
+            capacity_status_response(
+                backend,
+                &fname,
+                request,
+                capacity_status_result(&method),
+                req_id,
+            )
+            .await
         }
         method @ (Method::AcquireCapacity { .. }
         | Method::RenewCapacity { .. }
         | Method::ReleaseCapacity { .. }
         | Method::ReclaimExpiredCapacity { .. }
-        | Method::UpdateCapacityCell { .. }) => backend
-            .commit_capacity_lease(&fname, method)
-            .await
-            .map(|bytes| Response::ok(req_id, ResultPayload::Raw(bytes)))
-            .unwrap_or_else(|error| {
-                Response::err(req_id, format!("native capacity commit failed: {error}"))
-            }),
+        | Method::UpdateCapacityCell { .. }) => {
+            capacity_commit_response(backend, &fname, method, req_id).await
+        }
         _ => unreachable!("capacity classifier and dispatch diverged"),
     }
+}
+
+/// The declared result a capacity status read answers `method` with.
+fn capacity_status_result(
+    method: &Method,
+) -> fn(eg_types::native_control::CapacityStatusResult) -> Result<ResultPayload, String> {
+    match method {
+        Method::ReconcileCapacity { .. } => {
+            ResultPayload::of::<eg_types::result_contract::coordination::ReconcileCapacity>
+        }
+        _ => ResultPayload::of::<eg_types::result_contract::coordination::CapacityStatus>,
+    }
+}
+
+async fn capacity_status_response(
+    backend: &Arc<dyn crate::server::persistence::PersistenceBackend>,
+    fname: &str,
+    request: &eg_types::native_control::CapacityStatusRequest,
+    declared: fn(eg_types::native_control::CapacityStatusResult) -> Result<ResultPayload, String>,
+    req_id: u64,
+) -> Response {
+    backend
+        .read_capacity_status(fname, request)
+        .await
+        .map(|result| Response::ok(req_id, declared(result)))
+        .unwrap_or_else(|error| {
+            Response::err(
+                req_id,
+                format!("native capacity status read failed: {error}"),
+            )
+        })
+}
+
+async fn capacity_commit_response(
+    backend: &Arc<dyn crate::server::persistence::PersistenceBackend>,
+    fname: &str,
+    method: Method,
+    req_id: u64,
+) -> Response {
+    let declared = capacity_commit_result(&method);
+    backend
+        .commit_capacity_lease(fname, method)
+        .await
+        .map(|receipt| Response::ok(req_id, declared(&receipt)))
+        .unwrap_or_else(|error| {
+            Response::err(req_id, format!("native capacity commit failed: {error}"))
+        })
 }
 
 pub(super) async fn dispatch_op_workitem_claim_capability(
@@ -264,7 +334,14 @@ pub(super) async fn dispatch_op_workitem_claim_capability(
             Method::MintWorkItemClaimCapability { request } => redb
                 .mint_work_item_claim_capability(&fname, request, authority)
                 .await
-                .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
+                .map(|result| {
+                    Response::ok(
+                        req_id,
+                        ResultPayload::of::<
+                            eg_types::result_contract::coordination::MintWorkItemClaimCapability,
+                        >(result),
+                    )
+                })
                 .unwrap_or_else(|error| {
                     Response::err(
                         req_id,
@@ -274,7 +351,14 @@ pub(super) async fn dispatch_op_workitem_claim_capability(
             Method::VerifyWorkItemClaimCapability { request } => redb
                 .verify_work_item_claim_capability(&fname, request, authority)
                 .await
-                .map(|result| Response::ok(req_id, ResultPayload::raw(&result)))
+                .map(|result| {
+                    Response::ok(
+                        req_id,
+                        ResultPayload::of::<
+                            eg_types::result_contract::coordination::VerifyWorkItemClaimCapability,
+                        >(result),
+                    )
+                })
                 .unwrap_or_else(|error| {
                     Response::err(
                         req_id,
@@ -336,16 +420,18 @@ pub(super) async fn dispatch_op_workitem_submission_or_resources(
     let (placement_epoch, placement_fence) = (0, None);
 
     return match crate::server::mutation_batch::commit_work_item(
-        persistence.as_ref(),
-        core,
-        req_id,
-        verified_context.attempt_nonce(),
-        Some(verified_context.idempotency_key()),
-        caller,
-        graph_name,
-        placement_epoch,
-        placement_fence,
-        method,
+        crate::server::mutation_batch::WorkItemCommitRequest::new(
+            persistence.as_ref(),
+            &core,
+            req_id,
+            Some(verified_context.idempotency_key()),
+            caller,
+            graph_name,
+            placement_epoch,
+            method,
+        )
+        .with_attempt_nonce(verified_context.attempt_nonce())
+        .with_placement_fencing_token(placement_fence),
     )
     .await
     {

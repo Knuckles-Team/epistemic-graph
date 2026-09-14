@@ -1,0 +1,320 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {},
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "DegreeCentrality": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsKlDivergence": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceBayesianKelly": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceBreakevenAlpha": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceBrierScore": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceCvar": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceDeflatedSharpe": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceDownsideDeviation": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceEffectiveIndependentN": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceEmpiricalKelly": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceExpectedPnlRate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceGlostenMilgromSpread": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceHardimanBouchaud": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceInformationCoefficient": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceInformationRatio": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceKellyFraction": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceKyleLambda": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceMarketImpact": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceMaxDrawdown": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceMonteCarloVar": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceProbabilityBacktestOverfit": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceSabrImpliedVol": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceVar": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceVpinPm": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "compute method results"
+}

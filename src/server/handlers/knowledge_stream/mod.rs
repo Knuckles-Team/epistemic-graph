@@ -537,7 +537,10 @@ pub(crate) async fn try_handle(
     );
     Ok(match response {
         Ok(batch) => match authority.validate_after() {
-            Ok(()) => Response::ok(req_id, ResultPayload::raw(&batch)),
+            Ok(()) => Response::ok(
+                req_id,
+                ResultPayload::of_ref::<eg_types::result_contract::query::KnowledgeStream>(&batch),
+            ),
             Err(error) => {
                 crate::metrics::access_denied();
                 Response::err(req_id, error)

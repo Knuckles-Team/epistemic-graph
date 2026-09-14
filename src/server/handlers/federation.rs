@@ -32,7 +32,12 @@ pub(crate) async fn try_handle(
                 s.foreign_sources.clone()
             };
             sources.insert(name.clone(), source);
-            Ok(Response::ok(req_id, ResultPayload::String(name)))
+            Ok(Response::ok(
+                req_id,
+                ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterForeignSource>(
+                    name,
+                ),
+            ))
         }
         other => Err(other),
     }

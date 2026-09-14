@@ -3,6 +3,7 @@ use super::consensus::authoritative_now_ms;
 use super::graph_pipeline::dispatch_graph_op;
 use super::graph_pipeline::GraphOpRouting;
 use super::*;
+use eg_types::result_contract::transactions as txn_results;
 
 /// Batch envelope coordinator (CONCEPT:EG-KG.ingest.batched-change-envelopes). Validates
 /// each envelope's context against the verified request authority, groups envelopes
@@ -38,7 +39,9 @@ pub(super) async fn dispatch_change_envelopes(
     if total == 0 {
         return Response::ok(
             req_id,
-            ResultPayload::Json(serde_json::json!({ "results": [] })),
+            ResultPayload::of::<txn_results::ApplyChangeEnvelopes>(
+                txn_results::ChangeEnvelopeBatch::default(),
+            ),
         );
     }
     if total > crate::change_envelope::MAX_ENVELOPES_PER_BATCH {
@@ -56,17 +59,17 @@ pub(super) async fn dispatch_change_envelopes(
         return response;
     }
 
-    let mut per_index: Vec<serde_json::Value> = vec![serde_json::Value::Null; total];
+    let mut per_index: Vec<Option<txn_results::ChangeEnvelopeOutcome>> = vec![None; total];
     let (groups, ungrouped) = group_change_envelopes_by_graph(envelopes);
     for index in ungrouped {
         // Unreachable in practice: `change_envelope_batch_authority_error` above
         // already rejects the whole request if any envelope's mutation scope has
-        // no graph name. Kept as an explicit conflict entry, not a silent Null,
+        // no graph name. Kept as an explicit conflict entry, not a silent gap,
         // in case that invariant ever changes.
-        per_index[index] = serde_json::json!({
-            "status": "conflict",
-            "error": "ApplyChangeEnvelopes requires a graph-scoped mutation",
-        });
+        per_index[index] = Some(change_envelope_conflict(
+            None,
+            "ApplyChangeEnvelopes requires a graph-scoped mutation",
+        ));
     }
     for (graph, group) in groups {
         let indices: Vec<usize> = group.iter().map(|(index, _)| *index).collect();
@@ -86,9 +89,19 @@ pub(super) async fn dispatch_change_envelopes(
         scatter_change_envelope_group_results(&mut per_index, &indices, resp);
     }
 
+    let results = per_index
+        .into_iter()
+        .map(|entry| {
+            entry.unwrap_or_else(|| {
+                change_envelope_conflict(None, "missing per-envelope result in batch response")
+            })
+        })
+        .collect();
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({ "results": per_index })),
+        ResultPayload::of::<txn_results::ApplyChangeEnvelopes>(txn_results::ChangeEnvelopeBatch {
+            results,
+        }),
     )
 }
 
@@ -196,311 +209,55 @@ fn group_change_envelopes_by_graph(
 /// Scatter one graph group's response back into request-ordered slots.
 #[cfg(feature = "redb")]
 fn scatter_change_envelope_group_results(
-    per_index: &mut [serde_json::Value],
+    per_index: &mut [Option<txn_results::ChangeEnvelopeOutcome>],
     indices: &[usize],
     response: Response,
 ) {
-    if let Some(err) = response.error {
-        // A transport/ACL/placement failure for the whole group (distinct from the
-        // per-envelope atomic-batch abort, which returns Ok with conflict entries).
-        for index in indices {
-            per_index[*index] = serde_json::json!({ "status": "conflict", "error": err });
-        }
-        return;
-    }
-    let Some(ResultPayload::Json(value)) = response.result else {
-        for index in indices {
-            per_index[*index] = serde_json::json!({
-                "status": "conflict",
-                "error": "empty batch response",
-            });
-        }
-        return;
-    };
-    let group_results = value
-        .get("results")
-        .and_then(|results| results.as_array())
-        .cloned()
-        .unwrap_or_default();
-    for (position, index) in indices.iter().enumerate() {
-        per_index[*index] = group_results.get(position).cloned().unwrap_or_else(|| {
-            serde_json::json!({
-                "status": "conflict",
-                "error": "missing per-envelope result in batch response",
-            })
-        });
-    }
-}
-
-/// Apply a batched cross-graph write (CONCEPT:EG-KG.storage.multi-graph-batch-write).
-///
-/// `batches_msgpack` decodes to `Vec<(graph_name, operations_msgpack)>` where each
-/// inner blob is exactly a [`Method::BatchUpdate`] payload. Every sub-batch is
-/// dispatched through the ordinary per-graph write path
-/// ([`dispatch_graph_op`]) CONCURRENTLY on the async runtime, so distinct graphs
-/// take DISTINCT per-graph write locks and commit across the K redb shard writers
-/// in parallel — the client pays ONE round-trip instead of N that each re-acquire
-/// a lock. Reuses the existing `BatchUpdate` primitive, so persistence /
-/// Raft / CDC / access-control all apply per sub-batch exactly as a normal batch.
-///
-/// The reply is `{"results": {graph: <batch_result>}, "errors": {graph: msg}}`;
-/// one graph's failure never aborts the others (partial-success contract).
-#[cfg(feature = "redb")]
-pub(super) async fn multi_graph_batch_update(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    caller: Option<&str>,
-    verified_context: &VerifiedRequestContext,
-    batches_msgpack: &[u8],
-) -> Response {
-    let batches = match decode_multi_graph_batches(batches_msgpack) {
-        Ok(batches) => batches,
-        Err(error) => return Response::err(req_id, error),
-    };
-    let backend = {
-        let s = timed_read(state).await;
-        s.persistence.clone()
-    };
-    let Some(backend) = backend else {
-        return Response::err(req_id, "multi-graph batch requires durable persistence");
-    };
-    let Some(redb) = backend.as_redb() else {
-        return Response::err(req_id, "multi-graph batch requires durable redb");
-    };
-    #[cfg(feature = "raft")]
-    let clustered = timed_read(state).await.multi_raft.is_some();
-    #[cfg(not(feature = "raft"))]
-    let clustered = false;
-    let saga = match begin_multi_graph_saga(
-        redb,
-        req_id,
-        caller,
-        verified_context.attempt_nonce(),
-        batches_msgpack,
-        clustered,
+    // A transport/ACL/placement failure for the whole group (distinct from the
+    // per-envelope atomic-batch abort, which returns Ok with conflict entries).
+    let mut group_results = match declared_json_response::<txn_results::ChangeEnvelopeBatch>(
+        response,
+        "invalid batch response",
+        "empty batch response",
     ) {
-        Ok(saga) => saga,
-        Err(response) => return response,
-    };
-    let (results, errors) = if batches.is_empty() {
-        (serde_json::Map::new(), serde_json::Map::new())
-    } else {
-        run_multi_graph_batches(state, req_id, caller, verified_context, batches).await
-    };
-    let result = ResultPayload::Json(serde_json::json!({"results": results, "errors": errors}));
-    finish_multi_graph_batch(redb, req_id, saga, result)
-}
-
-/// Open the durable admin saga that makes a single-node multi-graph batch
-/// idempotent. A clustered node has no saga (raft already orders each
-/// sub-batch). `Err` is this request's final response — a begin failure, or the
-/// replayed result of an attempt that already committed.
-#[cfg(feature = "redb")]
-fn begin_multi_graph_saga(
-    redb: &crate::server::persistence::redb_backend::RedbBackend,
-    req_id: u64,
-    caller: Option<&str>,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
-    batches_msgpack: &[u8],
-    clustered: bool,
-) -> Result<Option<handlers::admin::AdminSaga>, Response> {
-    if clustered {
-        return Ok(None);
-    }
-    let method = Method::MultiGraphBatchUpdate {
-        batches_msgpack: batches_msgpack.to_vec(),
-    };
-    let saga = match handlers::admin::begin_admin_saga_with_nonce(
-        redb,
-        req_id,
-        caller,
-        &method,
-        crate::mutation_batch::DurabilityDomain::MultiGraph,
-        attempt_nonce,
-    ) {
-        Ok(saga) => saga,
-        Err(error) => return Err(Response::err(req_id, error)),
-    };
-    if let Some(result) = saga.replayed.clone() {
-        return Err(Response::ok(req_id, result));
-    }
-    Ok(Some(saga))
-}
-
-/// Close the saga (when there is one) over the assembled partial-success reply.
-#[cfg(feature = "redb")]
-fn finish_multi_graph_batch(
-    redb: &crate::server::persistence::redb_backend::RedbBackend,
-    req_id: u64,
-    saga: Option<handlers::admin::AdminSaga>,
-    result: ResultPayload,
-) -> Response {
-    let Some(saga) = saga else {
-        return Response::ok(req_id, result);
-    };
-    match handlers::admin::finish_admin_saga(redb, saga.batch, saga.created_at_ms, result) {
-        Ok(result) => Response::ok(req_id, result),
-        Err(error) => Response::err(req_id, error),
-    }
-}
-
-/// Record one sub-batch's outcome. A graph's failure lands in `errors`; a
-/// success lands in `results`, with a non-JSON payload recorded as null so the
-/// reply always names every graph exactly once.
-#[cfg(feature = "redb")]
-fn record_multi_graph_result(
-    results: &mut serde_json::Map<String, serde_json::Value>,
-    errors: &mut serde_json::Map<String, serde_json::Value>,
-    graph: String,
-    response: Response,
-) {
-    if let Some(err) = response.error {
-        errors.insert(graph, serde_json::Value::String(err));
-    } else if let Some(ResultPayload::Json(value)) = response.result {
-        results.insert(graph, value);
-    } else {
-        results.insert(graph, serde_json::Value::Null);
-    }
-}
-
-/// Fan each sub-batch onto its own task so distinct graphs apply concurrently.
-/// The `Arc<RwLock<ServerState>>` is cheaply cloned; `dispatch_graph_op` takes
-/// the registry read-lock only briefly then releases it before the per-graph
-/// write lock, so the writes overlap across shard writers.
-#[cfg(feature = "redb")]
-async fn run_multi_graph_batches(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    caller: Option<&str>,
-    verified_context: &VerifiedRequestContext,
-    batches: Vec<(String, serde_bytes::ByteBuf)>,
-) -> (
-    serde_json::Map<String, serde_json::Value>,
-    serde_json::Map<String, serde_json::Value>,
-) {
-    let mut results = serde_json::Map::new();
-    let mut errors = serde_json::Map::new();
-    let caller_owned = caller.map(str::to_string);
-    let mut set = tokio::task::JoinSet::new();
-    for (graph, ops) in batches {
-        let state = Arc::clone(state);
-        let caller_owned = caller_owned.clone();
-        let verified_context = VerifiedRequestContext::clone(verified_context);
-        set.spawn(async move {
-            let resp = dispatch_graph_op(
-                &state,
-                &graph,
-                req_id,
-                caller_owned.as_deref(),
-                &verified_context,
-                Method::BatchUpdate {
-                    operations_msgpack: ops.into_vec(),
-                },
-            )
-            .await;
-            (graph, resp)
-        });
-    }
-
-    while let Some(joined) = set.join_next().await {
-        match joined {
-            Ok((graph, resp)) => record_multi_graph_result(&mut results, &mut errors, graph, resp),
-            Err(join_err) => {
-                // A panicked/cancelled sub-batch task — surface it, don't abort.
-                let _ = join_err;
-                errors.insert(
-                    format!("__join_error_{}", errors.len()),
-                    serde_json::Value::String("sub-batch execution failed".to_string()),
-                );
+        Ok(batch) => batch.results.into_iter(),
+        Err(error) => {
+            for index in indices {
+                per_index[*index] = Some(change_envelope_conflict(None, error.clone()));
             }
+            return;
         }
+    };
+    for index in indices {
+        per_index[*index] = Some(group_results.next().unwrap_or_else(|| {
+            change_envelope_conflict(None, "missing per-envelope result in batch response")
+        }));
     }
-    (results, errors)
 }
 
-#[cfg(not(feature = "redb"))]
-pub(super) async fn multi_graph_batch_update(
-    _state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    _caller: Option<&str>,
-    _verified_context: &VerifiedRequestContext,
-    _batches_msgpack: &[u8],
-) -> Response {
-    Response::err(
-        req_id,
-        "multi-graph batch requires a build with durable redb support",
-    )
+/// A `conflict` outcome for one envelope of an `ApplyChangeEnvelopes` batch.
+fn change_envelope_conflict(
+    envelope_id: Option<String>,
+    error: impl Into<String>,
+) -> txn_results::ChangeEnvelopeOutcome {
+    txn_results::ChangeEnvelopeOutcome::Conflict(txn_results::ChangeEnvelopeConflict {
+        envelope_id,
+        error: error.into(),
+    })
 }
 
-const MAX_MULTI_GRAPH_BATCHES: usize = 256;
-const MAX_MULTI_GRAPH_NAME_BYTES: usize = 512;
-const MAX_MULTI_GRAPH_OPERATIONS_BYTES: usize = 32 * 1024 * 1024;
-const MAX_MULTI_GRAPH_TOTAL_OPERATIONS_BYTES: usize = 64 * 1024 * 1024;
-const MAX_MULTI_GRAPH_OPERATION_ITEMS: usize = 500_000;
-
-pub(super) fn decode_multi_graph_batches(
-    batches_msgpack: &[u8],
-) -> Result<Vec<(String, serde_bytes::ByteBuf)>, String> {
-    // The outer request preflight protects this decoder on the served path. Keep
-    // the check local as well so direct unit/library callers cannot bypass it.
-    let batches: Vec<(String, serde_bytes::ByteBuf)> = eg_types::msgpack::decode_bounded(
-        batches_msgpack,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_NESTED_MSGPACK_BYTES,
-            MAX_NESTED_MSGPACK_ITEMS,
-            64,
-        ),
-    )
-    .map_err(|_| "invalid multi-graph batch payload".to_string())?;
-    if batches.len() > MAX_MULTI_GRAPH_BATCHES {
-        return Err("multi-graph batch count exceeds the resource limit".to_string());
-    }
-    let mut names = std::collections::HashSet::with_capacity(batches.len());
-    let mut total_operations_bytes = 0usize;
-    for (graph, operations) in &batches {
-        if graph.trim().is_empty()
-            || graph.len() > MAX_MULTI_GRAPH_NAME_BYTES
-            || graph.chars().any(char::is_control)
-        {
-            return Err("multi-graph batch contains an invalid graph identifier".to_string());
-        }
-        if !names.insert(graph.as_str()) {
-            return Err("multi-graph batch contains a duplicate graph identifier".to_string());
-        }
-        total_operations_bytes = total_operations_bytes
-            .checked_add(operations.len())
-            .ok_or_else(|| "multi-graph batch exceeds the resource limit".to_string())?;
-        if total_operations_bytes > MAX_MULTI_GRAPH_TOTAL_OPERATIONS_BYTES {
-            return Err("multi-graph batch exceeds the resource limit".to_string());
-        }
-        crate::server::transport::validate_nested_msgpack(
-            operations,
-            MAX_MULTI_GRAPH_OPERATIONS_BYTES,
-            MAX_MULTI_GRAPH_OPERATION_ITEMS,
-        )
-        .map_err(str::to_string)?;
-    }
-    Ok(batches)
-}
+mod multi_graph;
+pub(super) use multi_graph::{decode_multi_graph_batches, multi_graph_batch_update};
 
 fn change_envelope_result(
     committed: &eg_types::ChangeEnvelopeCommit,
     projection_pending: bool,
-) -> serde_json::Value {
-    let mut result = serde_json::to_value(committed).unwrap_or_else(|_| {
-        serde_json::json!({
-            "envelope_id": committed.envelope_id,
-            "batch_id": committed.batch_id,
-            "replayed": committed.replayed,
-        })
-    });
-    if let Some(object) = result.as_object_mut() {
-        object.insert(
-            "projection_pending".to_string(),
-            serde_json::Value::Bool(projection_pending),
-        );
+) -> txn_results::ChangeEnvelopeApplied {
+    txn_results::ChangeEnvelopeApplied {
+        commit: committed.clone(),
+        projection_pending,
+        replication: None,
     }
-    result
 }
 
 /// Derive the native authority epoch from the registry-published graph
@@ -618,8 +375,10 @@ async fn try_replicate_change_envelope(
             .to_string(),
         false,
         envelope.mutation.placement_epoch,
-        envelope.mutation.fencing_token,
-        envelope.mutation.created_at_ms,
+        crate::raft::RaftMutationTiming {
+            fencing_token: envelope.mutation.fencing_token,
+            created_at_ms: envelope.mutation.created_at_ms,
+        },
     ) {
         Ok(context) => context,
         Err(error) => return Some(Response::err(req_id, error)),
@@ -644,13 +403,16 @@ async fn try_replicate_change_envelope(
         Ok(response) => match response.change_envelope_commit {
             Some(committed) => {
                 let mut result = change_envelope_result(&committed, response.projection_pending);
-                if let Some(object) = result.as_object_mut() {
-                    object.insert("replicated".to_string(), true.into());
-                    object.insert("group".to_string(), routed.group_id.into());
-                    object.insert("epoch".to_string(), routed.epoch.into());
-                    object.insert("fencing_token".to_string(), routed.fencing_token().into());
-                }
-                Response::ok(req_id, ResultPayload::Json(result))
+                result.replication = Some(txn_results::ChangeEnvelopeReplication {
+                    replicated: true,
+                    group: routed.group_id,
+                    epoch: routed.epoch,
+                    fencing_token: routed.fencing_token(),
+                });
+                Response::ok(
+                    req_id,
+                    ResultPayload::of::<txn_results::ApplyChangeEnvelope>(result),
+                )
             }
             None => Response::err(
                 req_id,
@@ -686,7 +448,7 @@ async fn commit_change_envelope_batch_results(
     fname: &str,
     envelopes: &[eg_types::change_envelope::ChangeEnvelope],
     committed_at_ms: u64,
-) -> Vec<serde_json::Value> {
+) -> Vec<txn_results::ChangeEnvelopeOutcome> {
     match backend
         .commit_change_envelopes(fname, envelopes, committed_at_ms)
         .await
@@ -710,25 +472,18 @@ fn change_envelope_applied_entry(
     core: &Arc<crate::graph::GraphCore>,
     envelope: &eg_types::change_envelope::ChangeEnvelope,
     committed: &eg_types::ChangeEnvelopeCommit,
-) -> serde_json::Value {
+) -> txn_results::ChangeEnvelopeOutcome {
     let projection_error = if committed.replayed {
         None
     } else {
         crate::server::mutation_batch::publish_change_envelope_projection(core, envelope).err()
     };
-    let mut entry = change_envelope_result(committed, projection_error.is_some());
-    if let Some(object) = entry.as_object_mut() {
-        let status = if committed.replayed {
-            "idempotent_skip"
-        } else {
-            "applied"
-        };
-        object.insert(
-            "status".to_string(),
-            serde_json::Value::String(status.to_string()),
-        );
+    let entry = change_envelope_result(committed, projection_error.is_some());
+    if committed.replayed {
+        txn_results::ChangeEnvelopeOutcome::IdempotentSkip(entry)
+    } else {
+        txn_results::ChangeEnvelopeOutcome::Applied(entry)
     }
-    entry
 }
 
 /// The whole graph-batch aborted atomically — nothing committed. Report the
@@ -738,7 +493,7 @@ fn change_envelope_abort_entries(
     envelopes: &[eg_types::change_envelope::ChangeEnvelope],
     failing_index: usize,
     error: &str,
-) -> Vec<serde_json::Value> {
+) -> Vec<txn_results::ChangeEnvelopeOutcome> {
     envelopes
         .iter()
         .enumerate()
@@ -750,11 +505,7 @@ fn change_envelope_abort_entries(
                     "ABORTED_ATOMIC_GRAPH_BATCH: sibling envelope {failing_index} failed ({error})"
                 )
             };
-            serde_json::json!({
-                "status": "conflict",
-                "envelope_id": envelope.envelope_id,
-                "error": this_error,
-            })
+            change_envelope_conflict(Some(envelope.envelope_id.clone()), this_error)
         })
         .collect()
 }
@@ -763,271 +514,261 @@ pub(super) async fn route_change_envelope_ops(
     ctx: GraphOpRouting<'_>,
     method: Method,
 ) -> Result<Response, Method> {
-    #[cfg(feature = "raft")]
-    let state = ctx.state;
-    let req_id = ctx.req_id;
-    let graph_name = ctx.graph_name;
-    #[cfg(feature = "raft")]
-    let tenant_scope = ctx.tenant_scope;
-    let core = ctx.core;
-    let persistence = ctx.persistence;
-    #[cfg(feature = "raft")]
-    let routed_raft = ctx.routed_raft;
-    #[cfg(feature = "raft")]
-    let graph_type = ctx.graph_type;
-    // ChangeEnvelope is a first-class persistence operation, not a sequence of
-    // direct graph calls. It executes only after graph ACL and placement
-    // resolution, and before generic replicated mutation paths can decompose it.
     match method {
         Method::ApplyChangeEnvelope { envelope } => {
-            return Ok(async {
-                {
-                    if let Err(resp) = check_change_envelope_placement_fence(
-                        req_id,
-                        #[cfg(feature = "raft")]
-                        graph_name,
-                        &envelope,
-                        #[cfg(feature = "raft")]
-                        routed_raft.as_ref(),
-                    )
-                    .await
-                    {
-                        return resp;
-                    }
-
-                    let _mutation_guard =
-                        crate::server::mutation_batch::lock_graph(graph_name).await;
-                    // `ApplyChangeEnvelope` is a graph-scoped commit path (it targets
-                    // `graph_name` and checks against `core.version()`), so its version
-                    // expectation must be `Graph(_)`; any other variant (Native/
-                    // Unversioned) is invalid input here and rejected rather than
-                    // silently skipping the version check the old `Option::None` arm did.
-                    match envelope.mutation.version_expectation {
-                        crate::mutation_batch::VersionExpectation::Graph(expected) => {
-                            if expected != core.version() {
-                                return Response::err(
-                                    req_id,
-                                    format!(
-                                        "STALE_GRAPH_VERSION: expected {expected}, current {}",
-                                        core.version()
-                                    ),
-                                );
-                            }
-                        }
-                        _ => {
-                            return Response::err(
-                                req_id,
-                                "ApplyChangeEnvelope requires a graph version expectation",
-                            );
-                        }
-                    }
-                    let committed_at_ms =
-                        authoritative_now_ms().max(envelope.mutation.created_at_ms);
-                    let Some(backend) = persistence.as_ref() else {
-                        return Response::err(
-                            req_id,
-                            "ApplyChangeEnvelope requires a configured persistence backend",
-                        );
-                    };
-                    let fname = crate::persist::sanitize(graph_name);
-
-                    #[cfg(feature = "raft")]
-                    if let Some(resp) = try_replicate_change_envelope(
-                        ChangeEnvelopeReplicaCtx {
-                            state,
-                            req_id,
-                            graph_name,
-                            graph_type,
-                            tenant_scope,
-                            fname: &fname,
-                            routed_raft: routed_raft.as_ref(),
-                        },
-                        &envelope,
-                        committed_at_ms,
-                    )
-                    .await
-                    {
-                        return resp;
-                    }
-
-                    let committed = match backend
-                        .commit_change_envelope(&fname, &envelope, committed_at_ms)
-                        .await
-                    {
-                        Ok(committed) => committed,
-                        Err(error) => {
-                            return Response::err(
-                                req_id,
-                                format!("ApplyChangeEnvelope atomic commit failed: {error}"),
-                            );
-                        }
-                    };
-                    let projection_error = if committed.replayed {
-                        None
-                    } else {
-                        crate::server::mutation_batch::publish_change_envelope_projection(
-                            core, &envelope,
-                        )
-                        .err()
-                    };
-                    let result = change_envelope_result(&committed, projection_error.is_some());
-                    Response::ok(req_id, ResultPayload::Json(result))
-                }
-            }
-            .await);
+            Ok(apply_one_change_envelope(ctx, envelope).await)
         }
-        // Batch envelope commit for ONE graph (the top-level `dispatch_change_envelopes`
-        // groups by graph and routes each group here). Every envelope targets
-        // `graph_name`; they land in ONE coalesced redb transaction — the atomic
-        // graph-batch. A single failing envelope aborts the whole group and every
-        // envelope in it reports the batch outcome honestly. Per-envelope results are
-        // returned in group order under `{"results": [...]}`.
         Method::ApplyChangeEnvelopes { envelopes } => {
-            return Ok(async {
-    let core = core.clone();
-    let persistence = persistence.clone();
-    #[cfg(feature = "raft")]
-    let routed_raft = routed_raft.clone();
-    {
-            // Under an active cluster placement the batch is not offered: raft keeps
-            // each envelope one log entry (K=1 serializes anyway), so the client falls
-            // back to per-record `ApplyChangeEnvelope`. Single-node is where the
-            // one-transaction batching win lands, and prod is single-node.
-            #[cfg(feature = "raft")]
-            if routed_raft.is_some() {
-                return Response::err(
-                    req_id,
-                    "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT: use per-envelope ApplyChangeEnvelope",
-                );
-            }
-            let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-            for envelope in &envelopes {
-                if envelope.mutation.placement_epoch != 0
-                    || envelope.mutation.fencing_token.is_some()
-                {
-                    return Response::err(
-                        req_id,
-                        "ChangeEnvelope carries a placement fence in a single-node build",
-                    );
-                }
-            }
-            let committed_at_ms = envelopes.iter().fold(authoritative_now_ms(), |acc, e| {
-                acc.max(e.mutation.created_at_ms)
-            });
-            let Some(backend) = persistence.as_ref() else {
-                return Response::err(
-                    req_id,
-                    "ApplyChangeEnvelopes requires a configured persistence backend",
-                );
-            };
-            let fname = crate::persist::sanitize(graph_name);
-            let results = commit_change_envelope_batch_results(
-                backend,
-                &core,
-                &fname,
-                &envelopes,
-                committed_at_ms,
-            )
-            .await;
-            Response::ok(
-                req_id,
-                ResultPayload::Json(serde_json::json!({ "results": results })),
-            )
-        }
-}
-            .await);
+            Ok(apply_change_envelope_batch(ctx, envelopes).await)
         }
         Method::GetChangeEnvelope {
             envelope_id,
             tenant,
-        } => {
-            return Ok(async {
-                let persistence = persistence.clone();
-                {
-                    let Some(backend) = persistence.as_ref() else {
-                        return Response::err(req_id, "ChangeEnvelope persistence is unavailable");
-                    };
-                    let fname = crate::persist::sanitize(graph_name);
-                    return match backend.read_change_envelope(&fname, &envelope_id).await {
-                        Ok(Some(record))
-                            if record.envelope.mutation.identity.tenant().as_str() == tenant
-                        // A native (non-graph) scope reports no graph name;
-                        // `map(...) == Some(_)` fails closed on `None` instead of
-                        // matching `graph_name` against a coerced sentinel.
-                        && record
-                            .envelope
-                            .mutation
-                            .identity
-                            .scope()
-                            .graph_name()
-                            .map(crate::mutation_batch::LogicalName::as_str)
-                            == Some(graph_name) =>
-                        {
-                            Response::ok(req_id, ResultPayload::raw(&record))
-                        }
-                        Ok(Some(_)) => {
-                            Response::err(req_id, "ACCESS_DENIED: envelope tenant mismatch")
-                        }
-                        Ok(None) => Response::ok(
-                            req_id,
-                            ResultPayload::raw(
-                                &Option::<crate::change_envelope::ChangeEnvelopeRecord>::None,
-                            ),
-                        ),
-                        Err(error) => {
-                            Response::err(req_id, format!("ChangeEnvelope read failed: {error}"))
-                        }
-                    };
-                }
-            }
-            .await);
-        }
+        } => Ok(read_change_envelope(ctx, envelope_id, tenant).await),
         Method::GetContentVersion { object_id, tenant } => {
-            return Ok(async {
-                let persistence = persistence.clone();
-                {
-                    let Some(backend) = persistence.as_ref() else {
-                        return Response::err(req_id, "content-version persistence is unavailable");
-                    };
-                    let fname = crate::persist::sanitize(graph_name);
-                    return match backend
-                        .read_content_version(&fname, &tenant, &object_id)
-                        .await
-                    {
-                        Ok(version) => Response::ok(req_id, ResultPayload::raw(&version)),
-                        Err(error) => {
-                            Response::err(req_id, format!("content-version read failed: {error}"))
-                        }
-                    };
-                }
-            }
-            .await);
+            Ok(read_content_version(ctx, object_id, tenant).await)
         }
         Method::GetChangeCursor {
             source,
             partition,
             tenant,
-        } => {
-            return Ok(async {
-                let persistence = persistence.clone();
-                {
-                    let Some(backend) = persistence.as_ref() else {
-                        return Response::err(req_id, "change-cursor persistence is unavailable");
-                    };
-                    let fname = crate::persist::sanitize(graph_name);
-                    return match backend
-                        .read_change_cursor(&fname, &tenant, &source, &partition)
-                        .await
-                    {
-                        Ok(cursor) => Response::ok(req_id, ResultPayload::raw(&cursor)),
-                        Err(error) => {
-                            Response::err(req_id, format!("change-cursor read failed: {error}"))
-                        }
-                    };
-                }
-            }
-            .await);
-        }
+        } => Ok(read_change_cursor(ctx, source, partition, tenant).await),
         other => Err(other),
+    }
+}
+
+async fn apply_one_change_envelope(
+    ctx: GraphOpRouting<'_>,
+    envelope: eg_types::change_envelope::ChangeEnvelope,
+) -> Response {
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let core = ctx.core;
+    let persistence = ctx.persistence;
+    #[cfg(feature = "raft")]
+    let state = ctx.state;
+    #[cfg(feature = "raft")]
+    let tenant_scope = ctx.tenant_scope;
+    #[cfg(feature = "raft")]
+    let routed_raft = ctx.routed_raft;
+    #[cfg(feature = "raft")]
+    let graph_type = ctx.graph_type;
+
+    if let Err(resp) = check_change_envelope_placement_fence(
+        req_id,
+        #[cfg(feature = "raft")]
+        graph_name,
+        &envelope,
+        #[cfg(feature = "raft")]
+        routed_raft.as_ref(),
+    )
+    .await
+    {
+        return resp;
+    }
+
+    let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+    match envelope.mutation.version_expectation {
+        crate::mutation_batch::VersionExpectation::Graph(expected) => {
+            if expected != core.version() {
+                return Response::err(
+                    req_id,
+                    format!(
+                        "STALE_GRAPH_VERSION: expected {expected}, current {}",
+                        core.version()
+                    ),
+                );
+            }
+        }
+        _ => {
+            return Response::err(
+                req_id,
+                "ApplyChangeEnvelope requires a graph version expectation",
+            );
+        }
+    }
+    let committed_at_ms = authoritative_now_ms().max(envelope.mutation.created_at_ms);
+    let Some(backend) = persistence.as_ref() else {
+        return Response::err(
+            req_id,
+            "ApplyChangeEnvelope requires a configured persistence backend",
+        );
+    };
+    let fname = crate::persist::sanitize(graph_name);
+
+    #[cfg(feature = "raft")]
+    if let Some(resp) = try_replicate_change_envelope(
+        ChangeEnvelopeReplicaCtx {
+            state,
+            req_id,
+            graph_name,
+            graph_type,
+            tenant_scope,
+            fname: &fname,
+            routed_raft: routed_raft.as_ref(),
+        },
+        &envelope,
+        committed_at_ms,
+    )
+    .await
+    {
+        return resp;
+    }
+
+    let committed = match backend
+        .commit_change_envelope(&fname, &envelope, committed_at_ms)
+        .await
+    {
+        Ok(committed) => committed,
+        Err(error) => {
+            return Response::err(
+                req_id,
+                format!("ApplyChangeEnvelope atomic commit failed: {error}"),
+            );
+        }
+    };
+    let projection_error = if committed.replayed {
+        None
+    } else {
+        crate::server::mutation_batch::publish_change_envelope_projection(core, &envelope).err()
+    };
+    let result = change_envelope_result(&committed, projection_error.is_some());
+    Response::ok(
+        req_id,
+        ResultPayload::of::<txn_results::ApplyChangeEnvelope>(result),
+    )
+}
+
+async fn apply_change_envelope_batch(
+    ctx: GraphOpRouting<'_>,
+    envelopes: Vec<eg_types::change_envelope::ChangeEnvelope>,
+) -> Response {
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let core = ctx.core.clone();
+    let persistence = ctx.persistence.clone();
+    #[cfg(feature = "raft")]
+    let routed_raft = ctx.routed_raft.clone();
+
+    #[cfg(feature = "raft")]
+    if routed_raft.is_some() {
+        return Response::err(
+            req_id,
+            "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT: use per-envelope ApplyChangeEnvelope",
+        );
+    }
+    let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+    for envelope in &envelopes {
+        if envelope.mutation.placement_epoch != 0 || envelope.mutation.fencing_token.is_some() {
+            return Response::err(
+                req_id,
+                "ChangeEnvelope carries a placement fence in a single-node build",
+            );
+        }
+    }
+    let committed_at_ms = envelopes.iter().fold(authoritative_now_ms(), |acc, e| {
+        acc.max(e.mutation.created_at_ms)
+    });
+    let Some(backend) = persistence.as_ref() else {
+        return Response::err(
+            req_id,
+            "ApplyChangeEnvelopes requires a configured persistence backend",
+        );
+    };
+    let fname = crate::persist::sanitize(graph_name);
+    let results =
+        commit_change_envelope_batch_results(backend, &core, &fname, &envelopes, committed_at_ms)
+            .await;
+    Response::ok(
+        req_id,
+        ResultPayload::of::<txn_results::ApplyChangeEnvelopes>(txn_results::ChangeEnvelopeBatch {
+            results,
+        }),
+    )
+}
+
+async fn read_change_envelope(
+    ctx: GraphOpRouting<'_>,
+    envelope_id: String,
+    tenant: String,
+) -> Response {
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let Some(backend) = ctx.persistence.as_ref() else {
+        return Response::err(req_id, "ChangeEnvelope persistence is unavailable");
+    };
+    let fname = crate::persist::sanitize(graph_name);
+    match backend.read_change_envelope(&fname, &envelope_id).await {
+        Ok(Some(record))
+            if record.envelope.mutation.identity.tenant().as_str() == tenant
+                && record
+                    .envelope
+                    .mutation
+                    .identity
+                    .scope()
+                    .graph_name()
+                    .map(crate::mutation_batch::LogicalName::as_str)
+                    == Some(graph_name) =>
+        {
+            Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::query::GetChangeEnvelope>(Some(
+                    record,
+                )),
+            )
+        }
+        Ok(Some(_)) => Response::err(req_id, "ACCESS_DENIED: envelope tenant mismatch"),
+        Ok(None) => Response::ok(
+            req_id,
+            ResultPayload::of::<eg_types::result_contract::query::GetChangeEnvelope>(None),
+        ),
+        Err(error) => Response::err(req_id, format!("ChangeEnvelope read failed: {error}")),
+    }
+}
+
+async fn read_content_version(
+    ctx: GraphOpRouting<'_>,
+    object_id: String,
+    tenant: String,
+) -> Response {
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let Some(backend) = ctx.persistence.as_ref() else {
+        return Response::err(req_id, "content-version persistence is unavailable");
+    };
+    let fname = crate::persist::sanitize(graph_name);
+    match backend
+        .read_content_version(&fname, &tenant, &object_id)
+        .await
+    {
+        Ok(version) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::query::GetContentVersion>(&version),
+        ),
+        Err(error) => Response::err(req_id, format!("content-version read failed: {error}")),
+    }
+}
+
+async fn read_change_cursor(
+    ctx: GraphOpRouting<'_>,
+    source: String,
+    partition: String,
+    tenant: String,
+) -> Response {
+    let req_id = ctx.req_id;
+    let graph_name = ctx.graph_name;
+    let Some(backend) = ctx.persistence.as_ref() else {
+        return Response::err(req_id, "change-cursor persistence is unavailable");
+    };
+    let fname = crate::persist::sanitize(graph_name);
+    match backend
+        .read_change_cursor(&fname, &tenant, &source, &partition)
+        .await
+    {
+        Ok(cursor) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::query::GetChangeCursor>(&cursor),
+        ),
+        Err(error) => Response::err(req_id, format!("change-cursor read failed: {error}")),
     }
 }

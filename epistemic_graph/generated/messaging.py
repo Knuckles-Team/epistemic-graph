@@ -35,7 +35,7 @@ async def send_declare_exchange(
 ) -> str:
     """DeclareExchange - broker:admin, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.messaging.json#/methods/DeclareExchange).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     DeclareExchangeRequest.model_validate(params or {})
@@ -65,7 +65,7 @@ async def send_delete_exchange(
 ) -> bool:
     """DeleteExchange - broker:admin, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.messaging.json#/methods/DeleteExchange).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     DeleteExchangeRequest.model_validate(params or {})
@@ -97,7 +97,7 @@ async def send_bind_queue(
 ) -> str:
     """BindQueue - broker:admin, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.messaging.json#/methods/BindQueue).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BindQueueRequest.model_validate(params or {})
@@ -129,7 +129,7 @@ async def send_unbind_queue(
 ) -> bool:
     """UnbindQueue - broker:admin, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.messaging.json#/methods/UnbindQueue).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     UnbindQueueRequest.model_validate(params or {})
@@ -161,7 +161,7 @@ async def send_publish(
 ) -> int:
     """Publish - broker:publish, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.messaging.json#/methods/Publish).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     PublishRequest.model_validate(params or {})
@@ -197,7 +197,7 @@ async def send_declare_queue(
 ) -> str:
     """DeclareQueue - broker:admin, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.messaging.json#/methods/DeclareQueue).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     DeclareQueueRequest.model_validate(params or {})
@@ -233,7 +233,7 @@ async def send_publish_ex(
 ) -> int:
     """PublishEx - broker:publish, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.messaging.json#/methods/PublishEx).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     PublishExRequest.model_validate(params or {})
@@ -268,7 +268,7 @@ async def send_broker_consume(
 ) -> OpaqueResult:
     """BrokerConsume - broker:consume, Outbox, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BrokerConsumeRequest.model_validate(params or {})
@@ -299,7 +299,7 @@ async def send_broker_ack(
 ) -> bool:
     """BrokerAck - broker:ack, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.messaging.json#/methods/BrokerAck).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BrokerAckRequest.model_validate(params or {})
@@ -332,7 +332,7 @@ async def send_broker_reject(
 ) -> str:
     """BrokerReject - broker:ack, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.messaging.json#/methods/BrokerReject).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BrokerRejectRequest.model_validate(params or {})
@@ -362,7 +362,7 @@ async def send_sweep_expired(
 ) -> int:
     """SweepExpired - broker:admin, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.messaging.json#/methods/SweepExpired).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     SweepExpiredRequest.model_validate(params or {})
@@ -394,7 +394,7 @@ async def send_stream_declare(
 ) -> str:
     """StreamDeclare - stream:admin, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.messaging.json#/methods/StreamDeclare).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     StreamDeclareRequest.model_validate(params or {})
@@ -426,7 +426,7 @@ async def send_stream_publish(
 ) -> int:
     """StreamPublish - stream:write, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.messaging.json#/methods/StreamPublish).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     StreamPublishRequest.model_validate(params or {})
@@ -458,7 +458,7 @@ async def send_stream_read(
 ) -> OpaqueResult:
     """StreamRead - stream:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     StreamReadRequest.model_validate(params or {})
@@ -489,7 +489,7 @@ async def send_stream_trim(
 ) -> int:
     """StreamTrim - stream:admin, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.messaging.json#/methods/StreamTrim).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     StreamTrimRequest.model_validate(params or {})
@@ -521,7 +521,7 @@ async def send_stream_commit_offset(
 ) -> str:
     """StreamCommitOffset - stream:admin, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.messaging.json#/methods/StreamCommitOffset).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     StreamCommitOffsetRequest.model_validate(params or {})
@@ -552,7 +552,7 @@ async def send_stream_committed_offset(
 ) -> OpaqueResult:
     """StreamCommittedOffset - stream:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     StreamCommittedOffsetRequest.model_validate(params or {})
@@ -588,7 +588,7 @@ async def send_publish_confirmed(
 ) -> OpaqueResult:
     """PublishConfirmed - broker:publish, Outbox, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     PublishConfirmedRequest.model_validate(params or {})
@@ -626,7 +626,7 @@ async def send_publish_idempotent(
 ) -> OpaqueResult:
     """PublishIdempotent - broker:publish, Outbox, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     PublishIdempotentRequest.model_validate(params or {})
@@ -657,7 +657,7 @@ async def send_broker_ack_tag(
 ) -> bool:
     """BrokerAckTag - broker:ack, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.messaging.json#/methods/BrokerAckTag).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BrokerAckTagRequest.model_validate(params or {})
@@ -690,7 +690,7 @@ async def send_broker_nack_tag(
 ) -> str:
     """BrokerNackTag - broker:ack, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.messaging.json#/methods/BrokerNackTag).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BrokerNackTagRequest.model_validate(params or {})
@@ -723,7 +723,7 @@ async def send_broker_renew_tag(
 ) -> bool:
     """BrokerRenewTag - broker:ack, Outbox, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.messaging.json#/methods/BrokerRenewTag).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     BrokerRenewTagRequest.model_validate(params or {})
@@ -756,7 +756,7 @@ async def send_create_channel(
 ) -> OpaqueResult:
     """CreateChannel - channel:admin, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CreateChannelRequest.model_validate(params or {})
@@ -787,7 +787,7 @@ async def send_join_channel(
 ) -> OpaqueResult:
     """JoinChannel - channel:admin, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     JoinChannelRequest.model_validate(params or {})
@@ -818,7 +818,7 @@ async def send_leave_channel(
 ) -> OpaqueResult:
     """LeaveChannel - channel:admin, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     LeaveChannelRequest.model_validate(params or {})
@@ -850,7 +850,7 @@ async def send_close_channel(
 ) -> OpaqueResult:
     """CloseChannel - channel:admin, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CloseChannelRequest.model_validate(params or {})
@@ -882,7 +882,7 @@ async def send_send_message(
 ) -> OpaqueResult:
     """SendMessage - channel:write, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     SendMessageRequest.model_validate(params or {})
@@ -913,7 +913,7 @@ async def send_get_channel_messages(
 ) -> OpaqueResult:
     """GetChannelMessages - channel:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetChannelMessagesRequest.model_validate(params or {})
@@ -943,7 +943,7 @@ async def send_list_channels(
 ) -> OpaqueResult:
     """ListChannels - channel:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ListChannelsRequest.model_validate(params or {})
@@ -973,7 +973,7 @@ async def send_get_channel_members(
 ) -> list[str]:
     """GetChannelMembers - channel:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Ids (contract/schemas/result.Ids.json).
+    Result: ResultPayload::Ids (contract/schemas/result.messaging.json#/methods/GetChannelMembers).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetChannelMembersRequest.model_validate(params or {})
@@ -1005,7 +1005,7 @@ async def send_cdc_read(
 ) -> OpaqueResult:
     """CdcRead - cdc:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     CdcReadRequest.model_validate(params or {})
@@ -1036,7 +1036,7 @@ async def send_register_continuous_query(
 ) -> str:
     """RegisterContinuousQuery - cdc:admin, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.messaging.json#/methods/RegisterContinuousQuery).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RegisterContinuousQueryRequest.model_validate(params or {})
@@ -1066,7 +1066,7 @@ async def send_read_continuous_query(
 ) -> OpaqueResult:
     """ReadContinuousQuery - cdc:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ReadContinuousQueryRequest.model_validate(params or {})
@@ -1096,7 +1096,7 @@ async def send_drop_continuous_query(
 ) -> bool:
     """DropContinuousQuery - cdc:admin, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.messaging.json#/methods/DropContinuousQuery).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     DropContinuousQueryRequest.model_validate(params or {})
@@ -1129,7 +1129,7 @@ async def send_watch(
 ) -> OpaqueResult:
     """Watch - cdc:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     WatchRequest.model_validate(params or {})
@@ -1163,7 +1163,7 @@ async def send_register_trigger(
 ) -> str:
     """RegisterTrigger - cdc:admin, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.messaging.json#/methods/RegisterTrigger).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RegisterTriggerRequest.model_validate(params or {})
@@ -1193,7 +1193,7 @@ async def send_drop_trigger(
 ) -> bool:
     """DropTrigger - cdc:admin, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.messaging.json#/methods/DropTrigger).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     DropTriggerRequest.model_validate(params or {})
@@ -1223,7 +1223,7 @@ async def send_list_triggers(
 ) -> OpaqueResult:
     """ListTriggers - cdc:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ListTriggersRequest.model_validate(params or {})
@@ -1255,7 +1255,7 @@ async def send_fired_triggers(
 ) -> OpaqueResult:
     """FiredTriggers - cdc:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     FiredTriggersRequest.model_validate(params or {})
@@ -1286,7 +1286,7 @@ async def send_cep_subscribe(
 ) -> int:
     """CepSubscribe - cep:admin, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.messaging.json#/methods/CepSubscribe).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CepSubscribeRequest.model_validate(params or {})
@@ -1317,7 +1317,7 @@ async def send_cep_poll(
 ) -> OpaqueResult:
     """CepPoll - cep:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     CepPollRequest.model_validate(params or {})
@@ -1347,7 +1347,7 @@ async def send_cep_unsubscribe(
 ) -> bool:
     """CepUnsubscribe - cep:admin, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.messaging.json#/methods/CepUnsubscribe).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CepUnsubscribeRequest.model_validate(params or {})

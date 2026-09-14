@@ -34,6 +34,108 @@ fn committed_contract_artifacts_match_the_registry() {
     }
 }
 
+fn committed_json(path: &str) -> serde_json::Value {
+    let text = std::fs::read_to_string(repo_root().join(path))
+        .unwrap_or_else(|error| panic!("cannot read {path}: {error}"));
+    serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path} is not JSON: {error}"))
+}
+
+/// The contract profile turns on `eg-types/timeseries` (via `canonical-ledger`), so the
+/// `Op` variants that feature gates are part of the published request schema. `Op` is
+/// externally tagged: a variant's name is its subschema's single required key.
+#[test]
+fn request_schema_covers_the_timeseries_op_variants() {
+    let document = committed_json("contract/schemas/method.request.json");
+    let variants: std::collections::BTreeSet<String> = document["$defs"]["Op"]["oneOf"]
+        .as_array()
+        .expect("`Op` is a oneOf over its variants")
+        .iter()
+        .filter_map(|variant| variant["required"].as_array()?.first()?.as_str())
+        .map(str::to_string)
+        .collect();
+    for gated in ["SensorAlign", "SensorFuse", "TsScan"] {
+        assert!(
+            variants.contains(gated),
+            "`Op::{gated}` is missing from method.request.json -- the contract profile no \
+             longer enables `eg-types/timeseries`"
+        );
+    }
+}
+
+/// A result-type change must move a digest: every declared result points into a
+/// schema document that is an `artifact_digests` entry, and the receipt's classification
+/// accounts for every method exactly once.
+#[test]
+fn every_declared_result_schema_is_digested() {
+    let receipt = committed_json("contract/receipt.json");
+    let digests = receipt["artifact_digests"]
+        .as_object()
+        .expect("the receipt carries artifact_digests");
+    let methods = committed_json("contract/methods.json");
+    let methods = methods["methods"]
+        .as_array()
+        .expect("methods.json lists methods");
+    let mut declared = 0;
+    for method in methods {
+        let result = &method["result_schema"];
+        if result["kind"] == "unclassified" {
+            continue;
+        }
+        declared += 1;
+        let document = result["schema"]
+            .as_str()
+            .and_then(|pointer| pointer.split('#').next())
+            .expect("a declared result names its schema document");
+        assert!(
+            digests.contains_key(document),
+            "{document} is referenced by methods.json but not digested"
+        );
+    }
+    let classification = receipt["result_classification"]
+        .as_object()
+        .expect("the receipt classifies results");
+    let total: u64 = classification.values().filter_map(|n| n.as_u64()).sum();
+    assert_eq!(total as usize, methods.len());
+    assert_eq!(
+        classification["unclassified"].as_u64(),
+        Some((methods.len() - declared) as u64)
+    );
+}
+
+#[test]
+fn split_transaction_result_marker_is_collected_by_the_generator() {
+    let artifacts = eg_capabilities::contract::render_all(&repo_root());
+    let methods = artifacts
+        .iter()
+        .find(|artifact| artifact.path == "contract/methods.json")
+        .expect("the generator renders methods.json");
+    let methods: serde_json::Value =
+        serde_json::from_slice(&methods.bytes).expect("the generated methods artifact is JSON");
+    let method = methods["methods"]
+        .as_array()
+        .and_then(|methods| {
+            methods
+                .iter()
+                .find(|method| method["id"] == "ApplyMultisigMutation")
+        })
+        .expect("the transaction descriptor is present");
+    assert_eq!(method["result_schema"]["kind"], "declared");
+    assert_eq!(
+        method["result_schema"]["bodies"]["result"]["encoding"],
+        "Json"
+    );
+
+    let transactions = artifacts
+        .iter()
+        .find(|artifact| artifact.path == "epistemic_graph/generated/transactions.py")
+        .expect("the generator renders the transactions client");
+    let transactions = String::from_utf8_lossy(&transactions.bytes);
+    assert!(transactions.contains(
+        "Result: ResultPayload::Json \
+         (contract/schemas/result.transactions.json#/methods/ApplyMultisigMutation)."
+    ));
+}
+
 #[test]
 fn every_declared_format_identity_exists_in_the_tree() {
     let root = repo_root();

@@ -44,14 +44,19 @@ fn handle_get_node_properties_batch(
     // [id, properties_msgpack | nil] in input order — one round-trip for N
     // nodes; nil preserves which ids were absent. serde_bytes keeps the
     // property blobs as MessagePack `bin`, not int arrays.
-    let out: Vec<(String, Option<serde_bytes::ByteBuf>)> = node_ids
+    let out: Vec<(String, Option<eg_types::types::PropertyBlob>)> = node_ids
         .into_iter()
         .map(|id| {
-            let props = g.get_node_properties(&id).map(serde_bytes::ByteBuf::from);
+            let props = g
+                .get_node_properties(&id)
+                .map(eg_types::types::PropertyBlob);
             (id, props)
         })
         .collect();
-    Response::ok(req_id, ResultPayload::raw(&out))
+    Response::ok(
+        req_id,
+        ResultPayload::of_ref::<eg_types::result_contract::graph::GetNodePropertiesBatch>(&out),
+    )
 }
 
 /// `HasNodesBatch`: pure extract-method from `try_handle`'s match arm,
@@ -69,7 +74,10 @@ fn handle_has_nodes_batch(req_id: u64, core: &Arc<GraphCore>, node_ids: &[String
     }
     let g = &**core;
     let out: Vec<bool> = node_ids.iter().map(|id| g.has_node(id)).collect();
-    Response::ok(req_id, ResultPayload::raw(&out))
+    Response::ok(
+        req_id,
+        ResultPayload::of_ref::<eg_types::result_contract::graph::HasNodesBatch>(&out),
+    )
 }
 
 /// `GetNodeProperties`: pure extract-method from `try_handle`'s match arm,
@@ -82,29 +90,28 @@ fn handle_get_node_properties(
     node_id: &str,
 ) -> Response {
     let g = &**core;
-    let val = match g.get_node_properties(node_id) {
-        Some(props_msgpack) => ResultPayload::Raw(props_msgpack),
-        // The RLS projection is RAM-topology-only and can never see a node
-        // `EvictLRU` fully evicted from the live topology (see `raw_core`'s
-        // doc comment above) — fall back to the RAW core, whose
-        // `read_through` seam is intact, then re-check row visibility on
-        // exactly this one row before returning it.
-        None => match raw_core.get_node_properties(node_id) {
-            // BUG A3 (2026-08-12): TBox membership is DERIVED from
-            // `raw_core.is_schema_node`, not decoded from the blob
-            // (see `can_see_node`'s doc) — `node_id` is exactly the
-            // one row this fallback is checking, so the live lookup
-            // is as cheap as reading a single DashMap entry.
-            Some(props_msgpack)
-                if read_authority
-                    .can_see_node(&props_msgpack, raw_core.is_schema_node(node_id)) =>
-            {
-                ResultPayload::Raw(props_msgpack)
-            }
-            _ => ResultPayload::Json(serde_json::Value::Null),
-        },
-    };
-    Response::ok(req_id, val)
+    // The RLS projection is RAM-topology-only and can never see a node
+    // `EvictLRU` fully evicted from the live topology (see `raw_core`'s
+    // doc comment above) — fall back to the RAW core, whose
+    // `read_through` seam is intact, then re-check row visibility on
+    // exactly this one row before returning it.
+    //
+    // BUG A3 (2026-08-12): TBox membership is DERIVED from
+    // `raw_core.is_schema_node`, not decoded from the blob
+    // (see `can_see_node`'s doc) — `node_id` is exactly the
+    // one row this fallback is checking, so the live lookup
+    // is as cheap as reading a single DashMap entry.
+    let props = g.get_node_properties(node_id).or_else(|| {
+        raw_core
+            .get_node_properties(node_id)
+            .filter(|props| read_authority.can_see_node(props, raw_core.is_schema_node(node_id)))
+    });
+    Response::ok(
+        req_id,
+        ResultPayload::of_encoded_or_null::<eg_types::result_contract::graph::GetNodeProperties>(
+            props,
+        ),
+    )
 }
 
 /// Route gateway-owned node creation and removal operations.
@@ -247,7 +254,12 @@ pub(super) async fn try_handle_node_batch(
         Method::MatchOntologyTerms { query } => {
             // CONCEPT:EG-ORCH.routing.lexical-capability-escalation — lexical capability gate; cached aho-corasick scan.
             let g = core;
-            Response::ok(req_id, ResultPayload::raw(&g.match_ontology_terms(&query)))
+            Response::ok(
+                req_id,
+                ResultPayload::of::<eg_types::result_contract::compute::MatchOntologyTerms>(
+                    g.match_ontology_terms(&query),
+                ),
+            )
         }
         // AddEmbedding (CONCEPT:EG-P0-2 bypass guard, L11): GATEWAY_ROUTED — see
         // the AddNode/RemoveNode comment above.

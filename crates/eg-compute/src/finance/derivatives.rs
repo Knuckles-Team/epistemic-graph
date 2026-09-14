@@ -8,8 +8,6 @@
 // Parameters: α (vol level), β∈[0,1] (CEV exponent), ρ∈(−1,1) (correlation),
 // ν (vol-of-vol). Source: Hagan et al., "Managing Smile Risk" (Wilmott, 2002).
 
-use serde::{Deserialize, Serialize};
-
 /// SABR lognormal (Black) implied volatility for a single strike (Hagan 2002).
 /// `f` = forward, `k` = strike, `t` = time to expiry (years).
 pub fn sabr_implied_vol(f: f64, k: f64, t: f64, alpha: f64, beta: f64, rho: f64, nu: f64) -> f64 {
@@ -65,15 +63,7 @@ pub fn sabr_smile(
         .collect()
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SabrFit {
-    pub alpha: f64,
-    pub beta: f64,
-    pub rho: f64,
-    pub nu: f64,
-    pub rmse: f64,
-    pub converged: bool,
-}
+pub use eg_types::compute_result::finance::SabrFit;
 
 /// Calibrate SABR (α, ρ, ν) to a market smile with `beta` fixed (the usual
 /// convention — β is a modelling choice, not fit). Minimises RMSE of model vs

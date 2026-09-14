@@ -127,7 +127,7 @@ pub fn cosine_f64(a: &[f64], b: &[f64]) -> f64 {
 }
 
 /// L2-normalize each row in place (a zero row is left untouched).
-pub(crate) fn l2_normalize_rows(rows: &mut [Vec<f64>]) {
+pub fn l2_normalize_rows(rows: &mut [Vec<f64>]) {
     for row in rows.iter_mut() {
         let norm: f64 = row.iter().map(|x| x * x).sum::<f64>().sqrt();
         if norm > 0.0 {

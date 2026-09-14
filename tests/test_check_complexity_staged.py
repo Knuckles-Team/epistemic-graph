@@ -71,6 +71,19 @@ def _judge(mod, tmp_path, before_name, before_src, after_name, after_src):
     return before, after, findings
 
 
+def test_legacy_metrics_keep_four_tuple_and_effective_fallback():
+    mod = _module()
+    legacy = mod.Metrics(3, 2, 1, True)
+    measured = mod.Metrics(5, 3, 1, True, 2)
+
+    assert legacy == (3, 2, 1, True)
+    assert hash(legacy) == hash((3, 2, 1, True))
+    assert legacy.effective_cyclomatic == 0
+    assert mod._reported_cyclomatic(legacy) == 0
+    assert measured.effective_cyclomatic == 2
+    assert mod._reported_cyclomatic(measured) == 5
+
+
 # ---------------------------------------------------------------------------
 # Fixture sources
 # ---------------------------------------------------------------------------
@@ -383,7 +396,9 @@ def test_exempt_function_adding_exhaustive_arms_passes(tmp_path):
 def test_new_over_cap_function_fails(tmp_path):
     mod = _module()
     after = _measure(mod, tmp_path, "after.rs", CLASSIFY_OVER_CAP)
-    findings = mod.judge({}, after, mod.DEFAULT_MAX_CYCLOMATIC, mod.DEFAULT_MAX_COGNITIVE)
+    findings = mod.judge(
+        {}, after, mod.DEFAULT_MAX_CYCLOMATIC, mod.DEFAULT_MAX_COGNITIVE
+    )
     assert len(findings) == 1
     kind, name, before_vals, after_vals = findings[0]
     assert kind == "NEW"

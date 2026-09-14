@@ -31,7 +31,7 @@ async def send_get_ledger(
 ) -> OpaqueResult:
     """GetLedger - ledger:read, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetLedgerRequest.model_validate(params or {})
@@ -61,7 +61,7 @@ async def send_audit_verify(
 ) -> OpaqueResult:
     """AuditVerify - security:audit, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     AuditVerifyRequest.model_validate(params or {})
@@ -92,7 +92,7 @@ async def send_audit_prove_inclusion(
 ) -> OpaqueResult:
     """AuditProveInclusion - security:audit, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     AuditProveInclusionRequest.model_validate(params or {})
@@ -126,7 +126,7 @@ async def send_register_identity(
 ) -> str:
     """RegisterIdentity - security:admin, ControlRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.security.json#/methods/RegisterIdentity).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RegisterIdentityRequest.model_validate(params or {})
@@ -156,7 +156,7 @@ async def send_rbac_admin(
 ) -> OpaqueResult:
     """RbacAdmin - security:admin, ControlRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RbacAdminRequest.model_validate(params or {})
@@ -186,7 +186,7 @@ async def send_get_identity(
 ) -> OpaqueResult:
     """GetIdentity - security:admin, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetIdentityRequest.model_validate(params or {})

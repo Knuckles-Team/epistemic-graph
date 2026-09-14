@@ -249,6 +249,16 @@ pub fn decode_property_value(input: &[u8]) -> Result<serde_json::Value, MsgpackV
         .map_err(|_| MsgpackValidationError)
 }
 
+/// Decode the canonical relationship label from an edge property blob.
+///
+/// RDF readers use this bounded, duplicate-key-safe projection when selecting
+/// among parallel edge-property entries.
+pub fn decode_edge_relationship(input: &[u8]) -> Option<String> {
+    let value = decode_property_value(input).ok()?;
+    let properties = value.as_object()?;
+    properties.get("relationship")?.as_str().map(str::to_owned)
+}
+
 /// JSON-compatible MessagePack value whose map visitor rejects a repeated key at
 /// every nesting level. Deserializing directly into `serde_json::Value` would make
 /// duplicate maps last-write-wins, which is ambiguous for schemas, authorization

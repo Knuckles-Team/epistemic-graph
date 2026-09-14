@@ -2023,21 +2023,23 @@ fn host_refresh_rejects_filesystem_shrink_under_existing_held_disk() {
                 disk_used_mib: 9_000,
                 disk_capacity_mib: 9_100,
             };
-            let result = apply_resource_reservation_rows(
-                "graph-a",
-                &Method::UpdateResourceHost { request: refreshed },
-                &mut nodes,
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
+            let result = apply_resource_reservation_rows(ResourceReservationApplyRequest {
+                graph: "graph-a",
+                method: &Method::UpdateResourceHost { request: refreshed },
+                tables: ResourceReservationTables {
+                    nodes: &mut nodes,
+                    reservations: &mut reservations,
+                    tenant_index: &mut tenant_index,
+                    attempts: &mut attempts,
+                    hosts: &mut hosts,
+                    exclusivity: &mut exclusivity,
+                    fairness: &mut fairness,
+                    concurrency: &mut concurrency,
+                    anti_affinity: &mut anti_affinity,
+                    disk_policies: &mut disk_policies,
+                    crypto,
+                },
+            })
             .unwrap()
             .expect("host update returns a typed refusal");
             assert!(matches!(result, crate::protocol::ResultPayload::Raw(_)));
@@ -2129,40 +2131,44 @@ fn host_disk_policy_projection_caps_at_schema_bound() {
             };
             let mut invalid_ttl = update(8);
             invalid_ttl.heartbeat_ttl_ms = 999;
-            let error = apply_resource_reservation_rows(
-                "graph-a",
-                &Method::UpdateResourceHost {
+            let error = apply_resource_reservation_rows(ResourceReservationApplyRequest {
+                graph: "graph-a",
+                method: &Method::UpdateResourceHost {
                     request: invalid_ttl,
                 },
-                &mut nodes,
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
+                tables: ResourceReservationTables {
+                    nodes: &mut nodes,
+                    reservations: &mut reservations,
+                    tenant_index: &mut tenant_index,
+                    attempts: &mut attempts,
+                    hosts: &mut hosts,
+                    exclusivity: &mut exclusivity,
+                    fairness: &mut fairness,
+                    concurrency: &mut concurrency,
+                    anti_affinity: &mut anti_affinity,
+                    disk_policies: &mut disk_policies,
+                    crypto,
+                },
+            })
             .expect_err("heartbeat TTL below the schema minimum must fail closed");
             assert!(error.contains("telemetry bounds"));
-            apply_resource_reservation_rows(
-                "graph-a",
-                &Method::UpdateResourceHost { request: update(8) },
-                &mut nodes,
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
+            apply_resource_reservation_rows(ResourceReservationApplyRequest {
+                graph: "graph-a",
+                method: &Method::UpdateResourceHost { request: update(8) },
+                tables: ResourceReservationTables {
+                    nodes: &mut nodes,
+                    reservations: &mut reservations,
+                    tenant_index: &mut tenant_index,
+                    attempts: &mut attempts,
+                    hosts: &mut hosts,
+                    exclusivity: &mut exclusivity,
+                    fairness: &mut fairness,
+                    concurrency: &mut concurrency,
+                    anti_affinity: &mut anti_affinity,
+                    disk_policies: &mut disk_policies,
+                    crypto,
+                },
+            })
             .expect("128 policy rows remain representable")
             .expect("host update result");
             assert_eq!(
@@ -2178,21 +2184,23 @@ fn host_disk_policy_projection_caps_at_schema_bound() {
             disk_policies
                 .insert(("graph-a", key), bytes.as_slice())
                 .unwrap();
-            let error = apply_resource_reservation_rows(
-                "graph-a",
-                &Method::UpdateResourceHost { request: update(9) },
-                &mut nodes,
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
+            let error = apply_resource_reservation_rows(ResourceReservationApplyRequest {
+                graph: "graph-a",
+                method: &Method::UpdateResourceHost { request: update(9) },
+                tables: ResourceReservationTables {
+                    nodes: &mut nodes,
+                    reservations: &mut reservations,
+                    tenant_index: &mut tenant_index,
+                    attempts: &mut attempts,
+                    hosts: &mut hosts,
+                    exclusivity: &mut exclusivity,
+                    fairness: &mut fairness,
+                    concurrency: &mut concurrency,
+                    anti_affinity: &mut anti_affinity,
+                    disk_policies: &mut disk_policies,
+                    crypto,
+                },
+            })
             .expect_err("129 policy rows exceed the generated snapshot bound");
             assert!(error.contains("disk-policy scan exceeds native bound"));
             assert_eq!(
@@ -2273,23 +2281,25 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
                 )
                 .unwrap();
 
-            let error = apply_resource_reservation_rows(
-                "graph-a",
-                &Method::ReserveWorkItemResources {
+            let error = apply_resource_reservation_rows(ResourceReservationApplyRequest {
+                graph: "graph-a",
+                method: &Method::ReserveWorkItemResources {
                     request: reserve_request.clone(),
                 },
-                &mut nodes,
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
+                tables: ResourceReservationTables {
+                    nodes: &mut nodes,
+                    reservations: &mut reservations,
+                    tenant_index: &mut tenant_index,
+                    attempts: &mut attempts,
+                    hosts: &mut hosts,
+                    exclusivity: &mut exclusivity,
+                    fairness: &mut fairness,
+                    concurrency: &mut concurrency,
+                    anti_affinity: &mut anti_affinity,
+                    disk_policies: &mut disk_policies,
+                    crypto,
+                },
+            })
             .expect_err("an orphan attempt index is corruption, not an idempotent win");
             assert!(error.contains("attempt index references missing reservation"));
             let after = resource_load_host(&mut hosts, "graph-a", "host-1", crypto)
@@ -2314,23 +2324,25 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
                     reserve_request.attempt,
                 ))
                 .unwrap();
-            let accepted = apply_resource_reservation_rows(
-                "graph-a",
-                &Method::ReserveWorkItemResources {
+            let accepted = apply_resource_reservation_rows(ResourceReservationApplyRequest {
+                graph: "graph-a",
+                method: &Method::ReserveWorkItemResources {
                     request: reserve_request.clone(),
                 },
-                &mut nodes,
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
+                tables: ResourceReservationTables {
+                    nodes: &mut nodes,
+                    reservations: &mut reservations,
+                    tenant_index: &mut tenant_index,
+                    attempts: &mut attempts,
+                    hosts: &mut hosts,
+                    exclusivity: &mut exclusivity,
+                    fairness: &mut fairness,
+                    concurrency: &mut concurrency,
+                    anti_affinity: &mut anti_affinity,
+                    disk_policies: &mut disk_policies,
+                    crypto,
+                },
+            })
             .unwrap()
             .expect("reserve result");
             let accepted = resource_decode_result_payload(accepted).unwrap();
@@ -2354,23 +2366,25 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
                 let mut stale_release = reserve_request.clone();
                 stale_release.expected_lifecycle_revision = expected;
                 stale_release.now_ms = 2_000;
-                let stale = apply_resource_reservation_rows(
-                    "graph-a",
-                    &Method::ReleaseWorkItemResources {
+                let stale = apply_resource_reservation_rows(ResourceReservationApplyRequest {
+                    graph: "graph-a",
+                    method: &Method::ReleaseWorkItemResources {
                         request: stale_release,
                     },
-                    &mut nodes,
-                    &mut reservations,
-                    &mut tenant_index,
-                    &mut attempts,
-                    &mut hosts,
-                    &mut exclusivity,
-                    &mut fairness,
-                    &mut concurrency,
-                    &mut anti_affinity,
-                    &mut disk_policies,
-                    crypto,
-                )
+                    tables: ResourceReservationTables {
+                        nodes: &mut nodes,
+                        reservations: &mut reservations,
+                        tenant_index: &mut tenant_index,
+                        attempts: &mut attempts,
+                        hosts: &mut hosts,
+                        exclusivity: &mut exclusivity,
+                        fairness: &mut fairness,
+                        concurrency: &mut concurrency,
+                        anti_affinity: &mut anti_affinity,
+                        disk_policies: &mut disk_policies,
+                        crypto,
+                    },
+                })
                 .unwrap()
                 .expect("stale lifecycle refusal result");
                 assert_eq!(
@@ -2382,23 +2396,25 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
             let mut release_request = reserve_request.clone();
             release_request.now_ms = 2_000;
             release_request.expected_lifecycle_revision = Some(1);
-            let released = apply_resource_reservation_rows(
-                "graph-a",
-                &Method::ReleaseWorkItemResources {
+            let released = apply_resource_reservation_rows(ResourceReservationApplyRequest {
+                graph: "graph-a",
+                method: &Method::ReleaseWorkItemResources {
                     request: release_request.clone(),
                 },
-                &mut nodes,
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
+                tables: ResourceReservationTables {
+                    nodes: &mut nodes,
+                    reservations: &mut reservations,
+                    tenant_index: &mut tenant_index,
+                    attempts: &mut attempts,
+                    hosts: &mut hosts,
+                    exclusivity: &mut exclusivity,
+                    fairness: &mut fairness,
+                    concurrency: &mut concurrency,
+                    anti_affinity: &mut anti_affinity,
+                    disk_policies: &mut disk_policies,
+                    crypto,
+                },
+            })
             .unwrap()
             .expect("release result");
             let released = resource_decode_result_payload(released).unwrap();
@@ -2416,23 +2432,25 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
             // The retained tombstone makes the exact release replay idempotent,
             // while a new reservation identity for the same WorkItem attempt is a
             // conflict with the durable attempt winner.
-            let replay = apply_resource_reservation_rows(
-                "graph-a",
-                &Method::ReleaseWorkItemResources {
+            let replay = apply_resource_reservation_rows(ResourceReservationApplyRequest {
+                graph: "graph-a",
+                method: &Method::ReleaseWorkItemResources {
                     request: release_request,
                 },
-                &mut nodes,
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
+                tables: ResourceReservationTables {
+                    nodes: &mut nodes,
+                    reservations: &mut reservations,
+                    tenant_index: &mut tenant_index,
+                    attempts: &mut attempts,
+                    hosts: &mut hosts,
+                    exclusivity: &mut exclusivity,
+                    fairness: &mut fairness,
+                    concurrency: &mut concurrency,
+                    anti_affinity: &mut anti_affinity,
+                    disk_policies: &mut disk_policies,
+                    crypto,
+                },
+            })
             .unwrap()
             .expect("release replay result");
             assert_eq!(
@@ -2442,25 +2460,28 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
             let mut changed_precondition = reserve_request.clone();
             changed_precondition.now_ms = 3_000;
             changed_precondition.expected_lifecycle_revision = Some(2);
-            let changed_precondition_result = apply_resource_reservation_rows(
-                "graph-a",
-                &Method::ReleaseWorkItemResources {
-                    request: changed_precondition,
-                },
-                &mut nodes,
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
-            .unwrap()
-            .expect("changed lifecycle refusal result");
+            let changed_precondition_result =
+                apply_resource_reservation_rows(ResourceReservationApplyRequest {
+                    graph: "graph-a",
+                    method: &Method::ReleaseWorkItemResources {
+                        request: changed_precondition,
+                    },
+                    tables: ResourceReservationTables {
+                        nodes: &mut nodes,
+                        reservations: &mut reservations,
+                        tenant_index: &mut tenant_index,
+                        attempts: &mut attempts,
+                        hosts: &mut hosts,
+                        exclusivity: &mut exclusivity,
+                        fairness: &mut fairness,
+                        concurrency: &mut concurrency,
+                        anti_affinity: &mut anti_affinity,
+                        disk_policies: &mut disk_policies,
+                        crypto,
+                    },
+                })
+                .unwrap()
+                .expect("changed lifecycle refusal result");
             assert_eq!(
                 resource_decode_result_payload(changed_precondition_result)
                     .unwrap()
@@ -2472,23 +2493,25 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
             changed_id.idempotency_key = "reserve-invocation-changed".to_string();
             changed_id.input_fingerprint =
                 resource_recomputed_fingerprint(&props, &changed_id).unwrap();
-            let conflict = apply_resource_reservation_rows(
-                "graph-a",
-                &Method::ReserveWorkItemResources {
+            let conflict = apply_resource_reservation_rows(ResourceReservationApplyRequest {
+                graph: "graph-a",
+                method: &Method::ReserveWorkItemResources {
                     request: changed_id,
                 },
-                &mut nodes,
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
+                tables: ResourceReservationTables {
+                    nodes: &mut nodes,
+                    reservations: &mut reservations,
+                    tenant_index: &mut tenant_index,
+                    attempts: &mut attempts,
+                    hosts: &mut hosts,
+                    exclusivity: &mut exclusivity,
+                    fairness: &mut fairness,
+                    concurrency: &mut concurrency,
+                    anti_affinity: &mut anti_affinity,
+                    disk_policies: &mut disk_policies,
+                    crypto,
+                },
+            })
             .unwrap()
             .expect("changed-id refusal result");
             assert_eq!(
@@ -3036,16 +3059,13 @@ fn terminal_result_replays_exact_record_without_held_capacity() {
     let mut record = resource_build_record(&request, &host(), 7, 1).unwrap();
     record.state = ResourceReservationRecordState::Released;
     record.tombstone = true;
-    let result = resource_decode_result_payload(
-        resource_result_payload(
-            ResourceReservationResultDecision::Idempotent,
-            &request,
-            Some(record.clone()),
-            Some(&host()),
-            9,
-            Vec::new(),
-        )
-        .unwrap(),
+    let result = resource_result_payload(
+        ResourceReservationResultDecision::Idempotent,
+        &request,
+        Some(record.clone()),
+        Some(&host()),
+        9,
+        Vec::new(),
     )
     .unwrap();
     assert!(resource_request_matches_record(&request, &record));

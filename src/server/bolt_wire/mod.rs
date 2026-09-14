@@ -250,6 +250,16 @@ async fn authenticate_session(
 
 // ── PackStream / JSON bridge ───────────────────────────────────────────────────
 
+fn pack_bytes_to_json(bytes: &[u8]) -> serde_json::Value {
+    serde_json::Value::Array(bytes.iter().map(|byte| (*byte as i64).into()).collect())
+}
+fn pack_map_to_json(pairs: &[(String, PackValue)]) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for (key, value) in pairs {
+        map.insert(key.clone(), pack_to_json(value));
+    }
+    serde_json::Value::Object(map)
+}
 /// Map a decoded PackStream value to a `serde_json::Value` (RUN parameter binding).
 fn pack_to_json(v: &PackValue) -> serde_json::Value {
     use serde_json::Value as J;
@@ -261,15 +271,9 @@ fn pack_to_json(v: &PackValue) -> serde_json::Value {
             .map(J::Number)
             .unwrap_or(J::Null),
         PackValue::String(s) => J::String(s.clone()),
-        PackValue::Bytes(b) => J::Array(b.iter().map(|x| J::Number((*x as i64).into())).collect()),
+        PackValue::Bytes(bytes) => pack_bytes_to_json(bytes),
         PackValue::List(items) => J::Array(items.iter().map(pack_to_json).collect()),
-        PackValue::Map(pairs) => {
-            let mut m = serde_json::Map::new();
-            for (k, val) in pairs {
-                m.insert(k.clone(), pack_to_json(val));
-            }
-            J::Object(m)
-        }
+        PackValue::Map(pairs) => pack_map_to_json(pairs),
         PackValue::Structure { .. } => J::Null,
     }
 }
@@ -524,6 +528,30 @@ fn receipt_method(writes: &[BufferedCypher]) -> Method {
     }
 }
 
+fn commit_cypher_writes(
+    staged: Arc<GraphCore>,
+    writes: Vec<BufferedCypher>,
+    expected_version: Option<u64>,
+) -> Result<ResultPayload, String> {
+    if expected_version.is_some_and(|expected| staged.version() != expected) {
+        return Err("transaction conflict: graph changed after BEGIN".to_string());
+    }
+    let mut last = None;
+    for write in writes {
+        last = Some(eg_query::exec_cypher_write_params(
+            &staged,
+            &write.query,
+            &write.params,
+        )?);
+    }
+    let result = last.ok_or_else(|| "transaction has no writes".to_string())?;
+    let bytes = rmp_serde::to_vec_named(&result)
+        .map_err(|_| "Cypher result could not be encoded".to_string())?;
+    Ok(ResultPayload::of_encoded::<
+        eg_types::result_contract::query::CypherQuery,
+    >(bytes))
+}
+
 async fn commit_writes(
     session: &mut BoltSession,
     writes: Vec<BufferedCypher>,
@@ -564,21 +592,7 @@ async fn commit_writes(
         true,
         move |staged| async move {
             tokio::task::spawn_blocking(move || {
-                if expected_version.is_some_and(|expected| staged.version() != expected) {
-                    return Err("transaction conflict: graph changed after BEGIN".to_string());
-                }
-                let mut last = None;
-                for write in writes {
-                    last = Some(eg_query::exec_cypher_write_params(
-                        &staged,
-                        &write.query,
-                        &write.params,
-                    )?);
-                }
-                let result = last.ok_or_else(|| "transaction has no writes".to_string())?;
-                let bytes = rmp_serde::to_vec_named(&result)
-                    .map_err(|_| "Cypher result could not be encoded".to_string())?;
-                Ok(ResultPayload::Raw(bytes))
+                commit_cypher_writes(staged, writes, expected_version)
             })
             .await
             .map_err(|_| "Cypher commit task failed".to_string())?

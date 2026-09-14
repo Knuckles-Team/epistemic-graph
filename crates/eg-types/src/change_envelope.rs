@@ -226,6 +226,14 @@ pub struct ChangeEnvelope {
 }
 
 impl ChangeEnvelope {
+    pub fn validate(&self) -> Result<(), String> {
+        validation::validate_change_envelope(self)
+    }
+}
+
+mod validation {
+    use super::*;
+
     // CXA-EG-03 refactor: `validate` was CCN 90 as one flat sequence of ~20
     // independent must-all-pass checks. A `match`-dispatch's arms collapse to
     // ~1 CCN regardless of arm count (mutually exclusive, no `?` needed at the
@@ -239,35 +247,35 @@ impl ChangeEnvelope {
     // the original checks (identity/text/content/material/operations). Every
     // leaf below is the ORIGINAL check's body verbatim, moved, not rewritten
     // -- same conditions, same Err strings, same order.
-    pub fn validate(&self) -> Result<(), String> {
-        self.validate_identity()?;
-        self.validate_text_and_context()?;
-        self.validate_content()?;
-        self.validate_material()?;
-        self.validate_operations()?;
+    fn validate_change_envelope(envelope: &ChangeEnvelope) -> Result<(), String> {
+        validate_identity(envelope)?;
+        validate_text_and_context(envelope)?;
+        validate_content(envelope)?;
+        validate_material(envelope)?;
+        validate_operations(envelope)?;
         Ok(())
     }
 
-    fn validate_identity(&self) -> Result<(), String> {
-        self.validate_schema_version()?;
-        self.mutation.validate()?;
-        self.validate_envelope_id()?;
-        self.validate_principal()?;
+    fn validate_identity(envelope: &ChangeEnvelope) -> Result<(), String> {
+        validate_schema_version(envelope)?;
+        envelope.mutation.validate()?;
+        validate_envelope_id(envelope)?;
+        validate_principal(envelope)?;
         Ok(())
     }
 
-    fn validate_schema_version(&self) -> Result<(), String> {
-        if self.schema_version != CHANGE_ENVELOPE_VERSION {
+    fn validate_schema_version(envelope: &ChangeEnvelope) -> Result<(), String> {
+        if envelope.schema_version != CHANGE_ENVELOPE_VERSION {
             return Err(format!(
                 "unsupported ChangeEnvelope version {} (expected {})",
-                self.schema_version, CHANGE_ENVELOPE_VERSION
+                envelope.schema_version, CHANGE_ENVELOPE_VERSION
             ));
         }
         Ok(())
     }
 
-    fn validate_envelope_id(&self) -> Result<(), String> {
-        if self.envelope_id.trim().is_empty() {
+    fn validate_envelope_id(envelope: &ChangeEnvelope) -> Result<(), String> {
+        if envelope.envelope_id.trim().is_empty() {
             return Err("change envelope_id must not be empty".to_string());
         }
         Ok(())
@@ -282,8 +290,8 @@ impl ChangeEnvelope {
     // either Err below. Kept verbatim (not deleted): not "genuinely dead" per
     // the 5-evidence-check bar, and this lane's brief forbids fixing bugs
     // found inside a behaviour-preserving refactor commit regardless.
-    fn validate_principal(&self) -> Result<(), String> {
-        let principal_digest = self
+    fn validate_principal(envelope: &ChangeEnvelope) -> Result<(), String> {
+        let principal_digest = envelope
             .mutation
             .serving_principal()
             .strip_prefix("principal:sha256:")
@@ -292,13 +300,13 @@ impl ChangeEnvelope {
         Ok(())
     }
 
-    fn validate_text_and_context(&self) -> Result<(), String> {
-        self.validate_core_text_fields()?;
-        self.validate_outbox()?;
+    fn validate_text_and_context(envelope: &ChangeEnvelope) -> Result<(), String> {
+        validate_core_text_fields(envelope)?;
+        validate_outbox(envelope)?;
         Ok(())
     }
 
-    fn validate_core_text_fields(&self) -> Result<(), String> {
+    fn validate_core_text_fields(envelope: &ChangeEnvelope) -> Result<(), String> {
         // MutationBatch v1 carries `identity: MutationScopeIdentity`, so the tenant and
         // graph names are no longer free-form strings reachable from here. `ScopeTenantId`
         // and `LogicalName` enforce the same persistence privacy policy this scan
@@ -307,9 +315,9 @@ impl ChangeEnvelope {
         // be a second, weaker authority for a rule the constructor owns, so only the
         // fields that are still free-form text are checked.
         for value in [
-            self.envelope_id.as_str(),
-            self.mutation.batch_id.as_str(),
-            self.mutation.idempotency_key(),
+            envelope.envelope_id.as_str(),
+            envelope.mutation.batch_id.as_str(),
+            envelope.mutation.idempotency_key(),
         ] {
             validate_safe_text(value)?;
         }
@@ -328,8 +336,8 @@ impl ChangeEnvelope {
     // tenant and graph names left this scan when they became newtypes. See
     // `a_context_purpose_cannot_be_free_form_text` for the structural proof.
 
-    fn validate_outbox(&self) -> Result<(), String> {
-        for intent in &self.mutation.outbox {
+    fn validate_outbox(envelope: &ChangeEnvelope) -> Result<(), String> {
+        for intent in &envelope.mutation.outbox {
             validate_safe_text(&intent.topic)?;
             validate_safe_text(&intent.key)?;
             for (key, value) in &intent.headers {
@@ -341,45 +349,45 @@ impl ChangeEnvelope {
         Ok(())
     }
 
-    fn validate_content(&self) -> Result<(), String> {
-        self.validate_content_version()?;
-        self.validate_privacy()?;
-        self.validate_commit_descriptor()?;
-        self.validate_cursor()?;
-        self.validate_source_version()?;
+    fn validate_content(envelope: &ChangeEnvelope) -> Result<(), String> {
+        validate_content_version(envelope)?;
+        validate_privacy(envelope)?;
+        validate_commit_descriptor(envelope)?;
+        validate_cursor(envelope)?;
+        validate_source_version(envelope)?;
         Ok(())
     }
 
-    fn validate_content_version(&self) -> Result<(), String> {
-        if self.content_version.object_id.trim().is_empty() {
+    fn validate_content_version(envelope: &ChangeEnvelope) -> Result<(), String> {
+        if envelope.content_version.object_id.trim().is_empty() {
             return Err("change content object_id must not be empty".to_string());
         }
-        validate_safe_text(&self.content_version.object_id)?;
+        validate_safe_text(&envelope.content_version.object_id)?;
         validate_digest(
-            &self.content_version.digest_algorithm,
-            &self.content_version.digest,
+            &envelope.content_version.digest_algorithm,
+            &envelope.content_version.digest,
         )?;
-        if let Some(previous) = &self.content_version.previous_digest {
-            validate_digest(&self.content_version.digest_algorithm, previous)?;
-            if previous == &self.content_version.digest {
+        if let Some(previous) = &envelope.content_version.previous_digest {
+            validate_digest(&envelope.content_version.digest_algorithm, previous)?;
+            if previous == &envelope.content_version.digest {
                 return Err("content version cannot replace itself".to_string());
             }
         }
         Ok(())
     }
 
-    fn validate_privacy(&self) -> Result<(), String> {
-        if self.privacy.policy_version.trim().is_empty()
-            || self.privacy.sanitizer_version.trim().is_empty()
+    fn validate_privacy(envelope: &ChangeEnvelope) -> Result<(), String> {
+        if envelope.privacy.policy_version.trim().is_empty()
+            || envelope.privacy.sanitizer_version.trim().is_empty()
         {
             return Err("privacy policy and sanitizer versions are required".to_string());
         }
-        validate_digest("sha256", &self.privacy.sanitized_payload_digest)?;
+        validate_digest("sha256", &envelope.privacy.sanitized_payload_digest)?;
         Ok(())
     }
 
-    fn validate_commit_descriptor(&self) -> Result<(), String> {
-        match (self.commit_seq, &self.commit_descriptor_ref) {
+    fn validate_commit_descriptor(envelope: &ChangeEnvelope) -> Result<(), String> {
+        match (envelope.commit_seq, &envelope.commit_descriptor_ref) {
             (Some(_), None) | (None, Some(_)) => {
                 return Err(
                     "commit_seq and commit_descriptor_ref must be set together or both absent"
@@ -397,8 +405,8 @@ impl ChangeEnvelope {
         Ok(())
     }
 
-    fn validate_cursor(&self) -> Result<(), String> {
-        if let Some(cursor) = &self.cursor {
+    fn validate_cursor(envelope: &ChangeEnvelope) -> Result<(), String> {
+        if let Some(cursor) = &envelope.cursor {
             if cursor.source.trim().is_empty() {
                 return Err("cursor source must not be empty".to_string());
             }
@@ -412,8 +420,8 @@ impl ChangeEnvelope {
         Ok(())
     }
 
-    fn validate_source_version(&self) -> Result<(), String> {
-        match &self.content_version.source_version {
+    fn validate_source_version(envelope: &ChangeEnvelope) -> Result<(), String> {
+        match &envelope.content_version.source_version {
             ContentVersionPosition::Opaque {
                 version_type,
                 value,
@@ -428,28 +436,28 @@ impl ChangeEnvelope {
 
     // Governance proof is not optional: every materialized object's ACL row
     // must be present in the same envelope and therefore the same commit.
-    fn validate_material(&self) -> Result<(), String> {
-        let governed = self.validate_policies()?;
-        let mut required_governance = BTreeSet::from([self.content_version.object_id.as_str()]);
-        self.validate_blobs()?;
-        self.validate_evidence(&mut required_governance)?;
-        self.validate_features(&mut required_governance)?;
-        self.validate_lineage(&mut required_governance)?;
+    fn validate_material(envelope: &ChangeEnvelope) -> Result<(), String> {
+        let governed = validate_policies(envelope)?;
+        let mut required_governance = BTreeSet::from([envelope.content_version.object_id.as_str()]);
+        validate_blobs(envelope)?;
+        validate_evidence(envelope, &mut required_governance)?;
+        validate_features(envelope, &mut required_governance)?;
+        validate_lineage(envelope, &mut required_governance)?;
         validate_governance_proof(&governed, &required_governance)?;
         Ok(())
     }
 
-    fn validate_policies(&self) -> Result<BTreeSet<&str>, String> {
+    fn validate_policies<'a>(envelope: &'a ChangeEnvelope) -> Result<BTreeSet<&'a str>, String> {
         let mut governed = BTreeSet::new();
-        for policy in &self.policies {
-            self.validate_one_policy(policy)?;
+        for policy in &envelope.policies {
+            validate_one_policy(envelope, policy)?;
             governed.insert(policy.object_id.as_str());
         }
         Ok(governed)
     }
 
-    fn validate_one_policy(&self, policy: &PolicyRecord) -> Result<(), String> {
-        if policy.tenant != self.mutation.identity.tenant().as_str() {
+    fn validate_one_policy(envelope: &ChangeEnvelope, policy: &PolicyRecord) -> Result<(), String> {
+        if policy.tenant != envelope.mutation.identity.tenant().as_str() {
             return Err("policy tenant does not match mutation tenant".to_string());
         }
         if !policy_required_fields_present(policy) {
@@ -466,8 +474,8 @@ impl ChangeEnvelope {
         Ok(())
     }
 
-    fn validate_blobs(&self) -> Result<(), String> {
-        for blob in &self.blobs {
+    fn validate_blobs(envelope: &ChangeEnvelope) -> Result<(), String> {
+        for blob in &envelope.blobs {
             if blob.blob_id.trim().is_empty() || blob.media_type.trim().is_empty() {
                 return Err("blob identity and media type are required".to_string());
             }
@@ -479,10 +487,10 @@ impl ChangeEnvelope {
     }
 
     fn validate_evidence<'a>(
-        &'a self,
+        envelope: &'a ChangeEnvelope,
         required_governance: &mut BTreeSet<&'a str>,
     ) -> Result<(), String> {
-        for evidence in &self.evidence {
+        for evidence in &envelope.evidence {
             validate_safe_text(&evidence.evidence_id)?;
             validate_safe_text(&evidence.object_id)?;
             validate_safe_text(&evidence.modality)?;
@@ -494,10 +502,10 @@ impl ChangeEnvelope {
     }
 
     fn validate_features<'a>(
-        &'a self,
+        envelope: &'a ChangeEnvelope,
         required_governance: &mut BTreeSet<&'a str>,
     ) -> Result<(), String> {
-        for feature in &self.features {
+        for feature in &envelope.features {
             validate_safe_text(&feature.feature_id)?;
             validate_safe_text(&feature.object_id)?;
             validate_safe_text(&feature.kind)?;
@@ -509,10 +517,10 @@ impl ChangeEnvelope {
     }
 
     fn validate_lineage<'a>(
-        &'a self,
+        envelope: &'a ChangeEnvelope,
         required_governance: &mut BTreeSet<&'a str>,
     ) -> Result<(), String> {
-        for lineage in &self.lineage {
+        for lineage in &envelope.lineage {
             validate_safe_text(&lineage.lineage_id)?;
             validate_safe_text(&lineage.object_id)?;
             validate_safe_text(&lineage.transform_name)?;
@@ -526,8 +534,8 @@ impl ChangeEnvelope {
         Ok(())
     }
 
-    fn validate_operations(&self) -> Result<(), String> {
-        for operation in &self.mutation.operations {
+    fn validate_operations(envelope: &ChangeEnvelope) -> Result<(), String> {
+        for operation in &envelope.mutation.operations {
             match &operation.method {
                 crate::protocol::Method::AddNode {
                     node_id,
@@ -663,12 +671,14 @@ fn validate_msgpack_privacy(bytes: &[u8]) -> Result<(), String> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ChangeEnvelopeRecord {
     pub envelope: ChangeEnvelope,
     pub committed_at_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ChangeEnvelopeCommit {
     pub envelope_id: String,
     pub batch_id: String,

@@ -631,11 +631,6 @@ impl SqlCache {
 // new pushable predicate shape (a range index, a text MATCH) extends this one
 // registry, not scattered provider methods.
 
-/// Default cap on the number of distinct columns the pushdown registry will index.
-/// Mirrors eg-core's property-index bound; env-overridable via
-/// `EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES`.
-const DEFAULT_MAX_INDEXED_PROPERTIES: usize = 32;
-
 /// A canonicalized equality value used as a secondary-index key. We index Arrow
 /// cell values by their canonical string form so a `col = literal` predicate
 /// resolves to row positions regardless of the column's inferred Arrow type.
@@ -685,11 +680,7 @@ impl PushdownRegistry {
     }
 
     fn max_indexed() -> usize {
-        std::env::var("EPISTEMIC_GRAPH_MAX_INDEXED_PROPERTIES")
-            .ok()
-            .and_then(|s| s.trim().parse::<usize>().ok())
-            .filter(|&n| n > 0)
-            .unwrap_or(DEFAULT_MAX_INDEXED_PROPERTIES)
+        eg_core::graph::GraphCore::max_indexed_properties()
     }
 
     fn seed_columns() -> Vec<String> {

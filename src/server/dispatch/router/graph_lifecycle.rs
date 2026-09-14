@@ -46,82 +46,122 @@ pub(super) async fn dispatch_graph_lifecycle_methods(
             .await
         }
 
-        Method::ListGraphs => {
-            dispatch_boxed(async {
-    let req_id = req.id;
-    {
-            let s = timed_read(state).await;
-            let read_authority =
-                match GraphReadAuthority::from_verified(verified_context, &s.isolation) {
-                    Ok(authority) => authority,
-                    Err(denied) => return Response::err(req_id, denied),
-                };
-            let graphs: Vec<serde_json::Value> = s
-                .registry
-                .list()
-                .iter()
-                .filter(|(name, _)| {
-                    s.registry.get(name).is_some_and(|entry| {
-                        check_graph_access(
-                            &s.isolation,
-                            read_authority.actor(),
-                            name,
-                            entry.graph_type,
-                            entry.owner.as_deref(),
-                            AccessLevel::Read,
-                        )
-                        .is_ok()
-                    })
-                })
-                .map(|(name, gt)| {
-                    let readiness = s.registry.materialization_manifest(name);
-                    let indexes = s.registry.get(name).map(|entry| {
-                        entry
-                            .core
-                            .indexes()
-                            .server_manifests()
-                            .into_iter()
-                            .map(|(kind, manifest)| {
-                                serde_json::json!({
-                                    "kind": index_kind_label(kind),
-                                    "source_snapshot_version": manifest.source_snapshot_version,
-                                    "build_version": manifest.build_version,
-                                    "completeness_cursor": {
-                                        "nodes": manifest.completeness.nodes,
-                                        "edges": manifest.completeness.edges,
-                                        "complete": manifest.completeness.complete,
-                                    },
-                                    "validity": index_validity_label(manifest.validity),
-                                })
-                            })
-                            .collect::<Vec<_>>()
-                    });
-                    serde_json::json!({
-                        "name": name,
-                        "type": gt,
-                        "materialization": readiness.as_ref().map(|value| match value.phase {
-                            crate::registry::MaterializationPhase::CatalogOnly => "catalog_only",
-                            crate::registry::MaterializationPhase::Partial => "partial",
-                            crate::registry::MaterializationPhase::Complete => "complete",
-                            crate::registry::MaterializationPhase::Failed => "failed",
-                        }),
-                        "source_snapshot_version": readiness.as_ref().and_then(|value| value.source_snapshot_version),
-                        "completeness_cursor": readiness.as_ref().and_then(|value| value.completeness_cursor.as_ref()).map(|cursor| {
-                            serde_json::json!({
-                                "node_offset": cursor.node_offset,
-                                "edge_offset": cursor.edge_offset,
-                            })
-                        }),
-                        "valid": readiness.as_ref().is_some_and(|value| value.valid),
-                        "index_manifests": indexes.unwrap_or_default(),
-                    })
-                })
-                .collect();
-            Response::ok(req_id, ResultPayload::Json(serde_json::json!(graphs)))
-        }
-})
-            .await
-        }
+        Method::ListGraphs => dispatch_boxed(list_graphs(state, verified_context, req.id)).await,
         other => return ControlFlow::Continue(other),
     })
+}
+
+/// `ListGraphs`: every graph the verified caller may read, with its materialization
+/// and index readiness.
+async fn list_graphs(
+    state: &Arc<RwLock<ServerState>>,
+    verified_context: &VerifiedRequestContext,
+    req_id: u64,
+) -> Response {
+    let s = timed_read(state).await;
+    let read_authority = match GraphReadAuthority::from_verified(verified_context, &s.isolation) {
+        Ok(authority) => authority,
+        Err(denied) => return Response::err(req_id, denied),
+    };
+    let graphs: Vec<eg_types::result_contract::cluster::GraphListing> = s
+        .registry
+        .list()
+        .iter()
+        .filter(|(name, _)| {
+            s.registry.get(name).is_some_and(|entry| {
+                check_graph_access(
+                    &s.isolation,
+                    read_authority.actor(),
+                    name,
+                    entry.graph_type,
+                    entry.owner.as_deref(),
+                    AccessLevel::Read,
+                )
+                .is_ok()
+            })
+        })
+        .map(|(name, graph_type)| graph_listing(&s.registry, name, *graph_type))
+        .collect();
+    Response::ok(
+        req_id,
+        ResultPayload::of::<eg_types::result_contract::cluster::ListGraphs>(graphs),
+    )
+}
+
+/// One readable graph's listing: its materialization readiness and index manifests.
+fn graph_listing(
+    registry: &crate::registry::GraphRegistry,
+    name: &str,
+    graph_type: crate::protocol::GraphType,
+) -> eg_types::result_contract::cluster::GraphListing {
+    let readiness = registry.materialization_manifest(name);
+    let index_manifests = registry
+        .get(name)
+        .map(|entry| {
+            entry
+                .core
+                .indexes()
+                .server_manifests()
+                .into_iter()
+                .map(|(kind, manifest)| index_manifest_listing(kind, manifest))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    eg_types::result_contract::cluster::GraphListing {
+        name: name.to_string(),
+        graph_type,
+        materialization: readiness
+            .as_ref()
+            .map(|value| materialization_phase(&value.phase)),
+        source_snapshot_version: readiness
+            .as_ref()
+            .and_then(|value| value.source_snapshot_version),
+        completeness_cursor: readiness
+            .as_ref()
+            .and_then(|value| value.completeness_cursor.as_ref())
+            .map(
+                |cursor| eg_types::result_contract::cluster::MaterializationCursor {
+                    node_offset: cursor.node_offset as u64,
+                    edge_offset: cursor.edge_offset as u64,
+                },
+            ),
+        valid: readiness.as_ref().is_some_and(|value| value.valid),
+        index_manifests,
+    }
+}
+
+fn materialization_phase(
+    phase: &crate::registry::MaterializationPhase,
+) -> eg_types::result_contract::cluster::MaterializationPhase {
+    match phase {
+        crate::registry::MaterializationPhase::CatalogOnly => {
+            eg_types::result_contract::cluster::MaterializationPhase::CatalogOnly
+        }
+        crate::registry::MaterializationPhase::Partial => {
+            eg_types::result_contract::cluster::MaterializationPhase::Partial
+        }
+        crate::registry::MaterializationPhase::Complete => {
+            eg_types::result_contract::cluster::MaterializationPhase::Complete
+        }
+        crate::registry::MaterializationPhase::Failed => {
+            eg_types::result_contract::cluster::MaterializationPhase::Failed
+        }
+    }
+}
+
+fn index_manifest_listing(
+    kind: crate::index::IndexKind,
+    manifest: crate::index::IndexManifest,
+) -> eg_types::result_contract::cluster::IndexManifestListing {
+    eg_types::result_contract::cluster::IndexManifestListing {
+        kind: index_kind_label(kind).to_string(),
+        source_snapshot_version: manifest.source_snapshot_version,
+        build_version: manifest.build_version,
+        completeness_cursor: eg_types::result_contract::cluster::IndexCompleteness {
+            nodes: manifest.completeness.nodes,
+            edges: manifest.completeness.edges,
+            complete: manifest.completeness.complete,
+        },
+        validity: index_validity_label(manifest.validity).to_string(),
+    }
 }

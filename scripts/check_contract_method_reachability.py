@@ -74,7 +74,7 @@ from rust_lexer import (
     _rust_comments_mask,
     _top_level_parts,
 )
-from rust_module_tree import read_module_paths, read_module_tree
+from rust_module_tree import read_compiler_family, read_module_paths, read_module_tree
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "eg-contract-method-reachability-gate/v1"
@@ -146,26 +146,73 @@ def contract_methods() -> list[dict]:
     return methods
 
 
-def protocol_variants() -> set[str]:
-    """Top-level variant identifiers of the wire `Method` enum."""
+def protocol_source() -> str:
+    """Read the compiler-declared production protocol family.
 
-    source = read(PROTOCOL)
+    ``protocol.rs`` is a facade.  The wire ``Method`` enum is assembled from
+    the declared ``protocol/method`` children, so reading only the facade can
+    never establish the wire universe.  The family reader follows those
+    declarations and rejects an unlinked Rust child instead of silently
+    allowing a method fragment to escape this gate.
+    """
+
+    try:
+        return read_compiler_family(PROTOCOL, ROOT).production
+    except SystemExit as error:
+        raise GateError(str(error)) from error
+
+
+def _method_enum_body(source: str) -> str:
+    """Return the literal ``Method`` enum body when a tree has one."""
+
     marker = "pub enum Method {"
     start = source.find(marker)
     if start < 0:
         raise GateError("the wire Method enum is absent from the protocol module")
     body = source[start + len(marker) :]
     mask = _rust_code_mask(body)
-    end = _balanced_span_from("{" + mask, 0, "{", "}") - 1
-    body_mask = mask[:end]
-    depths = _delimiter_depths(body_mask)
-    variants = {
-        match.group("variant")
-        for match in re.finditer(
-            r"(?m)^[ \t]*(?P<variant>[A-Z][A-Za-z0-9_]*)", body_mask
+    try:
+        end = _balanced_span_from("{" + mask, 0, "{", "}") - 1
+    except SystemExit as error:
+        raise GateError("the wire Method enum is unterminated") from error
+    return mask[:end]
+
+
+def _method_chunk_bodies(source: str) -> list[str]:
+    """Return only compiler-reachable declarative Method fragments."""
+
+    chunk_bodies: list[str] = []
+    for chunk in re.finditer(r"macro_rules!\s+__eg_method_chunk_\d+\s*\{", source):
+        end = source.find("pub(crate) use __eg_method_chunk_", chunk.end())
+        if end < 0:
+            raise GateError("protocol Method chunk is unterminated or not re-exported")
+        chunk_bodies.append(source[chunk.end() : end])
+    if not chunk_bodies:
+        raise GateError("protocol Method enum has no readable variant body")
+    return chunk_bodies
+
+
+def _method_variant_names(source: str) -> set[str]:
+    # The fragment body comes from a macro rule, where a comment or string can
+    # contain text that looks like an enum row.  Apply the shared Rust lexer
+    # before matching so only compiler-visible tokens contribute variants.
+    source = _rust_code_mask(source)
+    return set(
+        re.findall(
+            r"^    ([A-Z][A-Za-z0-9_]*)\s*(?:\{|\(|,)",
+            source,
+            re.MULTILINE,
         )
-        if depths[match.start("variant")] == (0, 0, 0)
-    }
+    )
+
+
+def protocol_variants() -> set[str]:
+    """Top-level variant identifiers of the compiler-reachable ``Method``."""
+
+    source = protocol_source()
+    variants = _method_variant_names(_method_enum_body(source))
+    if not variants:
+        variants = _method_variant_names("\n".join(_method_chunk_bodies(source)))
     if not variants:
         raise GateError("no variant parsed out of the wire Method enum")
     return variants
@@ -201,7 +248,9 @@ def _function_spans(mask: str) -> list[tuple[int, int, str, str]]:
     return spans
 
 
-def _enclosing(spans: list[tuple[int, int, str, str]], position: int) -> tuple[str, str]:
+def _enclosing(
+    spans: list[tuple[int, int, str, str]], position: int
+) -> tuple[str, str]:
     best: tuple[str, str] = ("<file scope>", "()")
     width = None
     for start, end, name, returns in spans:
@@ -220,7 +269,7 @@ def _outside(position: tuple, scope: tuple) -> bool:
     point of keeping three counters.
     """
 
-    return any(value < bound for value, bound in zip(position, scope))
+    return any(value < bound for value, bound in zip(position, scope, strict=True))
 
 
 def _brace_openers(mask: str) -> dict[int, int]:
@@ -443,7 +492,9 @@ def dispatch_arms() -> tuple[list[Arm], set[str]]:
 # Property 4 -- digest round-trip
 # --------------------------------------------------------------------------
 
-_PREFIX_CONSTANT = re.compile(r'const\s+DIGEST_PREFIX\s*:\s*&str\s*=\s*"(?P<value>[^"]*)"')
+_PREFIX_CONSTANT = re.compile(
+    r'const\s+DIGEST_PREFIX\s*:\s*&str\s*=\s*"(?P<value>[^"]*)"'
+)
 _STRUCT_DECL = re.compile(r"\bstruct\s+(?P<name>[A-Z][A-Za-z0-9_]*)\s*\{")
 _IMPL_BLOCK = re.compile(r"\bimpl\s+(?P<name>[A-Z][A-Za-z0-9_]*)\s*\{")
 _LITERAL = re.compile(r"\b(?P<name>Self|[A-Z][A-Za-z0-9_]*)\s*\{")
@@ -543,7 +594,9 @@ def _validated_digest_fields(mask: str, text: str, forms: dict[str, str]) -> dic
     accepted: dict[tuple[str, str], str] = {}
     for call in _VALIDATE_CALL.finditer(text):
         form = forms.get(call.group("fn"), "")
-        if not form.startswith("accepts:") or not call.group("field").endswith("digest"):
+        if not form.startswith("accepts:") or not call.group("field").endswith(
+            "digest"
+        ):
             continue
         owner = _enclosing_impl(mask, call.start())
         if owner:
@@ -597,7 +650,8 @@ def _local_binding(
     if best is None:
         return None
     binding = re.search(
-        rf"\blet\s+(?:mut\s+)?{re.escape(name)}\s*(?::[^=;]*)?=", mask[best[0] : best[1]]
+        rf"\blet\s+(?:mut\s+)?{re.escape(name)}\s*(?::[^=;]*)?=",
+        mask[best[0] : best[1]],
     )
     if binding is None:
         return None
@@ -642,7 +696,9 @@ def _literal_form(value: str) -> str | None:
     return None
 
 
-def _copied_form(value: str, authoritative: dict, parameters: dict[str, str]) -> str | None:
+def _copied_form(
+    value: str, authoritative: dict, parameters: dict[str, str]
+) -> str | None:
     """The form a COPY carries, resolved through the parameter it reads from."""
 
     read = {

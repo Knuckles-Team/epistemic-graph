@@ -683,7 +683,7 @@ impl EmbeddedEngine {
                 eg_query::exec_sql_typed_with_tables(&snap, store, sql)
             }
             StatementKind::CreateTable(plan) => {
-                let columns = to_store_columns(&plan.columns)?;
+                let columns = eg_query::columns_from_defs(&plan.columns)?;
                 let schema = eg_query::TableSchema::new(plan.name, columns);
                 store.create_table(&schema, plan.if_not_exists)?;
                 Ok(status_result("CREATE TABLE"))
@@ -776,28 +776,6 @@ impl EmbeddedEngine {
     }
 }
 
-/// Resolve classify `ColumnDef`s (raw SQL type spellings) into store [`Column`]s
-/// (CONCEPT:EG-KG.query.register-user-tables-alongside). Mirrors the pgwire shim's `to_store_columns`, but on the public
-/// eg-query API so the embedded path adds no cross-crate coupling.
-#[cfg(feature = "query")]
-fn to_store_columns(cols: &[eg_query::ColumnDef]) -> Result<Vec<eg_query::Column>, String> {
-    cols.iter()
-        .map(|c| {
-            let ty = eg_query::ColumnType::parse(&c.type_name)?;
-            Ok(eg_query::Column {
-                name: c.name.clone(),
-                ty,
-                nullable: c.nullable,
-                primary_key: c.primary_key,
-                unique: c.unique,
-                serial: c.serial,
-                default: c.default.clone(),
-                check: c.check.clone(),
-            })
-        })
-        .collect()
-}
-
 /// Route a decoded `ALTER TABLE` action to the matching durable `TableStore` mutation
 /// (CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog DROP/RENAME COLUMN, RENAME TABLE, ALTER
 /// COLUMN TYPE, DROP CONSTRAINT). The single facade mapping the embedded path reuses.
@@ -809,7 +787,7 @@ fn apply_alter_table(
     use eg_query::AlterTableAction as A;
     match plan.action {
         A::AddColumn(col) => {
-            let columns = to_store_columns(std::slice::from_ref(&col))?;
+            let columns = eg_query::columns_from_defs(std::slice::from_ref(&col))?;
             let column = columns.into_iter().next().expect("one column");
             store.add_column(&plan.name, column)
         }

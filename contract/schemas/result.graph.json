@@ -1,0 +1,516 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {},
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "AddEdge": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ClearGraph": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CompareAndSetNodeFields": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Consolidate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CreateNodeIfAbsent": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CreateSummaryNode": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DecayMemories": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DecayNode": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DiscountedReturn": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DropNamedGraph": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "EdgeCount": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "EvictBelow": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "EvictLRU": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetEdges": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "EdgeList",
+          "schema": {
+            "items": {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetNeighbors": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetNodes": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "NodeList",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                true
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetNodesByLabel": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "NodeList",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                true
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetPredecessors": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetSuccessors": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "HasEdge": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "HasNode": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "InDegree": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "InvalidateEdge": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "NodeCount": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "NodeIds": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "OutDegree": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Reconcile": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Reinforce": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Reparent": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SceneChildren": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StartTrajectory": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SummariesAtLevel": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SummaryChildren": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TouchNodes": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "UnionGetNeighbors": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "graph method results"
+}

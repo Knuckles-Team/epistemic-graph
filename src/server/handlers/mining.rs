@@ -1536,6 +1536,31 @@ mod tests {
     }
 
     #[test]
+    fn text_empty_corpus_reports_the_selected_algorithm() {
+        let core = Arc::new(GraphCore::new());
+        let m = Method::MineText {
+            docs: Vec::new(),
+            source: None,
+            algorithm: TextAlgorithm::Nmf,
+            k: 2,
+            alpha: 0.1,
+            beta: 0.01,
+            iterations: 10,
+            seed: 1,
+            top_n: 5,
+            writeback: false,
+            #[cfg(feature = "epistemic")]
+            as_claim: false,
+        };
+        let resp = dispatch_for_test(24, core, m).expect("handled");
+        let Some(ResultPayload::Json(v)) = resp.result else {
+            panic!("expected json payload");
+        };
+        assert_eq!(v["algorithm"], "nmf");
+        assert_eq!(v["n_docs"], 0);
+    }
+
+    #[test]
     fn text_lda_graph_derived_source_and_writeback() {
         let core = Arc::new(GraphCore::new());
         let pet_words = ["cat", "dog", "pet", "leash", "vet"];

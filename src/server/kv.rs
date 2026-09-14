@@ -37,6 +37,7 @@ use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::mutation_batch::COMPILED_BATCH_INCARNATION;
+use eg_types::result_contract::storage as results;
 
 /// The single KV table: `(namespace, key) -> value bytes`. Composite key so one file
 /// holds every namespace and a prefix scan of one is a contiguous range. `eg-storage`
@@ -656,6 +657,29 @@ fn decode_batch_result<T: serde::de::DeserializeOwned>(
     .map_err(|_| "committed KV result is invalid or exceeds resource limits".to_string())
 }
 
+fn kv_scan_response(
+    req_id: u64,
+    store: &KvStore,
+    namespace: &str,
+    prefix: &str,
+    limit: usize,
+) -> Response {
+    match store.scan(namespace, prefix, limit) {
+        Ok(pairs) => {
+            // `[(key, value-bytes)]` straight to MessagePack (value rides as a bin).
+            let wire: Vec<(String, serde_bytes::ByteBuf)> = pairs
+                .into_iter()
+                .map(|(key, value)| (key, serde_bytes::ByteBuf::from(value)))
+                .collect();
+            Response::ok(
+                req_id,
+                ResultPayload::of_dynamic::<results::KvScan, _>(&wire),
+            )
+        }
+        Err(error) => Response::err(req_id, format!("KvScan error: {error}")),
+    }
+}
+
 /// Route a `Method::Kv*` op through the KV store on `ServerState`. Mirrors the
 /// blob/tsdb self-routing handlers: `Err(method)` for a non-KV method (the caller then
 /// falls through), `Ok(Response)` otherwise. Classification (`requires_write`) lives in
@@ -689,8 +713,10 @@ pub(crate) async fn try_handle(
         Method::KvGet { namespace, key } => {
             let namespace = authority.namespace("kv-namespace", &namespace);
             match store.get(&namespace, &key) {
-                Ok(Some(v)) => Response::ok(req_id, ResultPayload::Raw(v)),
-                Ok(None) => Response::ok(req_id, ResultPayload::Json(serde_json::Value::Null)),
+                Ok(value) => Response::ok(
+                    req_id,
+                    ResultPayload::of_encoded_or_null::<results::KvGet>(value),
+                ),
                 Err(e) => Response::err(req_id, format!("KvGet error: {e}")),
             }
         }
@@ -703,7 +729,10 @@ pub(crate) async fn try_handle(
             match compile_kv_batch(&store, req_id, authority, &namespace, &original_method)
                 .and_then(|(batch, now)| store.put_batch(&namespace, &key, value, &batch, now))
             {
-                Ok(()) => Response::ok(req_id, ResultPayload::String("ok".to_string())),
+                Ok(()) => Response::ok(
+                    req_id,
+                    ResultPayload::scalar::<results::KvPut>("ok".to_string()),
+                ),
                 Err(e) => Response::err(req_id, format!("KvPut error: {e}")),
             }
         }
@@ -712,7 +741,9 @@ pub(crate) async fn try_handle(
             match compile_kv_batch(&store, req_id, authority, &namespace, &original_method)
                 .and_then(|(batch, now)| store.delete_batch(&namespace, &key, &batch, now))
             {
-                Ok(existed) => Response::ok(req_id, ResultPayload::Bool(existed)),
+                Ok(existed) => {
+                    Response::ok(req_id, ResultPayload::scalar::<results::KvDelete>(existed))
+                }
                 Err(e) => Response::err(req_id, format!("KvDelete error: {e}")),
             }
         }
@@ -722,17 +753,7 @@ pub(crate) async fn try_handle(
             limit,
         } => {
             let namespace = authority.namespace("kv-namespace", &namespace);
-            match store.scan(&namespace, &prefix, limit) {
-                Ok(pairs) => {
-                    // `[(key, value-bytes)]` straight to MessagePack (value rides as a bin).
-                    let wire: Vec<(String, serde_bytes::ByteBuf)> = pairs
-                        .into_iter()
-                        .map(|(k, v)| (k, serde_bytes::ByteBuf::from(v)))
-                        .collect();
-                    Response::ok(req_id, ResultPayload::raw(&wire))
-                }
-                Err(e) => Response::err(req_id, format!("KvScan error: {e}")),
-            }
+            kv_scan_response(req_id, &store, &namespace, &prefix, limit)
         }
         Method::KvCas {
             namespace,
@@ -745,7 +766,9 @@ pub(crate) async fn try_handle(
                 .and_then(|(batch, now)| {
                     store.cas_batch(&namespace, &key, expected.as_deref(), new, &batch, now)
                 }) {
-                Ok(swapped) => Response::ok(req_id, ResultPayload::Bool(swapped)),
+                Ok(swapped) => {
+                    Response::ok(req_id, ResultPayload::scalar::<results::KvCas>(swapped))
+                }
                 Err(e) => Response::err(req_id, format!("KvCas error: {e}")),
             }
         }
@@ -814,14 +837,14 @@ fn compile_kv_batch(
 }
 
 /// Whether a method is one of the KV ops (used only for the no-store error path).
+/// The capability ledger owns the KV surface boundary: its only `kv:*` actions
+/// are the five `Method::Kv*` variants handled below. This keeps the no-store
+/// routing check aligned with the policy inventory rather than duplicating a
+/// payload-shaped variant match here.
 fn is_kv_method(method: &Method) -> bool {
     matches!(
-        method,
-        Method::KvGet { .. }
-            | Method::KvPut { .. }
-            | Method::KvDelete { .. }
-            | Method::KvScan { .. }
-            | Method::KvCas { .. }
+        eg_capabilities::policy(method).authz_action,
+        "kv:read" | "kv:write"
     )
 }
 

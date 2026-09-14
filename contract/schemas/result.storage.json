@@ -1,0 +1,2045 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {
+    "AgentComponentCommittedResult": {
+      "additionalProperties": false,
+      "description": "What a committed component mutation returns.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "committed_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "component": {
+          "$ref": "#/$defs/AgentComponentEntry"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "component",
+        "batch_id",
+        "committed_version"
+      ],
+      "type": "object"
+    },
+    "AgentComponentEntry": {
+      "additionalProperties": false,
+      "description": "One durable, published component revision.",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "classification": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "component_id": {
+          "type": "string"
+        },
+        "content_digest": {
+          "type": "string"
+        },
+        "content_ref": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "facts": {
+          "$ref": "#/$defs/AgentComponentFacts"
+        },
+        "kind": {
+          "$ref": "#/$defs/AgentComponentKind"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/AgentLibraryLifecycle"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/ComponentProvenance"
+        },
+        "provides": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "requires": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "source_revision_digest": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "updated_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "component_id",
+        "kind",
+        "version",
+        "content_digest",
+        "facts",
+        "provenance",
+        "summary",
+        "tenant_id",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest",
+        "source_revision",
+        "source_revision_digest",
+        "entry_revision",
+        "lifecycle",
+        "definition_digest",
+        "created_at_ms",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "AgentComponentFacts": {
+      "description": "Kind-specific facts an optimizer needs in order to CHOOSE a component.\n\nTyped for the kinds selection actually turns on, and\n[`AgentComponentFacts::Opaque`] for the rest. New facts go in\n`attributes` on the entry rather than as new variants, so extending the\nvocabulary does not break the wire.",
+      "oneOf": [
+        {
+          "properties": {
+            "context_window_tokens": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "facts": {
+              "const": "model_profile",
+              "type": "string"
+            },
+            "max_output_tokens": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "model_identity": {
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            },
+            "supports_structured_output": {
+              "type": "boolean"
+            },
+            "supports_tools": {
+              "type": "boolean"
+            },
+            "supports_vision": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "facts",
+            "provider",
+            "model_identity",
+            "context_window_tokens",
+            "max_output_tokens",
+            "supports_tools",
+            "supports_structured_output",
+            "supports_vision"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "facts": {
+              "const": "system_prompt",
+              "type": "string"
+            },
+            "prompt_mode": {
+              "$ref": "#/$defs/PromptMode"
+            },
+            "token_estimate": {
+              "description": "Budgeting input: a graph's prompts have to fit its model's context.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "variables": {
+              "description": "Names a dynamic prompt expects to be given. Empty for a static one.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "facts",
+            "prompt_mode",
+            "token_estimate",
+            "variables"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "effect": {
+              "$ref": "#/$defs/ToolEffect"
+            },
+            "facts": {
+              "const": "tool",
+              "type": "string"
+            },
+            "required_scopes": {
+              "description": "Authz actions a caller must hold. An agent that cannot hold them\ncannot be given this tool.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "facts",
+            "effect",
+            "required_scopes"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "facts": {
+              "const": "toolset",
+              "type": "string"
+            },
+            "transport": {
+              "$ref": "#/$defs/ToolsetTransport"
+            }
+          },
+          "required": [
+            "facts",
+            "transport"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Every other kind. Structure and dependencies still apply; there is just\nnothing kind-specific that selection turns on.",
+          "properties": {
+            "facts": {
+              "const": "opaque",
+              "type": "string"
+            }
+          },
+          "required": [
+            "facts"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AgentComponentKind": {
+      "description": "What kind of part this is.\n\nClosed on purpose. Every kind here is referenced by name from\n[`crate::agent_library::AgentLibraryEntry`] or\n[`crate::agent_library::AgentRuntimeContract`] or\n[`crate::agent_graph`], so the set is the set of things an agent is\nactually built out of — not an open taxonomy.",
+      "oneOf": [
+        {
+          "const": "model_profile",
+          "description": "An LLM and the profile it is invoked under (`model_profile_ref`).",
+          "type": "string"
+        },
+        {
+          "const": "system_prompt",
+          "description": "Instructions, static or dynamic (`system_prompt_ref`).",
+          "type": "string"
+        },
+        {
+          "const": "tool",
+          "description": "One callable tool (`tool_refs`). An MCP server's tools ingest as these.",
+          "type": "string"
+        },
+        {
+          "const": "toolset",
+          "description": "A group of tools with one provenance: an MCP server, a function\ntoolset, a skill pack (`toolset_refs`).",
+          "type": "string"
+        },
+        {
+          "const": "mcp_server",
+          "description": "An MCP server itself -- the thing a set of tools/prompts/resources is\nserved BY. Modelled separately from `Toolset` because impact analysis\nasks about the server (\"this server is down / its schema moved --\nwhich agents are affected?\"), and that question needs the server to be\na node, not an attribute of each tool.",
+          "type": "string"
+        },
+        {
+          "const": "mcp_prompt",
+          "description": "An MCP prompt: a named, parameterized prompt template a server offers.",
+          "type": "string"
+        },
+        {
+          "const": "mcp_resource",
+          "description": "An MCP resource: addressable context a server exposes for reading.",
+          "type": "string"
+        },
+        {
+          "const": "skill",
+          "description": "A pydantic-ai skill (`skill_refs`).",
+          "type": "string"
+        },
+        {
+          "const": "ontology",
+          "description": "An ontology or vocabulary (`ontology_refs`).",
+          "type": "string"
+        },
+        {
+          "const": "schema",
+          "description": "A deps/output contract schema (`deps_contract`, `output_contract`).",
+          "type": "string"
+        },
+        {
+          "const": "output_validator",
+          "description": "An `@agent.output_validator` (`output_validator_refs`).",
+          "type": "string"
+        },
+        {
+          "const": "predicate",
+          "description": "A predicate behind a graph decision node or edge condition\n(`AgentGraphNodeKind::Decision::decision`, `AgentGraphEdge::condition`).\nBoth slots pin a `ComponentDependency` of this kind, so republishing a\npredicate cannot re-route an already-approved graph.",
+          "type": "string"
+        }
+      ]
+    },
+    "AgentComponentSearchPage": {
+      "additionalProperties": false,
+      "description": "One page of a capability search.\n\nAn object, never a bare array: `next_cursor` has to live somewhere, and a\nread that starts life as a JSON array can only grow one by breaking every\nreader.",
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/AgentComponentEntry"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "description": "`Some` when more of the tenant remains to be scanned. Hand it back\nunmodified to continue; `None` means the corpus is exhausted.\n\nA page may be EMPTY and still carry a cursor: the engine bounds how much\nit scans per page, so a sparse match over a large tenant makes progress\nacross several pages instead of doing unbounded work in one. A caller\ntherefore loops until `next_cursor` is `None`, not until a page is empty.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "type": "object"
+    },
+    "AgentGraphCommittedResult": {
+      "additionalProperties": false,
+      "description": "What a committed graph mutation returns.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "committed_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph": {
+          "$ref": "#/$defs/AgentGraphEntry"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "graph",
+        "batch_id",
+        "committed_version"
+      ],
+      "type": "object"
+    },
+    "AgentGraphEdge": {
+      "additionalProperties": false,
+      "description": "A directed edge, optionally conditional.",
+      "properties": {
+        "condition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only meaningful out of a [`AgentGraphNodeKind::Decision`]; `None` is an\nunconditional edge.\n\nPinned for the same reason a decision node's predicate is: an unpinned\ncondition would let a republished predicate silently re-route an\napproved graph."
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "AgentGraphEntry": {
+      "additionalProperties": false,
+      "description": "One durable, published graph revision.",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "composed_work_ceiling": {
+          "description": "The composed work ceiling ADMISSION derived for this revision --\n[`CompositionFacts::total_work`] from the publish that created it.\n\nStamped by the engine, never supplied by the caller: it is an admission\nverdict, and a caller could only restate it by re-resolving the whole\ncomposition tree client-side to name a number the engine must compute\nanyway. It is stored because it cannot be re-derived from this record\nalone -- deriving it needs every child revision -- and it is inside\n`definition_digest` because a stored-but-unhashed ceiling is one an\nedited durable row could raise while the entry still validated.\n\nThis is the value a delegation's declared `composed_work_ceiling` is\nchecked against. Before it existed the check could not run for any graph\nWITH children, and the caller's own number was accepted unverified.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "definition_digest": {
+          "description": "Digest of this revision's whole immutable definition: the shape digest\nAND the metadata around it -- version, tenant, actor scope, purpose,\npolicy digest, synthesis evidence, admitted ceiling. The impl block\nbelow says why both digests exist and which one a composing parent pins.",
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph_id": {
+          "type": "string"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/AgentLibraryLifecycle"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shape": {
+          "$ref": "#/$defs/AgentGraphShape"
+        },
+        "shape_digest": {
+          "type": "string"
+        },
+        "synthesis_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "updated_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "graph_id",
+        "version",
+        "shape",
+        "tenant_id",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest",
+        "composed_work_ceiling",
+        "entry_revision",
+        "lifecycle",
+        "shape_digest",
+        "definition_digest",
+        "created_at_ms",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "AgentGraphNode": {
+      "additionalProperties": false,
+      "description": "One node: an identity, what it does, and the contracts it speaks.\n\nThe contracts are restated here rather than looked up from the referenced\nentry so a shape can be validated on its own, without resolving every agent\nit names. They are digest-pinned, so a shape whose restated contract has\ndrifted from the published entry is detectable at admission.",
+      "properties": {
+        "deps_contract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What this node consumes. `None` = takes the graph's own input."
+        },
+        "kind": {
+          "$ref": "#/$defs/AgentGraphNodeKind"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "output_contract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What this node produces. `None` = produces nothing a successor can bind."
+        }
+      },
+      "required": [
+        "node_id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "AgentGraphNodeKind": {
+      "description": "What one node in the graph does.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Run one published Agent Library entry.",
+          "properties": {
+            "agent": {
+              "properties": {
+                "agent_id": {
+                  "type": "string"
+                },
+                "definition_digest": {
+                  "description": "The exact definition this shape was composed against. Pinning the\ndigest is what stops a graph from silently changing behaviour when\nsomeone republishes an agent under the same id.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "agent_id",
+                "definition_digest"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "agent"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Instantiate a template with bound parameters, then run it.",
+          "properties": {
+            "template": {
+              "properties": {
+                "bindings": {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/ComponentDependency"
+                  },
+                  "description": "Parameter name -> the component it is bound to, each PINNED.\n\nBare strings here would break the invariant the rest of this type\nrests on: every other reference in a shape is pinned by digest, so\nrepublishing a component cannot change what a graph does. An unpinned\ntemplate binding would be the one hole through which it could.\nOrdered so the shape digest does not depend on map iteration order.",
+                  "type": "object"
+                },
+                "definition_digest": {
+                  "type": "string"
+                },
+                "template_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "template_id",
+                "definition_digest",
+                "bindings"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "template"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Run another published GRAPH as one step -- the hierarchical case\n(RF-ADR-008): teams composed of teams.\n\n`shape_digest` pins the exact child revision, for the same reason an\nagent node pins `definition_digest`: republishing the child under the\nsame id must not silently change what this graph does. It also has a\nsecond, larger consequence -- see the module's composition notes -- in\nthat it makes the composition acyclic by construction.",
+          "properties": {
+            "graph": {
+              "properties": {
+                "graph_id": {
+                  "type": "string"
+                },
+                "shape_digest": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "graph_id",
+                "shape_digest"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "graph"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Choose an outgoing edge by evaluating each edge's condition.\n\nThe predicate is PINNED, like every other reference in a shape.\nA bare `decision_ref: String` was the one remaining hole: republishing\nthe predicate an approved, digest-pinned graph routes through would\nchange which branch that graph executes, and no `shape_digest` would\nmove. [`AgentComponentKind::Predicate`] exists for exactly this slot.",
+          "properties": {
+            "decision": {
+              "properties": {
+                "decision": {
+                  "$ref": "#/$defs/ComponentDependency"
+                }
+              },
+              "required": [
+                "decision"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "decision"
+          ],
+          "type": "object"
+        },
+        {
+          "const": "fanout",
+          "description": "Take every outgoing edge concurrently.",
+          "type": "string"
+        },
+        {
+          "const": "join",
+          "description": "Wait for every inbound edge before continuing.",
+          "type": "string"
+        },
+        {
+          "const": "end",
+          "description": "Terminal node.",
+          "type": "string"
+        }
+      ]
+    },
+    "AgentGraphShape": {
+      "additionalProperties": false,
+      "description": "The composed shape: nodes, edges, and where a run starts.",
+      "properties": {
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/AgentGraphEdge"
+          },
+          "type": "array"
+        },
+        "entry_node": {
+          "type": "string"
+        },
+        "max_iterations": {
+          "description": "Hard ceiling on node executions for one run. Required, because a shape\nmay contain cycles and a cycle without a ceiling is an unbounded run.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/AgentGraphNode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entry_node",
+        "nodes",
+        "edges",
+        "max_iterations"
+      ],
+      "type": "object"
+    },
+    "AgentLibraryEntry": {
+      "additionalProperties": false,
+      "description": "One durable Agent Library revision.",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "definition_digest": {
+          "description": "Digest of the immutable definition fields.  Lifecycle, revision and\ntimestamps are revision metadata and are intentionally excluded.",
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "instantiated_from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TemplateInstanceRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which template produced this agent, if any (RF-ADR-008 item C).\n\n`None` for a hand-authored agent. Present on an instance so \"which agents\ncame from this template?\" is a traversal -- the same reason components\nare pinned rather than named. Otherwise inert: an instance is admitted,\ndelegated and pinned exactly like any other agent, which is what keeps\nthose paths free of a template-aware branch."
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/AgentLibraryLifecycle"
+        },
+        "model_identity": {
+          "description": "Kept alongside `model_profile`: the profile is the pinned component,\nthis is the model it names. A reader answering \"what model does this\nagent run on?\" should not have to resolve a component to find out.",
+          "type": "string"
+        },
+        "model_profile": {
+          "$ref": "#/$defs/ComponentDependency"
+        },
+        "ontologies": {
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "package_id": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "role_digest": {
+          "type": "string"
+        },
+        "runtime": {
+          "$ref": "#/$defs/AgentRuntimeContract",
+          "default": {
+            "deps_contract": null,
+            "model_settings": {
+              "max_output_tokens": null,
+              "parallel_tool_calls": null,
+              "request_timeout_ms": null,
+              "seed": null,
+              "stop_sequences": [],
+              "temperature_milli": null,
+              "top_p_milli": null
+            },
+            "output_contract": null,
+            "output_mode": null,
+            "output_validator_refs": [],
+            "prompt_mode": null,
+            "retry_policy": {
+              "model_retries": 0,
+              "output_retries": 0
+            },
+            "toolset_refs": [],
+            "usage_limits": {
+              "input_tokens_limit": null,
+              "output_tokens_limit": null,
+              "request_limit": null,
+              "tool_calls_limit": null
+            }
+          },
+          "description": "How this agent RUNS -- output/deps contracts, model settings, budgets.\nSee [`AgentRuntimeContract`]. An empty contract is a plain-text agent\nwith engine-default budgets."
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "source_revision_digest": {
+          "type": "string"
+        },
+        "system_prompt": {
+          "$ref": "#/$defs/ComponentDependency",
+          "description": "The components this agent is assembled from, each pinned to an exact\nL1 revision (RF-ADR-008). These were opaque `*_ref` strings plus a\nper-set digest; pinning them by `(component_id, kind, definition_digest)`\nis what connects the hierarchy:\n\n* \"which agents use this tool?\" becomes a traversal, not a string match;\n* republishing a component changes its digest, so an agent assembled\n  from the old one no longer resolves -- silently inheriting a changed\n  tool is no longer possible;\n* each slot's `kind` is checked, so a tool cannot be wired in where a\n  model profile belongs.\n\nThe former `*_set_digest` fields are gone: a digest over the whole set\nwas pinning what the per-item digests now pin individually, and\n`definition_digest` already covers the sorted list."
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "updated_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "agent_id",
+        "package_id",
+        "version",
+        "role",
+        "role_digest",
+        "system_prompt",
+        "tools",
+        "skills",
+        "model_profile",
+        "model_identity",
+        "ontologies",
+        "tenant_id",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest",
+        "source_revision",
+        "source_revision_digest",
+        "entry_revision",
+        "lifecycle",
+        "definition_digest",
+        "created_at_ms",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "AgentLibraryEntryDraft": {
+      "additionalProperties": false,
+      "description": "Caller-supplied, immutable definition inputs for one built agent.\n\nEvery component is represented by an opaque reference and a digest.  Raw\nprompts, secrets, tool output, and runtime context deliberately have no\nfield in this type and therefore cannot become part of durable identity.",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "instantiated_from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TemplateInstanceRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which template produced this agent, if any (RF-ADR-008 item C).\n\n`None` for a hand-authored agent. Present on an instance so \"which agents\ncame from this template?\" is a traversal -- the same reason components\nare pinned rather than named. Otherwise inert: an instance is admitted,\ndelegated and pinned exactly like any other agent, which is what keeps\nthose paths free of a template-aware branch."
+        },
+        "model_identity": {
+          "description": "Kept alongside `model_profile`: the profile is the pinned component,\nthis is the model it names. A reader answering \"what model does this\nagent run on?\" should not have to resolve a component to find out.",
+          "type": "string"
+        },
+        "model_profile": {
+          "$ref": "#/$defs/ComponentDependency"
+        },
+        "ontologies": {
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "package_id": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "role_digest": {
+          "type": "string"
+        },
+        "runtime": {
+          "$ref": "#/$defs/AgentRuntimeContract",
+          "default": {
+            "deps_contract": null,
+            "model_settings": {
+              "max_output_tokens": null,
+              "parallel_tool_calls": null,
+              "request_timeout_ms": null,
+              "seed": null,
+              "stop_sequences": [],
+              "temperature_milli": null,
+              "top_p_milli": null
+            },
+            "output_contract": null,
+            "output_mode": null,
+            "output_validator_refs": [],
+            "prompt_mode": null,
+            "retry_policy": {
+              "model_retries": 0,
+              "output_retries": 0
+            },
+            "toolset_refs": [],
+            "usage_limits": {
+              "input_tokens_limit": null,
+              "output_tokens_limit": null,
+              "request_limit": null,
+              "tool_calls_limit": null
+            }
+          },
+          "description": "How this agent RUNS -- output/deps contracts, model settings, budgets.\nSee [`AgentRuntimeContract`]. An empty contract is a plain-text agent\nwith engine-default budgets."
+        },
+        "skills": {
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "source_revision": {
+          "description": "The source revision is an opaque, source-controlled revision identity;\nits content/provenance digest is carried separately below.",
+          "type": "string"
+        },
+        "source_revision_digest": {
+          "type": "string"
+        },
+        "system_prompt": {
+          "$ref": "#/$defs/ComponentDependency",
+          "description": "The components this agent is assembled from, each pinned to an exact\nL1 revision (RF-ADR-008). These were opaque `*_ref` strings plus a\nper-set digest; pinning them by `(component_id, kind, definition_digest)`\nis what connects the hierarchy:\n\n* \"which agents use this tool?\" becomes a traversal, not a string match;\n* republishing a component changes its digest, so an agent assembled\n  from the old one no longer resolves -- silently inheriting a changed\n  tool is no longer possible;\n* each slot's `kind` is checked, so a tool cannot be wired in where a\n  model profile belongs.\n\nThe former `*_set_digest` fields are gone: a digest over the whole set\nwas pinning what the per-item digests now pin individually, and\n`definition_digest` already covers the sorted list."
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "package_id",
+        "version",
+        "role",
+        "role_digest",
+        "system_prompt",
+        "tools",
+        "skills",
+        "model_profile",
+        "model_identity",
+        "ontologies",
+        "tenant_id",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest",
+        "source_revision",
+        "source_revision_digest"
+      ],
+      "type": "object"
+    },
+    "AgentLibraryLifecycle": {
+      "description": "The retained lifecycle of one Agent Library definition.\n\n`Retired` is a durable tombstone.  It remains in the revision stream and\ncannot be replaced by a later publish, preserving the definition's\nprovenance and preventing silent resurrection of an agent identity.",
+      "enum": [
+        "published",
+        "retired"
+      ],
+      "type": "string"
+    },
+    "AgentLibraryWriteResult": {
+      "additionalProperties": false,
+      "description": "Receipt returned by the EG Agent Library storage seam.\n\nThe entry is the exact committed revision. `replayed` is set only when the\ncaller's idempotency key reconciles to an already committed receipt.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "committed_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entry": {
+          "$ref": "#/$defs/AgentLibraryEntry"
+        },
+        "replayed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "entry",
+        "batch_id",
+        "committed_version",
+        "replayed"
+      ],
+      "type": "object"
+    },
+    "AgentModelSettings": {
+      "additionalProperties": false,
+      "description": "Bounded model-invocation settings (pydantic-ai `ModelSettings`).\n\nEvery continuous setting is an INTEGER in thousandths, never a float. These\nvalues are hashed into `definition_digest`, and floats have no canonical\nbyte form for that purpose: `NaN != NaN` breaks `Eq`, `0.0` and `-0.0` are\nequal but hash differently, and the same value can format differently across\nplatforms and serde versions. A reproducible definition digest cannot be\nbuilt on any of that, so the wire type carries milli-units and the harness\ndivides by 1000 when it constructs the model settings.",
+      "properties": {
+        "max_output_tokens": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "parallel_tool_calls": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "request_timeout_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "seed": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stop_sequences": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "temperature_milli": {
+          "description": "Sampling temperature in thousandths (`700` = 0.7).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "top_p_milli": {
+          "description": "Nucleus-sampling mass in thousandths (`950` = 0.95).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "stop_sequences"
+      ],
+      "type": "object"
+    },
+    "AgentOutputMode": {
+      "description": "How the model is asked to produce the agent's structured output.\n\nMirrors pydantic-ai's `ToolOutput` / `NativeOutput` / `PromptedOutput`.",
+      "oneOf": [
+        {
+          "const": "text",
+          "description": "Free text — pydantic-ai's default `output_type=str`.",
+          "type": "string"
+        },
+        {
+          "const": "tool",
+          "description": "A synthesized tool call carries the structured result.",
+          "type": "string"
+        },
+        {
+          "const": "native",
+          "description": "The provider's own structured-output mode.",
+          "type": "string"
+        },
+        {
+          "const": "prompted",
+          "description": "The schema is described in the prompt and parsed from the reply.",
+          "type": "string"
+        }
+      ]
+    },
+    "AgentPromptMode": {
+      "description": "Whether the system prompt is fixed at publish time or resolved per run.\n\npydantic-ai distinguishes `Agent(system_prompt=…)` from `@agent.system_prompt`\n/ `@agent.instructions`. The distinction is durable identity, not style: a\nstatic prompt's digest pins the prompt itself, while a dynamic prompt's\ndigest can only pin the FUNCTION that produces it. A dynamic prompt must\ntherefore be digest-bound again at resolution time, and a reader that cannot\ntell the two apart cannot know whether `system_prompt_digest` covers the text\nthe model actually saw.",
+      "enum": [
+        "static",
+        "dynamic"
+      ],
+      "type": "string"
+    },
+    "AgentRetryPolicy": {
+      "additionalProperties": false,
+      "description": "Retry budgets that belong to the agent definition, not to one delegation.\n\nDistinct from `KgDelegateRequest::max_attempts`, which is how many times the\nENGINE will re-admit the work item. These are how many times the agent will\nask the model again within a single run after a tool error or an output that\nfails validation (pydantic-ai `retries` / `output_retries`).",
+      "properties": {
+        "model_retries": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_retries": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_retries",
+        "output_retries"
+      ],
+      "type": "object"
+    },
+    "AgentRuntimeContract": {
+      "additionalProperties": false,
+      "description": "The part of an agent's definition that governs how it RUNS, as opposed to\nwhich components it is assembled from.\n\nGrouped into one nested type rather than flattened into\n[`AgentLibraryEntryDraft`] deliberately. The draft, the entry, `create`,\n`retire` and `as_draft` each restate every field, so a flat shape would pay\nfive edits per field and grow a 23-field struct to 35 — the exact sprawl\nRF-ADR-008 exists to avoid. It also names a real concept: two agents with\nthe same components but different output contracts are different agents.\n\nEvery field participates in `definition_digest`.",
+      "properties": {
+        "deps_contract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The agent's typed input (pydantic-ai `deps_type`). `None` = no deps."
+        },
+        "model_settings": {
+          "$ref": "#/$defs/AgentModelSettings"
+        },
+        "output_contract": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The agent's typed output (pydantic-ai `output_type`). `None` with\n[`AgentOutputMode::Text`] is the plain-text default."
+        },
+        "output_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentOutputMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "output_validator_refs": {
+          "description": "`@agent.output_validator` functions, by reference.",
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "prompt_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentPromptMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`None` is read as [`AgentPromptMode::Static`]."
+        },
+        "retry_policy": {
+          "$ref": "#/$defs/AgentRetryPolicy"
+        },
+        "toolset_refs": {
+          "description": "Grouped tool sources — a `FunctionToolset`, an MCP server, a skill pack.\n\n`tools` on the entry is the flattened resolution of these WHERE THE\nPUBLISHER CAN FLATTEN THEM, so a reader that only cares which individual\ntools exist need not walk the grouping. The engine does not, and cannot,\nenforce that: a toolset is an L1 reference, its contents live in the\nsystem that owns it, and resolving an MCP server's tool list is not\nsomething this contract can do at publish time. Treating the flattening\nas an invariant would therefore be asserting a property nothing checks.\n\nSo the capability proof covers BOTH lists instead — see\n[`AgentLibraryEntry::tool_surface_digest`]. An agent that names a toolset\nit did not flatten still has that toolset inside the digest delegation\nadmits, rather than a proof over a strict subset of what it can call.",
+          "items": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "type": "array"
+        },
+        "usage_limits": {
+          "$ref": "#/$defs/AgentUsageLimits"
+        }
+      },
+      "required": [
+        "output_validator_refs",
+        "toolset_refs",
+        "model_settings",
+        "retry_policy",
+        "usage_limits"
+      ],
+      "type": "object"
+    },
+    "AgentTemplateCommittedResult": {
+      "additionalProperties": false,
+      "description": "What a committed template mutation returns.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "committed_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "template": {
+          "$ref": "#/$defs/AgentTemplateEntry"
+        }
+      },
+      "required": [
+        "schema_version",
+        "template",
+        "batch_id",
+        "committed_version"
+      ],
+      "type": "object"
+    },
+    "AgentTemplateEntry": {
+      "additionalProperties": false,
+      "description": "One durable, published template revision.",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "base": {
+          "$ref": "#/$defs/AgentLibraryEntryDraft"
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/AgentLibraryLifecycle"
+        },
+        "params": {
+          "items": {
+            "$ref": "#/$defs/TemplateParam"
+          },
+          "type": "array"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "template_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "updated_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "template_id",
+        "version",
+        "base",
+        "params",
+        "tenant_id",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest",
+        "entry_revision",
+        "lifecycle",
+        "definition_digest",
+        "created_at_ms",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "AgentUsageLimits": {
+      "additionalProperties": false,
+      "description": "Per-run consumption ceilings (pydantic-ai `UsageLimits`).\n\n`None` means \"the engine's bounded default\", never \"unlimited\" — an agent\ndefinition cannot opt out of a ceiling, only decline to tighten it.",
+      "properties": {
+        "input_tokens_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_tokens_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "request_limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tool_calls_limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ComponentDependency": {
+      "additionalProperties": false,
+      "description": "One pinned requirement of a component.\n\nThe `kind` is carried alongside the id so a dependency can be type-checked\nwithout resolving it: a [`AgentComponentKind::Tool`] whose input schema\npoints at a [`AgentComponentKind::ModelProfile`] is rejected structurally,\nnot at run time. The `definition_digest` pins the exact revision, so a\ndependency cannot silently change under a component that was reviewed\nagainst it.",
+      "properties": {
+        "component_id": {
+          "type": "string"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/AgentComponentKind"
+        }
+      },
+      "required": [
+        "component_id",
+        "kind",
+        "definition_digest"
+      ],
+      "type": "object"
+    },
+    "ComponentProvenance": {
+      "description": "Where a component was ingested FROM.\n\nSource packages and MCP servers remain the origin of skills, tools, prompts\nand resources; EG is where they are recorded so they can be queried. That\nsplit only works if the origin travels with the record: without it, \"which\nagents break if this MCP server changes?\" cannot be answered, and a\nre-ingest cannot tell an updated component from a new one.",
+      "oneOf": [
+        {
+          "description": "Declared directly in EG; no upstream system owns it.",
+          "properties": {
+            "origin": {
+              "const": "native",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Ingested from a source package (an `agent-packages/*` distribution).",
+          "properties": {
+            "origin": {
+              "const": "source_package",
+              "type": "string"
+            },
+            "package_id": {
+              "type": "string"
+            },
+            "package_version": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "package_id",
+            "package_version"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Ingested by listing an MCP server's surface.\n\n`server` PINS the [`AgentComponentKind::McpServer`] record by\n`(id, kind, digest)`, so the server is one node every tool/prompt/\nresource it serves hangs off AND the server a record claims is the\nserver that was reviewed. It was a bare `server_component_id: String`\n-- the last unpinned cross-record reference in this contract -- and an\nid alone is unresolvable in principle: no admission check can tell an\ningest that named the reviewed server from one that named a different\nserver, or a republished one whose tool surface has since moved.\n\nA full [`ComponentDependency`] rather than an id+digest pair, because\nthe kind belongs inside the pin exactly as it does everywhere else\nhere: resolution is by `(id, kind, digest)`, and carrying the kind is\nwhat lets admission refuse a provenance that names a `Toolset` where\nthe serving server belongs instead of discovering it at execution.",
+          "properties": {
+            "origin": {
+              "const": "mcp_server",
+              "type": "string"
+            },
+            "server": {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            "upstream_name": {
+              "description": "The name the server itself uses. Distinct from `component_id`,\nwhich is EG-scoped: two servers may both expose a `search` tool.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "server",
+            "upstream_name"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PromptMode": {
+      "description": "How a prompt's text is resolved.",
+      "oneOf": [
+        {
+          "const": "static",
+          "description": "Fixed at publish time; `content_digest` pins the text itself.",
+          "type": "string"
+        },
+        {
+          "const": "dynamic",
+          "description": "Produced per run; `content_digest` can only pin the FUNCTION, so the\ntext the model saw must be bound again at resolution.",
+          "type": "string"
+        }
+      ]
+    },
+    "TemplateInstanceRef": {
+      "additionalProperties": false,
+      "description": "Where an instantiated agent came from.",
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ComponentDependency"
+          },
+          "description": "Parameter name -> the component it was bound to. Ordered, so an\ninstance's digest does not depend on map iteration order.",
+          "type": "object"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "template_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "template_id",
+        "entry_revision",
+        "definition_digest",
+        "bindings"
+      ],
+      "type": "object"
+    },
+    "TemplateParam": {
+      "additionalProperties": false,
+      "description": "One declared axis of variation.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/AgentComponentKind",
+          "description": "The kind the replacement must be. Checked against both the base\ncomponent and the binding, so a parameter cannot be used to smuggle a\ntool in where a model profile belongs."
+        },
+        "name": {
+          "description": "What a caller names when binding.",
+          "type": "string"
+        },
+        "replaces": {
+          "description": "The component in the base definition this parameter replaces.\n\nIdentified by `component_id`, not by slot index. An index would be\nbrittle in exactly the way that matters: reordering a tool list -- which\n`definition_digest` deliberately treats as a no-op, since order carries\nno meaning -- would silently repoint every parameter.",
+          "type": "string"
+        },
+        "required": {
+          "description": "When false, leaving this parameter unbound keeps the base component.",
+          "type": "boolean"
+        },
+        "summary": {
+          "description": "Human-facing description of the axis, bounded.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "replaces",
+        "kind",
+        "required",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "ToolEffect": {
+      "description": "Whether invoking a tool can change anything.\n\nNot a hint. A read-only agent graph is one whose reachable tools are all\n[`ToolEffect::Read`], and that is a property worth being able to prove\nbefore a run rather than discover during one.",
+      "enum": [
+        "read",
+        "write"
+      ],
+      "type": "string"
+    },
+    "ToolsetTransport": {
+      "description": "Where a toolset's tools come from.",
+      "oneOf": [
+        {
+          "const": "mcp",
+          "description": "An MCP server.",
+          "type": "string"
+        },
+        {
+          "const": "function",
+          "description": "In-process functions.",
+          "type": "string"
+        },
+        {
+          "const": "skill",
+          "description": "A skill pack.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "AgentComponent": {
+      "bodies": {
+        "current": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AgentComponentEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "history": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/AgentComponentEntry"
+            },
+            "type": "array"
+          }
+        },
+        "publish": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AgentComponentCommittedResult"
+          }
+        },
+        "retire": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AgentComponentCommittedResult"
+          }
+        },
+        "search": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AgentComponentSearchPage"
+          }
+        },
+        "status": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AgentComponentCommittedResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "AgentGraph": {
+      "bodies": {
+        "current": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AgentGraphEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "history": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/AgentGraphEntry"
+            },
+            "type": "array"
+          }
+        },
+        "publish": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AgentGraphCommittedResult"
+          }
+        },
+        "retire": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AgentGraphCommittedResult"
+          }
+        },
+        "status": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AgentGraphCommittedResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "AgentLibrary": {
+      "bodies": {
+        "current": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AgentLibraryEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "history": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/AgentLibraryEntry"
+            },
+            "type": "array"
+          }
+        },
+        "publish": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AgentLibraryWriteResult"
+          }
+        },
+        "retire": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AgentLibraryWriteResult"
+          }
+        },
+        "status": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AgentLibraryWriteResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "AgentTemplate": {
+      "bodies": {
+        "current": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AgentTemplateEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "history": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/AgentTemplateEntry"
+            },
+            "type": "array"
+          }
+        },
+        "instantiate": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AgentLibraryEntryDraft"
+          }
+        },
+        "publish": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AgentTemplateCommittedResult"
+          }
+        },
+        "retire": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AgentTemplateCommittedResult"
+          }
+        },
+        "status": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AgentTemplateCommittedResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "ApplyLedger": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BlobBegin": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BlobChunkPut": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BlobCommit": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BlobFetchEnd": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BlobRef": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BlobUnref": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ClearLedger": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FromMsgpack": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "KvCas": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "KvDelete": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "KvPut": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TsAppend": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TsDeleteSeries": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TsEvict": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "storage method results"
+}

@@ -56,6 +56,35 @@ def require_registry_source_version_fence(registry: str) -> None:
         )
 
 
+def require_declared_watermarks(dispatch: str) -> None:
+    """Require Health and ListGraphs to carry lifecycle and index watermarks.
+
+    Both answer declared result bodies (`result_contract::cluster`), so the
+    watermarks are typed fields rather than JSON literals: the contract must
+    declare them and dispatch must populate them through those markers.
+    """
+
+    results = read("crates/eg-types/src/result_contract/cluster.rs")
+    declared = all(
+        field in results
+        for field in (
+            "pub graph_lifecycle: GraphLifecycleHealth",
+            "pub index_manifests: Vec<IndexManifestListing>",
+        )
+    )
+    require(declared, "health/list result bodies omit lifecycle or index watermarks")
+    populated = all(
+        needle in dispatch
+        for needle in (
+            "graph_lifecycle:",
+            "index_manifests,",
+            "cluster::Health>",
+            "cluster::ListGraphs>",
+        )
+    )
+    require(populated, "health/list responses omit lifecycle or index watermarks")
+
+
 def require_registry_contract(registry: str) -> None:
     """Require the generation and partial-materialization registry fences."""
     for token in (
@@ -129,10 +158,7 @@ def main() -> None:
         '"PARTIAL_MATERIALIZATION"' in dispatch,
         "partial whole-graph reads are not explicit",
     )
-    require(
-        '"graph_lifecycle"' in dispatch and '"index_manifests"' in dispatch,
-        "health/list responses omit lifecycle or index watermarks",
-    )
+    require_declared_watermarks(dispatch)
 
     durable = read("src/redb_store.rs")
     require(

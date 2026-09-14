@@ -8,16 +8,8 @@
 // - Efficient frontier sampling
 
 use nalgebra::{DMatrix, DVector};
-use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OptimizationResult {
-    pub weights: Vec<f64>,
-    pub expected_return: f64,
-    pub expected_volatility: f64,
-    pub sharpe_ratio: f64,
-    pub method: String,
-}
+pub use eg_types::compute_result::finance::OptimizationResult;
 
 /// Compute portfolio return given weights and expected returns.
 fn portfolio_return(weights: &[f64], returns: &[f64]) -> f64 {

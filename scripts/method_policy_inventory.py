@@ -91,14 +91,11 @@ _REGISTRY_ROW = re.compile(
 )
 _QUOTED = r'"(?:\\.|[^"\\])*"'
 # The authored half of a contract row (RF-RULING-003): `spec(..)` wraps
-# `make_policy(..)` with the row's result schema, its provenance, the consumer
-# profiles it is generated for, and its stability. Those four are the CONTRACT's
-# facts, not the POLICY's, so this parser captures the two it can validate
-# (stability, and whether a result schema is declared at all) and steps over the
-# rest -- but it must still parse them, because a row shape it cannot read is a
-# scanner that reports nothing while claiming to have checked every row.
-_SCHEMA_REF = r"SchemaRef::[A-Za-z][A-Za-z0-9_]*(?:\([^()]*(?:\([^()]*\))?[^()]*\))?"
-_PROVENANCE = r"SchemaProvenance::[A-Za-z][A-Za-z0-9_]*(?:\s*\{[^{}]*\})?"
+# `make_policy(..)` with the consumer profiles the row is generated for and its
+# stability. Those two are the CONTRACT's facts, not the POLICY's; the parser still
+# reads them, because a row shape it cannot read is a scanner that reports nothing
+# while claiming to have checked every row. A row authors no result: that is the
+# `eg_types::result_contract` marker the handler encodes through.
 _POLICY_ROW = re.compile(
     rf"^\s*\(\s*(?P<name>{_QUOTED})\s*,\s*"
     r"spec\(\s*"
@@ -109,8 +106,6 @@ _POLICY_ROW = re.compile(
     r"audited:\s*(?P<audited>true|false)\s*,\s*"
     r"emits_cdc:\s*(?P<cdc>true|false)\s*\}\s*,\s*"
     r"TxnParticipation::(?P<txn>[A-Za-z][A-Za-z0-9_]*)\s*\)\s*,\s*"
-    rf"(?P<result_schema>{_SCHEMA_REF})\s*,\s*"
-    rf"(?P<result_provenance>{_PROVENANCE})\s*,\s*"
     r"(?P<consumers>[A-Z][A-Z0-9_]*)\s*,\s*"
     r"Stability::(?P<stability>[A-Za-z][A-Za-z0-9_]*)\s*\)\s*,\s*"
     rf"(?P<note>{_QUOTED})\s*\)\s*,?\s*$"

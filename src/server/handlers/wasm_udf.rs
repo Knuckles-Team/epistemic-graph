@@ -31,7 +31,10 @@ pub(crate) async fn try_handle(
             })
             .await;
             Ok(match res {
-                Ok(Ok(())) => Response::ok(req_id, ResultPayload::String(id)),
+                Ok(Ok(())) => Response::ok(
+                    req_id,
+                    ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterUdf>(id),
+                ),
                 Ok(Err(e)) => Response::err(req_id, e.to_string()),
                 Err(join) => Response::err(req_id, format!("RegisterUdf task error: {join}")),
             })
@@ -45,7 +48,10 @@ pub(crate) async fn try_handle(
             // the Tokio runtime. The sandbox enforces fuel + memory + no-host-caps.
             let res = tokio::task::spawn_blocking(move || registry.run(&id, &input)).await;
             Ok(match res {
-                Ok(Ok(out)) => Response::ok(req_id, ResultPayload::Raw(out)),
+                Ok(Ok(out)) => Response::ok(
+                    req_id,
+                    ResultPayload::of_encoded::<eg_types::result_contract::compute::RunUdf>(out),
+                ),
                 Ok(Err(e)) => Response::err(req_id, e.to_string()),
                 Err(join) => Response::err(req_id, format!("RunUdf task error: {join}")),
             })

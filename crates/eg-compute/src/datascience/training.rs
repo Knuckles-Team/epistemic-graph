@@ -10,8 +10,6 @@
 // the optimizer steps (Adam / SGD). Pure Rust — no candle/torch, no GPU — matching
 // the rest of `datascience::primitives`; unit-tested on toy tensors below.
 
-use serde::{Deserialize, Serialize};
-
 /// Numerically-stable softmax with temperature.
 pub fn softmax(logits: &[f64], temperature: f64) -> Vec<f64> {
     let t = if temperature.abs() < 1e-12 {
@@ -36,12 +34,7 @@ pub fn log_softmax(logits: &[f64]) -> Vec<f64> {
     logits.iter().map(|&x| (x - max) - log_sum).collect()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrossEntropyResult {
-    pub loss: f64,
-    /// dL/dlogits, shape == logits (softmax - one_hot, averaged over the batch).
-    pub grad: Vec<Vec<f64>>,
-}
+pub use eg_types::compute_result::datascience::CrossEntropyResult;
 
 /// Mean categorical cross-entropy over a batch of rows with integer labels,
 /// returning the loss and the analytic gradient w.r.t. the logits.
@@ -74,12 +67,7 @@ pub fn cross_entropy(logits: &[Vec<f64>], labels: &[usize]) -> CrossEntropyResul
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DpoResult {
-    pub loss: f64,
-    pub grad_chosen: Vec<f64>,
-    pub grad_rejected: Vec<f64>,
-}
+pub use eg_types::compute_result::datascience::DpoResult;
 
 fn sigmoid(x: f64) -> f64 {
     1.0 / (1.0 + (-x).exp())
@@ -122,11 +110,7 @@ pub fn dpo_loss(
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GrpoResult {
-    pub loss: f64,
-    pub grad: Vec<f64>,
-}
+pub use eg_types::compute_result::datascience::GrpoResult;
 
 /// PPO/GRPO clipped surrogate (loss to minimise = negated objective), mean over
 /// elements, with the analytic gradient w.r.t. `logprob`. In the clipped (saturated)
@@ -178,24 +162,24 @@ pub fn kl_divergence(logprob: &[f64], ref_logprob: &[f64]) -> f64 {
     acc / n as f64
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdamResult {
-    pub params: Vec<f64>,
-    pub m: Vec<f64>,
-    pub v: Vec<f64>,
+pub use eg_types::compute_result::datascience::AdamResult;
+
+/// Adam hyperparameters shared by one optimizer step.
+#[derive(Debug, Clone, Copy)]
+pub struct AdamHyperparameters {
+    pub lr: f64,
+    pub beta1: f64,
+    pub beta2: f64,
+    pub eps: f64,
 }
 
 /// One Adam optimizer step with bias correction at step `t` (1-based).
-#[allow(clippy::too_many_arguments)]
 pub fn adam_step(
     params: &[f64],
     grads: &[f64],
     m: &[f64],
     v: &[f64],
-    lr: f64,
-    beta1: f64,
-    beta2: f64,
-    eps: f64,
+    hyperparameters: AdamHyperparameters,
     t: u64,
 ) -> AdamResult {
     let n = params.len();
@@ -217,17 +201,19 @@ pub fn adam_step(
         vec![0.0; n]
     };
     let step = t.max(1) as f64;
-    let bc1 = 1.0 - beta1.powf(step);
-    let bc2 = 1.0 - beta2.powf(step);
+    let bc1 = 1.0 - hyperparameters.beta1.powf(step);
+    let bc2 = 1.0 - hyperparameters.beta2.powf(step);
     let mut new_params = vec![0.0; n];
     let mut new_m = vec![0.0; n];
     let mut new_v = vec![0.0; n];
     for i in 0..n {
-        new_m[i] = beta1 * m_in[i] + (1.0 - beta1) * grads[i];
-        new_v[i] = beta2 * v_in[i] + (1.0 - beta2) * grads[i] * grads[i];
+        new_m[i] = hyperparameters.beta1 * m_in[i] + (1.0 - hyperparameters.beta1) * grads[i];
+        new_v[i] =
+            hyperparameters.beta2 * v_in[i] + (1.0 - hyperparameters.beta2) * grads[i] * grads[i];
         let m_hat = new_m[i] / bc1;
         let v_hat = new_v[i] / bc2;
-        new_params[i] = params[i] - lr * m_hat / (v_hat.sqrt() + eps);
+        new_params[i] =
+            params[i] - hyperparameters.lr * m_hat / (v_hat.sqrt() + hyperparameters.eps);
     }
     AdamResult {
         params: new_params,
@@ -311,7 +297,19 @@ mod tests {
 
     #[test]
     fn test_adam_step_moves_params_down_gradient() {
-        let r = adam_step(&[1.0], &[1.0], &[], &[], 0.1, 0.9, 0.999, 1e-8, 1);
+        let r = adam_step(
+            &[1.0],
+            &[1.0],
+            &[],
+            &[],
+            AdamHyperparameters {
+                lr: 0.1,
+                beta1: 0.9,
+                beta2: 0.999,
+                eps: 1e-8,
+            },
+            1,
+        );
         assert!(r.params[0] < 1.0); // positive grad → param decreases
         assert_eq!(r.m.len(), 1);
         assert_eq!(r.v.len(), 1);

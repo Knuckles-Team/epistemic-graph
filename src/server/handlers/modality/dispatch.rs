@@ -6,10 +6,18 @@ use eg_video::VideoData;
 
 use super::{
     capabilities, collect_tombstones, delete, events, ingest, ingest_stream, lifecycle,
-    native_predicate, native_query, query, stats, ModalityAuthority, MAX_INGEST_STREAM_ITEMS,
+    native_predicate, native_query, query, response, stats, ModalityAuthority,
+    MAX_INGEST_STREAM_ITEMS,
 };
 use crate::graph::GraphCore;
 use crate::protocol::ResultPayload;
+
+fn validate_ingest_stream_request_cardinality(items: usize) -> Result<(), String> {
+    if !(2..=MAX_INGEST_STREAM_ITEMS).contains(&items) {
+        return Err("modality ingest stream cardinality is outside bounds".to_string());
+    }
+    Ok(())
+}
 
 // Every served modality operation selects one concrete runtime type. Keep this
 // mapping exhaustive so a new wire modality cannot silently fall through.
@@ -30,7 +38,27 @@ pub(super) fn handle(
     op: ServedModalityOp,
 ) -> Result<ResultPayload, String> {
     match op {
-        ServedModalityOp::Authority => ResultPayload::raw(&authority.view()),
+        ServedModalityOp::Authority => response::encode_authority(authority),
+        op @ (ServedModalityOp::Ingest { .. }
+        | ServedModalityOp::IngestStream { .. }
+        | ServedModalityOp::Delete { .. }
+        | ServedModalityOp::MoveToCold { .. }
+        | ServedModalityOp::Restore { .. }
+        | ServedModalityOp::CollectTombstones { .. }) => handle_mutation(core, authority, op),
+        op @ (ServedModalityOp::Query { .. }
+        | ServedModalityOp::NativeQuery { .. }
+        | ServedModalityOp::Events { .. }
+        | ServedModalityOp::Stats { .. }
+        | ServedModalityOp::Capabilities { .. }) => handle_read(core, authority, op),
+    }
+}
+
+fn handle_mutation(
+    core: &GraphCore,
+    authority: &ModalityAuthority,
+    op: ServedModalityOp,
+) -> Result<ResultPayload, String> {
+    match op {
         ServedModalityOp::Ingest {
             modality,
             idempotency_ref,
@@ -51,47 +79,9 @@ pub(super) fn handle(
             },
         ),
         ServedModalityOp::IngestStream { modality, items } => {
-            if !(2..=MAX_INGEST_STREAM_ITEMS).contains(&items.len()) {
-                return Err("modality ingest stream cardinality is outside bounds".to_string());
-            }
+            validate_ingest_stream_request_cardinality(items.len())?;
             let outcomes = ingest_stream(core, authority, modality, items)?;
-            ResultPayload::raw(&outcomes)
-        }
-        ServedModalityOp::Query {
-            modality,
-            segment_kind,
-            after_occurrence_id,
-            limit,
-            include_cold,
-        } => dispatch_modality!(
-            modality,
-            query,
-            core,
-            authority,
-            modality,
-            segment_kind,
-            after_occurrence_id,
-            limit,
-            include_cold,
-        ),
-        ServedModalityOp::NativeQuery {
-            predicate,
-            after_occurrence_id,
-            limit,
-            include_cold,
-        } => {
-            let (modality, predicate) = native_predicate(authority, predicate)?;
-            dispatch_modality!(
-                modality,
-                native_query,
-                core,
-                authority,
-                modality,
-                predicate,
-                after_occurrence_id,
-                limit,
-                include_cold,
-            )
+            response::encode_ingest_stream_result(outcomes)
         }
         ServedModalityOp::Delete {
             modality,
@@ -132,6 +122,74 @@ pub(super) fn handle(
             occurrence_id,
             true
         ),
+        ServedModalityOp::CollectTombstones {
+            modality,
+            through_event_sequence,
+        } => dispatch_modality!(
+            modality,
+            collect_tombstones,
+            core,
+            authority,
+            modality,
+            through_event_sequence,
+        ),
+        _ => unreachable!("read operation reached mutation dispatcher"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ingest_stream_request_accepts_safe_max_and_rejects_one_more() {
+        assert!(validate_ingest_stream_request_cardinality(MAX_INGEST_STREAM_ITEMS).is_ok());
+        assert!(validate_ingest_stream_request_cardinality(MAX_INGEST_STREAM_ITEMS + 1).is_err());
+    }
+}
+
+fn handle_read(
+    core: &GraphCore,
+    authority: &ModalityAuthority,
+    op: ServedModalityOp,
+) -> Result<ResultPayload, String> {
+    match op {
+        ServedModalityOp::Query {
+            modality,
+            segment_kind,
+            after_occurrence_id,
+            limit,
+            include_cold,
+        } => dispatch_modality!(
+            modality,
+            query,
+            core,
+            authority,
+            modality,
+            segment_kind,
+            after_occurrence_id,
+            limit,
+            include_cold,
+        ),
+        ServedModalityOp::NativeQuery {
+            predicate,
+            after_occurrence_id,
+            limit,
+            include_cold,
+        } => {
+            let (modality, predicate) = native_predicate(authority, predicate)?;
+            dispatch_modality!(
+                modality,
+                native_query,
+                core,
+                authority,
+                modality,
+                predicate,
+                after_occurrence_id,
+                limit,
+                include_cold,
+            )
+        }
         ServedModalityOp::Events {
             modality,
             after_sequence,
@@ -148,18 +206,8 @@ pub(super) fn handle(
         ServedModalityOp::Stats { modality } => {
             dispatch_modality!(modality, stats, core, authority, modality)
         }
-        ServedModalityOp::CollectTombstones {
-            modality,
-            through_event_sequence,
-        } => dispatch_modality!(
-            modality,
-            collect_tombstones,
-            core,
-            authority,
-            modality,
-            through_event_sequence,
-        ),
         ServedModalityOp::Capabilities { modality } => capabilities_operation(modality),
+        _ => unreachable!("authority or mutation reached read dispatcher"),
     }
 }
 

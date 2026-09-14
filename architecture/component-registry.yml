@@ -3831,6 +3831,7 @@ components:
       - "tests/test_compare_wheel_reproducibility.py"
       - "tests/test_compute_primitives.py"
       - "tests/test_concept_parity.py"
+      - "tests/test_contract_method_reachability.py"
       - "tests/test_consensus_client_get_identity.py"
       - "tests/test_create_graph_lifecycle_type_contract.py"
       - "tests/test_create_graph_type_allowlist.py"

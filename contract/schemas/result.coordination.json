@@ -1,0 +1,240 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {
+    "AgentGraphEntryRef": {
+      "additionalProperties": false,
+      "description": "One pinned agent GRAPH, as a delegation target (RF-ADR-008).\n\nMirrors [`AgentLibraryEntryRef`] exactly: both pin the record's\n`definition_digest`.\n\n# Why a delegation pins the RECORD digest and a composing parent does not\n\nA [`crate::agent_graph::AgentGraphNodeKind::Graph`] node deliberately pins\nthe child's `shape_digest` -- what a parent composes is the child's\nBEHAVIOUR, and the child's governance is re-checked live at every\nresolution, so pinning a stale copy of it would force a cascading republish\nof an entire tree for a change that alters no behaviour.\n\nA delegation is the opposite question. It names a record IDENTITY, and it is\nthe audit point: `synthesis_evidence` -- which RF-ADR-008 section D says is what\nmakes a synthesized graph auditable and reproducible -- is inside\n`definition_digest` and outside `shape_digest`, as are `version`, the actor\nscope, the purpose, the policy digest and the admitted\n`composed_work_ceiling`. A delegation that pinned only the shape would\nattest to what ran while leaving WHY it was composed unpinned.\n\nDo not \"unify\" the two by giving both the same digest: they answer different\nquestions, and [`crate::agent_graph::AgentGraphEntry`]'s own impl-block doc\ncarries the other half of this note.\n\nThe behaviour pin is not lost: `definition_digest` is a hash OVER\n`shape_digest`, and a shape digest covers every node, while an agent node\npins its own `definition_digest`, which pins every component it is assembled\nfrom. So the record digest still pins the ENTIRE tree transitively -- which\nis why a graph target needs no separate `model_digest` (see\n[`KgDelegateRequest::model_digest`]).",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "composed_work_ceiling": {
+          "description": "The composed work ceiling this graph was admitted with --\n`CompositionFacts::total_work` from its publish.\n\nCarried rather than recomputed for two reasons. An executor cannot\nderive it without re-resolving the whole composition tree, and more\nimportantly it must honour the ceiling that was VALIDATED at admission,\nnot one it recomputes later against a tree that may have grown new\nrevisions.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "definition_digest": {
+          "description": "The published RECORD digest -- see the type doc for why this is the\nrecord digest and not the shape digest.",
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph_id": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "graph_id",
+        "entry_revision",
+        "definition_digest",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest",
+        "composed_work_ceiling"
+      ],
+      "type": "object"
+    },
+    "AgentLibraryEntryRef": {
+      "additionalProperties": false,
+      "description": "The retained Agent Library identity pinned by a delegation.\n\nThe fields mirror the current Agent Library entry identity: the tenant and\nactor/purpose/policy binding are checked at admission, while the definition\nand source digests pin the exact retained revision.  EG never resolves this\nreference from a local cache; the admission owner supplies the retained\nentry and compares this exact value before creating a WorkItem.",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "source_revision_digest": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "agent_id",
+        "entry_revision",
+        "definition_digest",
+        "source_revision",
+        "source_revision_digest",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest"
+      ],
+      "type": "object"
+    },
+    "DelegationTarget": {
+      "description": "What a delegation runs.\n\n# Why one delegation, not one per node\n\nA graph delegation admits exactly ONE work item. The child agent runs are\nthe executor's business, bounded by the graph's own composed ceiling.\n\nThe alternative -- admitting one work item per node -- was rejected because\n`max_tenant_in_flight` would then make a graph UNSCHEDULABLE whenever its\nnode count exceeded the tenant's limit: the parent would hold a slot while\nwaiting for children that cannot get one. That is a deadlock, not a\nthrottle.\n\nSo the two bounds govern two different things, and both are needed:\n\n* `max_tenant_in_flight` bounds how many DELEGATIONS a tenant may have in\n  flight;\n* `composed_work_ceiling` bounds what one delegation may do INTERNALLY.\n\nWithout the second, a graph would be a way to escape the first by fanning\nout. `MAX_COMPOSITION_WORK` is the global cap that makes the escape\nimpossible rather than merely discouraged.",
+      "oneOf": [
+        {
+          "description": "One published agent (layer 2).",
+          "properties": {
+            "entry": {
+              "$ref": "#/$defs/AgentLibraryEntryRef"
+            },
+            "target": {
+              "const": "agent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target",
+            "entry"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One published agent graph -- a team (layer 3).",
+          "properties": {
+            "graph": {
+              "$ref": "#/$defs/AgentGraphEntryRef",
+              "description": "Boxed: a graph ref is the larger variant, and an unboxed enum pays\nits size on every delegation including single-agent ones."
+            },
+            "target": {
+              "const": "graph",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target",
+            "graph"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "KgDelegateDecision": {
+      "enum": [
+        "accepted",
+        "replayed"
+      ],
+      "type": "string"
+    },
+    "KgDelegateResult": {
+      "additionalProperties": false,
+      "description": "Result returned after the existing WorkItem admission transaction commits.\nThe outbox id is the native admission outbox identity; EG does not mint a\nparallel delegation ledger.",
+      "properties": {
+        "capability_digest": {
+          "type": "string"
+        },
+        "catalog_digest": {
+          "type": "string"
+        },
+        "command_digest": {
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/KgDelegateDecision"
+        },
+        "delegation_id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "model_digest": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outbox_id": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/KgDelegateSchemaVersion"
+        },
+        "target": {
+          "$ref": "#/$defs/DelegationTarget",
+          "description": "Echoes the admitted target, so a caller reading a receipt knows exactly\nwhat ran without resolving anything."
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "delegation_id",
+        "run_id",
+        "trace_id",
+        "work_item_id",
+        "outbox_id",
+        "idempotency_key",
+        "target",
+        "command_digest",
+        "capability_digest",
+        "catalog_digest",
+        "policy_digest"
+      ],
+      "type": "object"
+    },
+    "KgDelegateSchemaVersion": {
+      "oneOf": [
+        {
+          "const": "2",
+          "description": "Format identity, not a component name (RF-ADR-006). See\n[`KG_DELEGATE_VERSION`] for what changed.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "KgDelegate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/KgDelegateResult"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "coordination method results"
+}

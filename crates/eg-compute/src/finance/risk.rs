@@ -3,20 +3,7 @@
 // Value-at-Risk, CVaR/Expected Shortfall, stress testing, and drawdown computation.
 // Replaces Python scipy.stats-based risk calculations.
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RiskMetrics {
-    pub var_95: f64,
-    pub var_99: f64,
-    pub cvar_95: f64,
-    pub cvar_99: f64,
-    pub max_drawdown: f64,
-    pub volatility: f64,
-    pub downside_deviation: f64,
-    pub sortino_ratio: f64,
-    pub calmar_ratio: f64,
-}
+pub use eg_types::compute_result::finance::RiskMetrics;
 
 /// Compute parametric VaR assuming normal distribution.
 ///

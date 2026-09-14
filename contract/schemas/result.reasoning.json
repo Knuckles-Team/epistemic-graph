@@ -1,0 +1,20 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {},
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "IcvConfigure": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "reasoning method results"
+}

@@ -9,6 +9,12 @@ use eg_compute::graph_algos::AdjacencyGraph;
 use eg_compute::mining::{
     community, ontology_gap, retrieval_quality, risk_propagation, root_cause,
 };
+use eg_types::compute_result::mining::{
+    CommunityMiningResult, CommunityRow, OntologyGapMiningResult, OntologyGapRow,
+    RetrievalQualityMiningResult, RiskPropagationMiningResult, RiskScoreRow, RootCauseCandidateRow,
+    RootCauseMiningResult,
+};
+use eg_types::result_contract::compute as results;
 
 pub(in crate::server::handlers) struct RootCauseRequest {
     pub(in crate::server::handlers) nodes: Vec<String>,
@@ -49,15 +55,16 @@ pub(in crate::server::handlers) fn handle_root_cause(
     if writeback.enabled && writeback.as_claim {
         materialize_root_cause_claim(core, &out, &nodes, &symptom);
     }
-    let candidates: Vec<serde_json::Value> = out
+    let candidates: Vec<RootCauseCandidateRow> = out
         .candidates
         .iter()
-        .map(|c| {
-            serde_json::json!({
-                "node": nodes.get(c.node).cloned().unwrap_or_else(|| c.node.to_string()),
-                "score": c.score,
-                "hops": c.hops,
-            })
+        .map(|c| RootCauseCandidateRow {
+            node: nodes
+                .get(c.node)
+                .cloned()
+                .unwrap_or_else(|| c.node.to_string()),
+            score: c.score,
+            hops: c.hops,
         })
         .collect();
     let best = out.best().map(|c| {
@@ -68,12 +75,12 @@ pub(in crate::server::handlers) fn handle_root_cause(
     });
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "symptom": symptom,
-            "candidates": candidates,
-            "best": best,
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineRootCause>(RootCauseMiningResult {
+            symptom,
+            candidates,
+            best,
+            written_back: written,
+        }),
     )
 }
 
@@ -209,19 +216,22 @@ pub(in crate::server::handlers) fn handle_risk_propagation(
     if writeback.enabled && writeback.as_claim {
         materialize_risk_score_claims(core, &out, &nodes);
     }
-    let rows: Vec<serde_json::Value> = nodes
+    let rows: Vec<RiskScoreRow> = nodes
         .iter()
         .zip(&out.scores)
-        .map(|(id, &s)| serde_json::json!({ "node": id, "score": s }))
+        .map(|(id, &score)| RiskScoreRow {
+            node: id.clone(),
+            score,
+        })
         .collect();
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "scores": rows,
-            "iterations": out.iterations,
-            "converged": out.converged,
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineRiskPropagation>(RiskPropagationMiningResult {
+            scores: rows,
+            iterations: out.iterations,
+            converged: out.converged,
+            written_back: written,
+        }),
     )
 }
 
@@ -390,24 +400,22 @@ pub(crate) fn handle_ontology_gap(
     if writeback.enabled && writeback.as_claim {
         materialize_ontology_gap_claims(core, &gaps, &class_ids, &label);
     }
-    let rows: Vec<serde_json::Value> = gaps
+    let rows: Vec<OntologyGapRow> = gaps
         .iter()
-        .map(|g| {
-            serde_json::json!({
-                "class": class_ids.get(g.class_index).cloned().unwrap_or_default(),
-                "kind": g.kind.name(),
-                "severity": g.kind.severity(),
-            })
+        .map(|g| OntologyGapRow {
+            class: class_ids.get(g.class_index).cloned().unwrap_or_default(),
+            kind: g.kind.name().to_string(),
+            severity: g.kind.severity(),
         })
         .collect();
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "gaps": rows,
-            "n_classes": classes.len(),
-            "n_gaps": gaps.len(),
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineOntologyGap>(OntologyGapMiningResult {
+            gaps: rows,
+            n_classes: classes.len(),
+            n_gaps: gaps.len(),
+            written_back: written,
+        }),
     )
 }
 
@@ -514,16 +522,16 @@ pub(in crate::server::handlers) fn handle_retrieval_quality(
     }
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "precision_at_k": report.precision_at_k,
-            "recall_at_k": report.recall_at_k,
-            "mrr": report.mrr,
-            "f1": report.f1,
-            "ndcg_at_k": report.ndcg_at_k,
-            "n_queries": report.n_queries,
-            "k": report.k,
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineRetrievalQuality>(RetrievalQualityMiningResult {
+            precision_at_k: report.precision_at_k,
+            recall_at_k: report.recall_at_k,
+            mrr: report.mrr,
+            f1: report.f1,
+            ndcg_at_k: report.ndcg_at_k,
+            n_queries: report.n_queries,
+            k: report.k,
+            written_back: written,
+        }),
     )
 }
 
@@ -674,30 +682,36 @@ pub(in crate::server::handlers) fn handle_community(
     if writeback.enabled && writeback.as_claim {
         materialize_community_claims(core, &out, &ids, community_provenance(&label));
     }
-    let communities: Vec<serde_json::Value> = out
+    let communities: Vec<CommunityRow> = out
         .communities
         .iter()
-        .map(|c| {
-            serde_json::json!({
-                "members": c.members.iter().map(|&i| ids.get(i).cloned().unwrap_or_else(|| i.to_string())).collect::<Vec<_>>(),
-                "density": c.density,
-            })
+        .map(|c| CommunityRow {
+            members: member_ids(&c.members, &ids),
+            density: c.density,
         })
         .collect();
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "communities": communities,
-            "modularity": out.modularity,
-            "n_nodes": graph.node_count(),
-            "written_back": written,
+        ResultPayload::of::<results::MineCommunity>(CommunityMiningResult {
+            communities,
+            modularity: out.modularity,
+            n_nodes: graph.node_count(),
+            written_back: written,
             // Truncation must not be silent: a budget-expired Louvain run
             // returns the best partition so far, which is otherwise
             // indistinguishable from a converged one — and `writeback` will
             // already have PERSISTED it. See `community::CommunityResult`.
-            "deadline_hit": out.deadline_hit,
-        })),
+            deadline_hit: out.deadline_hit,
+        }),
     )
+}
+
+/// Community member indices as resident node ids, else the index itself.
+fn member_ids(members: &[usize], ids: &[String]) -> Vec<String> {
+    members
+        .iter()
+        .map(|&i| ids.get(i).cloned().unwrap_or_else(|| i.to_string()))
+        .collect()
 }
 
 /// Materialize each MULTI-MEMBER community as a typed `:Community` node

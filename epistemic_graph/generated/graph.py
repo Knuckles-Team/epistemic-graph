@@ -38,7 +38,7 @@ async def send_add_node(
 ) -> OpaqueResult:
     """AddNode - node:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     AddNodeRequest.model_validate(params or {})
@@ -69,7 +69,7 @@ async def send_create_node_if_absent(
 ) -> bool:
     """CreateNodeIfAbsent - node:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.graph.json#/methods/CreateNodeIfAbsent).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CreateNodeIfAbsentRequest.model_validate(params or {})
@@ -99,7 +99,7 @@ async def send_remove_node(
 ) -> OpaqueResult:
     """RemoveNode - node:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RemoveNodeRequest.model_validate(params or {})
@@ -129,7 +129,7 @@ async def send_has_node(
 ) -> bool:
     """HasNode - node:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.graph.json#/methods/HasNode).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     HasNodeRequest.model_validate(params or {})
@@ -159,7 +159,7 @@ async def send_get_nodes(
 ) -> list[tuple[str, Any]]:
     """GetNodes - node:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::NodeList (contract/schemas/result.NodeList.json).
+    Result: ResultPayload::NodeList (contract/schemas/result.graph.json#/methods/GetNodes).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetNodesRequest.model_validate(params or {})
@@ -191,7 +191,7 @@ async def send_get_nodes_by_label(
 ) -> list[tuple[str, Any]]:
     """GetNodesByLabel - node:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::NodeList (contract/schemas/result.NodeList.json).
+    Result: ResultPayload::NodeList (contract/schemas/result.graph.json#/methods/GetNodesByLabel).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetNodesByLabelRequest.model_validate(params or {})
@@ -221,7 +221,7 @@ async def send_get_node_properties(
 ) -> OpaqueResult:
     """GetNodeProperties - node:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetNodePropertiesRequest.model_validate(params or {})
@@ -253,7 +253,7 @@ async def send_compare_and_set_node_fields(
 ) -> bool:
     """CompareAndSetNodeFields - node:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.graph.json#/methods/CompareAndSetNodeFields).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CompareAndSetNodeFieldsRequest.model_validate(params or {})
@@ -285,7 +285,7 @@ async def send_create_summary_node(
 ) -> str:
     """CreateSummaryNode - memory:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.graph.json#/methods/CreateSummaryNode).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     CreateSummaryNodeRequest.model_validate(params or {})
@@ -316,7 +316,7 @@ async def send_consolidate(
 ) -> str:
     """Consolidate - memory:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.graph.json#/methods/Consolidate).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ConsolidateRequest.model_validate(params or {})
@@ -348,7 +348,7 @@ async def send_reinforce(
 ) -> bool:
     """Reinforce - memory:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.graph.json#/methods/Reinforce).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ReinforceRequest.model_validate(params or {})
@@ -380,7 +380,7 @@ async def send_decay_node(
 ) -> bool:
     """DecayNode - memory:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.graph.json#/methods/DecayNode).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     DecayNodeRequest.model_validate(params or {})
@@ -412,7 +412,7 @@ async def send_decay_memories(
 ) -> int:
     """DecayMemories - memory:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.graph.json#/methods/DecayMemories).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     DecayMemoriesRequest.model_validate(params or {})
@@ -444,7 +444,7 @@ async def send_evict_below(
 ) -> list[str]:
     """EvictBelow - memory:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Ids (contract/schemas/result.Ids.json).
+    Result: ResultPayload::Ids (contract/schemas/result.graph.json#/methods/EvictBelow).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     EvictBelowRequest.model_validate(params or {})
@@ -478,7 +478,7 @@ async def send_maintain(
 ) -> OpaqueResult:
     """Maintain - memory:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     MaintainRequest.model_validate(params or {})
@@ -508,7 +508,7 @@ async def send_summary_children(
 ) -> list[str]:
     """SummaryChildren - memory:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Ids (contract/schemas/result.Ids.json).
+    Result: ResultPayload::Ids (contract/schemas/result.graph.json#/methods/SummaryChildren).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     SummaryChildrenRequest.model_validate(params or {})
@@ -538,7 +538,7 @@ async def send_summaries_at_level(
 ) -> list[str]:
     """SummariesAtLevel - memory:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Ids (contract/schemas/result.Ids.json).
+    Result: ResultPayload::Ids (contract/schemas/result.graph.json#/methods/SummariesAtLevel).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     SummariesAtLevelRequest.model_validate(params or {})
@@ -568,7 +568,7 @@ async def send_start_trajectory(
 ) -> str:
     """StartTrajectory - memory:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.graph.json#/methods/StartTrajectory).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     StartTrajectoryRequest.model_validate(params or {})
@@ -603,7 +603,7 @@ async def send_append_step(
 ) -> OpaqueResult:
     """AppendStep - memory:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     AppendStepRequest.model_validate(params or {})
@@ -634,7 +634,7 @@ async def send_discounted_return(
 ) -> float:
     """DiscountedReturn - memory:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Float (contract/schemas/result.Float.json).
+    Result: ResultPayload::Float (contract/schemas/result.graph.json#/methods/DiscountedReturn).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DiscountedReturnRequest.model_validate(params or {})
@@ -665,7 +665,7 @@ async def send_best_trajectory(
 ) -> OpaqueResult:
     """BestTrajectory - memory:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     BestTrajectoryRequest.model_validate(params or {})
@@ -695,7 +695,7 @@ async def send_get_node_properties_batch(
 ) -> OpaqueResult:
     """GetNodePropertiesBatch - node:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetNodePropertiesBatchRequest.model_validate(params or {})
@@ -725,7 +725,7 @@ async def send_has_nodes_batch(
 ) -> OpaqueResult:
     """HasNodesBatch - node:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     HasNodesBatchRequest.model_validate(params or {})
@@ -755,7 +755,7 @@ async def send_node_count(
 ) -> int:
     """NodeCount - node:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.graph.json#/methods/NodeCount).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     NodeCountRequest.model_validate(params or {})
@@ -785,7 +785,7 @@ async def send_node_ids(
 ) -> list[str]:
     """NodeIds - node:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Ids (contract/schemas/result.Ids.json).
+    Result: ResultPayload::Ids (contract/schemas/result.graph.json#/methods/NodeIds).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     NodeIdsRequest.model_validate(params or {})
@@ -817,7 +817,7 @@ async def send_add_edge(
 ) -> str:
     """AddEdge - edge:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.graph.json#/methods/AddEdge).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     AddEdgeRequest.model_validate(params or {})
@@ -848,7 +848,7 @@ async def send_remove_edge(
 ) -> OpaqueResult:
     """RemoveEdge - edge:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RemoveEdgeRequest.model_validate(params or {})
@@ -882,7 +882,7 @@ async def send_invalidate_edge(
 ) -> int:
     """InvalidateEdge - edge:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.graph.json#/methods/InvalidateEdge).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     InvalidateEdgeRequest.model_validate(params or {})
@@ -919,7 +919,7 @@ async def send_supersede_edge(
 ) -> OpaqueResult:
     """SupersedeEdge - edge:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     SupersedeEdgeRequest.model_validate(params or {})
@@ -950,7 +950,7 @@ async def send_has_edge(
 ) -> bool:
     """HasEdge - edge:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.graph.json#/methods/HasEdge).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     HasEdgeRequest.model_validate(params or {})
@@ -980,7 +980,7 @@ async def send_get_edges(
 ) -> list[tuple[str, str, bytes]]:
     """GetEdges - edge:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::EdgeList (contract/schemas/result.EdgeList.json).
+    Result: ResultPayload::EdgeList (contract/schemas/result.graph.json#/methods/GetEdges).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetEdgesRequest.model_validate(params or {})
@@ -1011,7 +1011,7 @@ async def send_get_edges_page(
 ) -> OpaqueResult:
     """GetEdgesPage - edge:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetEdgesPageRequest.model_validate(params or {})
@@ -1041,7 +1041,7 @@ async def send_clear_graph(
 ) -> str:
     """ClearGraph - graph:admin, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.graph.json#/methods/ClearGraph).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ClearGraphRequest.model_validate(params or {})
@@ -1072,7 +1072,7 @@ async def send_get_edge_properties(
 ) -> OpaqueResult:
     """GetEdgeProperties - edge:read, None, replay NotReplayable.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetEdgePropertiesRequest.model_validate(params or {})
@@ -1102,7 +1102,7 @@ async def send_get_edge_properties_batch(
 ) -> OpaqueResult:
     """GetEdgePropertiesBatch - edge:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetEdgePropertiesBatchRequest.model_validate(params or {})
@@ -1132,7 +1132,7 @@ async def send_edge_count(
 ) -> int:
     """EdgeCount - edge:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.graph.json#/methods/EdgeCount).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     EdgeCountRequest.model_validate(params or {})
@@ -1162,7 +1162,7 @@ async def send_in_degree(
 ) -> int:
     """InDegree - edge:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.graph.json#/methods/InDegree).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     InDegreeRequest.model_validate(params or {})
@@ -1192,7 +1192,7 @@ async def send_out_degree(
 ) -> int:
     """OutDegree - edge:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.graph.json#/methods/OutDegree).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     OutDegreeRequest.model_validate(params or {})
@@ -1222,7 +1222,7 @@ async def send_get_predecessors(
 ) -> list[str]:
     """GetPredecessors - edge:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Ids (contract/schemas/result.Ids.json).
+    Result: ResultPayload::Ids (contract/schemas/result.graph.json#/methods/GetPredecessors).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetPredecessorsRequest.model_validate(params or {})
@@ -1252,7 +1252,7 @@ async def send_get_successors(
 ) -> list[str]:
     """GetSuccessors - edge:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Ids (contract/schemas/result.Ids.json).
+    Result: ResultPayload::Ids (contract/schemas/result.graph.json#/methods/GetSuccessors).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetSuccessorsRequest.model_validate(params or {})
@@ -1282,7 +1282,7 @@ async def send_get_neighbors(
 ) -> list[str]:
     """GetNeighbors - edge:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Ids (contract/schemas/result.Ids.json).
+    Result: ResultPayload::Ids (contract/schemas/result.graph.json#/methods/GetNeighbors).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetNeighborsRequest.model_validate(params or {})
@@ -1312,7 +1312,7 @@ async def send_get_neighbors_batch(
 ) -> OpaqueResult:
     """GetNeighborsBatch - edge:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetNeighborsBatchRequest.model_validate(params or {})
@@ -1343,7 +1343,7 @@ async def send_union_get_node_properties(
 ) -> OpaqueResult:
     """UnionGetNodeProperties - node:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     UnionGetNodePropertiesRequest.model_validate(params or {})
@@ -1375,7 +1375,7 @@ async def send_union_get_nodes_by_label(
 ) -> OpaqueResult:
     """UnionGetNodesByLabel - node:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     UnionGetNodesByLabelRequest.model_validate(params or {})
@@ -1406,7 +1406,7 @@ async def send_union_get_neighbors(
 ) -> list[str]:
     """UnionGetNeighbors - node:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::Ids (contract/schemas/result.Ids.json).
+    Result: ResultPayload::Ids (contract/schemas/result.graph.json#/methods/UnionGetNeighbors).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     UnionGetNeighborsRequest.model_validate(params or {})
@@ -1437,7 +1437,7 @@ async def send_prune_by_lifecycle(
 ) -> OpaqueResult:
     """PruneByLifecycle - node:admin, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Conflicting) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     PruneByLifecycleRequest.model_validate(params or {})
@@ -1467,7 +1467,7 @@ async def send_metrics(
 ) -> OpaqueResult:
     """Metrics - service:control, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     MetricsRequest.model_validate(params or {})
@@ -1497,7 +1497,7 @@ async def send_evict_l_r_u(
 ) -> int:
     """EvictLRU - node:admin, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.graph.json#/methods/EvictLRU).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     EvictLRURequest.model_validate(params or {})
@@ -1529,7 +1529,7 @@ async def send_decay_sweep(
 ) -> OpaqueResult:
     """DecaySweep - node:admin, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     DecaySweepRequest.model_validate(params or {})
@@ -1559,7 +1559,7 @@ async def send_touch_nodes(
 ) -> int:
     """TouchNodes - node:admin, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Count (contract/schemas/result.Count.json).
+    Result: ResultPayload::Count (contract/schemas/result.graph.json#/methods/TouchNodes).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     TouchNodesRequest.model_validate(params or {})
@@ -1589,7 +1589,7 @@ async def send_get_subgraph(
 ) -> OpaqueResult:
     """GetSubgraph - node:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetSubgraphRequest.model_validate(params or {})
@@ -1619,7 +1619,7 @@ async def send_fork(
 ) -> OpaqueResult:
     """Fork - graph:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ForkRequest.model_validate(params or {})
@@ -1649,7 +1649,7 @@ async def send_diff_against(
 ) -> OpaqueResult:
     """DiffAgainst - graph:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     DiffAgainstRequest.model_validate(params or {})
@@ -1680,7 +1680,7 @@ async def send_reconcile(
 ) -> str:
     """Reconcile - graph:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.graph.json#/methods/Reconcile).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ReconcileRequest.model_validate(params or {})
@@ -1708,10 +1708,10 @@ async def send_apply_mutation(
     graph: str | None = None,
     *,
     idempotency_key: str | None = None,
-) -> str:
+) -> OpaqueResult:
     """ApplyMutation - graph:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     ApplyMutationRequest.model_validate(params or {})
@@ -1721,7 +1721,7 @@ async def send_apply_mutation(
         graph,
         idempotency_key=idempotency_key,
     )
-    return expect_string("ApplyMutation", payload)
+    return OpaqueResult("ApplyMutation", payload)
 
 
 class AddTriplesRequest(BaseModel):
@@ -1742,7 +1742,7 @@ async def send_add_triples(
 ) -> OpaqueResult:
     """AddTriples - rdf:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     AddTriplesRequest.model_validate(params or {})
@@ -1773,7 +1773,7 @@ async def send_remove_triples(
 ) -> OpaqueResult:
     """RemoveTriples - rdf:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RemoveTriplesRequest.model_validate(params or {})
@@ -1803,7 +1803,7 @@ async def send_drop_named_graph(
 ) -> str:
     """DropNamedGraph - rdf:write, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: ResultPayload::String (contract/schemas/result.graph.json#/methods/DropNamedGraph).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     DropNamedGraphRequest.model_validate(params or {})

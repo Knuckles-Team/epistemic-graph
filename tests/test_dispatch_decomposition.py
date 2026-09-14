@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import re
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -12,12 +14,27 @@ pytestmark = pytest.mark.no_engine
 
 
 def _gate_module():
-    gate_path = Path(__file__).resolve().parents[1] / "scripts" / "check_dispatch_decomposition.py"
-    spec = importlib.util.spec_from_file_location("dispatch_decomposition_gate", gate_path)
+    gate_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "check_dispatch_decomposition.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "dispatch_decomposition_gate", gate_path
+    )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _replace_once(source: str, old: str, new: str) -> str:
+    """Build a non-vacuous known-bad source perturbation."""
+
+    assert old in source, f"fixture target is absent: {old}"
+    broken = source.replace(old, new, 1)
+    assert broken != source
+    return broken
 
 
 def test_dispatch_decomposition_gate() -> None:
@@ -35,20 +52,87 @@ def test_route_ownership_drift_fails_closed() -> None:
         module.check_inventory(parts)
 
 
-def test_test_and_assertion_inventory_drift_fails_closed() -> None:
+def test_route_call_removal_fails_closed() -> None:
     module = _gate_module()
     parts = module.sources()
-    target = "src/server/dispatch/consensus.rs"
-    parts[target] = parts[target].replace("#[test]", "#[removed_test]", 1)
-    with pytest.raises(SystemExit, match="test inventory changed"):
+    target = "src/server/dispatch/router.rs"
+    parts[target] = parts[target].replace(
+        "dispatch_service_control_methods(ctx, method).await?",
+        "removed_dispatch_service_control_methods(ctx, method).await?",
+        1,
+    )
+    with pytest.raises(
+        SystemExit, match="dispatch_service_control_methods call missing"
+    ):
         module.check_inventory(parts)
+
+
+def test_graph_router_call_removal_fails_closed() -> None:
+    module = _gate_module()
+    parts = module.sources()
+    target = "src/server/dispatch/graph_pipeline/graph_dispatch.rs"
+    parts[target] = parts[target].replace(
+        "route_graph_op_method(routing, method).await",
+        "removed_route_graph_op_method(routing, method).await",
+        1,
+    )
+    with pytest.raises(SystemExit, match="route_graph_op_method call missing"):
+        module.check_inventory(parts)
+
+
+def test_test_and_assertion_inventory_drift_fails_closed() -> None:
+    module = _gate_module()
+    production, with_tests = module.compiler_views()
+    broken = _replace_once(with_tests, "#[test]", "#[removed_test]")
+    with pytest.raises(SystemExit, match="test inventory changed"):
+        module.check_compiler_inventory(production, broken)
+
+
+def test_function_inventory_rejects_comment_only_omission_spoof() -> None:
+    module = _gate_module()
+    production, with_tests = module.compiler_views()
+    counts = Counter(module.function_names(production))
+    name = next(name for name, count in counts.items() if count == 1)
+    old = f"fn {name}("
+    broken_production = _replace_once(production, old, f"const {name}: (")
+    broken_with_tests = _replace_once(with_tests, old, f"const {name}: (")
+    spoof = f"\n// fn {name}() {{}}\n"
+    broken_production += spoof
+    broken_with_tests += spoof
+
+    with pytest.raises(SystemExit, match="production function inventory changed"):
+        module.check_compiler_inventory(broken_production, broken_with_tests)
+
+
+def test_test_inventory_rejects_string_only_attribute_spoof() -> None:
+    module = _gate_module()
+    production, with_tests = module.compiler_views()
+    match = re.search(r"#\[test\]", with_tests)
+    assert match is not None
+    broken = _replace_once(with_tests, match.group(0), "#[removed_test]")
+    broken += '\nconst _TEST_SPOOF: &str = "#[test] fn forged_test() {}";\n'
+
+    with pytest.raises(SystemExit, match="test inventory changed"):
+        module.check_compiler_inventory(production, broken)
+
+
+def test_assertion_inventory_rejects_comment_and_string_spoofs() -> None:
+    module = _gate_module()
+    production, with_tests = module.compiler_views()
+    broken = _replace_once(with_tests, "assert!(", "removed_assert!(")
+    broken += '\n// assert!(true);\nconst _ASSERT_SPOOF: &str = "assert_eq!(1, 1);";\n'
+
+    with pytest.raises(SystemExit, match="assertion inventory changed"):
+        module.check_compiler_inventory(production, broken)
 
 
 def test_cfg_boundary_drift_fails_closed() -> None:
     module = _gate_module()
     parts = module.sources()
-    target = "src/server/dispatch/graph_pipeline.rs"
-    parts[target] = parts[target].replace('feature = "query"', 'feature = "removed-query"', 1)
+    target = "src/server/dispatch/graph_pipeline/pipeline.rs"
+    parts[target] = parts[target].replace(
+        'feature = "query"', 'feature = "removed-query"', 1
+    )
     with pytest.raises(SystemExit, match="cfg boundary set changed"):
         module.check_cfg_contract(parts)
 
@@ -61,8 +145,10 @@ def test_legacy_coalescer_subset_proof_fails_closed() -> None:
     try:
         # Supply the gateway source through the same dictionary seam used by the
         # checker so this mutation never touches the checkout.
-        parts["src/server/handlers/graph_ops/gateway_graph.rs"] = gateway_path.read_text().replace(
-            "Method::AddNode", "Method::RemovedAddNode"
+        parts["src/server/handlers/graph_ops/gateway_graph.rs"] = (
+            gateway_path.read_text().replace(
+                "Method::AddNode", "Method::RemovedAddNode"
+            )
         )
         with pytest.raises(SystemExit, match="gateway arm AddNode"):
             module.check_routing_and_coalescing(parts)
@@ -70,10 +156,44 @@ def test_legacy_coalescer_subset_proof_fails_closed() -> None:
         module.ROOT = original_root
 
 
+def test_route_order_ignores_comments_and_detects_reversed_calls() -> None:
+    module = _gate_module()
+    parts = copy.deepcopy(module.sources())
+    target = "src/server/dispatch/graph_pipeline/pipeline.rs"
+    compute = "route_pipeline_compute(&ctx, method)"
+    surfaces = "route_pipeline_surfaces(&ctx, method)"
+    source = parts[target]
+    swapped = source.replace(compute, "__route_compute__", 1)
+    swapped = swapped.replace(surfaces, compute, 1).replace(
+        "__route_compute__", surfaces, 1
+    )
+    parts[target] = (
+        swapped
+        + "\n// route_pipeline_compute(&ctx, method) must precede "
+        + "route_pipeline_surfaces(&ctx, method)\n"
+    )
+    with pytest.raises(SystemExit, match="graph gateway/terminal route order changed"):
+        module.check_routing_and_coalescing(parts)
+
+
+def test_post_lock_router_order_swap_fails_closed() -> None:
+    module = _gate_module()
+    parts = copy.deepcopy(module.sources())
+    target = "src/server/dispatch/graph_pipeline/native_routes.rs"
+    change = "route_change_envelope_ops(ctx, method).await"
+    store = "route_native_store_ops(ctx, method).await"
+    source = parts[target]
+    swapped = source.replace(change, "__route_change__", 1)
+    swapped = swapped.replace(store, change, 1).replace("__route_change__", store, 1)
+    parts[target] = swapped
+    with pytest.raises(SystemExit, match="post-lock graph router order changed"):
+        module.check_routing_and_coalescing(parts)
+
+
 def test_compile_shape_regression_fails_closed() -> None:
     module = _gate_module()
     parts = module.sources()
-    graph = "src/server/dispatch/graph_pipeline.rs"
+    graph = "src/server/dispatch/graph_pipeline/dispatch_helpers.rs"
     parts[graph] = parts[graph].replace(
         "let method = Method::ServedModality { op: op.clone() };",
         "let removed_method = Method::ServedModality { op: op.clone() };",
@@ -81,3 +201,29 @@ def test_compile_shape_regression_fails_closed() -> None:
     )
     with pytest.raises(SystemExit, match="ServedModality lost"):
         module.check_compile_shapes(parts)
+
+
+def test_compiler_family_child_omission_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _gate_module()
+    omitted = "src/server/dispatch/change_envelope/multi_graph.rs"
+    monkeypatch.setattr(module, "EXPECTED_PATHS", module.EXPECTED_PATHS - {omitted})
+
+    with pytest.raises(
+        SystemExit, match="compiler module family or orphan set changed"
+    ):
+        module.sources()
+
+
+def test_consensus_fail_open_catch_all_fails_closed() -> None:
+    module = _gate_module()
+    parts = module.sources()
+    target = "src/server/dispatch/consensus/routing.rs"
+    parts[target] = parts[target].replace(
+        'Some(other) => unreachable!("unclassified native consensus domain: {other}")',
+        "Some(other) => request_graph.to_string()",
+        1,
+    )
+    with pytest.raises(SystemExit, match="fail-open catch-all"):
+        module.check_consensus_exhaustiveness(parts)

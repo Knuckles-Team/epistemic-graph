@@ -6104,14 +6104,18 @@ class EdgeClient:
             )
         ).payload
 
-    async def properties(self, source_id: str, target_id: str) -> dict[str, Any] | None:
+    async def properties(
+        self, source_id: str, target_id: str
+    ) -> builtins.list[dict[str, Any]]:
+        """The decoded property object of every parallel edge from ``source_id`` to
+        ``target_id``; an empty list when there is no such edge."""
         raw_val = (
             await _gen.graph.send_get_edge_properties(
                 self._client, {"source_id": source_id, "target_id": target_id}
             )
         ).payload
         if raw_val is None:
-            return None
+            return []
         if isinstance(raw_val, bytes):
             import msgpack
 
@@ -6362,7 +6366,7 @@ class GraphOperationsClient:
         ).payload
 
     async def topological_sort(self) -> list[str]:
-        return await _gen.compute.send_topological_sort(self._client)
+        return (await _gen.compute.send_topological_sort(self._client)).payload
 
     async def find_cycle(self) -> list[str] | None:
         return (await _gen.compute.send_find_cycle(self._client)).payload
@@ -6402,7 +6406,7 @@ class GraphOperationsClient:
             await _gen.compute.send_strongly_connected_components(self._client)
         ).payload
 
-    async def minimum_spanning_tree(self) -> list[tuple[str, str, float]]:
+    async def minimum_spanning_tree(self) -> list[list[Any]]:
         """CONCEPT:EG-KG.memory.forgetting-curve-decay — Kruskal's MST via Tokio service."""
         return (await _gen.compute.send_minimum_spanning_tree(self._client)).payload
 
@@ -6432,13 +6436,16 @@ class GraphOperationsClient:
             )
         ).payload
 
-    async def graph_coloring(self) -> list[tuple[str, int]]:
+    async def graph_coloring(self) -> list[list[Any]]:
         return (await _gen.compute.send_graph_coloring(self._client)).payload
 
-    async def compute_similarity_edges(self, threshold: float) -> int:
-        return await _gen.compute.send_compute_similarity_edges(
-            self._client, {"threshold": threshold}
-        )
+    async def compute_similarity_edges(self, threshold: float) -> list[list[Any]]:
+        """`(source, target, cosine)` rows for every pair at or above ``threshold``."""
+        return (
+            await _gen.compute.send_compute_similarity_edges(
+                self._client, {"threshold": threshold}
+            )
+        ).payload
 
     async def resolve_candidates(
         self,
@@ -6534,15 +6541,15 @@ class AnalyticsClient:
             self._client, {"node_id": node_id}
         )
 
-    async def degree_centrality_all(self) -> list[tuple[str, float]]:
+    async def degree_centrality_all(self) -> list[list[Any]]:
         return (await _gen.compute.send_degree_centrality_all(self._client)).payload
 
-    async def betweenness_centrality(self) -> list[tuple[str, float]]:
+    async def betweenness_centrality(self) -> list[list[Any]]:
         return (await _gen.compute.send_betweenness_centrality(self._client)).payload
 
     async def pagerank(
         self, damping: float = 0.85, iterations: int = 100
-    ) -> list[tuple[str, float]]:
+    ) -> list[list[Any]]:
         return (
             await _gen.compute.send_page_rank(
                 self._client, {"damping": damping, "iterations": iterations}
@@ -6554,7 +6561,7 @@ class AnalyticsClient:
         seed_nodes: list[tuple[str, float]],
         damping: float = 0.85,
         iterations: int = 100,
-    ) -> list[tuple[str, float]]:
+    ) -> list[list[Any]]:
         return (
             await _gen.compute.send_personalized_page_rank(
                 self._client,
@@ -6573,14 +6580,18 @@ class LifecycleClient:
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
 
-    async def prune(self, max_age_secs: int, min_score: float) -> int:
+    async def prune(self, max_age_secs: int, min_score: float) -> dict[str, Any]:
+        """Lifecycle-aware pruning. Returns ``{nodes_removed, edges_removed, nodes_archived}``."""
         return (
             await _gen.graph.send_prune_by_lifecycle(
                 self._client, {"max_age_secs": max_age_secs, "min_score": min_score}
             )
         ).payload
 
-    async def get_context_view(self, agent_id: str, max_tokens: int = 4096) -> str:
+    async def get_context_view(
+        self, agent_id: str, max_tokens: int = 4096
+    ) -> dict[str, Any]:
+        """The agent's context view. Returns ``{agent_id, nodes, edges, budget_used, budget_max}``."""
         return (
             await _gen.query.send_get_context_view(
                 self._client, {"agent_id": agent_id, "max_tokens": max_tokens}
@@ -6639,7 +6650,9 @@ class LifecycleClient:
         return (await _gen.graph.send_metrics(self._client)).payload
 
     async def to_msgpack(self) -> bytes:
-        return (await _gen.storage.send_to_msgpack(self._client)).payload
+        # The engine declares this result as Json<Vec<u8>>: the snapshot bytes arrive as
+        # an array of byte values, not a MessagePack bin.
+        return bytes((await _gen.storage.send_to_msgpack(self._client)).payload)
 
     async def from_msgpack(self, msgpack_bytes: bytes) -> None:
         await _gen.storage.send_from_msgpack(self._client, {"msgpack": msgpack_bytes})
@@ -6902,7 +6915,10 @@ class MultiTenantClient:
     async def delete(self, graph_name: str) -> None:
         await _gen.cluster.send_delete_graph(self._client, {"graph_name": graph_name})
 
-    async def list(self) -> list[dict[str, str]]:
+    async def list(self) -> list[dict[str, Any]]:
+        """Readable graphs: ``name``, ``type``, ``materialization``,
+        ``source_snapshot_version``, ``completeness_cursor``, ``valid`` and
+        ``index_manifests``."""
         return (await _gen.cluster.send_list_graphs(self._client)).payload
 
 
@@ -7914,8 +7930,12 @@ class ConsensusClient:
         threshold: int,
         mutation_type: str,
         query: str,
-    ) -> str:
-        """Apply an administrative mutation signed by explicit trusted signers."""
+    ) -> dict[str, Any]:
+        """Apply an administrative mutation signed by explicit trusted signers.
+
+        Returns the SPARQL UPDATE report of the ``ApplyMutation`` it is translated
+        into: ``operations``, ``inserted``, ``deleted``, ``updated_graphs`` and
+        ``created_graphs``."""
 
         _validate_multisig_threshold(signer_keys, threshold)
         if not isinstance(mutation_type, str) or not mutation_type.strip():
@@ -8191,7 +8211,7 @@ class FinanceClient:
         n_slices: int,
         start_time: int = 0,
         interval_secs: int = 60,
-    ) -> list[tuple[int, float]]:
+    ) -> list[list[Any]]:
         return (
             await _gen.compute.send_finance_twap(
                 self._client,
@@ -8210,7 +8230,7 @@ class FinanceClient:
         volume_profile: list[float],
         start_time: int = 0,
         interval_secs: int = 60,
-    ) -> list[tuple[int, float]]:
+    ) -> list[list[Any]]:
         return (
             await _gen.compute.send_finance_vwap(
                 self._client,
@@ -11541,7 +11561,7 @@ class TxnClient:
 
     async def materialize_belief(
         self, txn_id: str, node_id: str, graph: str | None = None
-    ) -> bool:
+    ) -> dict[str, Any]:
         """Stage a MATERIALIZE-BELIEF op into the txn (CONCEPT:EG-KG.epistemic.epistemic-substrate,
         D5 — the explicit, AUDITED "materialize belief" op). Computes the propagated
         belief for ``node_id`` over the graph's SUPPORTS/CONTRADICTS/ATTACKS evidence
@@ -11555,7 +11575,9 @@ class TxnClient:
             "node_id": node_id,
             "graph": graph,
         }
-        return await _gen.transactions.send_txn_materialize_belief(self._client, params)
+        return (
+            await _gen.transactions.send_txn_materialize_belief(self._client, params)
+        ).payload
 
     async def unified_query(
         self,
@@ -11933,7 +11955,7 @@ class RdfClient:
     async def get_rdf(self) -> str:
         """Serialize the connection's graph back OUT to N-Triples (datatype/lang
         faithful — the inverse of :meth:`add_triples`)."""
-        return await _gen.reasoning.send_get_rdf(self._client)
+        return (await _gen.reasoning.send_get_rdf(self._client)).payload
 
     async def remove_triples(
         self,
@@ -15226,10 +15248,15 @@ class EpistemicGraphClient:
     async def shutdown(self) -> str:
         return await _gen.cluster.send_shutdown(self)
 
-    async def apply_mutation(self, event_type: str, query: str) -> str:
-        return await _gen.graph.send_apply_mutation(
-            self, {"event_type": event_type, "query": query}
-        )
+    async def apply_mutation(self, event_type: str, query: str) -> dict[str, Any]:
+        """The SPARQL UPDATE report: ``operations``, ``inserted``, ``deleted``,
+        ``updated_graphs`` and ``created_graphs``. The per-graph gateway and the
+        coordinated ``sparql_http_update_v1`` saga answer this same shape."""
+        return (
+            await _gen.graph.send_apply_mutation(
+                self, {"event_type": event_type, "query": query}
+            )
+        ).payload
 
 
 class SyncEpistemicGraphClient:

@@ -2,9 +2,10 @@
 # Source of truth: crates/eg-capabilities/src/domains/*.rs. Do NOT edit by hand.
 """Shared runtime for the generated engine-contract client.
 
-OpaqueResult is what a method whose result the contract does NOT declare
-returns: the raw decoded payload paired with the method id that produced it,
-so a caller can never mistake an undeclared body for a validated one.
+OpaqueResult is what a method returns when this client does not model its
+declared body (a DTO, a caller-shaped body, or a result the contract has not
+classified): the decoded payload paired with the method id that produced it,
+so a caller can never mistake it for a value the client validated.
 """
 
 from __future__ import annotations
@@ -22,11 +23,11 @@ class OpaqueResult(NamedTuple):
 class ContractViolation(RuntimeError):
     """The engine returned a shape the contract does not declare for the method.
 
-    A typed `result_schema` is EVIDENCE (see the descriptor's `result_provenance`),
-    not a declaration the engine enforces, so the generated send checks it instead of
-    returning a value under a signature that lies about it. Raising names the method,
-    the claimed schema and the shape actually observed, so a wrong row in the registry
-    is reported at the one call site that proves it wrong.
+    The engine encodes every declared result through a compile-checked marker, so a
+    violation means the client and the engine were built from different contracts.
+    The generated send checks the decoded payload rather than returning it under a
+    signature that would lie, and names the method, the declared encoding and the
+    shape actually observed.
     """
 
 

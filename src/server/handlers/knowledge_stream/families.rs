@@ -346,6 +346,15 @@ async fn execute_time_series(
     }
 }
 
+#[cfg(feature = "jobs")]
+fn encode_job_source_result<T: serde::Serialize + ?Sized>(
+    result: &T,
+) -> Result<ResultPayload, String> {
+    rmp_serde::to_vec_named(result)
+        .map(ResultPayload::Raw)
+        .map_err(|error| format!("result serialization failed: {error}"))
+}
+
 async fn execute_job(
     ctx: &FamilyExecutionCtx<'_>,
     job_id: &str,
@@ -382,7 +391,7 @@ async fn execute_job(
                 ))
             })
             .collect::<Result<Vec<_>, String>>()?;
-        let source_result = ResultPayload::raw(&result)?;
+        let source_result = encode_job_source_result(&result)?;
         Ok(FamilyExecution {
             rows,
             source_result,

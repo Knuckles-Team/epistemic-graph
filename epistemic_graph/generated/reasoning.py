@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict
 from ._runtime import (
     OpaqueResult,
     expect_bool,
-    expect_string,
 )
 
 
@@ -39,7 +38,7 @@ async def send_run_datalog_reasoning(
 ) -> OpaqueResult:
     """RunDatalogReasoning - reasoning:write, GraphRedb, replay OperationIdentity.
 
-    Result: opaque (Json) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     RunDatalogReasoningRequest.model_validate(params or {})
@@ -66,10 +65,10 @@ async def send_get_rdf(
     graph: str | None = None,
     *,
     idempotency_key: str | None = None,
-) -> str:
+) -> OpaqueResult:
     """GetRdf - rdf:read, None, replay NotReplayable.
 
-    Result: typed ResultPayload::String (contract/schemas/result.String.json).
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     GetRdfRequest.model_validate(params or {})
@@ -79,7 +78,7 @@ async def send_get_rdf(
         graph,
         idempotency_key=idempotency_key,
     )
-    return expect_string("GetRdf", payload)
+    return OpaqueResult("GetRdf", payload)
 
 
 class SparqlRequest(BaseModel):
@@ -101,7 +100,7 @@ async def send_sparql(
 ) -> OpaqueResult:
     """Sparql - sparql:read, None, replay NotReplayable.
 
-    Result: opaque (Raw) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     SparqlRequest.model_validate(params or {})
@@ -134,7 +133,7 @@ async def send_sparql_virtual(
 ) -> OpaqueResult:
     """SparqlVirtual - sparql:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     SparqlVirtualRequest.model_validate(params or {})
@@ -167,7 +166,7 @@ async def send_owl_reason(
 ) -> OpaqueResult:
     """OwlReason - owl:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     OwlReasonRequest.model_validate(params or {})
@@ -201,7 +200,7 @@ async def send_owl_reason_distributed(
 ) -> OpaqueResult:
     """OwlReasonDistributed - owl:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     OwlReasonDistributedRequest.model_validate(params or {})
@@ -233,7 +232,7 @@ async def send_owl_explain(
 ) -> OpaqueResult:
     """OwlExplain - owl:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     OwlExplainRequest.model_validate(params or {})
@@ -264,7 +263,7 @@ async def send_shacl_validate(
 ) -> OpaqueResult:
     """ShaclValidate - validation:read, None, replay NotReplayable.
 
-    Result: opaque (Undeclared) - the contract declares no result schema.
+    Result: unclassified - the contract declares no result for this method.
     Errors: INVALID_ARGUMENT, ACCESS_DENIED.
     """
     ShaclValidateRequest.model_validate(params or {})
@@ -296,7 +295,7 @@ async def send_icv_configure(
 ) -> bool:
     """IcvConfigure - security:admin, GraphRedb, replay OperationIdentity.
 
-    Result: typed ResultPayload::Bool (contract/schemas/result.Bool.json).
+    Result: ResultPayload::Bool (contract/schemas/result.reasoning.json#/methods/IcvConfigure).
     Errors: INVALID_ARGUMENT, ACCESS_DENIED, CONFLICT, IDEMPOTENCY_CONFLICT, REDIRECTED, READ_ONLY.
     """
     IcvConfigureRequest.model_validate(params or {})

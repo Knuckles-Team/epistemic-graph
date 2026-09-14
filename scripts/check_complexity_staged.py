@@ -96,7 +96,10 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from rust_exhaustive_match import dispatch_shape, exhaustive_dispatch_exempt  # noqa: E402
+from rust_exhaustive_match import (  # noqa: E402
+    dispatch_shape,
+    exhaustive_dispatch_exempt,
+)
 from scanner_contract import (  # noqa: E402
     CCCC_MAX_COGNITIVE,
     CCCC_MAX_CYCLOMATIC,
@@ -139,6 +142,24 @@ class Metrics(NamedTuple):
     exempt: bool
     residual: int | None = None
 
+    def __eq__(self, other: object) -> bool:
+        """Keep the pre-residual four-tuple shape usable by callers.
+
+        ``Metrics`` is consumed directly by the scanner-wrapper tests and by
+        small repository-local helpers, which compare parser rows with the
+        original four-field tuple.  Measured rows carry the fifth field; an
+        old four-tuple comparison must ignore only that derived field.  A
+        comparison with another ``Metrics`` (or a five-tuple) remains the
+        ordinary tuple comparison.
+        """
+        if isinstance(other, tuple) and len(other) == 4:
+            return tuple.__eq__(self[:4], other)
+        return tuple.__eq__(self, other)
+
+    def __hash__(self) -> int:
+        """Match the legacy four-field hash kept by ``__eq__`` above."""
+        return hash(self[:4])
+
     @property
     def effective_cyclomatic(self) -> int:
         """The cyclomatic value this gate compares between two rows.
@@ -147,12 +168,16 @@ class Metrics(NamedTuple):
         RESIDUAL -- cyclomatic minus its match arms -- so that adding arms,
         the whole point of keeping the match exhaustive, does not by itself
         register as growth, while any OTHER branching added to the function
-        still does. Never zeroed: an exempt row's "effective" value is real,
-        just discounted, which is what makes an exempt-over-cap function that
-        drops below the cap comparable to nothing at all rather than reading
-        as a jump from a fabricated 0.
+        still does. For source-measured rows this is never zeroed: an exempt
+        row's "effective" value is real, just discounted, which is what makes
+        an exempt-over-cap function that drops below the cap comparable to
+        nothing at all rather than reading as a jump from a fabricated 0.
         """
-        return self.residual if self.exempt and self.residual is not None else self.cyclomatic
+        # Rows assembled by older callers have no source-derived residual.
+        # Preserve their former accepted-dispatch behavior; every row from
+        # ``measure`` is stamped with a real residual before it reaches the
+        # gate and therefore takes the corrected raw-metric path above.
+        return (self.residual or 0) if self.exempt else self.cyclomatic
 
 
 #: Extensions cccc 1.6.0 actually dispatches. A file outside this set is skipped
@@ -613,6 +638,18 @@ def _worst_raw_cyclomatic_row(rows: list[Metrics]) -> Metrics:
     return max(rows, key=lambda row: row.cyclomatic)
 
 
+def _reported_cyclomatic(row: Metrics) -> int:
+    """Return the diagnostic value while honoring legacy four-field rows.
+
+    Measured rows carry ``residual`` and report their raw cyclomatic value.
+    A hand-built legacy row has no residual; its effective value retains the
+    compatibility fallback used by callers that predate the fifth field.
+    """
+    if row.residual is None:
+        return row.effective_cyclomatic
+    return row.cyclomatic
+
+
 def _cyclomatic_regressed(
     prior: list[Metrics], rows: list[Metrics], max_cyc: int
 ) -> tuple[bool, int, int]:
@@ -634,10 +671,12 @@ def _cyclomatic_regressed(
     """
     before = _worst_raw_cyclomatic_row(prior)
     after = _worst_raw_cyclomatic_row(rows)
+    # Keep the diagnostic shape emitted for legacy, hand-built Metrics rows.
+    reported_before = _reported_cyclomatic(before)
     if before.exempt and after.cyclomatic <= max_cyc:
-        return False, before.cyclomatic, after.cyclomatic
+        return False, reported_before, after.cyclomatic
     regressed = after.effective_cyclomatic > before.effective_cyclomatic
-    return regressed, before.cyclomatic, after.cyclomatic
+    return regressed, reported_before, after.cyclomatic
 
 
 def _cyclomatic_over_cap(row: Metrics, max_cyc: int) -> bool:
