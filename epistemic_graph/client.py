@@ -3219,12 +3219,10 @@ class NodeClient:
 
         Results are deduplicated by ID; ``limit=0`` means no cap.
         """
-        return (
-            await _gen.graph.send_union_get_nodes_by_label(
-                self._client,
-                {"graphs": list(graphs), "label": label, "limit": int(limit)},
-            )
-        ).payload
+        return await _gen.graph.send_union_get_nodes_by_label(
+            self._client,
+            {"graphs": list(graphs), "label": label, "limit": int(limit)},
+        )
 
     async def neighbors_union(
         self, node_id: str, graphs: builtins.list[str]
@@ -7768,17 +7766,15 @@ class ServerRegistryClient:
             if resources
             else ""
         )
-        result = (
-            await _gen.cluster.send_register_server(
-                self._client,
-                {
-                    "name": name,
-                    "url": url,
-                    "resources_json": resources_json,
-                    "ttl_secs": ttl_secs,
-                },
-            )
-        ).payload
+        result = await _gen.cluster.send_register_server(
+            self._client,
+            {
+                "name": name,
+                "url": url,
+                "resources_json": resources_json,
+                "ttl_secs": ttl_secs,
+            },
+        )
         return bool(result)
 
 
@@ -12081,25 +12077,23 @@ class RdfClient:
         self,
         turtle: str | None = None,
         ntriples: str | None = None,
-    ) -> dict[str, int]:
+    ) -> int:
         """Physically RETRACT Turtle OR N-Triples from the connection's graph
         (CONCEPT:EG-KG.query.named-graph-support).
 
         The inverse of :meth:`add_triples`: parses the document and surgically removes
         each triple (a literal triple drops the property cell; a resource triple removes
-        the one matching typed edge). Durable. Returns a count dict. The retract op the
-        ontology UNLOAD path + SPARQL ``DELETE DATA`` build on. RDF support is included
-        in the mandatory main build.
+        the one matching typed edge). Durable. Returns the removed triple count. This
+        retract operation backs ontology UNLOAD and SPARQL ``DELETE DATA``. RDF support
+        is included in the mandatory main build.
         """
         if (turtle is None) == (ntriples is None):
             raise ValueError(
                 "remove_triples: provide exactly one of `turtle` or `ntriples`"
             )
-        return (
-            await _gen.graph.send_remove_triples(
-                self._client, {"turtle": turtle or "", "ntriples": ntriples or ""}
-            )
-        ).payload
+        return await _gen.graph.send_remove_triples(
+            self._client, {"turtle": turtle or "", "ntriples": ntriples or ""}
+        )
 
     async def drop_named_graph(self, graph: str) -> str:
         """DROP a named RDF graph (CONCEPT:EG-KG.query.named-graph-support): physically

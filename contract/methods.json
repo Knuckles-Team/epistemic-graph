@@ -38,7 +38,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CreateGraph"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/CreateGraph",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -77,7 +85,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DeleteGraph"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/DeleteGraph",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -108,7 +124,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ListGraphs"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/ListGraphs",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -146,7 +170,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Reshard"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/Reshard",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -315,7 +347,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CatalogList"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/CatalogList",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -346,7 +386,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RebalancePlan"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/RebalancePlan",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -384,7 +432,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RebalanceExecute"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/RebalanceExecute",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -415,7 +471,15 @@
         "schema": "contract/schemas/method.request.json#/methods/PlacementRoute"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/PlacementRoute",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -538,7 +602,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ClusterMembers"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/ClusterMembers",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -577,7 +649,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RegisterServer"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/RegisterServer",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -615,7 +695,23 @@
         "schema": "contract/schemas/method.request.json#/methods/PlacementAdmin"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "abort_move": {
+            "dynamic": null,
+            "encoding": "Bool"
+          },
+          "assign": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "move": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/PlacementAdmin",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -685,7 +781,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Health"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/Health",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -890,7 +994,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CreateMatView"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/CreateMatView",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -919,7 +1031,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetMatView"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/GetMatView",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -955,7 +1075,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RefreshMatView"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/RefreshMatView",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -993,7 +1121,15 @@
         "schema": "contract/schemas/method.request.json#/methods/PlanMatViewDefine"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/PlanMatViewDefine",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1024,7 +1160,15 @@
         "schema": "contract/schemas/method.request.json#/methods/PlanMatViewGet"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "query-rows",
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/PlanMatViewGet",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1062,7 +1206,15 @@
         "schema": "contract/schemas/method.request.json#/methods/PlanMatViewRefresh"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/PlanMatViewRefresh",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1100,7 +1252,15 @@
         "schema": "contract/schemas/method.request.json#/methods/PlanMatViewDrop"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/PlanMatViewDrop",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1131,7 +1291,15 @@
         "schema": "contract/schemas/method.request.json#/methods/TopologicalSort"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/TopologicalSort",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1162,7 +1330,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FindCycle"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FindCycle",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1193,7 +1369,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetShortestPath"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/GetShortestPath",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1224,7 +1408,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetBlastRadius"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/GetBlastRadius",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1294,7 +1486,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DegreeCentralityAll"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DegreeCentralityAll",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1325,7 +1525,15 @@
         "schema": "contract/schemas/method.request.json#/methods/BetweennessCentrality"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/BetweennessCentrality",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1356,7 +1564,15 @@
         "schema": "contract/schemas/method.request.json#/methods/PageRank"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/PageRank",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1387,7 +1603,15 @@
         "schema": "contract/schemas/method.request.json#/methods/PersonalizedPageRank"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/PersonalizedPageRank",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1418,7 +1642,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ConnectedComponents"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/ConnectedComponents",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1449,7 +1681,15 @@
         "schema": "contract/schemas/method.request.json#/methods/StronglyConnectedComponents"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/StronglyConnectedComponents",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1480,7 +1720,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MinimumSpanningTree"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MinimumSpanningTree",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1511,7 +1759,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CommunityDetection"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/CommunityDetection",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1542,7 +1798,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CommunityDetectEphemeral"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/CommunityDetectEphemeral",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1573,7 +1837,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GraphColoring"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/GraphColoring",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1604,7 +1876,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ComputeSimilarityEdges"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/ComputeSimilarityEdges",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1635,7 +1915,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ResolveCandidates"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/ResolveCandidates",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1666,7 +1954,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ClusterHierarchyRefresh"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/ClusterHierarchyRefresh",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1697,7 +1993,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ClusterHierarchyClusters"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/ClusterHierarchyClusters",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1728,7 +2032,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ClusterHierarchyExpand"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/ClusterHierarchyExpand",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1759,7 +2071,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Vf2SubgraphMatch"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/Vf2SubgraphMatch",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1790,7 +2110,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MatchOntologyTerms"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MatchOntologyTerms",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1821,7 +2149,15 @@
         "schema": "contract/schemas/method.request.json#/methods/BatchL2Normalize"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/BatchL2Normalize",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1852,7 +2188,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceOptimizePortfolio"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceOptimizePortfolio",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1883,7 +2227,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceRiskParity"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceRiskParity",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1914,7 +2266,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceBlackLitterman"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceBlackLitterman",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1945,7 +2305,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceEfficientFrontier"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceEfficientFrontier",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -1976,7 +2344,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsLinearRegression"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsLinearRegression",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2007,7 +2383,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsKMeans"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsKMeans",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2038,7 +2422,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsPca"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsPca",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2069,7 +2461,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsComputeStats"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsComputeStats",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2100,7 +2500,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsTrainTestSplit"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsTrainTestSplit",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2131,7 +2539,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsFitEstimator"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsFitEstimator",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2162,7 +2578,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsPredictEstimator"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsPredictEstimator",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2193,7 +2617,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsSoftmax"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsSoftmax",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2224,7 +2656,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsLogSoftmax"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsLogSoftmax",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2255,7 +2695,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsCrossEntropy"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsCrossEntropy",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2286,7 +2734,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsDpoLoss"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsDpoLoss",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2317,7 +2773,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsGrpoSurrogate"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsGrpoSurrogate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2387,7 +2851,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsAdamStep"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsAdamStep",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2418,7 +2890,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DsSgdStep"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DsSgdStep",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2566,7 +3046,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceDrawdownSeries"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceDrawdownSeries",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2636,7 +3124,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceRiskMetrics"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceRiskMetrics",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2706,7 +3202,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceStressTest"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceStressTest",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2737,7 +3241,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceDetectRegimes"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceDetectRegimes",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2768,7 +3280,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceRollingZscore"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceRollingZscore",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2799,7 +3319,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceEwma"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceEwma",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2830,7 +3358,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceSignalDecay"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceSignalDecay",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2861,7 +3397,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceCombineAlphas"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceCombineAlphas",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2892,7 +3436,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceCrossSectionalRank"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceCrossSectionalRank",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2923,7 +3475,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceMomentum"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceMomentum",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -2954,7 +3514,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceMeanReversion"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceMeanReversion",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3024,7 +3592,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceTwap"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceTwap",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3055,7 +3631,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceVwap"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceVwap",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3125,7 +3709,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinancePairsTrading"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinancePairsTrading",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3156,7 +3748,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceMatchOrders"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceMatchOrders",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3187,7 +3787,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceAvellanedaStoikov"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceAvellanedaStoikov",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3218,7 +3826,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceGltQuotes"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceGltQuotes",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3249,7 +3865,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceLogitQuotes"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceLogitQuotes",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3397,7 +4021,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceOfiSeries"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceOfiSeries",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3428,7 +4060,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceMicropriceSeries"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceMicropriceSeries",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3498,7 +4138,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceHawkesMle"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceHawkesMle",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3607,7 +4255,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceSurveillanceRisk"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceSurveillanceRisk",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3716,7 +4372,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinancePosteriorCredibleInterval"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinancePosteriorCredibleInterval",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3747,7 +4411,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinancePurgedCpcv"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinancePurgedCpcv",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3856,7 +4528,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceDieboldMariano"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceDieboldMariano",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3887,7 +4567,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceForensicReport"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceForensicReport",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3918,7 +4606,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceKalmanFilter1d"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceKalmanFilter1d",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3949,7 +4645,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceKalmanBeta"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceKalmanBeta",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -3980,7 +4684,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceKalmanVolatility"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceKalmanVolatility",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4011,7 +4723,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceAdfTest"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceAdfTest",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4042,7 +4762,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceOuCalibrate"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceOuCalibrate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4073,7 +4801,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceOuOptimalThresholds"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceOuOptimalThresholds",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4104,7 +4840,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceMarkovTransitionMatrix"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceMarkovTransitionMatrix",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4135,7 +4879,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceOrderBookImbalance"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceOrderBookImbalance",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4166,7 +4918,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceQueueImbalance"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceQueueImbalance",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4197,7 +4957,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceRealizedVolTick"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceRealizedVolTick",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4228,7 +4996,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceSpreadReversion"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceSpreadReversion",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4337,7 +5113,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceAlphaCombinationEngine"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceAlphaCombinationEngine",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4407,7 +5191,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceConvergenceGate"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceConvergenceGate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4516,7 +5308,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceSabrSmile"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceSabrSmile",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4547,7 +5347,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinanceSabrCalibrate"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceSabrCalibrate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4576,7 +5384,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RunUdf"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "caller-bytes",
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/RunUdf",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -4605,7 +5421,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DistributedCompute"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/DistributedCompute",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -4644,7 +5468,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineAssociate"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineAssociate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4683,7 +5515,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineCluster"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineCluster",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4722,7 +5562,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineAnomaly"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineAnomaly",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4753,7 +5601,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineClassifyFit"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineClassifyFit",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4792,7 +5648,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineClassifyPredict"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineClassifyPredict",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4831,7 +5695,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineReduce"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineReduce",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4870,7 +5742,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GraphLearnFit"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/GraphLearnFit",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4909,7 +5789,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GraphLearnPredict"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/GraphLearnPredict",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4948,7 +5836,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MiningPipelineTrain"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MiningPipelineTrain",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -4987,7 +5883,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MiningPipelineServe"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MiningPipelineServe",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5026,7 +5930,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MiningPipelinePredict"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MiningPipelinePredict",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5057,7 +5969,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MiningPipelineEvaluate"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MiningPipelineEvaluate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5088,7 +6008,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MiningPipelineCompare"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MiningPipelineCompare",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5127,7 +6055,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineSequence"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineSequence",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5166,7 +6102,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineForecast"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineForecast",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5205,7 +6149,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineText"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineText",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5244,7 +6196,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineSubgraph"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineSubgraph",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5283,7 +6243,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineEntityResolve"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineEntityResolve",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5322,7 +6290,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineCausalImpact"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineCausalImpact",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5361,7 +6337,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineProcess"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineProcess",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5400,7 +6384,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineRootCause"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineRootCause",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5439,7 +6431,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineRiskPropagation"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineRiskPropagation",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5478,7 +6478,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineOntologyGap"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineOntologyGap",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5517,7 +6525,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineRetrievalQuality"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineRetrievalQuality",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5556,7 +6572,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MineCommunity"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/MineCommunity",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5595,7 +6619,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ClaimNext"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ClaimNext",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5634,7 +6666,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ClaimWorkItem"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ClaimWorkItem",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5673,7 +6713,15 @@
         "schema": "contract/schemas/method.request.json#/methods/AcquireCapacity"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/AcquireCapacity",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5712,7 +6760,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RenewCapacity"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/RenewCapacity",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5751,7 +6807,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ReleaseCapacity"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ReleaseCapacity",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5790,7 +6854,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ReclaimExpiredCapacity"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ReclaimExpiredCapacity",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5821,7 +6893,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ReconcileCapacity"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ReconcileCapacity",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5852,7 +6932,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CapacityStatus"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/CapacityStatus",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5891,7 +6979,15 @@
         "schema": "contract/schemas/method.request.json#/methods/UpdateCapacityCell"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/UpdateCapacityCell",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -5977,7 +7073,15 @@
         "schema": "contract/schemas/method.request.json#/methods/SubmitWorkItem"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/SubmitWorkItem",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6016,7 +7120,15 @@
         "schema": "contract/schemas/method.request.json#/methods/SubmitWorkItems"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/SubmitWorkItems",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6055,7 +7167,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MintWorkItemClaimCapability"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/MintWorkItemClaimCapability",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6090,7 +7210,15 @@
         "schema": "contract/schemas/method.request.json#/methods/VerifyWorkItemClaimCapability"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/VerifyWorkItemClaimCapability",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6129,7 +7257,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RenewWorkItemLease"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/RenewWorkItemLease",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6168,7 +7304,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CommitWorkItemResult"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/CommitWorkItemResult",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6207,7 +7351,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CancelWorkItem"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/CancelWorkItem",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6246,7 +7398,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DeferWorkItem"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/DeferWorkItem",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6285,7 +7445,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CasWorkItemMetadata"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/CasWorkItemMetadata",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6324,7 +7492,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ReserveWorkItemResources"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ReserveWorkItemResources",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6363,7 +7539,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ReleaseWorkItemResources"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ReleaseWorkItemResources",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6402,7 +7586,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ReclaimWorkItemResources"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ReclaimWorkItemResources",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6433,7 +7625,15 @@
         "schema": "contract/schemas/method.request.json#/methods/QueryWorkItemReservation"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/QueryWorkItemReservation",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6464,7 +7664,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ResourceReservationStatus"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ResourceReservationStatus",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6503,7 +7711,15 @@
         "schema": "contract/schemas/method.request.json#/methods/UpdateResourceHost"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/UpdateResourceHost",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6542,7 +7758,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ReserveDevelopmentLane"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ReserveDevelopmentLane",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6581,7 +7805,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RenewDevelopmentLane"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/RenewDevelopmentLane",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6620,7 +7852,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ObserveDevelopmentLane"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ObserveDevelopmentLane",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6659,7 +7899,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FinishDevelopmentLane"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/FinishDevelopmentLane",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6698,7 +7946,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CleanupDevelopmentLane"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/CleanupDevelopmentLane",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6729,7 +7985,15 @@
         "schema": "contract/schemas/method.request.json#/methods/QueryDevelopmentLane"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/QueryDevelopmentLane",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6760,7 +8024,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DevelopmentLaneStatus"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/DevelopmentLaneStatus",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6799,7 +8071,15 @@
         "schema": "contract/schemas/method.request.json#/methods/UpdateDevelopmentLaneQuota"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/UpdateDevelopmentLaneQuota",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6830,7 +8110,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ResourceStatsPage"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ResourceStatsPage",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -6868,7 +8156,55 @@
         "schema": "contract/schemas/method.request.json#/methods/AnalyticsJob"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "Cancel": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "Resume": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "Status": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "Submit": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "WorkerCancel": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "WorkerCheckpoint": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "WorkerClaim": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "WorkerFail": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "WorkerPublish": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "WorkerRenew": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "WorkerStage": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/AnalyticsJob",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -6906,7 +8242,31 @@
         "schema": "contract/schemas/method.request.json#/methods/Statechart"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "Define": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "GetState": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "Instantiate": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "List": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "SendEvent": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/Statechart",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -6945,7 +8305,15 @@
         "schema": "contract/schemas/method.request.json#/methods/AddNode"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/AddNode",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7031,7 +8399,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RemoveNode"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/RemoveNode",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7179,7 +8555,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetNodeProperties"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "caller-properties",
+            "encoding": "RawOrNull"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetNodeProperties",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7547,7 +8931,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Maintain"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/Maintain",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7662,7 +9054,15 @@
         "schema": "contract/schemas/method.request.json#/methods/AddSceneObject"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/AddSceneObject",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -7699,7 +9099,15 @@
         "schema": "contract/schemas/method.request.json#/methods/SetPose"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Bool"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/SetPose",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -7773,7 +9181,15 @@
         "schema": "contract/schemas/method.request.json#/methods/WorldTransform"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/WorldTransform",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -7896,7 +9312,15 @@
         "schema": "contract/schemas/method.request.json#/methods/AppendStep"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/AppendStep",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7966,7 +9390,15 @@
         "schema": "contract/schemas/method.request.json#/methods/BestTrajectory"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/BestTrajectory",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -7997,7 +9429,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetNodePropertiesBatch"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetNodePropertiesBatch",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8028,7 +9468,15 @@
         "schema": "contract/schemas/method.request.json#/methods/HasNodesBatch"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/HasNodesBatch",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8192,7 +9640,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RemoveEdge"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/RemoveEdge",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8278,7 +9734,15 @@
         "schema": "contract/schemas/method.request.json#/methods/SupersedeEdge"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/SupersedeEdge",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8387,7 +9851,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetEdgesPage"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetEdgesPage",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8465,7 +9937,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetEdgeProperties"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "caller-properties",
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetEdgeProperties",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8496,7 +9976,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetEdgePropertiesBatch"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetEdgePropertiesBatch",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8761,7 +10249,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetNeighborsBatch"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetNeighborsBatch",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8792,7 +10288,15 @@
         "schema": "contract/schemas/method.request.json#/methods/UnionGetNodeProperties"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "caller-properties",
+            "encoding": "RawOrNull"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/UnionGetNodeProperties",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8823,7 +10327,15 @@
         "schema": "contract/schemas/method.request.json#/methods/UnionGetNodesByLabel"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "NodeList"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/UnionGetNodesByLabel",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8901,7 +10413,15 @@
         "schema": "contract/schemas/method.request.json#/methods/PruneByLifecycle"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/PruneByLifecycle",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -8932,7 +10452,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Metrics"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/Metrics",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9018,7 +10546,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DecaySweep"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/DecaySweep",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9096,7 +10632,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetSubgraph"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/GetSubgraph",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9127,7 +10671,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Fork"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "caller-properties",
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/Fork",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9158,7 +10710,15 @@
         "schema": "contract/schemas/method.request.json#/methods/DiffAgainst"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/DiffAgainst",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9195,7 +10755,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CompactNodesByType"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/CompactNodesByType",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -9281,7 +10849,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ApplyMutation"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/ApplyMutation",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9320,7 +10896,15 @@
         "schema": "contract/schemas/method.request.json#/methods/AddTriples"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/AddTriples",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9359,7 +10943,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RemoveTriples"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Count"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.graph.json#/methods/RemoveTriples",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9445,7 +11037,59 @@
         "schema": "contract/schemas/method.request.json#/methods/ServedModality"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "authority": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "capabilities": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "collect_tombstones": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "delete": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "events": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "ingest": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "ingest_stream": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "move_to_cold": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "native_query": {
+            "dynamic": "requested-modality",
+            "encoding": "Raw"
+          },
+          "query": {
+            "dynamic": "requested-modality",
+            "encoding": "Raw"
+          },
+          "restore": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "stats": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/ServedModality",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -9476,7 +11120,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ParseFile"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/ParseFile",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9507,7 +11159,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ParseFiles"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/ParseFiles",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9538,7 +11198,15 @@
         "schema": "contract/schemas/method.request.json#/methods/IndexRepository"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/IndexRepository",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9569,7 +11237,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ObserveScreen"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/ObserveScreen",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9653,7 +11329,95 @@
         "schema": "contract/schemas/method.request.json#/methods/SemanticIndex"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "admit_binding": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "admit_source_page": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "admit_source_reconcile": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "admit_source_record": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "admit_source_replacement": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "binding": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "claim_stage_leases": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "complete_generation_stage": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "complete_sql_source_stage": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "complete_stage": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "drop_binding": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "list_bindings": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "live_generation": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "refresh_binding": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "release_stage_lease": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "replay_completed_sql_source_stage": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "sql_source_manifest": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "stage_status": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "subscribe_stage_consumer": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "transition_binding": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "validate_stage_lease": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/SemanticIndex",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -9684,7 +11448,15 @@
         "schema": "contract/schemas/method.request.json#/methods/SemanticSearch"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/SemanticSearch",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9715,7 +11487,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Discover"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/Discover",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -9746,7 +11526,23 @@
         "schema": "contract/schemas/method.request.json#/methods/Quantum"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "expectation": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "optimize_qaoa": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "rank": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/Quantum",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -9777,7 +11573,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Asr"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "TranscribeFile": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/Asr",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -9808,7 +11612,23 @@
         "schema": "contract/schemas/method.request.json#/methods/Viz"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "CapabilityMatrix": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "Render": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "RenderProvenance": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/Viz",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -10160,7 +11980,15 @@
         "schema": "contract/schemas/method.request.json#/methods/BrokerConsume"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/BrokerConsume",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10416,7 +12244,15 @@
         "schema": "contract/schemas/method.request.json#/methods/StreamRead"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/StreamRead",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10537,7 +12373,15 @@
         "schema": "contract/schemas/method.request.json#/methods/StreamCommittedOffset"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/StreamCommittedOffset",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10574,7 +12418,15 @@
         "schema": "contract/schemas/method.request.json#/methods/PublishConfirmed"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/PublishConfirmed",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10611,7 +12463,15 @@
         "schema": "contract/schemas/method.request.json#/methods/PublishIdempotent"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/PublishIdempotent",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10784,7 +12644,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CreateChannel"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/CreateChannel",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10822,7 +12690,15 @@
         "schema": "contract/schemas/method.request.json#/methods/JoinChannel"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/JoinChannel",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10860,7 +12736,15 @@
         "schema": "contract/schemas/method.request.json#/methods/LeaveChannel"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/LeaveChannel",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10898,7 +12782,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CloseChannel"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/CloseChannel",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10936,7 +12828,15 @@
         "schema": "contract/schemas/method.request.json#/methods/SendMessage"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/SendMessage",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10967,7 +12867,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetChannelMessages"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/GetChannelMessages",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -10998,7 +12906,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ListChannels"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/ListChannels",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11068,7 +12984,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CdcRead"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/CdcRead",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11145,7 +13069,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ReadContinuousQuery"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/ReadContinuousQuery",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11222,7 +13154,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Watch"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/Watch",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11345,7 +13285,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ListTriggers"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/ListTriggers",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11376,7 +13324,15 @@
         "schema": "contract/schemas/method.request.json#/methods/FiredTriggers"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/FiredTriggers",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11453,7 +13409,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CepPoll"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.messaging.json#/methods/CepPoll",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11530,7 +13494,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetContextView"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/GetContextView",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11561,7 +13533,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetChangeEnvelope"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/GetChangeEnvelope",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11592,7 +13572,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetContentVersion"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/GetContentVersion",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11623,7 +13611,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetChangeCursor"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/GetChangeCursor",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11662,7 +13658,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Sql"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "query-rows",
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/Sql",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11701,7 +13705,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CypherQuery"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "query-rows",
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/CypherQuery",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11740,7 +13752,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GraphQl"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "query-rows",
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/GraphQl",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11771,7 +13791,15 @@
         "schema": "contract/schemas/method.request.json#/methods/KnowledgeStream"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/KnowledgeStream",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11802,7 +13830,15 @@
         "schema": "contract/schemas/method.request.json#/methods/UnifiedQuery"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/UnifiedQuery",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11833,7 +13869,15 @@
         "schema": "contract/schemas/method.request.json#/methods/UnifiedQueryText"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/UnifiedQueryText",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11864,7 +13908,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ExplainPlan"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/ExplainPlan",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11895,7 +13947,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ExplainProvenance"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/ExplainProvenance",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11926,7 +13986,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ExplainProvenanceByIds"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/ExplainProvenanceByIds",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11957,7 +14025,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ExplainPolicy"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/ExplainPolicy",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -11988,7 +14064,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ExplainBelief"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/ExplainBelief",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12019,7 +14103,15 @@
         "schema": "contract/schemas/method.request.json#/methods/EpistemicStatus"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/EpistemicStatus",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12050,7 +14142,15 @@
         "schema": "contract/schemas/method.request.json#/methods/WhatChanged"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/WhatChanged",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12087,7 +14187,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RecomputeMaterialization"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/RecomputeMaterialization",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12118,7 +14226,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MaterializationStatus"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/MaterializationStatus",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12149,7 +14265,15 @@
         "schema": "contract/schemas/method.request.json#/methods/StaleMaterializations"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/StaleMaterializations",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12180,7 +14304,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ResolveConflict"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/ResolveConflict",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12211,7 +14343,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ExplainEvidence"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/ExplainEvidence",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12242,7 +14382,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CausalEstimate"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/CausalEstimate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12273,7 +14421,15 @@
         "schema": "contract/schemas/method.request.json#/methods/CausalCounterfactual"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/CausalCounterfactual",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12304,7 +14460,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RankByProvenance"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/RankByProvenance",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12335,7 +14499,15 @@
         "schema": "contract/schemas/method.request.json#/methods/NlQuery"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/NlQuery",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12366,7 +14538,15 @@
         "schema": "contract/schemas/method.request.json#/methods/TxnUnifiedQuery"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/TxnUnifiedQuery",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12397,7 +14577,15 @@
         "schema": "contract/schemas/method.request.json#/methods/TxnUnifiedQueryText"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/TxnUnifiedQueryText",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12436,7 +14624,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RunDatalogReasoning"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/RunDatalogReasoning",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12467,7 +14663,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetRdf"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/GetRdf",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12498,7 +14702,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Sparql"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/Sparql",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12529,7 +14741,15 @@
         "schema": "contract/schemas/method.request.json#/methods/SparqlVirtual"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/SparqlVirtual",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12560,7 +14780,15 @@
         "schema": "contract/schemas/method.request.json#/methods/OwlReason"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/OwlReason",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12591,7 +14819,15 @@
         "schema": "contract/schemas/method.request.json#/methods/OwlReasonDistributed"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/OwlReasonDistributed",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12622,7 +14858,15 @@
         "schema": "contract/schemas/method.request.json#/methods/OwlExplain"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/OwlExplain",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12651,7 +14895,15 @@
         "schema": "contract/schemas/method.request.json#/methods/RunRules"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/RunRules",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -12682,7 +14934,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ShaclValidate"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/ShaclValidate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12758,7 +15018,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ShexValidate"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/ShexValidate",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -12789,7 +15057,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetLedger"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/GetLedger",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12820,7 +15096,15 @@
         "schema": "contract/schemas/method.request.json#/methods/AuditVerify"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/AuditVerify",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12851,7 +15135,15 @@
         "schema": "contract/schemas/method.request.json#/methods/AuditProveInclusion"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/AuditProveInclusion",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12935,7 +15227,31 @@
         "schema": "contract/schemas/method.request.json#/methods/RbacAdmin"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "AddGrant": {
+            "dynamic": null,
+            "encoding": "String"
+          },
+          "AddRole": {
+            "dynamic": null,
+            "encoding": "String"
+          },
+          "List": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "RemoveGrant": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "RemoveRole": {
+            "dynamic": null,
+            "encoding": "String"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/RbacAdmin",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
@@ -12966,7 +15282,15 @@
         "schema": "contract/schemas/method.request.json#/methods/GetIdentity"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/GetIdentity",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -12997,7 +15321,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ToMsgpack"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/ToMsgpack",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13169,7 +15501,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Backup"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/Backup",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13207,7 +15547,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Restore"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/Restore",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13539,7 +15887,15 @@
         "schema": "contract/schemas/method.request.json#/methods/TsRange"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/TsRange",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13570,7 +15926,15 @@
         "schema": "contract/schemas/method.request.json#/methods/TsAsofJoin"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/TsAsofJoin",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13601,7 +15965,15 @@
         "schema": "contract/schemas/method.request.json#/methods/TsWindow"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/TsWindow",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13632,7 +16004,15 @@
         "schema": "contract/schemas/method.request.json#/methods/TsGapFill"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/TsGapFill",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13753,7 +16133,15 @@
         "schema": "contract/schemas/method.request.json#/methods/TsListSeries"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/TsListSeries",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13919,7 +16307,15 @@
         "schema": "contract/schemas/method.request.json#/methods/BlobFetchBegin"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/BlobFetchBegin",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -13950,7 +16346,15 @@
         "schema": "contract/schemas/method.request.json#/methods/BlobChunkGet"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "caller-bytes",
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/BlobChunkGet",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14116,7 +16520,15 @@
         "schema": "contract/schemas/method.request.json#/methods/BlobGc"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/BlobGc",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14145,7 +16557,15 @@
         "schema": "contract/schemas/method.request.json#/methods/KvGet"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "caller-bytes",
+            "encoding": "RawOrNull"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/KvGet",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -14260,7 +16680,15 @@
         "schema": "contract/schemas/method.request.json#/methods/KvScan"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": "caller-bytes",
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/KvScan",
+        "selected_by": null
       },
       "stability": "internal"
     },
@@ -14341,7 +16769,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ImportSqliteFile"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/ImportSqliteFile",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14372,7 +16808,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ExportSqliteFile"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/ExportSqliteFile",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14411,7 +16855,15 @@
         "schema": "contract/schemas/method.request.json#/methods/BatchUpdate"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/BatchUpdate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14449,7 +16901,15 @@
         "schema": "contract/schemas/method.request.json#/methods/MultiGraphBatchUpdate"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/MultiGraphBatchUpdate",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14488,7 +16948,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ApplyChangeEnvelope"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/ApplyChangeEnvelope",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14527,7 +16995,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ApplyChangeEnvelopes"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/ApplyChangeEnvelopes",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -14566,7 +17042,15 @@
         "schema": "contract/schemas/method.request.json#/methods/ApplyMultisigMutation"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/ApplyMultisigMutation",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15156,7 +17640,15 @@
         "schema": "contract/schemas/method.request.json#/methods/TxnMaterializeBelief"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/TxnMaterializeBelief",
+        "selected_by": null
       },
       "stability": "stable"
     },
@@ -15194,7 +17686,15 @@
         "schema": "contract/schemas/method.request.json#/methods/Commit"
       },
       "result_schema": {
-        "kind": "unclassified"
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/Commit",
+        "selected_by": null
       },
       "stability": "stable"
     },

@@ -1411,6 +1411,81 @@
       },
       "type": "object"
     },
+    "BackupReceipt": {
+      "description": "Result of `Method::Backup`: aggregate counts of the published bundle. It carries\nno local path and no raw label.",
+      "properties": {
+        "admin_batches": {
+          "description": "Admin coordinator batches carried.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "bundled_stores": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Non-shard durable stores copied into the bundle, as `file name -> rows copied`.",
+          "type": "object"
+        },
+        "encrypted_recovery_plans": {
+          "description": "Encrypted staged recovery plans carried.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph_scopes": {
+          "description": "Distinct graph scopes the bundle carries.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "prepared_parents": {
+          "description": "Admin coordinator parents still prepared.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shard_counts": {
+          "description": "Per-shard recovery census, in shard order.",
+          "items": {
+            "$ref": "#/$defs/RecoveryStoreCounts"
+          },
+          "type": "array"
+        },
+        "shards": {
+          "description": "Shard files written into the bundle.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "xshard_decisions": {
+          "description": "Retained cross-shard coordinator decisions carried.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "xshard_prepares": {
+          "description": "In-doubt cross-shard participant prepare records carried.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shards",
+        "graph_scopes",
+        "shard_counts",
+        "xshard_prepares",
+        "xshard_decisions",
+        "bundled_stores",
+        "admin_batches",
+        "prepared_parents",
+        "encrypted_recovery_plans"
+      ],
+      "type": "object"
+    },
     "ComponentDependency": {
       "additionalProperties": false,
       "description": "One pinned requirement of a component.\n\nThe `kind` is carried alongside the id so a dependency can be type-checked\nwithout resolving it: a [`AgentComponentKind::Tool`] whose input schema\npoints at a [`AgentComponentKind::ModelProfile`] is rejected structurally,\nnot at run time. The `definition_digest` pins the exact revision, so a\ndependency cannot silently change under a component that was reviewed\nagainst it.",
@@ -1507,6 +1582,267 @@
           "type": "string"
         }
       ]
+    },
+    "RecoveryStoreCounts": {
+      "additionalProperties": false,
+      "description": "Integrity census of one physical recovery owner file: the row count of every\nrecovery-relevant table, as the storage kernel validated it.",
+      "properties": {
+        "aborted": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "batches": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "committed": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "encrypted_private_payloads": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fences": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maintenance": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maintenance_claims": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outbox": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "prepared": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "replay_nonces": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "replay_operations": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "scope_bindings": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "store_roots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "versions": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "store_roots",
+        "scope_bindings",
+        "batches",
+        "prepared",
+        "committed",
+        "aborted",
+        "maintenance_claims",
+        "versions",
+        "fences",
+        "outbox",
+        "encrypted_private_payloads",
+        "replay_nonces",
+        "replay_operations",
+        "maintenance"
+      ],
+      "type": "object"
+    },
+    "RestoreReceipt": {
+      "description": "Result of `Method::Restore`: the opaque stage reference an operator swaps in, plus\nthe import totals. Portable: no username or filesystem reference.",
+      "properties": {
+        "admin_batches": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "audit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "auxiliary": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edges": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "encrypted_recovery_plans": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "global": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graphs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ledger": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "prepared_parents": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "restored_shards": {
+          "description": "Shard count the persist dir was rebuilt at.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "semantic": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stage_ref": {
+          "description": "Deterministic opaque token naming the staged restore.",
+          "type": "string"
+        },
+        "xshard_decisions": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "xshard_prepares": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stage_ref",
+        "restored_shards",
+        "graphs",
+        "nodes",
+        "edges",
+        "ledger",
+        "semantic",
+        "audit",
+        "auxiliary",
+        "global",
+        "xshard_prepares",
+        "xshard_decisions",
+        "admin_batches",
+        "prepared_parents",
+        "encrypted_recovery_plans"
+      ],
+      "type": "object"
+    },
+    "SqliteExportDestination": {
+      "description": "Where an exported table set was published: always the configured private transfer\nroot, never a host path.",
+      "enum": [
+        "transfer-root"
+      ],
+      "type": "string"
+    },
+    "SqliteExportReport": {
+      "description": "Result of `Method::ExportSqliteFile`.",
+      "properties": {
+        "destination": {
+          "$ref": "#/$defs/SqliteExportDestination"
+        },
+        "exported_tables": {
+          "items": {
+            "$ref": "#/$defs/SqliteTableRows"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "destination",
+        "exported_tables"
+      ],
+      "type": "object"
+    },
+    "SqliteImportReport": {
+      "description": "Result of `Method::ImportSqliteFile`, also the durable batch result a replay\nreturns.",
+      "properties": {
+        "imported_tables": {
+          "items": {
+            "$ref": "#/$defs/SqliteTableRows"
+          },
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/SqliteImportSource"
+        }
+      },
+      "required": [
+        "source",
+        "imported_tables"
+      ],
+      "type": "object"
+    },
+    "SqliteImportSource": {
+      "description": "Where an imported table set came from. The only source is a SQLite `.db` file.",
+      "enum": [
+        "sqlite"
+      ],
+      "type": "string"
+    },
+    "SqliteTableRows": {
+      "description": "Rows transferred for one SQLite user table.",
+      "properties": {
+        "rows": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "table": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "rows"
+      ],
+      "type": "object"
     },
     "TemplateInstanceRef": {
       "additionalProperties": false,
@@ -1858,6 +2194,18 @@
       },
       "selected_by": null
     },
+    "Backup": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/BackupReceipt"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "BlobBegin": {
       "bodies": {
         "result": {
@@ -1868,6 +2216,19 @@
             "minimum": 0,
             "type": "integer"
           }
+        }
+      },
+      "selected_by": null
+    },
+    "BlobChunkGet": {
+      "bodies": {
+        "result": {
+          "dynamic": {
+            "reason": "caller-bytes",
+            "summary": "opaque bytes the caller wrote or a caller-supplied program produced"
+          },
+          "encoding": "Raw",
+          "schema": true
         }
       },
       "selected_by": null
@@ -1898,6 +2259,32 @@
       },
       "selected_by": null
     },
+    "BlobFetchBegin": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "BlobFetchEnd": {
       "bodies": {
         "result": {
@@ -1905,6 +2292,32 @@
           "encoding": "Bool",
           "schema": {
             "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BlobGc": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            ],
+            "type": "array"
           }
         }
       },
@@ -1950,6 +2363,18 @@
       },
       "selected_by": null
     },
+    "ExportSqliteFile": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/SqliteExportReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "FromMsgpack": {
       "bodies": {
         "result": {
@@ -1957,6 +2382,18 @@
           "encoding": "String",
           "schema": {
             "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ImportSqliteFile": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/SqliteImportReport"
           }
         }
       },
@@ -1986,6 +2423,19 @@
       },
       "selected_by": null
     },
+    "KvGet": {
+      "bodies": {
+        "result": {
+          "dynamic": {
+            "reason": "caller-bytes",
+            "summary": "opaque bytes the caller wrote or a caller-supplied program produced"
+          },
+          "encoding": "RawOrNull",
+          "schema": true
+        }
+      },
+      "selected_by": null
+    },
     "KvPut": {
       "bodies": {
         "result": {
@@ -1993,6 +2443,49 @@
           "encoding": "String",
           "schema": {
             "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "KvScan": {
+      "bodies": {
+        "result": {
+          "dynamic": {
+            "reason": "caller-bytes",
+            "summary": "opaque bytes the caller wrote or a caller-supplied program produced"
+          },
+          "encoding": "Raw",
+          "schema": true
+        }
+      },
+      "selected_by": null
+    },
+    "Restore": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/RestoreReceipt"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ToMsgpack": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
           }
         }
       },
@@ -2007,6 +2500,25 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TsAsofJoin": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "type": "array"
           }
         }
       },
@@ -2035,6 +2547,113 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TsGapFill": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TsListSeries": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TsRange": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TsWindow": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                },
+                {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
           }
         }
       },

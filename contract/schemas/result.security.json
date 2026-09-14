@@ -1,8 +1,457 @@
 {
   "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
-  "$defs": {},
+  "$defs": {
+    "AgentIdentity": {
+      "description": "Agent identity for ACL checks.",
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/AgentRole"
+        },
+        "roles": {
+          "description": "RBAC role names this agent holds (CONCEPT:EG-KG.compute.feature). Expanded transitively\nthrough the role hierarchy by the policy evaluator. The field is mandatory in\nevery current wire and durable identity image; an omitted authorization claim\nis rejected during deserialization instead of being synthesized as no roles.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "teams": {
+          "description": "Teams this agent belongs to.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "agent_id",
+        "role",
+        "teams",
+        "roles"
+      ],
+      "type": "object"
+    },
+    "AgentRole": {
+      "description": "Role of an agent in the system hierarchy.",
+      "oneOf": [
+        {
+          "const": "System",
+          "description": "System-level (can do anything).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Manager agent with subordinates.",
+          "properties": {
+            "Manager": {
+              "properties": {
+                "subordinates": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "subordinates"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Manager"
+          ],
+          "type": "object"
+        },
+        {
+          "const": "Agent",
+          "description": "Regular agent.",
+          "type": "string"
+        }
+      ]
+    },
+    "AuditReport": {
+      "description": "Outcome of walking a graph's tamper-evident hash-chained audit log\n(CONCEPT:EG-KG.sharding.row-level-security, `Method::AuditVerify`). `ok` is true when every entry's stored\nhash matches the recomputed chain hash AND the sequence is contiguous from 0;\n`first_broken_seq` carries the position of the first detected break.",
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "entries": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "first_broken_seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "graph": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "graph",
+        "ok",
+        "entries",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "Grant": {
+      "description": "A grant binding a role to an (`resource`, `action`, `effect`) triple\n(CONCEPT:EG-KG.compute.feature).",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/RbacAction"
+        },
+        "effect": {
+          "$ref": "#/$defs/GrantEffect"
+        },
+        "resource": {
+          "$ref": "#/$defs/ResourceSelector"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "resource",
+        "action",
+        "effect"
+      ],
+      "type": "object"
+    },
+    "GrantEffect": {
+      "description": "Whether a [`Grant`] permits or forbids the action (CONCEPT:EG-KG.compute.feature).",
+      "enum": [
+        "Allow",
+        "Deny"
+      ],
+      "type": "string"
+    },
+    "LedgerReadResult": {
+      "description": "Materialized result of a `Method::GetLedger` call (BUG A1, 2026-08-12: `GetLedger`\nreturned an empty list even after real mutations had committed). The prior wire\nshape was a bare `Vec<String>`, which made \"the ledger is genuinely empty\" and\n\"the ledger could not be read for this request's scope\" indistinguishable — both\nserialized to `[]`, so a caller (e.g. `agent_utilities.workflows.epistemic_sync`'s\n`flush_ledger_to_backend`, a real production sync path) could not tell \"nothing to\nsync\" from \"I silently read nothing\". Root cause: the terminal handler\nunconditionally reads through the row-level-security PROJECTED core (built by\n`GraphReadAuthority::project_core` / `build_projection`, which constructs its\ndetached copy via `add_node_no_ledger`/`add_edge_no_ledger` and therefore never\ncarries a ledger — see that function's own doc), even though `GetLedger` is\nauthorized by its own dedicated `ledger:read` RBAC action (`eg_capabilities`)\nenforced upstream in `dispatch.rs` before any handler runs at all — the row\nprojection was a redundant SECOND gate that, instead of narrowing visibility,\ndestroyed the data outright. Because `security` (and therefore\n`GraphReadAuthority::is_active()`) is compiled into the default `full` build,\nthis fired on every request in production, unconditionally.\n\n`populated: true` means `entries` reflects the graph's REAL, authoritative\nledger (however many entries — legitimately empty when nothing has mutated\nsince the last flush/clear: that is a genuine `[]`, not a lie). `populated:\nfalse` means the ledger could not be read for this request's scope; `entries`\nis always empty in that case and callers MUST NOT treat it as \"nothing to\nsync\". Any future call site that cannot certify it is reading the\nauthoritative (non-projected) core must answer `not_populated_for_scope()`\nexplicitly rather than silently returning a `populated: true` empty list —\nthat explicit branch is what stops this exact regression from shipping silent\na second time.",
+      "properties": {
+        "entries": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "populated": {
+          "type": "boolean"
+        },
+        "watermark": {
+          "description": "BUG A1 follow-up (2026-08-12): the mutation ledger is a purely\nIN-MEMORY, capped ring (100k entries, drop-oldest-half — see\n`GraphTxn::push_ledger` in `eg_core::graph`) — NOT a durable change\nlog. A cold-tenant idle\noffload/hibernate cycle, `MAX_RESIDENT_GRAPHS` eviction + lazy\nrehydrate, a process restart, or simply exceeding the cap can all\nempty or truncate `entries` while the underlying mutations remain\nfully durable in redb — a typed `populated: true` alone does not\nprove `entries` is COMPLETE. `watermark`\n(`GraphCore::ledger_watermark`) is the 0-based sequence of the\nOLDEST entry `entries` can vouch for: `0` on a graph that has never\ndropped anything (from THIS in-memory instance's point of view); a\ncaller that tracks watermark across reads can detect it advancing\n(or a previously-nonzero watermark resetting to a lower value after\nan eviction/restart) as proof that history was silently dropped,\nrather than inferring completeness from `entries` merely being\nnonzero.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "populated",
+        "entries",
+        "watermark"
+      ],
+      "type": "object"
+    },
+    "MerkleInclusionReport": {
+      "description": "Result of `Method::AuditProveInclusion` (provenance anchoring, CONCEPT:EG-KG.sharding.row-level-security): a\nMerkle inclusion proof for one node against a prior provenance anchor,\nALREADY VERIFIED server-side. `verified` is the tamper signal: `false`\nwhenever the node's CURRENT durable content does not re-hash to the leaf\nfolded into `anchored_root_sha256` at anchor time — including when the node\nwas altered by an otherwise-ordinary later write, not just raw byte-level\ntampering. `included == false` only means `node_id` was never part of that\nanchor's window (a different anchor, a non-provenance node, or a node created\nafter this anchor ran) — not itself evidence of tampering.",
+      "properties": {
+        "anchor_seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "anchored_root_sha256": {
+          "type": "string"
+        },
+        "computed_root_sha256": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "included": {
+          "type": "boolean"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "proof": {
+          "items": {
+            "$ref": "#/$defs/MerkleProofStep"
+          },
+          "type": "array"
+        },
+        "verified": {
+          "type": "boolean"
+        },
+        "window_size": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "graph",
+        "node_id",
+        "anchor_seq",
+        "window_size",
+        "included",
+        "verified",
+        "anchored_root_sha256",
+        "computed_root_sha256",
+        "proof",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "MerkleProofStep": {
+      "description": "One Merkle audit-path step, wire-encoded: a hex-encoded sibling subtree hash\nplus which side it sits on. See [`MerkleInclusionReport`].",
+      "properties": {
+        "sibling_sha256": {
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/MerkleSide"
+        }
+      },
+      "required": [
+        "sibling_sha256",
+        "side"
+      ],
+      "type": "object"
+    },
+    "MerkleSide": {
+      "description": "Which side of its parent a Merkle audit-path sibling sits on (provenance\nanchoring, CONCEPT:EG-KG.sharding.row-level-security). The verifier folds the running hash with each\nstep's sibling on the side named here — RFC 6962 §2.1.1 Merkle audit path\nsemantics.",
+      "enum": [
+        "Left",
+        "Right"
+      ],
+      "type": "string"
+    },
+    "RbacAction": {
+      "description": "An action a grant permits or denies over a resource (CONCEPT:EG-KG.compute.feature).",
+      "enum": [
+        "Read",
+        "Write",
+        "Admin"
+      ],
+      "type": "string"
+    },
+    "RbacGrantRemoval": {
+      "description": "`RbacAdmin` op `RemoveGrant`: whether the grant was present.",
+      "properties": {
+        "removed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "removed"
+      ],
+      "type": "object"
+    },
+    "RbacPolicyListing": {
+      "description": "`RbacAdmin` op `List`: the whole current RBAC policy.",
+      "properties": {
+        "grants": {
+          "items": {
+            "$ref": "#/$defs/Grant"
+          },
+          "type": "array"
+        },
+        "roles": {
+          "items": {
+            "$ref": "#/$defs/Role"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "roles",
+        "grants"
+      ],
+      "type": "object"
+    },
+    "ResourceSelector": {
+      "description": "What a [`Grant`] applies to (CONCEPT:EG-KG.compute.feature). Ordered by [`specificity`] so the\nevaluator can implement \"most-specific-resource wins\": a named graph beats a\nlabel, which beats a glob pattern, which beats \"all\".\n\n[`specificity`]: ResourceSelector::specificity",
+      "oneOf": [
+        {
+          "const": "All",
+          "description": "Every resource (least specific).",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A glob over the graph name — a single optional leading and/or trailing `*`\nwildcard (e.g. `agent:*`, `*:private`, `*log*`).",
+          "properties": {
+            "Pattern": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Pattern"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A node label.",
+          "properties": {
+            "Label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Label"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One named graph (most specific).",
+          "properties": {
+            "Graph": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Graph"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Role": {
+      "description": "A durable RBAC role with an optional set of parent roles forming a hierarchy\n(CONCEPT:EG-KG.compute.feature). A role transitively inherits every grant of its parents.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "parents": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "methods": {
+    "AuditProveInclusion": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/MerkleInclusionReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "AuditVerify": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AuditReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetIdentity": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/AgentIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetLedger": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/LedgerReadResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RbacAdmin": {
+      "bodies": {
+        "AddGrant": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        },
+        "AddRole": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        },
+        "List": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/RbacPolicyListing"
+          }
+        },
+        "RemoveGrant": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/RbacGrantRemoval"
+          }
+        },
+        "RemoveRole": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
     "RegisterIdentity": {
       "bodies": {
         "result": {

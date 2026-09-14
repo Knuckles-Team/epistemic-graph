@@ -55,6 +55,45 @@ def _generated_sends(trees: dict[str, ast.Module]) -> dict[str, str]:
     return found
 
 
+def _generated_result_annotations(
+    trees: dict[str, ast.Module],
+) -> dict[tuple[str, str], str]:
+    """``(module, send name)`` -> declared generated return annotation."""
+
+    found: dict[tuple[str, str], str] = {}
+    for module, tree in trees.items():
+        for node in tree.body:
+            if not isinstance(node, ast.AsyncFunctionDef) or not node.name.startswith(
+                "send_"
+            ):
+                continue
+            if node.returns is not None:
+                found[(module, node.name)] = ast.unparse(node.returns)
+    return found
+
+
+def _generated_payload_target(node: ast.AST) -> tuple[str, str] | None:
+    """Return the generated send target unwrapped by ``(await send(...)).payload``."""
+
+    match node:
+        case ast.Attribute(
+            attr="payload",
+            value=ast.Await(
+                value=ast.Call(
+                    func=ast.Attribute(
+                        attr=send,
+                        value=ast.Attribute(
+                            attr=module,
+                            value=ast.Name(id="_gen"),
+                        ),
+                    )
+                )
+            ),
+        ):
+            return module, send
+    return None
+
+
 def _model_fields(trees: dict[str, ast.Module]) -> dict[str, tuple[set[str], set[str]]]:
     """``ClassName`` -> (all field names, required field names)."""
     models: dict[str, tuple[set[str], set[str]]] = {}
@@ -199,6 +238,26 @@ class GeneratedClientContract(unittest.TestCase):
                     f"unknown={sorted(unknown)} missing={sorted(missing)}"
                 )
         self.assertEqual(failures, [], "\n".join(failures))
+
+    def test_concrete_generated_results_are_not_unwrapped_as_opaque(self) -> None:
+        annotations = _generated_result_annotations(self.trees)
+        failures: list[str] = []
+        tree = ast.parse(_CLIENT.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            key = _generated_payload_target(node)
+            if key is None:
+                continue
+            annotation = annotations.get(key)
+            if annotation is not None and annotation != "OpaqueResult":
+                failures.append(
+                    f"line {getattr(node, 'lineno', 0)} {key}: {annotation}"
+                )
+        self.assertEqual(
+            failures,
+            [],
+            "typed generated results already are their payload:\n"
+            + "\n".join(failures),
+        )
 
 
 if __name__ == "__main__":
