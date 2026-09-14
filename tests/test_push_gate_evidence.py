@@ -68,9 +68,7 @@ def test_exact_reuse_requires_complete_success_and_identical_selection() -> None
     assert not EvidenceStore._admissible(failed, selection)
 
     tampered = _document(selection)
-    tampered["results"][selection.selection_digest]["resultDigest"] = (
-        "sha256:tampered"
-    )  # type: ignore[index]
+    tampered["results"][selection.selection_digest]["resultDigest"] = "sha256:tampered"  # type: ignore[index]
     assert not EvidenceStore._admissible(tampered, selection)
 
     different_environment = Selection.from_argv(
@@ -146,20 +144,24 @@ def test_cli_run_preserves_command_boundary(monkeypatch: pytest.MonkeyPatch) -> 
         )
         return 17
 
-    monkeypatch.setattr(sys, "argv", [
-        "push_gate_evidence.py",
-        "run",
-        "--selection",
-        "fixture-run",
-        "--kind",
-        "cargo",
-        "--produce-only",
-        "--",
-        "cargo",
-        "test",
-        "-p",
-        "eg-core",
-    ])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "push_gate_evidence.py",
+            "run",
+            "--selection",
+            "fixture-run",
+            "--kind",
+            "cargo",
+            "--produce-only",
+            "--",
+            "cargo",
+            "test",
+            "-p",
+            "eg-core",
+        ],
+    )
     monkeypatch.setattr(push_gate_evidence, "run_or_consume", fake_run_or_consume)
 
     assert push_gate_evidence._cli() == 17

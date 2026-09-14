@@ -63,14 +63,15 @@ def _registry_drift(workflows_dir: Path) -> list[DriftReport]:
     ]
 
 
-def _job_drift(fname: str, unclassified: list[str], stale_jobs: list[str]) -> list[DriftReport]:
+def _job_drift(
+    fname: str, unclassified: list[str], stale_jobs: list[str]
+) -> list[DriftReport]:
     """Jobs one workflow has that the registry does not classify, and vice versa."""
     return [
         DriftReport(
             f"{fname} has job(s) this replica does not classify:",
             [
-                f"{j!r} is in neither executable_jobs nor job_skip_reasons "
-                f"for {fname}"
+                f"{j!r} is in neither executable_jobs nor job_skip_reasons for {fname}"
                 for j in unclassified
             ],
             f"Update WORKFLOW_REGISTRY[{fname!r}] to cover it.",

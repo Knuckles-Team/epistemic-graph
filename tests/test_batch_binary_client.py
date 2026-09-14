@@ -73,9 +73,7 @@ class _CaptureClient:
 def _capture_wire(method: str, params: dict[str, Any]) -> dict[str, Any]:
     """Model the framed request encoder and decode its params without JSON."""
 
-    request = msgpack.packb(
-        {"method": method, "params": params}, use_bin_type=True
-    )
+    request = msgpack.packb({"method": method, "params": params}, use_bin_type=True)
     return msgpack.unpackb(request, raw=False)
 
 
@@ -229,9 +227,7 @@ async def test_batch_and_lifecycle_surfaces_use_binary_msgpack_blobs() -> None:
         ),
         raw=False,
     )
-    assert isinstance(
-        canonical["params"]["request"]["expected_metadata_msgpack"], list
-    )
+    assert isinstance(canonical["params"]["request"]["expected_metadata_msgpack"], list)
     assert isinstance(canonical["params"]["request"]["set_metadata_msgpack"], list)
 
 
@@ -257,9 +253,7 @@ async def test_large_and_empty_batches_never_expand_to_integer_arrays() -> None:
     assert type(blob) is bytes
     assert msgpack.unpackb(blob, raw=False) == operations
 
-    native_wire = msgpack.packb(
-        {"method": method, "params": params}, use_bin_type=True
-    )
+    native_wire = msgpack.packb({"method": method, "params": params}, use_bin_type=True)
     legacy_wire = msgpack.packb(
         {"method": method, "params": {"operations_msgpack": list(blob)}},
         use_bin_type=True,

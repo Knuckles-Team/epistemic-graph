@@ -111,6 +111,8 @@ ENVIRONMENT_KEYS = frozenset(
         "EG_CONSTRAINED_TIMEOUT",
     }
 )
+
+
 class EvidenceError(RuntimeError):
     """An evidence object cannot be trusted for cache reuse."""
 
@@ -257,9 +259,7 @@ def environment_digest(environment: Mapping[str, str] | None = None) -> str:
     # those variables configure the replica, but do not by themselves alter a
     # consumer hook's Cargo process.
     values.setdefault("CARGO_TARGET_DIR", "target")
-    values.setdefault(
-        "CARGO_BUILD_JOBS", str(max(1, min(4, os.cpu_count() or 1)))
-    )
+    values.setdefault("CARGO_BUILD_JOBS", str(max(1, min(4, os.cpu_count() or 1))))
     selected = []
     for key in sorted(ENVIRONMENT_KEYS):
         if key in values:
@@ -326,7 +326,9 @@ def source_fingerprint(environment: Mapping[str, str] | None = None) -> dict[str
         "revision": revision,
         "tree": tree,
         "dirtyDiff": _digest(dirty),
-        "lockfile": _digest(_regular_bytes(lockfile)) if lockfile.exists() else "missing",
+        "lockfile": _digest(_regular_bytes(lockfile))
+        if lockfile.exists()
+        else "missing",
         "toolchain": _toolchain_digest(),
         "sourceTree": _digest({"revision": revision, "tree": tree, "dirty": dirty}),
     }
@@ -342,7 +344,9 @@ def _invocation_context() -> dict[str, str]:
     }
 
 
-def _extract_cargo(argv: Sequence[str]) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+def _extract_cargo(
+    argv: Sequence[str],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     packages: list[str] = []
     features: list[str] = []
     targets: list[str] = []
@@ -438,7 +442,8 @@ SUBSET_PROOFS: dict[str, dict[str, object]] = {
             "-D",
             "warnings",
         ],
-        "rationale": "workspace all-features/all-targets strictly covers shipped full/all-targets",
+        "rationale": "workspace all-features/all-targets strictly covers shipped "
+        "full/all-targets",
     }
 }
 
@@ -525,9 +530,12 @@ def _proc_stat(pid: int) -> tuple[int, str, str] | None:
         parent_pid = int(values[1])
         start_time = values[19]
         try:
-            command_line = Path(f"/proc/{pid}/cmdline").read_bytes().replace(
-                b"\0", b" "
-            ).decode("utf-8", errors="replace")
+            command_line = (
+                Path(f"/proc/{pid}/cmdline")
+                .read_bytes()
+                .replace(b"\0", b" ")
+                .decode("utf-8", errors="replace")
+            )
         except OSError:
             command_line = command_name
         return parent_pid, start_time, command_line
@@ -582,7 +590,9 @@ def _atomic_json(path: Path, value: object) -> None:
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+            json.dump(
+                value, handle, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+            )
             handle.write("\n")
         os.replace(temporary, path)
     except Exception:
@@ -624,7 +634,11 @@ def _signature_matches(expected: str, actual: object) -> bool:
 def _key_bytes(path: Path) -> bytes:
     try:
         metadata = path.lstat()
-        if path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o077:
+        if (
+            path.is_symlink()
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_mode & 0o077
+        ):
             raise EvidenceError("evidence key is unsafe")
         value = path.read_bytes()
     except EvidenceError:
@@ -971,9 +985,7 @@ def selection_for_workflow_item(
             argv = ("bash", "-c", detail)
         else:
             kind = "cargo"
-    label = ":".join(
-        str(item.get(field, "")) for field in ("workflow", "job", "name")
-    )
+    label = ":".join(str(item.get(field, "")) for field in ("workflow", "job", "name"))
     return Selection.from_argv(label, argv, kind=kind, environment=environment)
 
 
@@ -988,7 +1000,8 @@ def run_or_consume(
         store = EvidenceStore.begin_or_resume()
     except (EvidenceError, OSError) as exc:
         print(
-            f"push-gate-evidence: unavailable ({type(exc).__name__}); executing normally",
+            f"push-gate-evidence: unavailable ({type(exc).__name__}); executing "
+            f"normally",
             file=sys.stderr,
         )
         store = None
@@ -1010,7 +1023,10 @@ def run_or_consume(
         )
         exit_code = result.returncode
     except OSError as exc:
-        print(f"push-gate-evidence: command unavailable ({type(exc).__name__})", file=sys.stderr)
+        print(
+            f"push-gate-evidence: command unavailable ({type(exc).__name__})",
+            file=sys.stderr,
+        )
         exit_code = 127
     if store is not None:
         try:
@@ -1043,7 +1059,9 @@ def _cli_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _cli_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> list[str]:
+def _cli_command(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> list[str]:
     command = list(args.command)
     if command[:1] == ["--"]:
         command = command[1:]

@@ -52,11 +52,9 @@ import argparse
 import json
 import re
 import sys
-import tomllib
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
+import tomllib
 from rust_lexer import _balanced_span_from, _rust_code_mask, _rust_comments_mask
 from rust_module_tree import read_module_tree
 from scanner_contract import run_git
@@ -160,9 +158,7 @@ def _function_body(relative: str, name: str) -> str:
 
 def _constant_body(relative: str, name: str) -> str:
     text = _rust_comments_mask(read(relative))
-    match = re.search(
-        r"\bconst\s+" + re.escape(name) + r"\s*:[^=]*=\s*&\s*\[", text
-    )
+    match = re.search(r"\bconst\s+" + re.escape(name) + r"\s*:[^=]*=\s*&\s*\[", text)
     if match is None:
         raise GateError(f"registry constant is absent: {relative}::{name}")
     opener = match.end() - 1

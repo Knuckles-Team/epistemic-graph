@@ -1,4 +1,5 @@
-"""Smoke test for the multi-shard scale harness (CONCEPT:AU-KG.query.vendor-agnostic-traversal P3).
+"""Smoke test for the multi-shard scale harness
+(CONCEPT:AU-KG.query.vendor-agnostic-traversal P3).
 
 Runs a tiny single-shard load so regressions in the harness (or the server's
 multi-tenant/sharded path) surface in CI, without a heavy benchmark.
@@ -35,12 +36,22 @@ def test_scale_harness_smoke(tmp_path):
     out = tmp_path / "res.json"
     proc = subprocess.run(
         [
-            sys.executable, str(_BENCH_PATH),
-            "--shards", "1", "--agents-per-shard", "3",
-            "--nodes-per-agent", "5", "--concurrency", "4",
-            "--json", str(out),
+            sys.executable,
+            str(_BENCH_PATH),
+            "--shards",
+            "1",
+            "--agents-per-shard",
+            "3",
+            "--nodes-per-agent",
+            "5",
+            "--concurrency",
+            "4",
+            "--json",
+            str(out),
         ],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     if "server binary missing" in (proc.stdout + proc.stderr):
         pytest.skip("server binary not built")
@@ -56,7 +67,9 @@ def test_scale_harness_smoke(tmp_path):
 
 def test_extrapolation_math():
     bench = _load()
-    ex = bench._extrapolate(per_agent_rss_kb=50.0, ram_budget_gb=64.0, target=100_000_000)
+    ex = bench._extrapolate(
+        per_agent_rss_kb=50.0, ram_budget_gb=64.0, target=100_000_000
+    )
     # 64 GB / 50 kB ≈ 1.34M agents/host → ~75 hosts for 100M.
     assert ex["agents_per_host"] > 1_000_000
     assert ex["hosts_required"] == __import__("math").ceil(

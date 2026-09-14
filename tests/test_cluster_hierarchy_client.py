@@ -77,7 +77,9 @@ async def test_clusters_sends_level_and_optional_parent() -> None:
     fake = _FakeClient(
         ret={
             "level": 2,
-            "clusters": [{"id": "L2-0", "label": "x", "node_count": 10, "edge_count": 20.0}],
+            "clusters": [
+                {"id": "L2-0", "label": "x", "node_count": 10, "edge_count": 20.0}
+            ],
             "inter_cluster_edges": [],
         }
     )
@@ -102,9 +104,7 @@ async def test_clusters_with_parent_scopes_to_that_parents_children() -> None:
 
 @pytest.mark.asyncio
 async def test_expand_sends_cluster_id() -> None:
-    fake = _FakeClient(
-        ret={"nodes": [{"id": "n1"}], "edges": [], "child_clusters": []}
-    )
+    fake = _FakeClient(ret={"nodes": [{"id": "n1"}], "edges": [], "child_clusters": []})
     gc = GraphOperationsClient(fake)  # type: ignore[arg-type]
     out = await gc.cluster_hierarchy_expand("L1-0")
     assert fake.sent == [("ClusterHierarchyExpand", {"cluster_id": "L1-0"})]

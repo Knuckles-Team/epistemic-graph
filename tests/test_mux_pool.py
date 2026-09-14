@@ -1,4 +1,5 @@
-"""CONCEPT:EG-KG.backend.multiplexed-connections — multiplexed connection pool (parallelize the wire).
+"""CONCEPT:EG-KG.backend.multiplexed-connections — multiplexed connection pool
+(parallelize the wire).
 
 Proves the client-side win: N INDEPENDENT operations dispatched over N pooled
 connections run CONCURRENTLY (wall-clock ≪ serial sum), the pool reuses warm
@@ -89,7 +90,8 @@ class WorkMockServer:
 
 
 def test_pool_auto_sizes_without_a_knob():
-    # CONCEPT:EG-KG.backend.multiplexed-connections — no max_size given ⇒ auto-size to the box (no env knob).
+    # CONCEPT:EG-KG.backend.multiplexed-connections — no max_size given ⇒ auto-size to
+    # the box (no env knob).
     pool = ConnectionPool(
         "tcp://127.0.0.1:1", verified_context=request_context(), auth_secret="s"
     )
@@ -184,7 +186,8 @@ async def test_sequential_awaits_are_the_baseline():
 
 @pytest.mark.asyncio
 async def test_pool_respects_cap_under_concurrency():
-    # CONCEPT:EG-KG.backend.multiplexed-connections — with a cap of 2, four concurrent ops never exceed 2 in
+    # CONCEPT:EG-KG.backend.multiplexed-connections — with a cap of 2, four concurrent
+    # ops never exceed 2 in
     # flight: the surplus waits for a connection (correctness over saturation).
     server = WorkMockServer(work=0.05)
     await server.start()

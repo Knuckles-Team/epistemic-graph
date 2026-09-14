@@ -4,10 +4,7 @@
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, top_level_fns
@@ -93,12 +90,14 @@ def require_knowledge_stream_authority(handler: str) -> None:
                 "authority.policy_lease = Some(lease)",
                 "authority.policy_store = Some(policy_store)",
                 "fn validate_stream_preflight(",
-                "validate_stream_preflight(authority, caller, graph_name, carrier, &request)",
+                "validate_stream_preflight(authority, caller, graph_name, carrier, "
+                "&request)",
                 "authority.validate_before()",
                 "authority.validate_after()",
             )
         ),
-        "KnowledgeStream lacks a lease-bound constructor or strict pre/post page fences",
+        "KnowledgeStream lacks a lease-bound constructor or strict pre/post page "
+        "fences",
     )
 
 
@@ -739,11 +738,13 @@ def _check_sanitized_modality_command(raft: str) -> None:
     command = raft[command_start:command_end]
     require(
         _sanitized_command_shape(command),
-        "Raft modality command is not encrypted, authenticated, bounded, and source-free",
+        "Raft modality command is not encrypted, authenticated, bounded, and "
+        "source-free",
     )
     require(
         _sanitized_integrity_helpers_are_wired(raft),
-        "Raft modality command is not encrypted, authenticated, bounded, and source-free",
+        "Raft modality command is not encrypted, authenticated, bounded, and "
+        "source-free",
     )
 
 
@@ -869,7 +870,8 @@ def require_modality_durability() -> None:
     require(
         "raw source bytes are replaced by the state-backed receipt" in mutation_apply
         and "if let Method::ServedModality { op }" in mutation_apply,
-        "durability policy does not document the state-backed source-free modality path",
+        "durability policy does not document the state-backed source-free modality "
+        "path",
     )
     raft_store = raft_store_source()
     validation_body = _sole_rust_body(raft_store, "validate_modality_command")
@@ -879,13 +881,15 @@ def require_modality_durability() -> None:
     result_body = _sole_rust_body(raft_store, "modality_or_default_bool_result")
     require(
         _follower_modality_validation_is_bound(validation_body, apply_body),
-        "followers do not validate and deterministically commit sanitized modality state",
+        "followers do not validate and deterministically commit sanitized modality "
+        "state",
     )
     require(
         _follower_modality_commit_is_sanitized(
             durable_method_body, staged_apply_body, result_body
         ),
-        "followers do not validate and deterministically commit sanitized modality state",
+        "followers do not validate and deterministically commit sanitized modality "
+        "state",
     )
 
 

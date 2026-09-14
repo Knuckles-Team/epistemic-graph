@@ -137,9 +137,7 @@ async def test_work_item_retries_bind_stable_keys_to_signed_wire() -> None:
         },
     }
 
-    async def round_trip(
-        payload: bytes, *, req_id: int, method: str
-    ) -> dict[str, Any]:
+    async def round_trip(payload: bytes, *, req_id: int, method: str) -> dict[str, Any]:
         request = msgpack.unpackb(payload, raw=False)
         assert isinstance(request, dict)
         wire.append(request)

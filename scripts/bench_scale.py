@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Multi-shard scale harness for epistemic-graph (CONCEPT:AU-KG.query.vendor-agnostic-traversal P3).
+"""Multi-shard scale harness for epistemic-graph
+(CONCEPT:AU-KG.query.vendor-agnostic-traversal P3).
 
 Demonstrates **server-tier linear scaling** and measures the per-agent memory
 footprint, then turns the marketed "100,000,000 concurrent agents" into a
@@ -55,7 +56,7 @@ def _rss_kb(pid: int) -> int:
         for line in Path(f"/proc/{pid}/status").read_text().splitlines():
             if line.startswith("VmRSS:"):
                 return int(line.split()[1])  # kB
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return 0
 
@@ -205,7 +206,8 @@ def main() -> None:
     top = rows[-1]
     speedup = (
         round(top["ops_per_sec"] / base["ops_per_sec"], 2)
-        if base["ops_per_sec"] else None
+        if base["ops_per_sec"]
+        else None
     )
     # per-agent RSS: median across runs (stable, ignores per-run noise).
     rss_vals = sorted(r["per_agent_rss_kb"] for r in rows if r["per_agent_rss_kb"] > 0)
@@ -225,8 +227,14 @@ def main() -> None:
         "extrapolation": extrap,
     }
 
-    print(f"epistemic-graph scale harness ({build} build, fixed {args.agents_per_shard} agents/shard)")
-    print(f"  {'shards':>6} {'agents':>7} {'ops/s':>10} {'wall_s':>7} {'dataRSS_MB':>11} {'RSS/agent_kB':>13}")
+    print(
+        f"epistemic-graph scale harness ({build} build, fixed {args.agents_per_shard} "
+        f"agents/shard)"
+    )
+    print(
+        f"  {'shards':>6} {'agents':>7} {'ops/s':>10} {'wall_s':>7} {'dataRSS_MB':>11} "
+        f"{'RSS/agent_kB':>13}"
+    )
     for r in rows:
         print(
             f"  {r['shards']:>6} {r['agents']:>7} {r['ops_per_sec']:>10} "

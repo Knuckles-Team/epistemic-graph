@@ -42,16 +42,14 @@ def test_exact_binary_fault_restart_matrix(tmp_path: Path) -> None:
             "(set EPISTEMIC_GRAPH_EXACT_CERTIFICATION=1 to opt in)"
         )
     binary = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY", "") or "").strip()
-    digest = str(
-        os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY_SHA256", "") or ""
-    ).strip()
+    digest = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY_SHA256", "") or "").strip()
     assert binary, "EPISTEMIC_GRAPH_TEST_BINARY is required for exact certification"
     assert digest, (
         "EPISTEMIC_GRAPH_TEST_BINARY_SHA256 is required for exact certification"
     )
 
     evidence_path = tmp_path / "exact-fault-restart.json"
-    completed = subprocess.run(  # noqa: S603 - fixed harness and explicit artifact
+    completed = subprocess.run(
         [
             sys.executable,
             str(HARNESS),

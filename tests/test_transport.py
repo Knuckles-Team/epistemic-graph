@@ -96,7 +96,8 @@ async def test_frame_handling_and_pool():
         client2 = await pool.acquire()
         client3 = await pool.acquire()
 
-        # Max size is 3, fourth acquire should block. We use asyncio.wait_for to assert timeout
+        # Max size is 3, fourth acquire should block. We use asyncio.wait_for to assert
+        # timeout
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(pool.acquire(), timeout=0.1)
 
@@ -115,13 +116,14 @@ async def test_frame_handling_and_pool():
 
 @pytest.mark.asyncio
 async def test_rpc_timeout_is_bounded_and_connection_fatal():
-    # CONCEPT:EG-KG.query.wire-protocol (B1) — a server that accepts the connection but never replies.
+    # CONCEPT:EG-KG.query.wire-protocol (B1) — a server that accepts the connection but
+    # never replies.
     # Pre-B1 the client awaited the read forever; now every RPC is bounded and a
     # timeout is connection-fatal (the stream is desynced, so it must reconnect).
     async def silent_handler(reader, writer):
         try:
             await reader.read()  # drain forever; never write a reply
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
     # Port `0` binds an OS-assigned ephemeral port instead of a fixed one -- a
@@ -147,7 +149,8 @@ async def test_rpc_timeout_is_bounded_and_connection_fatal():
 
 @pytest.mark.asyncio
 async def test_send_reconnects_after_connection_drop():
-    # CONCEPT:EG-KG.query.wire-protocol — a long-lived client whose connection is dropped (engine
+    # CONCEPT:EG-KG.query.wire-protocol — a long-lived client whose connection is
+    # dropped (engine
     # restart / idle close / a prior poisoned stream) MUST self-heal on the next
     # call. Before the fix, _send set _closed=True but never re-dialed, so every
     # subsequent call reused the dead writer and the engine circuit breaker
@@ -272,7 +275,8 @@ async def test_pool_propagates_tls_endpoint_to_native_client(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_write_drain_timeout_is_bounded_and_connection_fatal(monkeypatch):
-    # CONCEPT:EG-KG.query.wire-protocol (B1) — a wedged engine that accepts the connection but stops
+    # CONCEPT:EG-KG.query.wire-protocol (B1) — a wedged engine that accepts the
+    # connection but stops
     # READING the socket makes the request flush (drain) back up forever. The write
     # path must be bounded just like the read path, and a stalled drain is
     # connection-fatal (it ran under the send lock, so it would otherwise wedge
@@ -280,7 +284,7 @@ async def test_write_drain_timeout_is_bounded_and_connection_fatal(monkeypatch):
     monkeypatch.setattr("epistemic_graph.client._WRITE_TIMEOUT", 0.2)
 
     class _HangingWriter:
-        def write(self, _data):  # noqa: D401 — sync, mirrors StreamWriter
+        def write(self, _data):
             pass
 
         async def drain(self):
@@ -309,7 +313,8 @@ async def test_write_drain_timeout_is_bounded_and_connection_fatal(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_connect_is_bounded(monkeypatch):
-    # CONCEPT:EG-KG.query.wire-protocol (B1) — a peer that accepts the TCP connection but never
+    # CONCEPT:EG-KG.query.wire-protocol (B1) — a peer that accepts the TCP connection
+    # but never
     # completes the handshake must not hang the caller forever; connect() is bounded.
     async def _never_connects(*_a, **_k):
         await asyncio.sleep(3600)

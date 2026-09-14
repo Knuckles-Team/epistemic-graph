@@ -33,10 +33,9 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, NoReturn
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+import scanner_contract
 
-import scanner_contract  # noqa: E402
+ROOT = Path(__file__).resolve().parent.parent
 
 _AMBIENT_CONFIGS = (
     ".jscpd.json",

@@ -82,11 +82,13 @@ def _claim_anchor_errors(root: Path, row: dict[str, str]) -> list[str]:
         errors.append(f"{claim_id}: anchor text is missing from {relative}: {needle!r}")
     if row["required"] and row["required"] not in source_text:
         errors.append(
-            f"{claim_id}: required source text is missing from {relative}: {row['required']!r}"
+            f"{claim_id}: required source text is missing from {relative}: "
+            f"{row['required']!r}"
         )
     if row["status"] in {"LIVE", "1M-CERTIFIED"} and "reports/" not in row["evidence"]:
         errors.append(
-            f"{claim_id}: {row['status']} requires a versioned reports/ evidence reference"
+            f"{claim_id}: {row['status']} requires a versioned reports/ evidence "
+            f"reference"
         )
     return errors
 

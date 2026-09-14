@@ -345,7 +345,8 @@ def _render_rust(manifest: dict[str, Any]) -> str:
         for entry in manifest["schemas"]
     )
     return (
-        "//! Auto-generated protocol digests; regenerate from the canonical catalog.\n\n"
+        "//! Auto-generated protocol digests; regenerate from the canonical "
+        "catalog.\n\n"
         f'pub const PROTOCOL_NAME: &str = "{manifest["protocol"]}";\n'
         f'pub const PROTOCOL_VERSION: &str = "{manifest["version"]}";\n'
         f'pub const CATALOG_SHA256: &str = "{manifest["catalog_sha256"]}";\n'
@@ -363,7 +364,11 @@ def _render_rust(manifest: dict[str, Any]) -> str:
 _MANIFEST_HEADER: tuple[tuple[str, str, str], ...] = (
     ("protocol", "epistemic-operations", "protocol name drifted"),
     ("version", "1", "only current version 1 is allowed"),
-    ("compatibility_policy", "current-only", "compatibility policy must be current-only"),
+    (
+        "compatibility_policy",
+        "current-only",
+        "compatibility policy must be current-only",
+    ),
     ("unknown_field_policy", "reject", "unknown fields must be rejected"),
 )
 
@@ -420,7 +425,8 @@ def _require_schema_catalog(manifest: dict[str, Any]) -> None:
     names = tuple(entry.get("name") for entry in schemas if isinstance(entry, dict))
     if names != REQUIRED_SCHEMAS:
         raise GateError(
-            f"expected exactly {len(REQUIRED_SCHEMAS)} schemas in canonical order: {names}"
+            f"expected exactly {len(REQUIRED_SCHEMAS)} schemas in canonical order: "
+            f"{names}"
         )
     _require_schema_digests(schemas)
     _require_schema_versions(schemas)

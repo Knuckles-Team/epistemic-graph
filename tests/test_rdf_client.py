@@ -33,6 +33,4 @@ async def test_validate_shacl_sends_both_inline_graphs() -> None:
     result = await rdf.validate_shacl("shapes", "data")
 
     assert result == report
-    assert fake.sent == [
-        ("ShaclValidate", {"shapes": "shapes", "data_graph": "data"})
-    ]
+    assert fake.sent == [("ShaclValidate", {"shapes": "shapes", "data_graph": "data"})]

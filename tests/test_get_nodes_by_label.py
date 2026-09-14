@@ -1,4 +1,5 @@
-"""NodeClient.list_by_label sends the bounded labeled-fetch RPC (CONCEPT:EG-KG.txn.per-graph-write-isolation)."""
+"""NodeClient.list_by_label sends the bounded labeled-fetch RPC
+(CONCEPT:EG-KG.txn.per-graph-write-isolation)."""
 
 from __future__ import annotations
 

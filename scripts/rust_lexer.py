@@ -121,7 +121,8 @@ def _balanced_non_code_step(
 
 
 def _balanced_span_from(source: str, start: int, opener: str, closer: str) -> int:
-    """Index of the `closer` that balances the `opener` at `start`, comment/string-aware.
+    """Index of the `closer` that balances the `opener` at `start`,
+    comment/string-aware.
 
     The position-based core `_balanced_block` (and the call-graph resolution in
     `_routing_call_offset`/`_function_with_callees`) share, factored out so the
@@ -290,9 +291,7 @@ _CFG_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _ITEM_KIND = re.compile(
     r"\b(fn|struct|enum|union|impl|trait|mod|const|static|type|use|extern|macro_rules)\b"
 )
-_MACRO_ITEM = re.compile(
-    r"\b[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*!\s*$"
-)
+_MACRO_ITEM = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*!\s*$")
 _ITEM_DELIMITER_DELTAS = {"(": (1, 0), ")": (-1, 0), "[": (0, 1), "]": (0, -1)}
 
 
@@ -331,9 +330,7 @@ def _macro_rule_arrows(body: str, depths: list[tuple[int, int, int]]) -> list[in
     ]
 
 
-def _macro_rule_end(
-    body: str, arrow: int, depths: list[tuple[int, int, int]]
-) -> int:
+def _macro_rule_end(body: str, arrow: int, depths: list[tuple[int, int, int]]) -> int:
     for position in range(arrow + 2, len(body)):
         if body[position] in ";," and depths[position] == (0, 0, 0):
             return position
@@ -364,7 +361,9 @@ def _macro_templates_for_rule(
 ) -> set[int]:
     parsed = _macro_attribute_templates(body, rule_start, rule_end)
     bindings = {
-        name for position, name, fragment in parsed if position < arrow and fragment == "meta"
+        name
+        for position, name, fragment in parsed
+        if position < arrow and fragment == "meta"
     }
     return {
         body_start + position
@@ -396,9 +395,7 @@ def _macro_rule_template_attribute_starts(mask: str) -> set[int]:
         for arrow in arrows:
             rule_end = _macro_rule_end(body, arrow, depths)
             templates.update(
-                _macro_templates_for_rule(
-                    body_start, body, arrow, rule_start, rule_end
-                )
+                _macro_templates_for_rule(body_start, body, arrow, rule_start, rule_end)
             )
             rule_start = rule_end + 1
     return templates

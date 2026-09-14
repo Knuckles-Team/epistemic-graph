@@ -1,5 +1,6 @@
 """End-to-end proof of the VIZ-1 hierarchical cluster-tree RPCs against the REAL
-engine (CONCEPT:EG-KG.compute.leiden-hierarchy) — server-side clustering for million-node
+engine (CONCEPT:EG-KG.compute.leiden-hierarchy) — server-side clustering for
+million-node
 graph visualization: build a small graph, refresh its cluster hierarchy, list
 the cached level, and expand a cluster down to its real member nodes.
 
@@ -73,7 +74,7 @@ async def test_refresh_list_and_expand_round_trip() -> None:
             assert c["top_node_types"] == [["Doc", c["node_count"]]]
 
         # An out-of-range level is a clean error, not a crash/hang.
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             await client.graph.cluster_hierarchy_clusters(level=999)
 
         # 3) Expand one level-1 cluster down to its real member nodes/edges —
@@ -91,7 +92,7 @@ async def test_refresh_list_and_expand_round_trip() -> None:
         assert member_ids <= set(clique_a) or member_ids <= set(clique_b)
 
         # An unknown cluster_id is a clean error, not a crash.
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             await client.graph.cluster_hierarchy_expand("L1-9999")
     finally:
         await client.close()

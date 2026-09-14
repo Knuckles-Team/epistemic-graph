@@ -1,4 +1,5 @@
-"""Live CEP standing-query round-trip against a live engine (CONCEPT:EG-KG.query.protocol-types,
+"""Live CEP standing-query round-trip against a live engine
+(CONCEPT:EG-KG.query.protocol-types,
 features `streaming` + `stream`, both folded into `full`).
 
 Proves the `StreamingClient.cep_subscribe` / `cep_poll` / `cep_unsubscribe` bindings
@@ -77,14 +78,14 @@ def test_cep_subscribe_poll_match_unsubscribe(client):
     # Unsubscribing an id that no longer exists reports False, not an error.
     assert client.streaming.cep_unsubscribe(sub_id) is False
 
-    # Polling a dropped subscription is an error (CONCEPT:EG-KG.query.protocol-types docs this
+    # Polling a dropped subscription is an error (CONCEPT:EG-KG.query.protocol-types
+    # docs this
     # explicitly), not a silent empty list.
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError):
         client.streaming.cep_poll(sub_id, timeout_ms=200)
 
 
 def test_cep_within_window_prunes_late_match(client):
-    g = "__commons__"
     # A two-step sequence ("Open" followed by "Close") constrained to complete
     # within 0 ts-ticks of each other via Within{within: 0} -- since the surface's
     # clock ticks once per CDC event, two DIFFERENT events can never satisfy
@@ -123,7 +124,7 @@ def test_cep_requires_admin_scope():
         verified_context=request_context(roles=["test"], scopes=["read:only"]),
     )
     try:
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             non_admin.streaming.cep_subscribe(
                 {"Sequence": [{"key": "Alert", "preds": []}]},
                 window={"Sliding": {"size": 0}},

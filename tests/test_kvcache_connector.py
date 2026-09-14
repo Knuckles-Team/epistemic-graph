@@ -1,4 +1,5 @@
-"""Unit tests for the EG-187 Python KV-cache driver (CONCEPT:EG-KG.backend.shipped-pip-installable-python).
+"""Unit tests for the EG-187 Python KV-cache driver
+(CONCEPT:EG-KG.backend.shipped-pip-installable-python).
 
 Runs a tiny in-process HTTP server implementing the EG-187 ``/kv`` surface
 (``GET|PUT|HEAD /kv/<hash>``, ``GET /kv/<hash>/exists``, ``GET /kv/stats``) with
@@ -426,7 +427,7 @@ class _SharedTransport:
     def __init__(self, engine: _SharedFakeEngine) -> None:
         self._engine = engine
 
-    def request(self, method, url, *, body=None, headers=None):  # noqa: ANN001
+    def request(self, method, url, *, body=None, headers=None):
         path = urlsplit(url).path
         eng = self._engine
         if path == "/kv/stats":
@@ -470,7 +471,9 @@ class _SharedTransport:
 
 def _shared_connector(engine: _SharedFakeEngine) -> RemoteKVConnector:
     return RemoteKVConnector(
-        KvCacheConfig(base_url="http://127.0.0.1:9130", token=_TEST_TOKEN, timeout_s=5.0),
+        KvCacheConfig(
+            base_url="http://127.0.0.1:9130", token=_TEST_TOKEN, timeout_s=5.0
+        ),
         transport=_SharedTransport(engine),
     )
 

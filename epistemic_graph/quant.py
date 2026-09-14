@@ -105,8 +105,10 @@ def group_relative_advantage(
 
     ``length_unbiased`` applies the Dr.GRPO correction (arXiv:2503.20783): drop the
     difficulty-biased ``/σ`` term and return the centered ``(r − μ)``. Degenerate groups
-    (≤1 sample / ~zero variance) return zeros. Population std (``pstdev``) is used so this
-    matches ``batch_normalized_advantage`` bit-for-bit (parity-tested). The Rust hot-path
+    (≤1 sample / ~zero variance) return zeros. Population std (``pstdev``) is used so
+    this
+    matches ``batch_normalized_advantage`` bit-for-bit (parity-tested). The Rust
+    hot-path
     twin follows the standard finance-signal pattern: ``src/finance/signals.rs`` →
     ``src/protocol.rs`` → ``client.py`` (a batch op, one round-trip).
     """
@@ -175,7 +177,8 @@ def ucb1_scores(
 ) -> list[float]:
     """UCB1 per-arm scores: ``mean + c*sqrt(ln(total)/count)``.
 
-    CONCEPT:EG-AHE.harness.online-exploit-explore-reference — pure-Python reference for the online exploit/explore
+    CONCEPT:EG-AHE.harness.online-exploit-explore-reference — pure-Python reference for
+    the online exploit/explore
     bandit mirrored by agent-utilities' ``ExploreExploitRouter`` (DecentMem
     online routing, arXiv:2605.22721). Kept here next to the other quant
     primitives so the Python client and a future Rust kernel arm can be held to

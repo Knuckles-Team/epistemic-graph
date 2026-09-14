@@ -145,7 +145,10 @@ def test_numeric_and_engine_injections_compose_freely(tmp_path: Path) -> None:
         assert archive.read("epistemic_graph/numeric.abi3.so") == numeric_payload
         assert archive.read("epistemic_graph/engine.abi3.so") == engine_payload
         record_name = "epistemic_graph-0.dist-info/RECORD"
-        rows = {row[0]: row[1:] for row in csv.reader(io.StringIO(archive.read(record_name).decode()))}
+        rows = {
+            row[0]: row[1:]
+            for row in csv.reader(io.StringIO(archive.read(record_name).decode()))
+        }
         for name in names:
             if name == record_name:
                 continue

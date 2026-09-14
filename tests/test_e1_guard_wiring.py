@@ -157,10 +157,10 @@ mod tests {
         assert!(!encoded.windows(sealed.len()).any(|window| window == sealed));
         assert_eq!(batch.outbox.len(), 1);
         assert!(crate::audit::audit_line(&batch.operations[0].method)
-            .is_some_and(|line| line.starts_with("AUTHORITATIVE_STATE_MUTATION|sha256:")));
+            .is_some_and(|line| line.starts_with(__AUDIT_LITERAL__)));
     }
 }
-"""
+""".replace("__AUDIT_LITERAL__", '"AUTHORITATIVE_STATE_MUTATION|sha256:"')
 
 
 def test_p2_raft_replication_reads_declared_child_and_rejects_orphans(
@@ -310,7 +310,8 @@ def test_modality_privacy_proof_rejects_dead_string_assignment() -> None:
 
     old = (
         "assert!(crate::audit::audit_line(&batch.operations[0].method)\n"
-        '        .is_some_and(|line| line.starts_with("AUTHORITATIVE_STATE_MUTATION|sha256:")));'
+        "        .is_some_and(|line| line.starts_with("
+        '"AUTHORITATIVE_STATE_MUTATION|sha256:")));'
     )
     broken = _replace_once(
         text,

@@ -1,6 +1,7 @@
 """LMCache ``native_plugin`` L2-adapter connector for the EG-187 KV surface.
 
-CONCEPT:EG-KG.backend.shipped-pip-installable-python — the LMCache-side *native connector* half of the driver. It
+CONCEPT:EG-KG.backend.shipped-pip-installable-python — the LMCache-side *native
+connector* half of the driver. It
 complements :class:`~epistemic_graph.kvcache.connector.RemoteKVConnector` (the
 ``get`` / ``put`` / ``exists`` / ``stats`` HTTP client) by exposing it through
 the shape LMCache's **``native_plugin`` L2 adapter** loads.
@@ -10,8 +11,10 @@ Why this exists (vs the ``resp`` adapter)
 LMCache's decoupled ``lmcache server`` writes its L2 tier through an
 ``--l2-adapter`` plugin. The zero-code path points the built-in ``resp`` adapter
 at the engine's Redis RESP wire — but that lands blocks in the engine's *generic
-Redis keyspace*, so the engine's **content-addressed dedup (CONCEPT:EG-KG.enrichment.content-address-separation)** and
-the **``/kv/stats`` counters (CONCEPT:EG-KG.backend.is-configured-so-co)** do NOT apply. This connector
+Redis keyspace*, so the engine's **content-addressed dedup
+(CONCEPT:EG-KG.enrichment.content-address-separation)** and
+the **``/kv/stats`` counters (CONCEPT:EG-KG.backend.is-configured-so-co)** do NOT apply.
+This connector
 instead speaks the **EG-187 HTTP KV surface**, so every L2 write is
 content-addressed and deduped and the stats counters move.
 
@@ -65,7 +68,8 @@ It is loaded via ``--l2-adapter``::
 omitted here are read from the engine's EG-187 environment via
 :meth:`KvCacheConfig.from_env`). There is deliberately **no**
 ``submit_batch_delete``: the shared, content-addressed pool is evicted by the
-engine's own tiered store (CONCEPT:EG-KG.memory.byte-bounded-tiers), so L2 delete is a no-op.
+engine's own tiered store (CONCEPT:EG-KG.memory.byte-bounded-tiers), so L2 delete is a
+no-op.
 
 Graceful degradation is inherited from :class:`RemoteKVConnector`: every
 transport/protocol error maps to a cache miss, so an unreachable engine never
@@ -99,7 +103,8 @@ logger = logging.getLogger(__name__)
 class RemoteKVL2Connector:
     """Native-client bridge from LMCache's ``native_plugin`` L2 adapter → EG-187.
 
-    CONCEPT:EG-KG.backend.shipped-pip-installable-python. Instantiated by LMCache's ``native_plugin`` factory with the
+    CONCEPT:EG-KG.backend.shipped-pip-installable-python. Instantiated by LMCache's
+    ``native_plugin`` factory with the
     ``adapter_params`` dict spread as keyword arguments, then wrapped in
     ``NativeConnectorL2Adapter``. All parameters are optional; anything not
     supplied is sourced from the engine's EG-187 environment
@@ -197,7 +202,8 @@ class RemoteKVL2Connector:
         # Give the transport at least two connections per worker unless pinned.
         return replace(cfg, max_connections=workers * 2)
 
-    # -- native-client contract (CONCEPT:EG-KG.backend.shipped-pip-installable-python) ------------------------------
+    # -- native-client contract (CONCEPT:EG-KG.backend.shipped-pip-installable-python)
+    # ------------------------------
     def event_fd(self) -> int:
         """The pollable fd signalled on every batch completion (one for all ops)."""
         return self._efd
@@ -229,7 +235,8 @@ class RemoteKVL2Connector:
         return self._submit(self._do_get, list(keys), list(memviews))
 
     def submit_batch_exists(self, keys: Sequence[str]) -> int:
-        """Queue a batch existence probe (``HEAD /kv/<hash>``); returns ``future_id``."""
+        """Queue a batch existence probe (``HEAD /kv/<hash>``); returns
+        ``future_id``."""
         return self._submit(self._do_exists, list(keys))
 
     def drain_completions(self) -> list[tuple[int, bool, str, list[bool] | None]]:
@@ -294,7 +301,7 @@ class RemoteKVL2Connector:
         try:
             ok, result_bools = work(*args)
             self._complete(future_id, ok=ok, error="", result_bools=result_bools)
-        except Exception as exc:  # noqa: BLE001 - never crash the worker thread
+        except Exception as exc:
             logger.warning("L2 batch %d failed: %s", future_id, exc)
             self._complete(future_id, ok=False, error=str(exc), result_bools=None)
 

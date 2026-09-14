@@ -5,12 +5,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import (
     MethodPolicyInventoryError,
@@ -20,6 +15,8 @@ from method_policy_inventory import (
 from rust_callgraph import top_level_fns
 from rust_lexer import _balanced_span_from, _rust_code_mask, _rust_comments_mask
 from rust_module_tree import read_compiler_family, read_module_tree
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def read(relative: str) -> str:
@@ -325,7 +322,8 @@ def _check_transport_contract(
         ".stack_size(ENGINE_WORKER_STACK_BYTES)" in server
         and "engine runtime driver thread could not start" in server
         and "engine runtime driver terminated unexpectedly" in server,
-        "shared engine driver does not provide an explicit stack and normalized failures",
+        "shared engine driver does not provide an explicit stack and normalized "
+        "failures",
     )
     require(
         "server::spawn_engine_driver(move ||" in server_main
@@ -404,7 +402,8 @@ def _check_client_batch_contract(
         and '"properties_msgpack": _pack_binary_msgpack(properties or {})' in client
         and "def _pack_binary_msgpack(value: Any) -> bytes:" in client
         and "list(msgpack.packb" not in client,
-        "the Python client does not use the native binary MessagePack batch/lifecycle contract",
+        "the Python client does not use the native binary MessagePack batch/lifecycle "
+        "contract",
     )
     require(
         all(
@@ -523,7 +522,8 @@ def _check_mutation_routing(
 def _check_mutation_prepublish(mutation_runtime: str) -> None:
     prepublish = delimited_body(
         mutation_runtime,
-        "fn prepublish_success(core: &GraphCore, method: &Method) -> Option<ResultPayload> {",
+        "fn prepublish_success(core: &GraphCore, method: &Method) -> "
+        "Option<ResultPayload> {",
         "\n}",
     )
     require(
@@ -531,7 +531,8 @@ def _check_mutation_prepublish(mutation_runtime: str) -> None:
         and "BrokerAckTag" not in prepublish
         and "BrokerNackTag" not in prepublish
         and "BrokerRenewTag" not in prepublish,
-        "a state-dependent create/tag verdict is predicted before authoritative staging",
+        "a state-dependent create/tag verdict is predicted before authoritative "
+        "staging",
     )
 
 
@@ -550,11 +551,14 @@ def _require_broker_expiry_sweep(broker: str) -> None:
 
 def _check_broker_fencing(broker: str, graph: str) -> None:
     require(
-        "pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64, consumer: &str) -> bool"
+        "pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64, consumer: &str) -> "
+        "bool"
         in broker
-        and "pub fn broker_nack_tag(\n    core: &GraphCore,\n    delivery_tag: i64,\n    consumer: &str,"
+        and "pub fn broker_nack_tag(\n    core: &GraphCore,\n    delivery_tag: i64,\n"
+        "    consumer: &str,"
         in broker
-        and "pub fn broker_renew_tag(\n    core: &GraphCore,\n    delivery_tag: i64,\n    consumer: &str,\n    now_ms: u64,\n    lease_ms: u64,"
+        and "pub fn broker_renew_tag(\n    core: &GraphCore,\n    delivery_tag: i64,\n"
+        "    consumer: &str,\n    now_ms: u64,\n    lease_ms: u64,"
         in broker,
         "the native tag operations regained an ownerless or implicit-clock form",
     )
@@ -614,7 +618,8 @@ def _check_mutation_policy(capabilities: str, cdc: str) -> None:
     )
     create_cdc = delimited_body(
         cdc,
-        "(Method::CreateNodeIfAbsent { node_id, .. }, CdcPre::Node { before: None, .. })",
+        "(Method::CreateNodeIfAbsent { node_id, .. }, CdcPre::Node { before: None, .. "
+        "})",
         "(Method::CompareAndSetNodeFields",
     )
     require(
@@ -766,7 +771,8 @@ def _check_identity_order(dispatch: str) -> None:
                 ),
             )
         ),
-        "identity/RBAC commands are not totally ordered on the bootstrap authority graph",
+        "identity/RBAC commands are not totally ordered on the bootstrap authority "
+        "graph",
     )
 
 
@@ -896,7 +902,8 @@ def _check_raft_snapshot_replacement(raft_store: str) -> None:
                 _snapshot_removal_clears_both_authorities(remove),
             )
         ),
-        "Raft snapshot install merges with stale graph authority instead of replacing it",
+        "Raft snapshot install merges with stale graph authority instead of replacing "
+        "it",
     )
 
 
@@ -905,7 +912,8 @@ def _check_raft_restore(registry: str, raft_store: str) -> None:
         "pub fn install_committed_graph(" in registry
         and "GraphCore::from_snapshot(snapshot, committed_version)" in registry
         and "s.registry.install_committed_graph(" in raft_store,
-        "Raft restore publishes an empty/partial core or loses durable incarnation identity",
+        "Raft restore publishes an empty/partial core or loses durable incarnation "
+        "identity",
     )
 
 
@@ -917,7 +925,8 @@ def _check_raft_snapshot_validation(raft_store: str, raft: str) -> None:
         and re.search(r"validate_replay_authentication\(&?server_secret\)", store_code)
         is not None
         and "pub(crate) fn validate_replay_authentication(" in raft_code,
-        "Raft snapshot install mutates state before validating the complete replay image",
+        "Raft snapshot install mutates state before validating the complete replay "
+        "image",
     )
 
 

@@ -33,7 +33,8 @@ def test_valid_baseline_is_loaded_and_successful_run_passes(
 ) -> None:
     baseline = tmp_path / "integration_failure_baseline.txt"
     baseline.write_text(
-        "tests/test_example.py::test_known_failure  # owner=@proof review-by=2099-01-01\n",
+        "tests/test_example.py::test_known_failure  # owner=@proof "
+        "review-by=2099-01-01\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(gate, "BASELINE_PATH", baseline)

@@ -105,7 +105,7 @@ def test_bypassing_the_client_guard_still_fails_fast_and_correlated():
                         "graph_type": "Ontology",
                     },
                 )
-            except Exception as exc:  # noqa: BLE001 -- want the exact error/timing
+            except Exception as exc:
                 return str(exc), time.monotonic() - start
             return None, time.monotonic() - start
         finally:

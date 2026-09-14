@@ -5,14 +5,12 @@ from __future__ import annotations
 
 import hashlib
 import re
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rust_lexer import _balanced_span_from, _rust_code_mask, _rust_comments_mask
 from rust_module_tree import read_compiler_family
+
+ROOT = Path(__file__).resolve().parents[1]
 
 EXPECTED_PATHS = {
     "src/server/dispatch.rs",
@@ -123,7 +121,9 @@ ROUTE_OWNERS = {
     "dispatch_resource_cost_methods": "src/server/dispatch/router/resource_cost.rs",
     "dispatch_graph_lifecycle_methods": "src/server/dispatch/router/graph_lifecycle.rs",
     "dispatch_channel_methods": "src/server/dispatch/router/channels.rs",
-    "dispatch_identity_and_access_methods": "src/server/dispatch/router/identity_access.rs",
+    "dispatch_identity_and_access_methods": (
+        "src/server/dispatch/router/identity_access.rs"
+    ),
     "route_change_envelope_ops": "src/server/dispatch/change_envelope.rs",
     "route_graph_op_method": "src/server/dispatch/graph_pipeline/native_routes.rs",
     # `dispatch_op_workitem_mutation` was split in two during the decomposition
@@ -131,8 +131,12 @@ ROUTE_OWNERS = {
     # function that exists in neither this tree nor EG main b2ac7b93 -- it had
     # been failing on both. Assert the two real successors instead of dropping
     # the check.
-    "dispatch_op_workitem_claim_capability": "src/server/dispatch/graph_pipeline/work_governance.rs",
-    "dispatch_op_workitem_submission_or_resources": "src/server/dispatch/graph_pipeline/work_governance.rs",
+    "dispatch_op_workitem_claim_capability": (
+        "src/server/dispatch/graph_pipeline/work_governance.rs"
+    ),
+    "dispatch_op_workitem_submission_or_resources": (
+        "src/server/dispatch/graph_pipeline/work_governance.rs"
+    ),
 }
 
 ROUTE_CALLERS = {
@@ -144,8 +148,12 @@ ROUTE_CALLERS = {
     "dispatch_identity_and_access_methods": "src/server/dispatch/router.rs",
     "route_change_envelope_ops": "src/server/dispatch/graph_pipeline/native_routes.rs",
     "route_graph_op_method": "src/server/dispatch/graph_pipeline/graph_dispatch.rs",
-    "dispatch_op_workitem_claim_capability": "src/server/dispatch/graph_pipeline/native_routes.rs",
-    "dispatch_op_workitem_submission_or_resources": "src/server/dispatch/graph_pipeline/native_routes.rs",
+    "dispatch_op_workitem_claim_capability": (
+        "src/server/dispatch/graph_pipeline/native_routes.rs"
+    ),
+    "dispatch_op_workitem_submission_or_resources": (
+        "src/server/dispatch/graph_pipeline/native_routes.rs"
+    ),
 }
 
 LEGACY_COALESCER_METHODS = (
@@ -169,6 +177,11 @@ LEGACY_COALESCER_METHODS = (
 #   any(feature = "amqp-wire", "mqtt-wire", "stomp-wire", "mssql-wire", "redis-wire")
 #   any(feature = "federation-search", feature = "nl-query")
 CFG_FINGERPRINT = "35aeaf654089d9dc52eedef7da795bf39805eba94ceecc42bdb0c5f9c45304d8"
+# Integration removes the sole `all(feature = "redb", feature = "security")`
+# predicate: every SPARQL HTTP helper now also requires `sparql-http`. The
+# merged compiler family has 75 predicates after that tightening. The
+# `finalize_dispatch_response` fallback duplicate from the CI-green parent was
+# removed because the modular saga owns both redb and no-redb variants.
 PRODUCTION_FUNCTION_COUNT = 355
 PRODUCTION_FUNCTION_DIGEST = (
     "c425d7d9ec01712f70b9fdc81d750f274095a923fc467ddf41b76f9b32ea326d"

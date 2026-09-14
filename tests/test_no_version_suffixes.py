@@ -54,23 +54,36 @@ FALSE_POSITIVE_LINE_PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"openraft|RaftNetworkV\d"), "external openraft crate trait"),
     (re.compile(r"SigV4"), "AWS SigV4 request-signing protocol name"),
     (
-        re.compile(r"\bSV1\b.*(?:DM1|TN1|Braket|simulator)|(?:DM1|TN1|Braket|simulator).*\bSV1\b"),
+        re.compile(
+            r"\bSV1\b.*(?:DM1|TN1|Braket|simulator)|(?:DM1|TN1|Braket|simulator).*\bSV1\b"
+        ),
         "AWS Braket simulator SKU",
     ),
-    (re.compile(r"Mipro ?V2|mipro_v2|MIPROv2|specs_mipro_v2"), "external DSPy MIPROv2 algorithm name"),
+    (
+        re.compile(r"Mipro ?V2|mipro_v2|MIPROv2|specs_mipro_v2"),
+        "external DSPy MIPROv2 algorithm name",
+    ),
     (re.compile(r"ListObjectsV2"), "AWS S3 REST API operation name"),
     (re.compile(r"Uuid::new_v4|::new_v4\("), "uuid crate's new_v4() constructor"),
-    (re.compile(r"mvhd_box_v0|mvhd"), "ISO-BMFF mvhd box version field (external media spec)"),
+    (
+        re.compile(r"mvhd_box_v0|mvhd"),
+        "ISO-BMFF mvhd box version field (external media spec)",
+    ),
     # -- IP protocol version (v4/v6), not a schema/component version. --------
-    (re.compile(r"is_ssrf_(?:custom|std)_range_v[46]"), "IPv4/IPv6 SSRF range check, not a version suffix"),
+    (
+        re.compile(r"is_ssrf_(?:custom|std)_range_v[46]"),
+        "IPv4/IPv6 SSRF range check, not a version suffix",
+    ),
     # -- Retired-name quarantine markers: renaming them would break the very --
     # -- guards that assert the retired spelling never reappears. ------------
     (
         re.compile(
             r"RETIRED_PROTOTYPE_TABLES|CompatibilityMsgpackV1|compatibility_msgpack_v1|"
-            r"method_policy_hierarchy_v1|\bmutation_[a-z_]+_v3\b|not in (?:scanner_source|wire|stream)"
+            r"method_policy_hierarchy_v1|\bmutation_[a-z_]+_v3\b|not in "
+            r"(?:scanner_source|wire|stream)"
         ),
-        "retired-name quarantine / must-not-reappear marker; the historical spelling is the guard",
+        "retired-name quarantine / must-not-reappear marker; the historical spelling "
+        "is the guard",
     ),
     (
         re.compile(r'^\s*"[a-z_]+_v[0-9]+",?\s*(?://.*)?$'),
@@ -80,13 +93,19 @@ FALSE_POSITIVE_LINE_PATTERNS: list[tuple[re.Pattern, str]] = [
     # -- components, tables, types or functions. -----------------------------
     (
         re.compile(r"\b(?:blob_[a-z_]+|served_modality|sparql_http_[a-z_]+)_v[0-9]+\b"),
-        "durable event-type tag string (maintenance/outbox event name), not a table or component name",
+        "durable event-type tag string (maintenance/outbox event name), not a table or "
+        "component name",
     ),
     # -- Transient SQL codegen aliases; never persisted. ---------------------
-    (re.compile(r"_pgq_v\d"), "transient SQL property-graph-query codegen alias, not persisted storage"),
+    (
+        re.compile(r"_pgq_v\d"),
+        "transient SQL property-graph-query codegen alias, not persisted storage",
+    ),
     # -- Local bindings, fixture labels and doc example values. --------------
     (
-        re.compile(r"\b(?:primary|secondary|content|model|want|r|page_token|fixed_params)_v[0-9]+\b"),
+        re.compile(
+            r"\b(?:primary|secondary|content|model|want|r|page_token|fixed_params)_v[0-9]+\b"
+        ),
         "local binding / test-fixture label / doc example value, not a component name",
     ),
     (
@@ -102,7 +121,11 @@ def iter_target_files(root: Path):
         if not subdir.is_dir():
             continue
         for path in sorted(subdir.rglob("*")):
-            if path.is_file() and path.suffix in TEXT_SUFFIXES and path.name != GUARD_SELF_NAME:
+            if (
+                path.is_file()
+                and path.suffix in TEXT_SUFFIXES
+                and path.name != GUARD_SELF_NAME
+            ):
                 yield path
     for extra in EXTRA_FILES:
         path = root / extra
@@ -156,16 +179,23 @@ class NoVersionSuffixesTest(unittest.TestCase):
                 f"{p.relative_to(self.ROOT)}:{lineno}: {token!r}  ({text})"
                 for p, lineno, token, text in violations[:50]
             ]
-            more = "" if len(violations) <= 50 else f"\n... and {len(violations) - 50} more"
+            more = (
+                ""
+                if len(violations) <= 50
+                else f"\n... and {len(violations) - 50} more"
+            )
             self.fail(
-                f"{len(violations)} version-suffixed name(s) found outside the allowlist and the "
+                f"{len(violations)} version-suffixed name(s) found outside the "
+                f"allowlist and the "
                 f"false-positive patterns (RF-ADR-006):\n" + "\n".join(lines) + more
             )
 
     def test_allowlist_is_empty(self):
         """RF-ADR-006 requires the allowlist to be explicitly empty; any real
         exception must be a pattern rule with a reason, not a bare name."""
-        self.assertEqual(ALLOWLIST, frozenset(), "ALLOWLIST must stay empty per RF-ADR-006")
+        self.assertEqual(
+            ALLOWLIST, frozenset(), "ALLOWLIST must stay empty per RF-ADR-006"
+        )
 
     def test_self_exclusion_is_exactly_one_file(self):
         """The only file the scan skips is this guard itself."""
@@ -173,7 +203,8 @@ class NoVersionSuffixesTest(unittest.TestCase):
         self.assertNotIn(GUARD_SELF_NAME, scanned)
         self.assertTrue(
             (self.ROOT / "tests" / GUARD_SELF_NAME).is_file(),
-            "the guard excludes a file name that does not exist -- the exclusion is stale",
+            "the guard excludes a file name that does not exist -- the exclusion is "
+            "stale",
         )
 
     def test_guard_actually_catches_a_known_bad_identifier(self):
@@ -186,9 +217,20 @@ class NoVersionSuffixesTest(unittest.TestCase):
             f"struct {planted_id} {{}}\n"
             f'const T: TableDefinition = TableDefinition::new("{planted_table}");\n'
         )
-        self.assertIsNone(_is_excused(sample), "planted-bad sample must not match any false-positive pattern")
-        self.assertIn(planted_id, ID_RE.findall(sample), "guard regex missed a planted-bad PascalCase identifier")
-        self.assertIn(planted_table, TBL_RE.findall(sample), "guard regex missed a planted-bad table name")
+        self.assertIsNone(
+            _is_excused(sample),
+            "planted-bad sample must not match any false-positive pattern",
+        )
+        self.assertIn(
+            planted_id,
+            ID_RE.findall(sample),
+            "guard regex missed a planted-bad PascalCase identifier",
+        )
+        self.assertIn(
+            planted_table,
+            TBL_RE.findall(sample),
+            "guard regex missed a planted-bad table name",
+        )
 
     def test_guard_catches_a_planted_bad_file_end_to_end(self):
         """Planted-bad check through the real file walk, not just the regexes:
@@ -200,11 +242,15 @@ class NoVersionSuffixesTest(unittest.TestCase):
             root = Path(tmp)
             (root / "crates").mkdir()
             (root / "tests").mkdir()
-            (root / "tests" / GUARD_SELF_NAME).write_text("# stand-in for the guard itself\n")
+            (root / "tests" / GUARD_SELF_NAME).write_text(
+                "# stand-in for the guard itself\n"
+            )
             bad = root / "crates" / "planted.rs"
             bad.write_text("pub struct " + "PlantedKernel" + "V3 {}\n")
             found = find_violations(root)
-            self.assertEqual(len(found), 1, f"expected exactly one violation, got {found}")
+            self.assertEqual(
+                len(found), 1, f"expected exactly one violation, got {found}"
+            )
             self.assertEqual(found[0][0], bad)
             self.assertEqual(found[0][2], "PlantedKernel" + "V3")
 
@@ -213,9 +259,18 @@ class NoVersionSuffixesTest(unittest.TestCase):
         matches the table-shaped regex and must be caught exactly like a table
         -- a distinct planted-bad context from a TableDefinition::new(...)."""
         planted_fn = "totally_fake_method" + "_v9"
-        sample = f"fn {planted_fn}(req: &Request) -> Result<(), String> {{\n    Ok(())\n}}\n"
-        self.assertIsNone(_is_excused(sample), "planted-bad function sample must not match any excuse pattern")
-        self.assertIn(planted_fn, TBL_RE.findall(sample), "guard regex missed a planted-bad function name")
+        sample = (
+            f"fn {planted_fn}(req: &Request) -> Result<(), String> {{\n    Ok(())\n}}\n"
+        )
+        self.assertIsNone(
+            _is_excused(sample),
+            "planted-bad function sample must not match any excuse pattern",
+        )
+        self.assertIn(
+            planted_fn,
+            TBL_RE.findall(sample),
+            "guard regex missed a planted-bad function name",
+        )
 
     def test_known_false_positives_are_excused(self):
         """Sanity-check the excuse patterns actually fire, so a future edit
@@ -225,13 +280,18 @@ class NoVersionSuffixesTest(unittest.TestCase):
             "hasher.update(uuid::Uuid::new_v4().as_bytes());",
             '    "mutation_store_root_v3",',
             '        self.maintain("blob_sweep_v1", batch)?;',
-            "        let want_v2 = hierarchy == \"0\";",
+            '        let want_v2 = hierarchy == "0";',
         ):
-            self.assertIsNotNone(_is_excused(line), f"expected an excuse pattern to fire for: {line!r}")
+            self.assertIsNotNone(
+                _is_excused(line), f"expected an excuse pattern to fire for: {line!r}"
+            )
 
     def test_every_false_positive_pattern_carries_a_reason(self):
         for pattern, reason in FALSE_POSITIVE_LINE_PATTERNS:
-            self.assertTrue(reason and len(reason) > 20, f"pattern {pattern.pattern!r} has no written reason")
+            self.assertTrue(
+                reason and len(reason) > 20,
+                f"pattern {pattern.pattern!r} has no written reason",
+            )
 
 
 if __name__ == "__main__":

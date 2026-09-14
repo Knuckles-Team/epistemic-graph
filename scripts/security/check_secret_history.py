@@ -251,7 +251,8 @@ def _high_entropy_tokens(content: str) -> list[tuple[str, float]]:
         if _is_entropy_noise(token):
             continue
         classes = sum(
-            bool(re.search(p, token)) for p in (r"[a-z]", r"[A-Z]", r"[0-9]", r"[+/_.=-]")
+            bool(re.search(p, token))
+            for p in (r"[a-z]", r"[A-Z]", r"[0-9]", r"[+/_.=-]")
         )
         if classes < 3:
             continue
@@ -389,7 +390,7 @@ def _self_check() -> tuple[int, dict]:
 
         # Known-bad: a real-shaped AWS key, a GitHub PAT, and a PEM block.
         bad = (
-            "AWS_ACCESS_KEY_ID = 'AKIAABCDEFGHIJKLMNOP'\n"  # sanitizer:ignore - synthetic self-check fixture written into a throwaway tmp git repo, not a real key
+            "AWS_ACCESS_KEY_ID = 'AKIAABCDEFGHIJKLMNOP'\n"  # sanitizer:ignore - fixture
             "GITHUB_TOKEN = 'ghp_" + ("a" * 36) + "'\n"
             # Built via concatenation (not a contiguous literal) so this synthetic
             # fixture's own tracked source doesn't trip the pre-commit-hooks
@@ -413,7 +414,8 @@ def _self_check() -> tuple[int, dict]:
         subprocess.run(
             ["git", "checkout", "-q", "-B", "exempt-branch"], cwd=str(tmp), check=True
         )
-        exempt = "AWS_ACCESS_KEY_ID = 'AKIAABCDEFGHIJKLMNOP'  # sanitizer:ignore - synthetic\n"
+        exempt = "AWS_ACCESS_KEY_ID = 'AKIAABCDEFGHIJKLMNOP'  # sanitizer:ignore - "
+        "synthetic\n"
         (tmp / "leak.py").write_text(exempt, encoding="utf-8")
         subprocess.run(["git", "add", "leak.py"], cwd=str(tmp), check=True)
         subprocess.run(

@@ -27,7 +27,9 @@ def test_no_pyo3_gate_passes():
     result = subprocess.run(
         ["bash", str(script)], capture_output=True, text=True, cwd=REPO
     )
-    assert result.returncode == 0, f"no-pyo3 gate failed:\n{result.stdout}\n{result.stderr}"
+    assert result.returncode == 0, (
+        f"no-pyo3 gate failed:\n{result.stdout}\n{result.stderr}"
+    )
 
 
 def test_no_compiled_extension_ships():
@@ -41,7 +43,7 @@ def test_no_compiled_extension_ships():
 
 def test_quant_imports_without_pyo3():
     """quant.py must import with no compiled extension present."""
-    from epistemic_graph import quant  # noqa: F401
+    from epistemic_graph import quant
 
     assert quant.moving_average([1, 2, 3, 4], 2) == [1.0, 1.5, 2.5, 3.5]
     ema = quant.exponential_moving_average([1.0, 2.0, 3.0], 0.5)
@@ -116,7 +118,8 @@ def test_length_prefixed_framing_is_binary_safe():
     assert decoded["id"] == 7
 
 
-# ── group_relative_advantage (RL reward kernel, CONCEPT:EG-KG.domains.quant-finance) ───────────
+# ── group_relative_advantage (RL reward kernel, CONCEPT:EG-KG.domains.quant-finance)
+# ───────────
 
 
 def test_group_relative_advantage_grpo_and_dr_grpo():

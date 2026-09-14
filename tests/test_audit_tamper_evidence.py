@@ -1,4 +1,5 @@
-"""Tamper-evident audit round-trip against a live engine (CONCEPT:EG-KG.sharding.row-level-security,
+"""Tamper-evident audit round-trip against a live engine
+(CONCEPT:EG-KG.sharding.row-level-security,
 feature `security`, folded into `full`).
 
 Proves the `AdminClient.audit_verify` / `audit_prove_inclusion` bindings (added for
@@ -172,7 +173,9 @@ def test_audit_prove_inclusion_then_detects_ordinary_overwrite_as_tamper(client)
     anchor_seq = clean["anchor_seq"]
 
     # A node that was never in the window: included=False, never a false "verified".
-    out_of_window = client.admin.audit_prove_inclusion("widget-1", anchor_seq=anchor_seq)
+    out_of_window = client.admin.audit_prove_inclusion(
+        "widget-1", anchor_seq=anchor_seq
+    )
     assert out_of_window["included"] is False
     assert out_of_window["verified"] is False
 
@@ -184,7 +187,8 @@ def test_audit_prove_inclusion_then_detects_ordinary_overwrite_as_tamper(client)
     tampered = client.admin.audit_prove_inclusion("tc-1", anchor_seq=anchor_seq)
     assert tampered["included"] is True, "tc-1 is still part of that anchor's window"
     assert tampered["verified"] is False, (
-        f"a changed node must fail inclusion verification against its old anchor: {tampered}"
+        f"a changed node must fail inclusion verification against its old anchor: "
+        f"{tampered}"
     )
     assert tampered["computed_root_sha256"] != tampered["anchored_root_sha256"]
     # The ANCHORED root itself (chain-protected) must not have moved.
@@ -192,4 +196,6 @@ def test_audit_prove_inclusion_then_detects_ordinary_overwrite_as_tamper(client)
 
     # Provenance anchoring must never itself break the audit chain AuditVerify walks.
     audit_report = client.admin.audit_verify()
-    assert audit_report["ok"] is True, f"chain must stay clean throughout: {audit_report}"
+    assert audit_report["ok"] is True, (
+        f"chain must stay clean throughout: {audit_report}"
+    )

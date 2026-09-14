@@ -1,4 +1,5 @@
-"""`EmbeddedTransport` -- the in-process (native-extension) transport for `epistemic_graph
+"""`EmbeddedTransport` -- the in-process (native-extension) transport for
+`epistemic_graph
 .client`'s existing sub-client surface (`NodeClient`, `EdgeClient`, `QueryClient`,
 ...). See `docs/architecture/unified-inprocess-engine.md` §4 ("Same client API
 surface -- only the transport swaps") and `plans/pyengine/EG-PYENGINE-PLAN.md`

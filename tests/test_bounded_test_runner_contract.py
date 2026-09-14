@@ -35,7 +35,7 @@ def test_runner_has_bounded_attribution_and_containment_contract():
         '"/proc/{pid}/fd"',
         "MAX_DIAGNOSTIC_FDS",
         "fd_count_capped",
-        "os.scandir(\"/proc\")",
+        'os.scandir("/proc")',
         '"timeout_detected"',
         '"term_sent"',
         '"kill_sent"',

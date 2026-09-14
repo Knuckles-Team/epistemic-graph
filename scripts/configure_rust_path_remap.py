@@ -68,7 +68,8 @@ ENVIRONMENT_ROOTS: tuple[tuple[str, str], ...] = (
 # from `HOME` when unset) its Cargo registry cache is `/root/.cargo/registry`.
 # This script only ever runs on the OUTER runner, so no environment variable it
 # can read ever names `/root` -- the outer runner's own `HOME` is something
-# else entirely (e.g. an `/home/<ci-runner>`-shaped path). Worse, `maturin-action` explicitly
+# else entirely (e.g. an `/home/<ci-runner>`-shaped path). Worse, `maturin-action`
+# explicitly
 # excludes `CARGO_HOME` from the env vars it forwards into the container (see
 # its `FORBIDDEN_ENVS`), specifically so the container does not try to reuse
 # the outer runner's host-path Cargo state -- which means the container's
@@ -211,9 +212,7 @@ def encoded_rustflags(
         for source, replacement in path_remaps(env, checkout=checkout)
         if not _already_remapped(existing, source)
     ]
-    link = [
-        flag for flag in _deterministic_link_flags(target) if flag not in existing
-    ]
+    link = [flag for flag in _deterministic_link_flags(target) if flag not in existing]
     return (
         UNIT_SEPARATOR.join([*existing, *remaps, *link]),
         len(existing),
@@ -290,7 +289,7 @@ def _resolve_probe_compiler(
     # No target given at all -- this is a host-native (non-cross) build, so
     # the platform-generic compiler on PATH genuinely IS the one that will
     # run.
-    for generic in (("cc", "gcc") if compiler_var == "CC" else ("c++", "g++")):
+    for generic in ("cc", "gcc") if compiler_var == "CC" else ("c++", "g++"):
         if shutil.which(generic):
             return generic
     return None
@@ -320,7 +319,9 @@ def _probe_prefix_map_flag(compiler: str, flag_name: str) -> bool:
     stderr = result.stderr.decode("utf-8", "replace").lower()
     # Belt-and-suspenders: some drivers (notably older MSVC-style front ends)
     # exit 0 while still printing an "unknown option ignored" warning.
-    return not any(marker in stderr for marker in ("unrecognized", "unknown option", "ignoring"))
+    return not any(
+        marker in stderr for marker in ("unrecognized", "unknown option", "ignoring")
+    )
 
 
 def _select_prefix_map_flag(

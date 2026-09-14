@@ -31,6 +31,7 @@ def test_authority_can_co_locate_ingest_lanes() -> None:
     for lane in ("__ingest__", "__ingest_news__", "__ingest_x__", "__ingest_pdf__"):
         assert router._get_shard_endpoint(lane) == commons_shard, lane
 
+
 # ── scatter-gather fakes ─────────────────────────────────────────────────────
 
 

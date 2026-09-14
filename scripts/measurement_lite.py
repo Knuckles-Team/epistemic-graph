@@ -65,7 +65,8 @@ WATCHED_ENV_VARS = ("RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WRAPPER", "CARGO_TARGET_
 
 
 class TooLoadedToMeasureError(Exception):
-    """Raised by gate_or_raise() when load exceeds threshold -- never a number, never a silent pass."""
+    """Raised by gate_or_raise() when load exceeds threshold -- never a number, never a
+    silent pass."""
 
 
 def default_threshold(cpu_count: int | None = None) -> float:
@@ -102,7 +103,8 @@ def gate_or_raise(threshold: float | None = None) -> LoadStatus:
     result = check_load(threshold)
     if result.status == TOO_LOADED_TO_MEASURE:
         raise TooLoadedToMeasureError(
-            f"{TOO_LOADED_TO_MEASURE}: load {result.load1:.2f} > threshold {result.threshold:.2f}"
+            f"{TOO_LOADED_TO_MEASURE}: load {result.load1:.2f} > threshold "
+            f"{result.threshold:.2f}"
         )
     return result
 
@@ -171,7 +173,8 @@ def merged_tree(repo: Path, base: str, branch: str) -> str:
     lines = proc.stdout.splitlines()
     if not lines or len(lines[0].strip()) < 40:
         raise RuntimeError(
-            f"git merge-tree failed (rc={proc.returncode}): {proc.stderr or proc.stdout}"
+            f"git merge-tree failed (rc={proc.returncode}): "
+            f"{proc.stderr or proc.stdout}"
         )
     return lines[0].strip()
 
@@ -208,7 +211,8 @@ class BackgroundRun:
 def run_background(
     cmd: str, *, unit_name: str | None = None, log_dir: Path | None = None
 ) -> BackgroundRun:
-    """Launch `cmd` in a transient user systemd unit with the redirect INSIDE the command.
+    """Launch `cmd` in a transient user systemd unit with the redirect INSIDE the
+    command.
 
     Reproduces (twice) as: launching via `systemd-run ... bash -c "cmd"`
     WITHOUT the redirect inside the quoted command sends output to the

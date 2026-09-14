@@ -1,5 +1,6 @@
 """QueryClient Cypher methods send explicit-mode RPCs and decode result rows
-into dicts (CONCEPT:EG-KG.query.dep-free-behind) — mirroring the SQL path, since both return the
+into dicts (CONCEPT:EG-KG.query.dep-free-behind) — mirroring the SQL path, since both
+return the
 identical wire shape."""
 
 from __future__ import annotations

@@ -59,9 +59,9 @@ def test_maturin_default_and_python_extra_are_full() -> None:
     assert optional["full"] == []
     assert optional["all"] == []
     assert optional["lake-parity"] == []
-    lake_requirements = (
-        REPO / "tests" / "lake-parity-requirements.txt"
-    ).read_text(encoding="utf-8")
+    lake_requirements = (REPO / "tests" / "lake-parity-requirements.txt").read_text(
+        encoding="utf-8"
+    )
     assert "pyiceberg[pyarrow]>=0.7.0" in lake_requirements
     assert "deltalake>=0.18.0" in lake_requirements
 
@@ -69,9 +69,7 @@ def test_maturin_default_and_python_extra_are_full() -> None:
 def test_current_numeric_docs_match_the_builtin_boundary_contract() -> None:
     """Current docs must not revive removed NumPy/native-ABI promises."""
 
-    docs = {
-        path: path.read_text(encoding="utf-8") for path in NUMERIC_CONTRACT_DOCS
-    }
+    docs = {path: path.read_text(encoding="utf-8") for path in NUMERIC_CONTRACT_DOCS}
     numeric = docs[REPO / "docs" / "architecture" / "numeric_kernel.md"]
     assert "bounded built-in" in numeric
     assert "scalar↔nested-list PyO3 contract" in numeric

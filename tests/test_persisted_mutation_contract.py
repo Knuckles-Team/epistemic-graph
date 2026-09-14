@@ -826,7 +826,8 @@ def test_module_tree_follows_declared_production_children_and_excludes_tests(
                 '#[path = "alternate.rs"] mod custom_path;',
                 '#[doc = "#[cfg(test)]"] mod doc_cfg_literal;',
                 '#[doc = "#[path = \\"missing.rs\\"]"] mod doc_path_literal;',
-                'const ATTRIBUTE_TEXT: &str = "#[cfg(test)] #[path = \\"missing.rs\\"]";',
+                'const ATTRIBUTE_TEXT: &str = "#[cfg(test)] #[path = '
+                '\\"missing.rs\\"]";',
                 "mod string_literal_attributes;",
                 "mod inline_production { fn inline_production_marker() {} }",
                 'mod inline_include { include!("nested_include.rs"); }',
@@ -1549,7 +1550,8 @@ def test_balanced_span_rejects_unterminated_rust_block() -> None:
             "graph_pipeline",
             "handlers::graph_ops::try_handle_gateway(",
             "handlers::graph_ops::removed_gateway(",
-            "dispatch no longer routes graph/query/RDF gateways before the terminal handler",
+            "dispatch no longer routes graph/query/RDF gateways before the terminal "
+            "handler",
         ),
         (
             "mutation_runtime",
@@ -1596,7 +1598,8 @@ def test_inventory_drift_fails_closed(
         ),
         (
             "ros2_bridge",
-            "\nfn bypass(core: &GraphCore, method: &Method) { crate::mutation_apply::apply(core, method); }\n",
+            "\nfn bypass(core: &GraphCore, method: &Method) { "
+            "crate::mutation_apply::apply(core, method); }\n",
             "ROS2 carrier",
         ),
     ],

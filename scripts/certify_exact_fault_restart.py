@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import errno
 import hashlib
+import importlib
 import json
 import os
 import resource
@@ -35,10 +36,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# This harness must certify THIS checkout's own `epistemic_graph.client`, not
+# whatever copy happens to be resolved by an editable install elsewhere on
+# sys.path (e.g. a different worktree's checkout registered as the editable
+# `epistemic-graph` distribution) -- prepending the repository root makes the
+# local source win the resolution. `importlib.import_module` (a function
+# call, not an `import` statement) reaches it without requiring this
+# late-bound sys.path entry to precede a plain top-of-file import.
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT))
-
-from epistemic_graph.client import SyncEpistemicGraphClient  # noqa: E402
+SyncEpistemicGraphClient = importlib.import_module(
+    "epistemic_graph.client"
+).SyncEpistemicGraphClient
 
 SCHEMA_VERSION = 1
 AGENT_ID = "service:exact-certifier"
@@ -388,7 +397,7 @@ class ExactEngine:
             )
 
         def launch(env: dict[str, str]) -> None:
-            self.process = subprocess.Popen(  # noqa: S603 - exact caller-supplied argv
+            self.process = subprocess.Popen(
                 [
                     str(self.binary.path),
                     "--socket-path",

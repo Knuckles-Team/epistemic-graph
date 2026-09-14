@@ -1,4 +1,5 @@
-"""ServerRegistryClient.register sends the RegisterServer RPC (CONCEPT:EG-KG.sharding.server-registry, W2.5)."""
+"""ServerRegistryClient.register sends the RegisterServer RPC
+(CONCEPT:EG-KG.sharding.server-registry, W2.5)."""
 
 from __future__ import annotations
 
@@ -108,7 +109,9 @@ async def test_register_rejects_non_mapping_resources() -> None:
     src = ServerRegistryClient(fake)  # type: ignore[arg-type]
     with pytest.raises(ValueError):
         await src.register(
-            "some-server", "mcp-ref://deadbeef", resources=["not", "a", "dict"]  # type: ignore[arg-type]
+            "some-server",
+            "mcp-ref://deadbeef",
+            resources=["not", "a", "dict"],  # type: ignore[arg-type]
         )
     assert fake.sent == []
 

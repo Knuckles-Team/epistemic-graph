@@ -11,7 +11,8 @@ pytestmark = pytest.mark.no_engine
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_concept_parity():
-    """Ensure all CONCEPT:ID tags used in source code are registered in docs/concepts.md."""
+    """Ensure all CONCEPT:ID tags used in source code are registered in
+    docs/concepts.md."""
     concepts_file = Path(__file__).parent.parent / "docs" / "concepts.md"
     assert concepts_file.exists(), "docs/concepts.md is missing!"
 
@@ -31,5 +32,6 @@ def test_concept_parity():
     # Assert that each used concept is present in the concepts registry
     for concept in used_concepts:
         assert concept in concepts_content, (
-            f"Concept {concept} is used in source code but not registered in docs/concepts.md!"
+            f"Concept {concept} is used in source code but not registered in "
+            f"docs/concepts.md!"
         )

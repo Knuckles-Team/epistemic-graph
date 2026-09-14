@@ -13,10 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, squash
@@ -327,7 +324,8 @@ def main() -> None:
                 "if !self.has_rules()" not in isolation,
             )
         ),
-        "default-deny RLS does not classify every topology row, including missing properties",
+        "default-deny RLS does not classify every topology row, including missing "
+        "properties",
     )
 
     # Resolve the graph-dispatch path by CALL GRAPH, and compare on squashed
@@ -355,7 +353,8 @@ def main() -> None:
             # `&core` became `core` when the parameter type changed with the
             # extraction; the manifest and the authority still travel together.
             "core, materialization_manifest.as_ref(), read_authority.as_ref(),",
-            "handlers::mining::try_handle( req_id, core.clone(), read_authority.as_ref(),",
+            "handlers::mining::try_handle( req_id, core.clone(), "
+            "read_authority.as_ref(),",
             "handlers::graphlearn::try_handle(req_id, core.clone(), method)",
             "read_authority.as_ref(), method,",
             # `core.clone()` became `ctx.core.clone()` when the post-lock routers
@@ -590,7 +589,8 @@ def main() -> None:
                 in access,
             )
         ),
-        "verified tenant extraction or Alice/Bob/cross-tenant adversarial proof is absent",
+        "verified tenant extraction or Alice/Bob/cross-tenant adversarial proof is "
+        "absent",
     )
     require(
         dispatch.count("CarrierAuthority::from_verified") >= 12,
@@ -607,7 +607,8 @@ def main() -> None:
                 "authority.actor_scope().to_string()" in jobs,
             )
         ),
-        "analytics Status/Cancel/Resume/Submit is not bound to verified owner + graph ACL",
+        "analytics Status/Cancel/Resume/Submit is not bound to verified owner + graph "
+        "ACL",
     )
     require(
         all(
@@ -655,7 +656,8 @@ def main() -> None:
                 "authority.tenant_scope()" in sqlite_file,
             )
         ),
-        "SQLite/user-table file export is available without explicit verified admin authority",
+        "SQLite/user-table file export is available without explicit verified admin "
+        "authority",
     )
     require(
         all(
@@ -710,11 +712,13 @@ def main() -> None:
                 in streaming,
             )
         ),
-        "CDC/Watch/continuous-query/trigger reads lack graph ACL, row images, or owner namespace",
+        "CDC/Watch/continuous-query/trigger reads lack graph ACL, row images, or owner "
+        "namespace",
     )
     require(
         'authority.require_admin("CEP subscriptions")' in cep,
-        "graph-unbound CEP is not strict-deny except for explicit verified admin authority",
+        "graph-unbound CEP is not strict-deny except for explicit verified admin "
+        "authority",
     )
     require(
         all(
@@ -742,7 +746,8 @@ def main() -> None:
                 "authority.tenant_scope()," in wire,
             )
         ),
-        "transaction-derived CONSTRUCT/plan/belief reads use raw committed cores or bearer txn ids",
+        "transaction-derived CONSTRUCT/plan/belief reads use raw committed cores or "
+        "bearer txn ids",
     )
 
     unauthenticated_carriers = {
@@ -767,7 +772,8 @@ def main() -> None:
                 "HTTP_READ_TIMEOUT_SECS" in graphql_sse,
             )
         ),
-        "GraphQL SSE is not bound to current signed authority, graph ACL/RLS, and resource limits",
+        "GraphQL SSE is not bound to current signed authority, graph ACL/RLS, and "
+        "resource limits",
     )
     require(
         all(

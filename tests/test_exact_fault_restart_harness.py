@@ -73,8 +73,7 @@ fn decoy_fault_markers() {
     errors = module._check_fault_seam_contract()
 
     assert (
-        "fault seam apply path: missing "
-        "'batch_matches_request(batch, spec.request_id)'"
+        "fault seam apply path: missing 'batch_matches_request(batch, spec.request_id)'"
     ) in errors
     assert (
         "fault seam request identity helper: missing "
@@ -120,7 +119,4 @@ def test_store_checker_rejects_an_omitted_graph_store_child(monkeypatch) -> None
 
     errors = module._check_store_contract()
 
-    assert (
-        "graph mutation store: missing "
-        "'MutationCommitPhase::BeforeRows'"
-    ) in errors
+    assert ("graph mutation store: missing 'MutationCommitPhase::BeforeRows'") in errors

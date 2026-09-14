@@ -207,7 +207,8 @@ def check_wheel(path: Path, *, require_engine_kernel: bool = False) -> list[str]
         if require_engine_kernel and not _engine_kernel_members(names):
             failures.append(
                 f"no engine kernel: expected {TARGET_PACKAGE}/engine*"
-                f"{{{','.join(KERNEL_SUFFIXES)}}} — --require-engine-kernel was set but "
+                f"{{{','.join(KERNEL_SUFFIXES)}}} — --require-engine-kernel was set "
+                f"but "
                 "the eg-pyengine inject did not run or was undone "
                 "(import epistemic_graph.engine would fail)"
             )

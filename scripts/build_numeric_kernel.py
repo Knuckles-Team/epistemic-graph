@@ -165,7 +165,7 @@ def verify(destination: Path) -> None:
     """
     sys.path.insert(0, str(REPO_ROOT))
     try:
-        import epistemic_graph.numeric as kernel  # noqa: PLC0415
+        import epistemic_graph.numeric as kernel
     except Exception as exc:  # pragma: no cover - platform dependent
         print(f"WARNING: built {destination.name} but cannot load it here: {exc}")
         return

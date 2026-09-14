@@ -48,8 +48,7 @@ if sys.platform != "win32":
 else:  # pragma: no cover - exercised only on Windows
     pwd = None  # type: ignore[assignment]
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _git_subprocess_env import (  # noqa: E402
+from _git_subprocess_env import (
     sanitized_git_env,
     strip_inherited_git_repository_env,
 )
@@ -389,7 +388,8 @@ _CREDENTIAL_URI_RE = re.compile(
 # scripts/check_wheel_privacy.py's own ``_CREDENTIAL_PLACEHOLDER_TOKENS`` --
 # the comment already claimed they mirrored each other, but that script's
 # set additionally recognizes "agent" (this repo's own
-# ``postgresql://agent:agent@localhost:5432/agent_kg`` documented example  # sanitizer:ignore
+# ``postgresql://agent:agent@localhost:5432/agent_kg`` documented example  #
+# sanitizer:ignore
 # DSN, README.md / docs/architecture/graph_backends_architecture.md),
 # "password", "secret", "test", and "sample" as placeholder words. Restored
 # so the two gates actually agree, as documented.
@@ -642,7 +642,7 @@ def _is_deployment_doc(path: Path) -> bool:
 
 
 def _persisted_path_category(line: str) -> str | None:
-    """"persisted machine path" if the line assigns a non-neutral path field."""
+    """ "persisted machine path" if the line assigns a non-neutral path field."""
     persisted = _PERSISTED_FIELD_RE.search(line)
     if not persisted or _NEUTRAL_URI_RE.search(persisted.group("value")):
         return None
@@ -653,16 +653,16 @@ def _persisted_path_category(line: str) -> str | None:
     # the file, never a baked-in machine path — safe regardless of the field's
     # own casing, same reasoning as the existing uppercase-field exemption.
     is_template_placeholder = value.startswith("${")
-    runtime_relative = (
-        field.isupper() or is_template_placeholder
-    ) and not re.match(r"^(?:[a-z]:|[/\\]|~)", value, re.IGNORECASE)
+    runtime_relative = (field.isupper() or is_template_placeholder) and not re.match(
+        r"^(?:[a-z]:|[/\\]|~)", value, re.IGNORECASE
+    )
     if value in {"", "none", "null", "unset"} or runtime_relative:
         return None
     return "persisted machine path"
 
 
 def _identifier_category(folded_line: str, identifiers: frozenset[str]) -> str | None:
-    """"local account or host identifier" if any derived identifier appears."""
+    """ "local account or host identifier" if any derived identifier appears."""
     matches = any(
         re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", folded_line)
         for value in identifiers
@@ -794,9 +794,7 @@ def _filesystem_files(root: Path) -> list[Path]:
     for directory, directory_names, file_names in os.walk(root, topdown=True):
         current = Path(directory)
         directory_names[:] = sorted(
-            name
-            for name in directory_names
-            if _is_traversable_directory(current, name)
+            name for name in directory_names if _is_traversable_directory(current, name)
         )
         for path in _regular_files_under(current, file_names):
             files.append(path)

@@ -19,12 +19,7 @@ import time
 from pathlib import Path
 
 import pytest
-
-pytestmark = pytest.mark.no_engine
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-
-from measurement_lite import (  # noqa: E402
+from measurement_lite import (
     TOO_LOADED_TO_MEASURE,
     TooLoadedToMeasureError,
     check_load,
@@ -35,6 +30,8 @@ from measurement_lite import (  # noqa: E402
     run,
     run_background,
 )
+
+pytestmark = pytest.mark.no_engine
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:

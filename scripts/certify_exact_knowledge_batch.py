@@ -401,7 +401,8 @@ def _run(binary: ExactBinary, binary_digest: str) -> dict[str, object]:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Certify seven-family KnowledgeBatch behavior on one exact artifact."
+        description="Certify seven-family KnowledgeBatch behavior on one exact "
+        "artifact."
     )
     parser.add_argument("--binary", required=True)
     parser.add_argument("--binary-sha256", required=True)

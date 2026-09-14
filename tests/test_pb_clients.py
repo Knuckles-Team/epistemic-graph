@@ -1,4 +1,5 @@
-"""B1.7 multi-language client drivers — Python bindings (CONCEPT:EG-KG.ingest.broker-streams-namespaces).
+"""B1.7 multi-language client drivers — Python bindings
+(CONCEPT:EG-KG.ingest.broker-streams-namespaces).
 
 Covers the thin Python surface added for the Program-B engine `Method`s that had no
 client binding: the native broker + append-log streams (EG-275..284/314), RBAC admin
@@ -69,7 +70,9 @@ _CANNED: dict[str, Any] = {
     "RbacAdmin": "grant_added",
     "Backup": {"nodes": 10, "shards": 1},
     "Restore": {
-        "stage_ref": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "stage_ref": (
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
         "restored_shards": 2,
     },
     "NlQuery": [{"id": "n1"}],
@@ -228,7 +231,9 @@ async def test_admin_and_nl_wire_shapes() -> None:
     assert by["NlQuery"][1] == "agent:planner"
     assert rep == {"nodes": 10, "shards": 1}
     assert res == {
-        "stage_ref": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "stage_ref": (
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
         "restored_shards": 2,
     }
     assert rows == [{"id": "n1"}]
@@ -347,7 +352,8 @@ def test_rbac_live(live_client) -> None:
 
 def test_backup_reaches_handler(live_client) -> None:
     """The backup binding reaches the engine handler. The suite's engine runs WITHOUT a
-    persist dir, so an on-disk backup isn't available — we assert the call round-trips to
+    persist dir, so an on-disk backup isn't available — we assert the call round-trips
+    to
     the handler (a report dict on a redb/persist build, or the documented clean error),
     never a client-side crash."""
     c = live_client
