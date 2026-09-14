@@ -38,67 +38,67 @@ pub enum ReduceAlgorithm {
 
 /// serde default k-NN neighbor count.
 #[cfg(feature = "mining")]
-fn default_knn_k() -> usize {
+pub(super) fn default_knn_k() -> usize {
     5
 }
 
 /// serde default Multinomial NB Laplace smoothing.
 #[cfg(feature = "mining")]
-fn default_nb_alpha() -> f64 {
+pub(super) fn default_nb_alpha() -> f64 {
     1.0
 }
 
 /// serde default logistic / SVC learning rate.
 #[cfg(feature = "mining")]
-fn default_class_lr() -> f64 {
+pub(super) fn default_class_lr() -> f64 {
     0.1
 }
 
 /// serde default logistic / SVC epochs.
 #[cfg(feature = "mining")]
-fn default_class_epochs() -> usize {
+pub(super) fn default_class_epochs() -> usize {
     300
 }
 
 /// serde default linear-SVC inverse-regularization C.
 #[cfg(feature = "mining")]
-fn default_svc_c() -> f64 {
+pub(super) fn default_svc_c() -> f64 {
     1.0
 }
 
 /// serde default reduced dimensionality.
 #[cfg(feature = "mining")]
-fn default_n_components() -> usize {
+pub(super) fn default_n_components() -> usize {
     2
 }
 
 /// serde default UMAP neighbor count.
 #[cfg(feature = "mining")]
-fn default_umap_neighbors() -> usize {
+pub(super) fn default_umap_neighbors() -> usize {
     15
 }
 
 /// serde default UMAP minimum embedded distance.
 #[cfg(feature = "mining")]
-fn default_umap_min_dist() -> f64 {
+pub(super) fn default_umap_min_dist() -> f64 {
     0.1
 }
 
 /// serde default t-SNE perplexity.
 #[cfg(feature = "mining")]
-fn default_tsne_perplexity() -> f64 {
+pub(super) fn default_tsne_perplexity() -> f64 {
     30.0
 }
 
 /// serde default UMAP / t-SNE epochs.
 #[cfg(feature = "mining")]
-fn default_reduce_epochs() -> usize {
+pub(super) fn default_reduce_epochs() -> usize {
     300
 }
 
 /// serde default t-SNE learning rate.
 #[cfg(feature = "mining")]
-fn default_tsne_lr() -> f64 {
+pub(super) fn default_tsne_lr() -> f64 {
     100.0
 }
 
@@ -210,7 +210,7 @@ fn default_gl_alpha() -> f64 {
     0.5
 }
 #[cfg(feature = "graphlearn")]
-fn default_gl_top_k() -> usize {
+pub(super) fn default_gl_top_k() -> usize {
     50
 }
 

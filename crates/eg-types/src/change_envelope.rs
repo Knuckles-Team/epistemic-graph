@@ -247,7 +247,7 @@ mod validation {
     // the original checks (identity/text/content/material/operations). Every
     // leaf below is the ORIGINAL check's body verbatim, moved, not rewritten
     // -- same conditions, same Err strings, same order.
-    fn validate_change_envelope(envelope: &ChangeEnvelope) -> Result<(), String> {
+    pub(super) fn validate_change_envelope(envelope: &ChangeEnvelope) -> Result<(), String> {
         validate_identity(envelope)?;
         validate_text_and_context(envelope)?;
         validate_content(envelope)?;

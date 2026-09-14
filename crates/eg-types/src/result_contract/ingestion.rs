@@ -1,5 +1,7 @@
 //! Declared results of the `ingestion` contract domain.
 
+#[cfg(feature = "modality-serving")]
+use super::Dynamic;
 #[cfg(feature = "asr-native")]
 use crate::asr_wire::AsrTranscription;
 use crate::ingestion_wire::{DiscoverHit, IndexResult, ParseResult, ScreenObservationResult};

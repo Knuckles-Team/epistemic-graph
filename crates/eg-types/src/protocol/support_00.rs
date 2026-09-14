@@ -74,7 +74,7 @@ pub enum SubgraphAlgorithm {
 
 /// serde default for [`Method::MineSubgraph::max_edges`].
 #[cfg(feature = "mining")]
-fn default_max_subgraph_edges() -> usize {
+pub(super) fn default_max_subgraph_edges() -> usize {
     3
 }
 
@@ -106,49 +106,49 @@ pub enum CommunityAlgorithm {
 
 /// serde default for [`Method::MineEntityResolve::bucket_precision`].
 #[cfg(feature = "mining")]
-fn default_bucket_precision() -> i32 {
+pub(super) fn default_bucket_precision() -> i32 {
     1
 }
 
 /// serde default for [`Method::MineEntityResolve::threshold`].
 #[cfg(feature = "mining")]
-fn default_match_threshold() -> f64 {
+pub(super) fn default_match_threshold() -> f64 {
     0.5
 }
 
 /// serde default for [`Method::MineRootCause::max_hops`].
 #[cfg(feature = "mining")]
-fn default_max_hops() -> usize {
+pub(super) fn default_max_hops() -> usize {
     5
 }
 
 /// serde default for [`Method::MineRootCause::decay`].
 #[cfg(feature = "mining")]
-fn default_decay() -> f64 {
+pub(super) fn default_decay() -> f64 {
     0.85
 }
 
 /// serde default for [`Method::MineRiskPropagation::damping`].
 #[cfg(feature = "mining")]
-fn default_damping() -> f64 {
+pub(super) fn default_damping() -> f64 {
     0.85
 }
 
 /// serde default for [`Method::MineRiskPropagation::tolerance`].
 #[cfg(feature = "mining")]
-fn default_risk_tolerance() -> f64 {
+pub(super) fn default_risk_tolerance() -> f64 {
     1e-9
 }
 
 /// serde default for [`Method::MineCommunity::resolution`].
 #[cfg(feature = "mining")]
-fn default_resolution() -> f64 {
+pub(super) fn default_resolution() -> f64 {
     1.0
 }
 
 /// serde default for [`Method::MineCommunity::weighted`].
-#[cfg(feature = "mining")]
-fn default_true() -> bool {
+#[cfg(any(feature = "mining", feature = "ml-pipeline"))]
+pub(super) fn default_true() -> bool {
     true
 }
 
@@ -170,73 +170,73 @@ pub struct TextSource {
 
 /// serde default topic count for `lda`/`nmf`.
 #[cfg(feature = "mining")]
-fn default_topic_k() -> usize {
+pub(super) fn default_topic_k() -> usize {
     3
 }
 
 /// serde default LDA symmetric doc-topic prior.
 #[cfg(feature = "mining")]
-fn default_lda_alpha() -> f64 {
+pub(super) fn default_lda_alpha() -> f64 {
     0.1
 }
 
 /// serde default LDA symmetric topic-term prior.
 #[cfg(feature = "mining")]
-fn default_lda_beta() -> f64 {
+pub(super) fn default_lda_beta() -> f64 {
     0.01
 }
 
 /// serde default Gibbs sweeps / NMF iterations.
 #[cfg(feature = "mining")]
-fn default_text_iterations() -> usize {
+pub(super) fn default_text_iterations() -> usize {
     200
 }
 
 /// serde default terms kept per document/topic row.
 #[cfg(feature = "mining")]
-fn default_top_n() -> usize {
+pub(super) fn default_top_n() -> usize {
     10
 }
 
 /// serde default for [`Method::MineForecast::horizon`].
 #[cfg(feature = "mining")]
-fn default_horizon() -> usize {
+pub(super) fn default_horizon() -> usize {
     10
 }
 
 /// serde default ARIMA autoregressive order.
 #[cfg(feature = "mining")]
-fn default_arima_p() -> usize {
+pub(super) fn default_arima_p() -> usize {
     1
 }
 
 /// serde default ARIMA differencing order.
 #[cfg(feature = "mining")]
-fn default_arima_d() -> usize {
+pub(super) fn default_arima_d() -> usize {
     1
 }
 
 /// serde default Holt-Winters level smoothing.
 #[cfg(feature = "mining")]
-fn default_hw_alpha() -> f64 {
+pub(super) fn default_hw_alpha() -> f64 {
     0.3
 }
 
 /// serde default Holt-Winters trend smoothing.
 #[cfg(feature = "mining")]
-fn default_hw_beta() -> f64 {
+pub(super) fn default_hw_beta() -> f64 {
     0.1
 }
 
 /// serde default Holt-Winters seasonal smoothing.
 #[cfg(feature = "mining")]
-fn default_hw_gamma() -> f64 {
+pub(super) fn default_hw_gamma() -> f64 {
     0.1
 }
 
 /// serde default two-sided forecast confidence level.
 #[cfg(feature = "mining")]
-fn default_confidence() -> f64 {
+pub(super) fn default_confidence() -> f64 {
     0.95
 }
 
@@ -377,48 +377,48 @@ pub enum SvmKernel {
 
 /// serde default for DBSCAN `eps`.
 #[cfg(feature = "mining")]
-fn default_eps() -> f64 {
+pub(super) fn default_eps() -> f64 {
     0.5
 }
 
 /// serde default for DBSCAN `min_pts`.
 #[cfg(feature = "mining")]
-fn default_min_pts() -> usize {
+pub(super) fn default_min_pts() -> usize {
     5
 }
 
 /// serde default cluster count `k`.
 #[cfg(feature = "mining")]
-fn default_k() -> usize {
+pub(super) fn default_k() -> usize {
     3
 }
 
 /// serde default EM / PAM iteration cap.
 #[cfg(feature = "mining")]
-fn default_max_iter() -> usize {
+pub(super) fn default_max_iter() -> usize {
     100
 }
 
 /// serde default LOF neighbor count.
 #[cfg(feature = "mining")]
-fn default_lof_k() -> usize {
+pub(super) fn default_lof_k() -> usize {
     20
 }
 
 /// serde default Isolation Forest tree count.
 #[cfg(feature = "mining")]
-fn default_n_trees() -> usize {
+pub(super) fn default_n_trees() -> usize {
     100
 }
 
 /// serde default Isolation Forest subsample size.
 #[cfg(feature = "mining")]
-fn default_sample_size() -> usize {
+pub(super) fn default_sample_size() -> usize {
     256
 }
 
 /// serde default One-Class SVM ν.
 #[cfg(feature = "mining")]
-fn default_nu() -> f64 {
+pub(super) fn default_nu() -> f64 {
     0.1
 }
