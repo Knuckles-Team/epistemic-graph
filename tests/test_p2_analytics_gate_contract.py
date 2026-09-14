@@ -147,7 +147,7 @@ def test_required_marker_table_shape_is_pinned() -> None:
             "crates/eg-jobs/src/store.rs",
             "crates/eg-types/src/jobs.rs",
             "src/raft/mod.rs",
-            "src/server/auth.rs",
+            "src/server/authority_context.rs",
             "src/server/dispatch.rs",
             "src/server/handlers/jobs.rs",
             "src/server/handlers/query.rs",

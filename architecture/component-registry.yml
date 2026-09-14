@@ -3783,6 +3783,8 @@ components:
       - "tests/audit_line_formatting.rs"
       - "tests/common"
       - "tests/conftest.py"
+      - "tests/_client_fixtures.py"
+      - "tests/_untyped.py"
       - "tests/e2e_ca_cdc_kafka.rs"
       - "tests/e2e_ca_lineage_kafka.rs"
       - "tests/edge_pagination.rs"

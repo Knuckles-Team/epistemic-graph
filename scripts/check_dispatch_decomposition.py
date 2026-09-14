@@ -164,24 +164,10 @@ LEGACY_COALESCER_METHODS = (
     "CompareAndSetNodeFields",
 )
 
-# The previous value (e695ad19...) matched NEITHER this tree NOR EG main
-# b2ac7b93 (72 predicates, 5264dc68...), so this fingerprint was already stale
-# before the RF-020 work and the gate was failing on both. Re-stamped against
-# the reviewed candidate before the KISS module split: 74 predicates. The split
-# preserves those predicates and adds two module-boundary cfg declarations, so
-# the compiler family then contained 76. Integration removes the sole
-# `all(feature = "redb", feature = "security")` predicate: every SPARQL HTTP
-# helper now also requires `feature = "sparql-http"`, so that over-broad
-# configuration is no longer compiler-visible. The two original additions
-# relative to main remain --
-#   any(feature = "amqp-wire", "mqtt-wire", "stomp-wire", "mssql-wire", "redis-wire")
-#   any(feature = "federation-search", feature = "nl-query")
+# The current merged dispatch compiler family has 75 distinct cfg predicates.
+# The SPARQL HTTP mutation path is constrained by its redb/security/raft
+# combinations, and the compiler-declared module walk is the source universe.
 CFG_FINGERPRINT = "35aeaf654089d9dc52eedef7da795bf39805eba94ceecc42bdb0c5f9c45304d8"
-# Integration removes the sole `all(feature = "redb", feature = "security")`
-# predicate: every SPARQL HTTP helper now also requires `sparql-http`. The
-# merged compiler family has 75 predicates after that tightening. The
-# `finalize_dispatch_response` fallback duplicate from the CI-green parent was
-# removed because the modular saga owns both redb and no-redb variants.
 PRODUCTION_FUNCTION_COUNT = 355
 PRODUCTION_FUNCTION_DIGEST = (
     "c425d7d9ec01712f70b9fdc81d750f274095a923fc467ddf41b76f9b32ea326d"

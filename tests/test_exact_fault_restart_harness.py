@@ -87,6 +87,10 @@ def test_store_checker_binds_commit_to_saga_call_path(monkeypatch) -> None:
     relative = "crates/eg-transaction/src/saga.rs"
     source = original(relative)
     marker = "commit(write, batch)?;"
+    # `saga.rs` calls this exact shape from more than one call site (the
+    # replay branch and the terminal step) -- replace() must remove ALL of
+    # them, or the un-mutated survivor keeps the joined `native_store` text
+    # containing the marker and the gate never reports it missing.
     source = source.replace(marker, "finish_removed(write, batch)?;")
 
     def read(path: str):

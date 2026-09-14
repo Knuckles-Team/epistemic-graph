@@ -533,18 +533,96 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
     )
     assert declared == Counter(
         [
+            # `semantic_index/` (native ANN store,
+            # EG-KG.sharding.semantic-embedding-store-backed) and `embedding.rs`
+            # are a later addition to this crate's f32 surface,
+            # entirely internal vector-store implementation -- never a Method
+            # request-body field -- so they join this census without changing the
+            # "Method carriers" check just below.
+            (
+                "embedding.rs",
+                "pub fn new(space: EmbeddingSpaceRef, values: Vec<f32>) "
+                "-> Result<Self, String> {",
+            ),
+            ("embedding.rs", "pub values: Vec<f32>,"),
+            ("embedding.rs", "values: vec![1.0, f32::NAN],"),
+            ("asr_wire.rs", "pub avg_logprob: Option<f32>,"),
+            ("asr_wire.rs", "pub no_speech_prob: Option<f32>,"),
+            ("ingestion_wire.rs", "pub score: f32,"),
             ("knowledge_stream.rs", "query_embedding: Vec<f32>,"),
+            ("messaging_wire.rs", "pub summary_embedding: Option<Vec<f32>>,"),
             ("modality.rs", "minimum_rms: f32,"),
-            ("protocol.rs", "embedding: Vec<f32>,"),
-            ("protocol.rs", "embedding: Vec<f32>,"),
-            ("protocol.rs", "query_embedding: Vec<f32>,"),
-            ("protocol.rs", "query_embedding: Vec<f32>,"),
-            ("protocol.rs", "summary_embedding: Option<Vec<f32>>,"),
+            ("protocol/method/method_03.rs", "summary_embedding: Option<Vec<f32>>,"),
+            ("protocol/method/method_03.rs", "embedding: Vec<f32>,"),
+            ("protocol/method/method_03.rs", "query_embedding: Vec<f32>,"),
+            ("protocol/method/method_03.rs", "query_embedding: Vec<f32>,"),
+            ("protocol/method/method_06.rs", "embedding: Vec<f32>,"),
+            (
+                "result_contract/ingestion.rs",
+                "SemanticSearch(SemanticSearch) => Raw<Vec<(String, f32)>>;",
+            ),
+            (
+                "result_contract/query.rs",
+                "UnifiedQuery(UnifiedQuery) => Raw<Vec<(String, Option<f32>)>>;",
+            ),
+            (
+                "result_contract/query.rs",
+                "UnifiedQueryText(UnifiedQueryText) => "
+                "Raw<Vec<(String, Option<f32>)>>;",
+            ),
+            (
+                "result_contract/query.rs",
+                "NlQuery(NlQuery) => Raw<Vec<(String, Option<f32>)>>;",
+            ),
+            (
+                "result_contract/query.rs",
+                "TxnUnifiedQuery(TxnUnifiedQuery) => Raw<Vec<(String, Option<f32>)>>;",
+            ),
+            (
+                "result_contract/query.rs",
+                "TxnUnifiedQueryText(TxnUnifiedQueryText) => "
+                "Raw<Vec<(String, Option<f32>)>>;",
+            ),
+            (
+                "semantic_index/codec.rs",
+                "cbor::finite_f32(narrowed).map_err(|_| "
+                'canonical_error("finite f32 representation"))',
+            ),
+            ("semantic_index/codec.rs", "let narrowed = value as f32;"),
+            ("semantic_index/codec.rs", "number_value(f32::from_bits(bits) as f64)"),
+            (
+                "semantic_index/codec.rs",
+                'return Err(canonical_error("finite f32 representation"));',
+            ),
+            ("semantic_index/digest.rs", "assert!(finite_f32(f32::NAN).is_err());"),
+            ("semantic_index/digest.rs", "f32::from_bits(decoded)"),
+            (
+                "semantic_index/digest.rs",
+                "fn exact_f16_bits(value: f32) -> Option<u16> {",
+            ),
+            (
+                "semantic_index/digest.rs",
+                "pub(crate) fn f16_to_f32(bits: u16) -> f32 {",
+            ),
+            (
+                "semantic_index/digest.rs",
+                "pub(crate) fn finite_f32(value: f32) -> Result<Vec<u8>, String> {",
+            ),
+            (
+                "semantic_index/identity.rs",
+                'SemanticVector::create(&binding, "article:1", "7", '
+                "vec![1.0, f32::NAN, 0.0]).is_err()",
+            ),
+            ("semantic_index/identity.rs", "pub values: Vec<f32>,"),
+            ("semantic_index/identity.rs", "values: Vec<f32>,"),
+            ("semantic_index/response.rs", "pub fused_score: f32,"),
+            ("semantic_index/response.rs", "pub lexical_score: Option<f32>,"),
+            ("semantic_index/response.rs", "pub vector_score: Option<f32>,"),
             # NodeData is a stored/result DTO, never nested in Method request bodies.
             ("types.rs", "pub embedding: Option<Vec<f32>>,"),
-            ("wire.rs", "FuseRrf { branches: Vec<Vec<Op>>, k: f32 },"),
-            ("wire.rs", "Rank { query: Vec<f32> },"),
-            ("wire.rs", "RankMmr { lambda: f32, k: usize },"),
+            ("wire_query_core.rs", "FuseRrf { branches: Vec<Vec<Op>>, k: f32 },"),
+            ("wire_query_core.rs", "Rank { query: Vec<f32> },"),
+            ("wire_query_core.rs", "RankMmr { lambda: f32, k: usize },"),
         ]
     )
     method_carriers = Counter(
@@ -555,7 +633,9 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
     )
     assert method_carriers == Counter(
         [
-            ("mutation_batch.rs", "pub method: Method,"),
+            # `mutation_batch.rs`'s `MutationOperation` moved to a
+            # `mutation_batch/model/` submodule during the module-tree split.
+            ("mutation_batch/model/request.rs", "pub method: Method,"),
             ("protocol.rs", "pub method: Method,"),
         ]
     )
@@ -608,18 +688,18 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
         "MineClassifyPredict",
         "MineReduce",
     )
-    protocol_lines = (root / "protocol.rs").read_text(encoding="utf-8").splitlines()
+    # The Method enum is assembled from typed chunks under
+    # `protocol/method/`; scan those source files rather than the facade
+    # module, which no longer contains the enum body after the module split.
+    protocol_root = root / "protocol" / "method"
+    protocol_lines = [
+        line
+        for path in _tracked_or_walked_rs_files(protocol_root)
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
     current_variant = ""
     declared_plan_methods: set[str] = set()
-    in_method_enum = False
     for line in protocol_lines:
-        if line == "pub enum Method {":
-            in_method_enum = True
-            continue
-        if not in_method_enum:
-            continue
-        if line == "}":
-            break
         variant = re.fullmatch(r"    ([A-Za-z][A-Za-z0-9_]*) \{", line)
         if variant:
             current_variant = variant.group(1)

@@ -57,18 +57,18 @@ class _CaptureClient(EpistemicGraphClient):
     ) -> Any:
         del graph, idempotency_key
         self.sent.append((method, params))
-        if method == "ClaimNext":
-            return None
-        if method == "Statechart":
-            return {"def_id": "def:fixture"}
-        if method == "CasWorkItemMetadata":
-            return {
+        fixture_results: dict[str, Any] = {
+            "ClaimNext": None,
+            "AddEdge": "edge:fixture",
+            "Statechart": {"def_id": "def:fixture"},
+            "CasWorkItemMetadata": {
                 "schema_version": "1",
                 "outcome": "applied",
                 "work_item_id": "work:fixture",
                 "changed_work_item_ids": ["work:fixture"],
-            }
-        return True
+            },
+        }
+        return fixture_results.get(method, True)
 
 
 def _capture_wire(method: str, params: dict[str, Any]) -> dict[str, Any]:
