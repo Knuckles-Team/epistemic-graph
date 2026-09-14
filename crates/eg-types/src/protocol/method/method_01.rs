@@ -1,6 +1,7 @@
 macro_rules! __eg_method_chunk_1 {
-    () => {
+    (@acc [$($variants:tt)*]) => {
         __eg_method_chunk_2!(@acc [
+$($variants)*
 
     /// Replace the monotonic observed retained footprint on one exact hold.
     /// `request.now_ms` is overwritten from the authoritative engine clock.

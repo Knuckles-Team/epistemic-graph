@@ -1,6 +1,7 @@
 macro_rules! __eg_method_chunk_9 {
-    () => {
+    (@acc [$($variants:tt)*]) => {
         __eg_method_chunk_10!(@acc [
+$($variants)*
 
 
     /// Sequential-pattern mining (CONCEPT:EG-KG.mining.prefixspan — Phase 4).

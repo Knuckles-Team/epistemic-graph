@@ -17,9 +17,11 @@ mod viz;
 
 #[cfg(feature = "modality-serving")]
 pub use modality::{
-    ServedModalityApplyDisposition, ServedModalityApplyOutcome, ServedModalityAuthority,
-    ServedModalityCapabilities, ServedModalityClassification, ServedModalityEvent,
-    ServedModalityEventKind, ServedModalityStats, ServedModalityTombstoneCollection,
+    ServedModalityApplyDisposition, ServedModalityApplyOutcome,
+    ServedModalityAuthority as ServedModalityAuthorityResult,
+    ServedModalityCapabilities as ServedModalityCapabilitiesResult, ServedModalityClassification,
+    ServedModalityEvent, ServedModalityEventKind, ServedModalityStats as ServedModalityStatsResult,
+    ServedModalityTombstoneCollection,
 };
 pub use semantic::{
     SemanticMutationReceipt, SemanticOutboxStatus, SemanticSqlSourcePageAdmission,
@@ -27,8 +29,8 @@ pub use semantic::{
 };
 #[cfg(feature = "viz")]
 pub use viz::{
-    VizCapabilityEntry, VizCapabilityMatrix, VizPayloadRef, VizProvenanceRecord, VizRenderResponse,
-    VizViewResult,
+    VizCapabilityEntry, VizCapabilityMatrix as VizCapabilityMatrixResult, VizPayloadRef,
+    VizProvenanceRecord, VizRenderResponse, VizViewResult,
 };
 
 method_results! {
@@ -64,7 +66,7 @@ method_results! {
     SemanticIndexListBindings(SemanticIndex / "list_bindings") => Raw<SemanticBindingPage>;
     SemanticIndexLiveGeneration(SemanticIndex / "live_generation") => Raw<Option<u64>>;
     #[cfg(feature = "modality-serving")]
-    ServedModalityAuthority(ServedModality / "authority") => Raw<ServedModalityAuthority>;
+    ServedModalityAuthority(ServedModality / "authority") => Raw<ServedModalityAuthorityResult>;
     #[cfg(feature = "modality-serving")]
     ServedModalityIngest(ServedModality / "ingest") => Raw<ServedModalityApplyOutcome>;
     #[cfg(feature = "modality-serving")]
@@ -82,15 +84,15 @@ method_results! {
     #[cfg(feature = "modality-serving")]
     ServedModalityEvents(ServedModality / "events") => Raw<Vec<ServedModalityEvent>>;
     #[cfg(feature = "modality-serving")]
-    ServedModalityStats(ServedModality / "stats") => Raw<ServedModalityStats>;
+    ServedModalityStats(ServedModality / "stats") => Raw<ServedModalityStatsResult>;
     #[cfg(feature = "modality-serving")]
     ServedModalityCollectTombstones(ServedModality / "collect_tombstones") => Json<ServedModalityTombstoneCollection>;
     #[cfg(feature = "modality-serving")]
-    ServedModalityCapabilities(ServedModality / "capabilities") => Json<ServedModalityCapabilities>;
+    ServedModalityCapabilities(ServedModality / "capabilities") => Json<ServedModalityCapabilitiesResult>;
     #[cfg(feature = "viz")]
     VizRender(Viz / "Render") => Raw<VizRenderResponse>;
     #[cfg(feature = "viz")]
-    VizCapabilityMatrix(Viz / "CapabilityMatrix") => Raw<VizCapabilityMatrix>;
+    VizCapabilityMatrix(Viz / "CapabilityMatrix") => Raw<VizCapabilityMatrixResult>;
     #[cfg(feature = "viz")]
     VizRenderProvenance(Viz / "RenderProvenance") => Raw<Option<VizProvenanceRecord>>;
     #[cfg(feature = "quantum")]

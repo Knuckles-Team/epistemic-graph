@@ -9,7 +9,7 @@ use super::ModalityAuthority;
 use crate::protocol::ResultPayload;
 
 pub(super) fn encode_authority(authority: &ModalityAuthority) -> Result<ResultPayload, String> {
-    ResultPayload::of::<results::ServedModalityAuthority>(results::ServedModalityAuthority {
+    ResultPayload::of::<results::ServedModalityAuthority>(results::ServedModalityAuthorityResult {
         tenant_ref: authority.scope.tenant_ref.as_str().to_owned(),
         access_policy_ref: authority.scope.access_policy_ref.as_str().to_owned(),
         purpose_ref: authority.scope.purpose_ref.as_str().to_owned(),
@@ -66,7 +66,7 @@ pub(super) fn encode_events(events: Vec<ServedEvent>) -> Result<ResultPayload, S
 }
 
 pub(super) fn encode_runtime_stats(stats: ServedRuntimeStats) -> Result<ResultPayload, String> {
-    ResultPayload::of::<results::ServedModalityStats>(results::ServedModalityStats {
+    ResultPayload::of::<results::ServedModalityStats>(results::ServedModalityStatsResult {
         active_records: stats.active_records,
         total_records: stats.total_records,
         tombstoned_records: stats.tombstoned_records,
@@ -90,12 +90,14 @@ pub(super) fn encode_capability_report(
     component_not_applicable: usize,
     component_total: usize,
 ) -> Result<ResultPayload, String> {
-    ResultPayload::of::<results::ServedModalityCapabilities>(results::ServedModalityCapabilities {
-        component_ready: true,
-        component_pass,
-        component_not_applicable,
-        component_total,
-    })
+    ResultPayload::of::<results::ServedModalityCapabilities>(
+        results::ServedModalityCapabilitiesResult {
+            component_ready: true,
+            component_pass,
+            component_not_applicable,
+            component_total,
+        },
+    )
 }
 
 fn apply_outcome<M>(outcome: ApplyOutcome) -> Result<ResultPayload, String>

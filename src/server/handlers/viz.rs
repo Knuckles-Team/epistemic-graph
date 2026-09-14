@@ -69,7 +69,7 @@ use tokio::sync::RwLock;
 
 use eg_types::result_contract::ingestion as viz_results;
 use eg_types::result_contract::ingestion::{
-    VizCapabilityEntry, VizCapabilityMatrix, VizPayloadRef,
+    VizCapabilityEntry, VizCapabilityMatrixResult, VizPayloadRef,
     VizProvenanceRecord as VizProvenanceResult, VizRenderResponse as VizRenderResult,
     VizViewResult,
 };
@@ -83,7 +83,7 @@ use eg_viz_export::ColumnStoreExportBackend;
 use crate::protocol::{Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::state::ServerState;
-use crate::server::viz_engine::{CachedRender, VizEngineState, render_cache_key};
+use crate::server::viz_engine::{render_cache_key, CachedRender, VizEngineState};
 use crate::server::viz_provenance::VizProvenanceRecord;
 
 const MIN_CANVAS_PX: u32 = 16;
@@ -191,13 +191,15 @@ struct VizRenderResponse {
     bytes: Vec<u8>,
 }
 
-fn capability_matrix_result(matrix: &CapabilityMatrix) -> Result<VizCapabilityMatrix, String> {
+fn capability_matrix_result(
+    matrix: &CapabilityMatrix,
+) -> Result<VizCapabilityMatrixResult, String> {
     matrix
         .entries()
         .iter()
         .map(capability_entry_result)
         .collect::<Result<Vec<_>, _>>()
-        .map(|entries| VizCapabilityMatrix { entries })
+        .map(|entries| VizCapabilityMatrixResult { entries })
 }
 
 fn capability_entry_result(

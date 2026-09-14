@@ -33,7 +33,15 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
+
+if TYPE_CHECKING:
+    from _git_subprocess_env import sanitized_git_env
+else:
+    try:
+        from _git_subprocess_env import sanitized_git_env
+    except ModuleNotFoundError:  # imported as ``scripts.push_gate_evidence``
+        from scripts._git_subprocess_env import sanitized_git_env
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "epistemic-graph.push-gate-evidence/v1"
@@ -134,11 +142,23 @@ def _digest(value: object) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
-def _git(arguments: Sequence[str]) -> bytes:
+def _sanitized_git_environment(
+    environment: Mapping[str, str] | None,
+) -> dict[str, str]:
+    base = None if environment is None else dict(environment)
+    return sanitized_git_env(base=base)
+
+
+def _git(
+    arguments: Sequence[str],
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> bytes:
     try:
         result = subprocess.run(
             ["git", *arguments],
             cwd=ROOT,
+            env=_sanitized_git_environment(environment),
             check=True,
             capture_output=True,
             timeout=120,
@@ -152,6 +172,7 @@ def _git_digest(
     arguments: Sequence[str],
     *,
     maximum: int = MAX_UNTRACKED_TOTAL_BYTES,
+    environment: Mapping[str, str] | None = None,
 ) -> str:
     """Hash Git output without allowing a large dirty diff to exhaust RAM."""
 
@@ -159,6 +180,7 @@ def _git_digest(
         process = subprocess.Popen(
             ["git", *arguments],
             cwd=ROOT,
+            env=_sanitized_git_environment(environment),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
@@ -204,8 +226,13 @@ def _regular_bytes(path: Path, *, maximum: int = MAX_UNTRACKED_FILE_BYTES) -> by
         raise EvidenceError("evidence input is unavailable") from exc
 
 
-def _untracked_digest() -> str:
-    names = _git(["ls-files", "--others", "--exclude-standard", "-z"])
+def _untracked_digest(
+    environment: Mapping[str, str] | None = None,
+) -> str:
+    names = _git(
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+        environment=environment,
+    )
     digest = hashlib.sha256()
     total = 0
     for raw_name in names.split(b"\0"):
@@ -314,12 +341,26 @@ def source_fingerprint(environment: Mapping[str, str] | None = None) -> dict[str
     process starts.  Those command-specific values remain exact cache keys.
     """
 
-    revision = _git(["rev-parse", "HEAD"]).decode("ascii", errors="strict").strip()
-    tree = _git(["rev-parse", "HEAD^{tree}"]).decode("ascii", errors="strict").strip()
+    revision = (
+        _git(["rev-parse", "HEAD"], environment=environment)
+        .decode("ascii", errors="strict")
+        .strip()
+    )
+    tree = (
+        _git(["rev-parse", "HEAD^{tree}"], environment=environment)
+        .decode("ascii", errors="strict")
+        .strip()
+    )
     dirty = {
-        "workingTree": _git_digest(["diff", "--no-ext-diff", "--binary", "HEAD"]),
-        "index": _git_digest(["diff", "--no-ext-diff", "--binary", "--cached"]),
-        "untracked": _untracked_digest(),
+        "workingTree": _git_digest(
+            ["diff", "--no-ext-diff", "--binary", "HEAD"],
+            environment=environment,
+        ),
+        "index": _git_digest(
+            ["diff", "--no-ext-diff", "--binary", "--cached"],
+            environment=environment,
+        ),
+        "untracked": _untracked_digest(environment),
     }
     lockfile = ROOT / "Cargo.lock"
     return {

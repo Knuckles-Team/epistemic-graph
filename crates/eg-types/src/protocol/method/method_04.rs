@@ -1,6 +1,7 @@
 macro_rules! __eg_method_chunk_4 {
-    () => {
+    (@acc [$($variants:tt)*]) => {
         __eg_method_chunk_5!(@acc [
+$($variants)*
 
     FinanceStressTest {
         weights: Vec<f64>,

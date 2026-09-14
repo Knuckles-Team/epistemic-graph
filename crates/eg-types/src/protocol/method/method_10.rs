@@ -1,6 +1,7 @@
 macro_rules! __eg_method_chunk_10 {
-    () => {
+    (@acc [$($variants:tt)*]) => {
         __eg_method_finish!(@acc [
+$($variants)*
 
 
     /// Community detection as a mining family (CONCEPT:EG-KG.mining.community-writeback):

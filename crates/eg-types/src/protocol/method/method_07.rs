@@ -1,6 +1,7 @@
 macro_rules! __eg_method_chunk_7 {
-    () => {
+    (@acc [$($variants:tt)*]) => {
         __eg_method_chunk_8!(@acc [
+$($variants)*
 
     /// Atomic compare-and-swap: set `(namespace, key)` to `new` (`None` ⇒ delete) iff
     /// the current value equals `expected` (both absent ⇒ the key must not exist).

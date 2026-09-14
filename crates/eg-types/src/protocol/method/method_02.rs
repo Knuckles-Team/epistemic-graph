@@ -1,6 +1,7 @@
 macro_rules! __eg_method_chunk_2 {
-    () => {
+    (@acc [$($variants:tt)*]) => {
         __eg_method_chunk_3!(@acc [
+$($variants)*
 
 
     // ── Neighbor Queries ─────────────────────────────────────────────

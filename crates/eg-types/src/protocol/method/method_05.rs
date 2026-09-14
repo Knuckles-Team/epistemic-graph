@@ -1,6 +1,7 @@
 macro_rules! __eg_method_chunk_5 {
-    () => {
+    (@acc [$($variants:tt)*]) => {
         __eg_method_chunk_6!(@acc [
+$($variants)*
 
 
     /// Native visualization render surface (D-VZ-1 lanes V4 "engine integration" /

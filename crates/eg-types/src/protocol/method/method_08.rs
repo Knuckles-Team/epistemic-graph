@@ -1,6 +1,7 @@
 macro_rules! __eg_method_chunk_8 {
-    () => {
+    (@acc [$($variants:tt)*]) => {
         __eg_method_chunk_9!(@acc [
+$($variants)*
 
     /// Poll a CEP subscription for the matches pushed since the last poll
     /// (CONCEPT:EG-KG.query.protocol-types), blocking up to `timeout_ms` for the FIRST one if none are ready

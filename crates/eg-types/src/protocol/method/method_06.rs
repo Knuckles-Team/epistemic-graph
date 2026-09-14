@@ -1,6 +1,7 @@
 macro_rules! __eg_method_chunk_6 {
-    () => {
+    (@acc [$($variants:tt)*]) => {
         __eg_method_chunk_7!(@acc [
+$($variants)*
 
     /// Read a plan-backed materialized view's current rows by name
     /// (`ResultPayload::Raw`, `[id, score|nil]`). Serves the cached result when fresh;
