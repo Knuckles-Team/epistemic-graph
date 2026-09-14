@@ -181,13 +181,14 @@
 //! deliberately NOT `eg_audio::asr` itself, which stays dependency-light and
 //! I/O-free per its own module doc. [`WhisperAsrProvider::transcribe_streaming`]
 //! processes bounded audio windows sequentially, invoking `on_partial` after
-//! each window and honoring cancellation between AND (via whisper.cpp's abort
-//! callback) *during* a window — see that method's doc for exactly what
-//! "streaming-capable" means here versus GOC-35's future full-duplex
-//! low-latency path. Every constructed [`eg_audio::asr::AsrSegment`] is passed
-//! through the frozen contract's own `AsrSegment::validate()` before being
-//! accepted, so a whisper.cpp bug that emitted an inconsistent timestamp
-//! would be caught here rather than silently propagated. This crate does
+//! each window and honoring cancellation between windows and at whisper.cpp
+//! callback checkpoints between native graph/decode steps — see that method's
+//! doc for exactly what "streaming-capable" means here versus GOC-35's future
+//! full-duplex low-latency path. Every constructed
+//! [`eg_audio::asr::AsrSegment`] is passed through the frozen contract's own
+//! `AsrSegment::validate()` before being accepted, so a whisper.cpp bug that
+//! emitted an inconsistent timestamp would be caught here rather than silently
+//! propagated. This crate does
 //! **not** call `eg_audio::asr::finalize_result`/`authorize_carrier`: those
 //! require a governed `CarrierRef` (tenant/actor/consent/purpose/trace) bound
 //! to a real GOC-15/16 authorization decision and a GOC-32 `AudioSourceRef`,
@@ -195,6 +196,7 @@
 //! policy-authorized `asr.result.v1` commit is future worker/AU-orchestration
 //! work (W03/W06 in the lane doc), explicitly out of scope here.
 
+mod abort_bridge;
 mod cpu_budget;
 mod model;
 mod wav;
@@ -206,17 +208,47 @@ use eg_audio::asr::{
     AsrBoundedId, AsrError, AsrSegment, AsrTask, LanguageTag, ModelManifestRef, Quality,
     SegmentSequence, SegmentTiming, WordSpan,
 };
-use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+use whisper_rs::{
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperSegment,
+    WhisperState,
+};
 
 pub use model::{verify_model, VerifiedModel};
 pub use wav::{decode_wav_16k_mono, DecodedAudio};
 
+/// Shared state behind a [`CancelFlag`]. Kept as its own type (rather than a
+/// bare `Arc<AtomicBool>`) so `abort_bridge::install` has one precisely typed
+/// pointee to derive its raw pointer from and cast back to. The test-only flag
+/// deterministically arms one native callback checkpoint without exposing a
+/// caller-supplied closure across the FFI boundary.
+#[derive(Default)]
+pub(crate) struct CancelState {
+    cancelled: AtomicBool,
+    #[cfg(test)]
+    cancel_on_next_poll: AtomicBool,
+}
+
+impl CancelState {
+    /// Report cancellation at a native checkpoint. Unit tests may atomically
+    /// arm the next checkpoint itself as the cancellation event; production
+    /// builds contain only the caller-controlled cancellation flag.
+    fn poll(&self) -> bool {
+        #[cfg(test)]
+        if self.cancel_on_next_poll.swap(false, Ordering::Relaxed) {
+            self.cancelled.store(true, Ordering::Relaxed);
+        }
+        self.cancelled.load(Ordering::Relaxed)
+    }
+}
+
 /// Cooperative cancellation flag shared between a caller and an in-flight
 /// [`WhisperAsrProvider::transcribe_streaming`] call. Checked between every
-/// window AND wired into whisper.cpp's own abort callback so a long window
-/// can be interrupted mid-decode, not only at the next window boundary.
+/// window AND wired into whisper.cpp's own abort callback (`abort_bridge`)
+/// so a long window can stop at whisper.cpp's callback checkpoints between
+/// graph-compute or decode steps, without waiting for the next window. The
+/// callback cannot preempt a graph step that is already executing.
 #[derive(Clone, Default)]
-pub struct CancelFlag(Arc<AtomicBool>);
+pub struct CancelFlag(Arc<CancelState>);
 
 impl CancelFlag {
     pub fn new() -> Self {
@@ -224,11 +256,29 @@ impl CancelFlag {
     }
 
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::Relaxed);
+        self.0.cancelled.store(true, Ordering::Relaxed);
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
+        self.0.cancelled.load(Ordering::Relaxed)
+    }
+
+    /// Arm a deterministic cancellation at the next native callback checkpoint.
+    /// Private test instrumentation: no user closure can run across the FFI boundary.
+    #[cfg(test)]
+    fn cancel_on_next_native_poll(&self) {
+        self.0.cancel_on_next_poll.store(true, Ordering::Relaxed);
+    }
+
+    /// Disarm test instrumentation when its one window ends before a callback.
+    #[cfg(test)]
+    fn clear_native_poll_arm(&self) {
+        self.0.cancel_on_next_poll.store(false, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    fn native_poll_is_armed(&self) -> bool {
+        self.0.cancel_on_next_poll.load(Ordering::Relaxed)
     }
 }
 
@@ -298,6 +348,26 @@ pub struct WhisperAsrProvider {
     manifest: ModelManifestRef,
 }
 
+#[derive(Default)]
+struct TranscriptionProgress {
+    segments: Vec<TranscribedSegment>,
+    next_sequence: u64,
+    detected_language: Option<String>,
+}
+
+struct WindowContext<'a> {
+    offset_ms: i64,
+    samples: &'a [f32],
+    options: &'a TranscribeOptions,
+    language: Option<&'a str>,
+    manifest: &'a ModelManifestRef,
+}
+
+struct AcceptedSegment {
+    transcript: TranscribedSegment,
+    partial: StreamingPartial,
+}
+
 fn bounded(value: &str) -> Result<AsrBoundedId, AsrError> {
     AsrBoundedId::new(value).map_err(|_| AsrError::MalformedRequest {
         reason: "generated identifier failed bounded-id validation",
@@ -342,9 +412,10 @@ impl WhisperAsrProvider {
     /// bounded windows of `opts.window_ms`. `on_partial` is invoked once per
     /// newly produced segment, immediately after the window that produced it
     /// completes — this is the "streaming-capable" contract: a caller gets
-    /// progressive output as bounded windows complete, and MAY cancel between
-    /// (or, via whisper.cpp's own abort callback, during) any window rather
-    /// than only ever seeing output after a complete-file transcode. Returns
+    /// progressive output as bounded windows complete. A caller MAY cancel at
+    /// a window boundary or at whisper.cpp's callback checkpoints between
+    /// native graph/decode steps; cancellation cannot preempt a graph step
+    /// already executing. Returns
     /// `Err(AsrError::Cancelled)` — never a partial success dressed as
     /// complete — if `cancel` was set before every segment finished.
     pub fn transcribe_streaming(
@@ -354,181 +425,250 @@ impl WhisperAsrProvider {
         cancel: &CancelFlag,
         mut on_partial: impl FnMut(StreamingPartial),
     ) -> Result<TranscriptionOutcome, AsrError> {
-        if audio.samples.is_empty() {
-            return Err(AsrError::MalformedRequest {
-                reason: "zero-length decoded audio",
-            });
-        }
-        if opts.window_ms == 0 {
-            return Err(AsrError::MalformedRequest {
-                reason: "window_ms must be strictly positive",
-            });
-        }
-        let window_samples = (opts.window_ms as usize).saturating_mul(16); // 16 samples/ms @ 16kHz
-        if window_samples == 0 {
-            return Err(AsrError::MalformedRequest {
-                reason: "window_ms too small to cover a single sample",
-            });
-        }
-
+        let window_samples = validate_transcription_request(audio, opts)?;
         let mut state = self
             .ctx
             .create_state()
             .map_err(|_| AsrError::ModelUnavailable {
                 reason: "whisper.cpp state allocation failed",
             })?;
-
-        let mut segments = Vec::new();
-        let mut next_sequence: u64 = 0;
-        let mut detected_language: Option<String> = None;
-        let mut all_timed = true;
-        // BUG-283: this fleet's containerd does not virtualize /proc, so
-        // `available_parallelism()`/`nproc` alone report the HOST's CPU
-        // count even inside a CPU-limited pod — see `cpu_budget`'s module
-        // doc. Use the real cgroup-aware budget instead of trusting the OS
-        // view directly.
-        let n_threads = cpu_budget::effective_thread_budget();
-
-        if cancel.is_cancelled() {
-            return Err(AsrError::Cancelled);
-        }
-
+        let mut progress = TranscriptionProgress::default();
+        ensure_active(cancel)?;
         for (window_index, window) in audio.samples.chunks(window_samples).enumerate() {
-            if cancel.is_cancelled() {
-                return Err(AsrError::Cancelled);
-            }
-            let window_offset_ms = (window_index * opts.window_ms as usize) as i64;
-
-            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-            params.set_translate(opts.translate);
-            params.set_token_timestamps(opts.word_timing);
-            params.set_single_segment(false);
-            params.set_no_context(true);
-            params.set_print_progress(false);
-            params.set_print_special(false);
-            params.set_n_threads(n_threads);
-            if let Some(lang) = opts.language.as_deref() {
-                params.set_language(Some(lang));
-            }
-            let window_cancel = cancel.clone();
-            params.set_abort_callback_safe(move || window_cancel.is_cancelled());
-
-            state.full(params, window).map_err(|_| AsrError::Degraded)?;
-
-            if cancel.is_cancelled() {
-                return Err(AsrError::Cancelled);
-            }
-
-            if detected_language.is_none() {
-                let lang_id = state.full_lang_id_from_state();
-                detected_language = Some(
-                    whisper_rs::get_lang_str(lang_id)
-                        .map(|s| s.to_string())
-                        .or_else(|| opts.language.clone())
-                        .unwrap_or_else(|| "unknown".to_string()),
-                );
-            }
-
-            let n_segments = state.full_n_segments();
-            for i in 0..n_segments {
-                let Some(seg) = state.get_segment(i) else {
-                    continue;
-                };
-                let text = seg
-                    .to_str_lossy()
-                    .map(|c| c.into_owned())
-                    .unwrap_or_default();
-                let seg_start = window_offset_ms + seg.start_timestamp() * 10;
-                let seg_end = window_offset_ms + seg.end_timestamp() * 10;
-                if seg_end <= seg_start {
-                    // A malformed/degenerate provider timestamp: never accept
-                    // it as complete output. Skip this segment rather than
-                    // constructing a `SegmentTiming` the frozen contract's
-                    // own `validate()` would reject.
-                    continue;
-                }
-                let words = if opts.word_timing {
-                    merge_tokens_into_words(&seg, window_offset_ms)
-                } else {
-                    Vec::new()
-                };
-                let timing = SegmentTiming::Provided {
-                    start_ms: seg_start as u64,
-                    end_ms: seg_end as u64,
-                    words,
-                };
-                if timing.validate().is_err() {
-                    // Provider produced internally-inconsistent word spans
-                    // (e.g. a token-timestamp glitch): fail closed on THIS
-                    // segment's word breakdown rather than propagate it, but
-                    // keep the segment's own honest start/end.
-                    continue;
-                }
-                let quality = segment_quality(&seg);
-                if quality.validate().is_err() {
-                    continue;
-                }
-                let sequence = SegmentSequence(next_sequence);
-                next_sequence += 1;
-                let asr_segment = AsrSegment {
-                    segment_id: bounded(&format!("seg-{sequence:06}", sequence = sequence.0))?,
-                    request_id: bounded("eg-asr-whisper-rpc")?,
-                    sequence,
-                    source: eg_audio::asr::AudioSourceRef {
-                        stream_id: bounded("eg-asr-whisper-rpc")?,
-                        generation: eg_audio::ingress::StreamGeneration(1),
-                        start_ms: seg_start as u64,
-                        end_ms: seg_end as u64,
-                        source_digest: sha256_hex_of_window(window),
-                    },
-                    text_ref: bounded(&format!("text-{sequence:06}", sequence = sequence.0))?,
-                    language: language_tag(detected_language.as_deref())?,
-                    task: if opts.translate {
-                        AsrTask::Translate
-                    } else {
-                        AsrTask::Transcribe
-                    },
-                    timing: timing.clone(),
-                    quality: quality.clone(),
-                    model_manifest: self.manifest.clone(),
-                    supersedes: None,
-                };
-                if asr_segment.validate().is_err() {
-                    continue;
-                }
-                if !matches!(timing, SegmentTiming::Provided { .. }) {
-                    all_timed = false;
-                }
-                on_partial(StreamingPartial {
-                    sequence,
-                    text: text.clone(),
-                    timing: timing.clone(),
-                    quality: quality.clone(),
-                });
-                segments.push(TranscribedSegment {
-                    segment: asr_segment,
-                    text,
-                });
-            }
+            ensure_active(cancel)?;
+            transcribe_window(&mut state, window, opts, cancel)?;
+            let offset_ms = (window_index * opts.window_ms as usize) as i64;
+            progress.accept_window(
+                &state,
+                window,
+                offset_ms,
+                opts,
+                &self.manifest,
+                &mut on_partial,
+            )?;
         }
+        progress.finish(cancel)
+    }
+}
 
-        if cancel.is_cancelled() {
-            return Err(AsrError::Cancelled);
+fn validate_transcription_request(
+    audio: &DecodedAudio,
+    options: &TranscribeOptions,
+) -> Result<usize, AsrError> {
+    if audio.samples.is_empty() {
+        return Err(AsrError::MalformedRequest {
+            reason: "zero-length decoded audio",
+        });
+    }
+    if options.window_ms == 0 {
+        return Err(AsrError::MalformedRequest {
+            reason: "window_ms must be strictly positive",
+        });
+    }
+    let samples = (options.window_ms as usize).saturating_mul(16);
+    (samples > 0)
+        .then_some(samples)
+        .ok_or(AsrError::MalformedRequest {
+            reason: "window_ms too small to cover a single sample",
+        })
+}
+
+fn ensure_active(cancel: &CancelFlag) -> Result<(), AsrError> {
+    (!cancel.is_cancelled())
+        .then_some(())
+        .ok_or(AsrError::Cancelled)
+}
+
+fn transcribe_window(
+    state: &mut WhisperState,
+    samples: &[f32],
+    options: &TranscribeOptions,
+    cancel: &CancelFlag,
+) -> Result<(), AsrError> {
+    let mut params = window_params(options);
+    abort_bridge::install(&mut params, cancel);
+    let result = state.full(params, samples);
+    #[cfg(test)]
+    cancel.clear_native_poll_arm();
+    if result.is_ok() {
+        return ensure_active(cancel);
+    }
+    // whisper.cpp uses the same error variants for an abort and a genuine
+    // encode/decode failure. The flag is therefore the authoritative way to
+    // distinguish a requested cancellation from provider degradation.
+    if cancel.is_cancelled() {
+        Err(AsrError::Cancelled)
+    } else {
+        Err(AsrError::Degraded)
+    }
+}
+
+fn window_params(options: &TranscribeOptions) -> FullParams<'_, 'static> {
+    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    params.set_translate(options.translate);
+    params.set_token_timestamps(options.word_timing);
+    params.set_single_segment(false);
+    params.set_no_context(true);
+    params.set_print_progress(false);
+    params.set_print_special(false);
+    // BUG-283: `/proc` can expose host CPUs inside a limited container, so
+    // use the cgroup-aware budget rather than `available_parallelism()`.
+    params.set_n_threads(cpu_budget::effective_thread_budget());
+    if let Some(language) = options.language.as_deref() {
+        params.set_language(Some(language));
+    }
+    params
+}
+
+impl TranscriptionProgress {
+    fn accept_window(
+        &mut self,
+        state: &WhisperState,
+        samples: &[f32],
+        offset_ms: i64,
+        options: &TranscribeOptions,
+        manifest: &ModelManifestRef,
+        on_partial: &mut impl FnMut(StreamingPartial),
+    ) -> Result<(), AsrError> {
+        self.detect_language(state, options);
+        let context = WindowContext {
+            offset_ms,
+            samples,
+            options,
+            language: self.detected_language.as_deref(),
+            manifest,
+        };
+        for index in 0..state.full_n_segments() {
+            let Some(segment) = state.get_segment(index) else {
+                continue;
+            };
+            let sequence = SegmentSequence(self.next_sequence);
+            let Some(accepted) = accepted_segment(&segment, sequence, &context)? else {
+                continue;
+            };
+            self.next_sequence += 1;
+            on_partial(accepted.partial);
+            self.segments.push(accepted.transcript);
         }
-        if segments.is_empty() {
-            // Honest failure, not an empty-success: silence/no-speech input
-            // produces zero accepted segments, and this is reported as a
-            // distinct typed condition rather than an empty transcript that
-            // would read as "successfully transcribed nothing said".
+        Ok(())
+    }
+
+    fn detect_language(&mut self, state: &WhisperState, options: &TranscribeOptions) {
+        if self.detected_language.is_some() {
+            return;
+        }
+        let detected = whisper_rs::get_lang_str(state.full_lang_id_from_state())
+            .map(str::to_string)
+            .or_else(|| options.language.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+        self.detected_language = Some(detected);
+    }
+
+    fn finish(self, cancel: &CancelFlag) -> Result<TranscriptionOutcome, AsrError> {
+        ensure_active(cancel)?;
+        if self.segments.is_empty() {
+            // Silence/no-speech is an honest typed failure, never an empty
+            // transcript presented as completed work.
             return Err(AsrError::QualityUnavailable);
         }
-
         Ok(TranscriptionOutcome {
-            segments,
-            language: detected_language.unwrap_or_else(|| "unknown".to_string()),
-            timing_available: all_timed,
+            segments: self.segments,
+            language: self
+                .detected_language
+                .unwrap_or_else(|| "unknown".to_string()),
+            timing_available: true,
         })
     }
+}
+
+fn accepted_segment(
+    segment: &WhisperSegment<'_>,
+    sequence: SegmentSequence,
+    context: &WindowContext<'_>,
+) -> Result<Option<AcceptedSegment>, AsrError> {
+    let Some((timing, quality)) = accepted_evidence(segment, context) else {
+        return Ok(None);
+    };
+    let text = segment
+        .to_str_lossy()
+        .map(|value| value.into_owned())
+        .unwrap_or_default();
+    let asr_segment = build_asr_segment(sequence, &timing, &quality, context)?;
+    if asr_segment.validate().is_err() {
+        return Ok(None);
+    }
+    Ok(Some(AcceptedSegment {
+        transcript: TranscribedSegment {
+            segment: asr_segment,
+            text: text.clone(),
+        },
+        partial: StreamingPartial {
+            sequence,
+            text,
+            timing,
+            quality,
+        },
+    }))
+}
+
+fn accepted_evidence(
+    segment: &WhisperSegment<'_>,
+    context: &WindowContext<'_>,
+) -> Option<(SegmentTiming, Quality)> {
+    let start_ms = context.offset_ms + segment.start_timestamp() * 10;
+    let end_ms = context.offset_ms + segment.end_timestamp() * 10;
+    if end_ms <= start_ms {
+        return None;
+    }
+    let words = if context.options.word_timing {
+        merge_tokens_into_words(segment, context.offset_ms)
+    } else {
+        Vec::new()
+    };
+    let timing = SegmentTiming::Provided {
+        start_ms: start_ms as u64,
+        end_ms: end_ms as u64,
+        words,
+    };
+    let quality = segment_quality(segment);
+    (timing.validate().is_ok() && quality.validate().is_ok()).then_some((timing, quality))
+}
+
+fn build_asr_segment(
+    sequence: SegmentSequence,
+    timing: &SegmentTiming,
+    quality: &Quality,
+    context: &WindowContext<'_>,
+) -> Result<AsrSegment, AsrError> {
+    let SegmentTiming::Provided {
+        start_ms, end_ms, ..
+    } = timing
+    else {
+        return Err(AsrError::QualityUnavailable);
+    };
+    Ok(AsrSegment {
+        segment_id: bounded(&format!("seg-{sequence:06}", sequence = sequence.0))?,
+        request_id: bounded("eg-asr-whisper-rpc")?,
+        sequence,
+        source: eg_audio::asr::AudioSourceRef {
+            stream_id: bounded("eg-asr-whisper-rpc")?,
+            generation: eg_audio::ingress::StreamGeneration(1),
+            start_ms: *start_ms,
+            end_ms: *end_ms,
+            source_digest: sha256_hex_of_window(context.samples),
+        },
+        text_ref: bounded(&format!("text-{sequence:06}", sequence = sequence.0))?,
+        language: language_tag(context.language)?,
+        task: if context.options.translate {
+            AsrTask::Translate
+        } else {
+            AsrTask::Transcribe
+        },
+        timing: timing.clone(),
+        quality: quality.clone(),
+        model_manifest: context.manifest.clone(),
+        supersedes: None,
+    })
 }
 
 fn language_tag(detected: Option<&str>) -> Result<LanguageTag, AsrError> {
@@ -544,7 +684,7 @@ fn language_tag(detected: Option<&str>) -> Result<LanguageTag, AsrError> {
 /// tokens to average (should not happen for non-empty text, but never
 /// assumed), quality is honestly [`Quality::Unavailable`] rather than a
 /// fabricated number.
-fn segment_quality(seg: &whisper_rs::WhisperSegment<'_>) -> Quality {
+fn segment_quality(seg: &WhisperSegment<'_>) -> Quality {
     let n_tokens = seg.n_tokens();
     if n_tokens <= 0 {
         return Quality::Unavailable;
@@ -575,54 +715,41 @@ fn segment_quality(seg: &whisper_rs::WhisperSegment<'_>) -> Quality {
 /// CLI uses to print word-level output, not an invented heuristic. Returns an
 /// empty vec (never fabricated spans) if `token_timestamps` produced no
 /// usable per-token timing.
-fn merge_tokens_into_words(
-    seg: &whisper_rs::WhisperSegment<'_>,
-    window_offset_ms: i64,
-) -> Vec<WordSpan> {
+fn merge_tokens_into_words(seg: &WhisperSegment<'_>, window_offset_ms: i64) -> Vec<WordSpan> {
     let mut words = Vec::new();
     let mut current_start: Option<i64> = None;
     let mut current_end: i64 = 0;
-    let n_tokens = seg.n_tokens();
-    for t in 0..n_tokens {
-        let Some(token) = seg.get_token(t) else {
+    for index in 0..seg.n_tokens() {
+        let Some((starts_word, start, end)) = usable_token_timing(seg, index) else {
             continue;
         };
-        let Ok(text) = token.to_str() else { continue };
-        if text.starts_with("[_") || text.starts_with("<|") {
-            // Special/control tokens (e.g. `[_TT_xx]`, `<|en|>`) never start
-            // or extend a word.
-            continue;
+        if starts_word || current_start.is_none() {
+            push_word(&mut words, current_start, current_end, window_offset_ms);
+            current_start = Some(start);
         }
-        let data = token.token_data();
-        let (t0, t1) = (data.t0, data.t1);
-        if t1 <= t0 {
-            // No usable per-token timing for this token (token_timestamps
-            // was not effectively enabled, or whisper.cpp did not resolve
-            // this token) — never fabricate a span for it.
-            continue;
-        }
-        let starts_new_word = text.starts_with(' ') || words.is_empty() && current_start.is_none();
-        if starts_new_word {
-            if let Some(start) = current_start {
-                words.push(WordSpan {
-                    start_ms: (window_offset_ms + start * 10) as u64,
-                    end_ms: (window_offset_ms + current_end * 10) as u64,
-                });
-            }
-            current_start = Some(t0);
-        }
-        current_end = t1;
-        if current_start.is_none() {
-            current_start = Some(t0);
-        }
+        current_end = end;
     }
-    if let Some(start) = current_start {
+    push_word(&mut words, current_start, current_end, window_offset_ms);
+    words
+}
+
+fn usable_token_timing(seg: &WhisperSegment<'_>, index: i32) -> Option<(bool, i64, i64)> {
+    let token = seg.get_token(index)?;
+    let text = token.to_str().ok()?;
+    if text.starts_with("[_") || text.starts_with("<|") {
+        return None;
+    }
+    let data = token.token_data();
+    (data.t1 > data.t0).then_some((text.starts_with(' '), data.t0, data.t1))
+}
+
+fn push_word(words: &mut Vec<WordSpan>, start: Option<i64>, end: i64, offset_ms: i64) {
+    if let Some(start) = start {
         words.push(WordSpan {
-            start_ms: (window_offset_ms + start * 10) as u64,
-            end_ms: (window_offset_ms + current_end * 10) as u64,
+            start_ms: (offset_ms + start * 10) as u64,
+            end_ms: (offset_ms + end * 10) as u64,
         });
     }
-    words
 }
 
 fn sha256_hex_of_window(window: &[f32]) -> String {

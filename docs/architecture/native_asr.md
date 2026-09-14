@@ -123,7 +123,7 @@ The real-model tests need a model and a speech sample. `scripts/fetch_whisper_te
 downloads `ggml-tiny.en.bin` and whisper.cpp's `jfk.wav` from pinned revisions, checks their
 sha256, and prints the two variables the tests read:
 `export $(scripts/fetch_whisper_test_fixture.sh)` then
-`cargo test -p eg-asr-whisper --test real_transcription`. If the variables are unset, the tests
+`cargo test -p eg-asr-whisper -- --nocapture`. If the variables are unset, the tests
 fail with that instruction; they never skip.
 
 This was **not** solved by reasoning about flags alone. The first real-fixture
@@ -151,7 +151,7 @@ Built and run natively (no `qemu`/emulation) on the Sandy Bridge build host
 `ggml-tiny.en.bin` model (MIT, `huggingface.co/ggerganov/whisper.cpp`,
 digest-verified) transcribed a synthesized 16 kHz mono speech fixture
 end to end, producing real, recognizable text with real timing/quality, and
-a real cancellation-mid-stream `Cancelled` error. This is what actually
+a real native callback-checkpoint `Cancelled` error. This is what actually
 surfaced the `GGML_BMI2` requirement above: the first attempt SIGILLed
 precisely because it ran on real Sandy Bridge hardware, not a newer or
 emulated CPU that would have masked the gap.
@@ -184,10 +184,11 @@ emulated CPU that would have masked the gap.
   empty transcript presented as a completed one.
 - **Cancellation is real, not cosmetic**: `WhisperAsrProvider::
   transcribe_streaming` checks a shared `CancelFlag` between windows AND wires
-  it into whisper.cpp's own `set_abort_callback_safe`, so cancellation can
-  interrupt mid-window decode, not only at the next window boundary. A
-  cancelled request returns `AsrError::Cancelled`, never a truncated
-  "success".
+  it through the crate's typed `abort_bridge` to whisper.cpp's raw callback.
+  Native cancellation is observed at callback checkpoints between graph and
+  decode steps within a window; it cannot preempt a graph kernel already
+  executing. A cancelled request returns `AsrError::Cancelled`, never a
+  truncated "success".
 - **Quality is calibrated or explicitly unavailable, never a heuristic
   dressed as a probability**: `avg_logprob` is the mean of `ln(token
   probability)` over a segment's tokens (OpenAI Whisper's own definition,

@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! export $(scripts/fetch_whisper_test_fixture.sh)   # pinned, sha256-verified
-//! cargo test -p eg-asr-whisper --test real_transcription -- --nocapture
+//! cargo test -p eg-asr-whisper -- --nocapture
 //! ```
 
 use eg_asr_whisper::{
@@ -94,15 +94,16 @@ fn transcribes_real_audio_and_produces_provider_derived_timing_and_quality() {
 }
 
 #[test]
-fn cancellation_mid_stream_yields_a_typed_cancelled_error_never_a_truncated_success() {
+fn cancellation_between_windows_yields_a_typed_error_never_a_truncated_success() {
     let fixture = fixture();
     let provider = load_provider(&fixture);
     let wav_bytes = std::fs::read(&fixture.wav_path).expect("read test wav");
     let audio = decode_wav_16k_mono(&wav_bytes).expect("fixture wav decodes");
 
-    // A short window forces multiple windows over any several-second fixture,
-    // so cancelling from inside the FIRST window's partial callback
-    // deterministically leaves later windows unprocessed — no sleep/race.
+    // A short window produces progressive output. Cancelling from the first
+    // partial callback deterministically stops before the next window without
+    // a sleeping helper thread or scheduler/load-dependent race. The private
+    // native callback checkpoint has its own real-fixture unit proof.
     let opts = TranscribeOptions {
         language: Some("en".to_string()),
         translate: false,

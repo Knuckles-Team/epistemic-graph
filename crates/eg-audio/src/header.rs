@@ -20,12 +20,6 @@ const RIFF_HEADER_LEN: usize = 12;
 const CHUNK_HEADER_LEN: usize = 8;
 const PCM_FORMAT_LEN: usize = 16;
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct WavPcm<'a> {
-    pub(crate) info: WavInfo,
-    pub(crate) payload: &'a [u8],
-}
-
 #[derive(Clone, Copy)]
 struct PcmFormat {
     channels: u16,
@@ -53,18 +47,29 @@ struct ParsedChunks<'a> {
 /// rate implied by `fmt `. Returns `None` if the bytes aren't a `RIFF....WAVE`
 /// container, `fmt ` is missing/malformed, or no `data` chunk was found.
 pub fn read_wav_header(bytes: &[u8]) -> Option<WavInfo> {
-    parse_wav(bytes).map(|wav| wav.info)
-}
-
-pub(crate) fn parse_wav(bytes: &[u8]) -> Option<WavPcm<'_>> {
     let riff_end = riff_end(bytes)?;
     let chunks = parse_chunks(bytes, riff_end)?;
     let format = chunks.format?;
     let payload = chunks.payload?;
-    Some(WavPcm {
-        info: format.info(payload.len())?,
-        payload,
-    })
+    format.info(payload.len())
+}
+
+/// Same walk as [`read_wav_header`], but also returns the `data` chunk's raw
+/// PCM bytes. Behind `runtime`: [`crate::runtime`]'s codec path is the only
+/// consumer that needs the actual payload bytes rather than merely their
+/// length (which `read_wav_header` above already covers via `format.info`).
+/// Kept as its own function -- rather than a shared struct carrying a
+/// `payload` field -- so a `runtime`-off build never declares a field nothing
+/// in that configuration reads (that shared-struct shape previously tripped
+/// `dead_code` under a feature set, such as `asr`, that never enables
+/// `runtime`).
+#[cfg(feature = "runtime")]
+pub(crate) fn parse_wav_pcm(bytes: &[u8]) -> Option<(WavInfo, &[u8])> {
+    let riff_end = riff_end(bytes)?;
+    let chunks = parse_chunks(bytes, riff_end)?;
+    let format = chunks.format?;
+    let payload = chunks.payload?;
+    Some((format.info(payload.len())?, payload))
 }
 
 fn riff_end(bytes: &[u8]) -> Option<usize> {
