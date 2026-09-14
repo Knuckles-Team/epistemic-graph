@@ -43,7 +43,18 @@ async def _run(ops: int) -> dict[str, float]:
             await asyncio.sleep(0.05)
 
         client = await EpistemicGraphClient.connect(
-            socket_path=sock, graph_name="bench"
+            socket_path=sock,
+            graph_name="bench",
+            verified_context={
+                "principal": "bench-agent",
+                "tenant": "bench",
+                "audience": "epistemic-graph-bench",
+                "agent_id": "bench-agent",
+                "roles": ["bench-agent"],
+                "scopes": ["*"],
+                "policy_version": "bench",
+                "delegation": [],
+            },
         )
         await client.tenants.create("bench")
 

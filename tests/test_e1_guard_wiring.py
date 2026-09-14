@@ -344,7 +344,7 @@ def test_analytics_gate_reads_consensus_child_and_rejects_a_lost_call_body(
     )
     monkeypatch.setattr(module, "ROOT", tmp_path)
 
-    failures = []
+    failures: list[str] = []
     module.require(
         "src/server/dispatch.rs",
         [

@@ -44,7 +44,7 @@ import contextlib
 import logging
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
+from typing import Any, Protocol
 
 from .client import (
     EpistemicGraphClient,
@@ -53,6 +53,28 @@ from .client import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _PooledConnections(Protocol):
+    """The subset of ``ConnectionPool``'s surface :class:`ShardRouter` depends
+    on. Kept as a Protocol -- not the concrete ``ConnectionPool`` -- so a test
+    double can stand in for one shard's pool (returning a lightweight fake
+    client) without subclassing the real pool, which opens real sockets from
+    ``initialize``/``acquire``."""
+
+    max_size: int
+
+    async def initialize(self) -> None: ...
+
+    async def acquire(self) -> EpistemicGraphClient: ...
+
+    def release(self, client: EpistemicGraphClient) -> None: ...
+
+    def connection(
+        self,
+    ) -> contextlib.AbstractAsyncContextManager[EpistemicGraphClient]: ...
+
+    async def close_all(self) -> None: ...
 
 
 async def resolve_cluster_endpoints(
@@ -306,7 +328,7 @@ class ShardRouter:
         # separate re-mint step, since every `_send()` builds a fresh envelope
         # already.
         node_ids = node_ids or {}
-        self.pools: dict[str, ConnectionPool] = {}
+        self.pools: dict[str, _PooledConnections] = {}
         for ep in endpoints:
             self.pools[ep] = ConnectionPool(
                 ep,
@@ -429,11 +451,14 @@ class ShardRouter:
         client._graph_name = group[0]
         try:
             if rpc == "UnionGetNodeProperties":
-                return await client.nodes.properties_union(node_id, group)  # type: ignore[arg-type]
+                assert node_id is not None, "UnionGetNodeProperties requires node_id"
+                return await client.nodes.properties_union(node_id, group)
             if rpc == "UnionGetNodesByLabel":
-                return await client.nodes.list_by_label_union(label, group, limit)  # type: ignore[arg-type]
+                assert label is not None, "UnionGetNodesByLabel requires label"
+                return await client.nodes.list_by_label_union(label, group, limit)
             if rpc == "UnionGetNeighbors":
-                return await client.nodes.neighbors_union(node_id, group)  # type: ignore[arg-type]
+                assert node_id is not None, "UnionGetNeighbors requires node_id"
+                return await client.nodes.neighbors_union(node_id, group)
             raise ValueError(f"unknown union rpc: {rpc}")
         finally:
             pool.release(client)

@@ -45,11 +45,19 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "ci_gate_replica.py"
 pytestmark = pytest.mark.no_engine
 
 
-def _load_module():
+def _module_spec():
     spec = importlib.util.spec_from_file_location("ci_gate_replica", SCRIPT_PATH)
+    assert spec is not None and spec.loader is not None, (
+        f"could not build an import spec for {SCRIPT_PATH}"
+    )
+    return spec
+
+
+def _load_module():
+    spec = _module_spec()
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    spec.loader.exec_module(module)
     return module
 
 

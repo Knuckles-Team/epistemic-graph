@@ -145,6 +145,7 @@ select = [ "E", "F", "I", "UP", "B", "RUF100" ]
 python_version = "3.10"
 ignore_missing_imports = true
 check_untyped_defs = true
+warn_unused_ignores = true
 
 [tool.vulture]
 exclude = [".venv", "venv", "build", "dist", "target"]

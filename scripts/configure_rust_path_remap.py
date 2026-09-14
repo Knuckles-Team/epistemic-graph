@@ -36,7 +36,7 @@ import shlex
 import shutil
 import subprocess
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path, PurePath
 
 UNIT_SEPARATOR = "\x1f"
@@ -325,7 +325,9 @@ def _probe_prefix_map_flag(compiler: str, flag_name: str) -> bool:
 
 
 def _select_prefix_map_flag(
-    compiler: str | None, *, probe: object = _probe_prefix_map_flag
+    compiler: str | None,
+    *,
+    probe: Callable[[str, str], bool] = _probe_prefix_map_flag,
 ) -> tuple[str | None, str | None]:
     """Pick the best prefix-map macro this compiler has proven it accepts.
 
@@ -369,7 +371,7 @@ def native_prefix_flags(
     *,
     checkout: str | PurePath | None = None,
     target: str | None = None,
-    probe: object = _probe_prefix_map_flag,
+    probe: Callable[[str, str], bool] = _probe_prefix_map_flag,
 ) -> str:
     """Preserve native compiler flags and append source-prefix remapping.
 

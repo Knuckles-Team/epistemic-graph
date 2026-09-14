@@ -22,6 +22,7 @@ This test proves BOTH directions per the acceptance bar:
 from __future__ import annotations
 
 import pytest
+from _client_fixtures import unused_reader, unused_writer
 
 from epistemic_graph.client import VALID_GRAPH_TYPES, EpistemicGraphClient
 
@@ -45,9 +46,9 @@ def _context() -> dict[str, object]:
 
 
 def _client() -> EpistemicGraphClient:
-    return EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    return EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
@@ -62,7 +63,9 @@ def test_valid_graph_types_match_the_closed_wire_enum() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("graph_type", sorted(VALID_GRAPH_TYPES))
-async def test_every_valid_graph_type_is_sent_unchanged(graph_type: str) -> None:
+async def test_every_valid_graph_type_is_sent_unchanged(
+    graph_type: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     client = _client()
     captured: dict[str, object] = {}
 
@@ -70,7 +73,7 @@ async def test_every_valid_graph_type_is_sent_unchanged(graph_type: str) -> None
         captured.update(method=method, params=params)
         return None
 
-    client._send = capture  # type: ignore[method-assign]
+    monkeypatch.setattr(client, "_send", capture)
     await client.tenants.create("tenant__local__ontology", graph_type)
 
     assert captured["method"] == "CreateGraph"
@@ -81,7 +84,9 @@ async def test_every_valid_graph_type_is_sent_unchanged(graph_type: str) -> None
 
 
 @pytest.mark.asyncio
-async def test_unsupported_graph_type_raises_before_any_send() -> None:
+async def test_unsupported_graph_type_raises_before_any_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client = _client()
 
     async def never_send(*args, **kwargs):
@@ -90,7 +95,7 @@ async def test_unsupported_graph_type_raises_before_any_send() -> None:
             "the allowlist check must reject it before _send is reached"
         )
 
-    client._send = never_send  # type: ignore[method-assign]
+    monkeypatch.setattr(client, "_send", never_send)
 
     # U-96's exact live defect: a semantic content label instead of a
     # lifecycle/isolation graph category.
@@ -100,7 +105,9 @@ async def test_unsupported_graph_type_raises_before_any_send() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("graph_type", ["", "agent", "GLOBAL", "Tenant", "Commons "])
-async def test_case_and_near_miss_variants_are_also_rejected(graph_type: str) -> None:
+async def test_case_and_near_miss_variants_are_also_rejected(
+    graph_type: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Not just the one live-observed value -- the allowlist is exact-match,
     not case-insensitive or fuzzy, matching the engine's own closed enum
     (`serde` derives exact-name matching with no aliases)."""
@@ -109,7 +116,7 @@ async def test_case_and_near_miss_variants_are_also_rejected(graph_type: str) ->
     async def never_send(*args, **kwargs):
         raise AssertionError(f"must not send unsupported graph_type={graph_type!r}")
 
-    client._send = never_send  # type: ignore[method-assign]
+    monkeypatch.setattr(client, "_send", never_send)
 
     with pytest.raises(ValueError):
         await client.tenants.create("g", graph_type)

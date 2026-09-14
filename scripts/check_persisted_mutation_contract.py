@@ -46,7 +46,10 @@ def read_module_paths(relative: str, *, include_tests: bool = True):
     return _read_module_paths(relative, root_dir=ROOT, include_tests=include_tests)
 
 
-def require(condition: bool, message: str) -> None:
+def require(condition: object, message: str) -> None:
+    """Fail closed unless ``condition`` is truthy -- like a bare ``assert``,
+    this deliberately accepts any object (a non-empty collection reads as
+    "require this is non-empty"), not just an actual ``bool``."""
     if not condition:
         raise SystemExit(f"persisted mutation contract gate failed: {message}")
 
@@ -100,6 +103,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
         consumer is not None,
         "native method catalog transcriber must invoke only $consumer",
     )
+    assert consumer is not None  # narrowed: require() above already enforces this
     catalog_start = consumer.end() - 1
     catalog_end = _balanced_span_from(transcriber, catalog_start, "{", "}")
     require(
@@ -183,6 +187,7 @@ def _const_slice(source: str, name: str) -> str:
         source,
     )
     require(match is not None, f"missing Rust const inventory: {name}")
+    assert match is not None  # narrowed: require() above already enforces this
     return _balanced_block(source, match.group(0), "[", "]")
 
 
@@ -190,6 +195,7 @@ def _function(source: str, name: str) -> str:
     mask = _rust_code_mask(source)
     match = re.search(rf"\bfn\s+{re.escape(name)}(?:\s*<[^>{{}}]*>)?\s*\(", mask)
     require(match is not None, f"missing Rust function inventory: {name}")
+    assert match is not None  # narrowed: require() above already enforces this
     start = mask.find("{", match.end())
     require(start >= 0, f"missing function body: {name}")
     end = _balanced_span_from(mask, start, "{", "}")
@@ -259,6 +265,7 @@ def _function_with_callees(source: str, name: str, max_depth: int = 2) -> str:
 def _enum(source: str, name: str) -> str:
     match = re.search(rf"\benum\s+{re.escape(name)}\b", source)
     require(match is not None, f"missing Rust enum inventory: {name}")
+    assert match is not None  # narrowed: require() above already enforces this
     return _balanced_block(source, match.group(0), "{", "}")
 
 
@@ -294,6 +301,7 @@ def _direct_method_matches_set(block: str, inventory: str) -> set[str]:
         prefix is not None,
         f"{inventory} must directly return matches!(method, exact variants)",
     )
+    assert prefix is not None  # narrowed: require() above already enforces this
     opener = prefix.end() - 1
     closer = _balanced_span_from(mask, opener, "(", ")")
     require(
@@ -1532,15 +1540,16 @@ def _check_m1_store_contract(native_store: str) -> None:
         "incompatible prototype tables must fail closed before initialization or "
         "serving",
     )
-    retired = set(
+    retired_tables = set(
         re.findall(
             r'"([a-z][a-z0-9_]*)"',
             _const_slice(native_store, "RETIRED_PROTOTYPE_TABLES"),
         )
     )
-    require(retired, "RETIRED_PROTOTYPE_TABLES is empty")
+    require(retired_tables, "RETIRED_PROTOTYPE_TABLES is empty")
     require(
-        "mutation_batches" not in retired and "mutation_batches_v3" in retired,
+        "mutation_batches" not in retired_tables
+        and "mutation_batches_v3" in retired_tables,
         "prototype quarantine must not reject the live mutation_batches table",
     )
 

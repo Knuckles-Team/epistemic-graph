@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
@@ -60,8 +61,8 @@ def _wheel(
     return wheel
 
 
-def _categories(path: Path, **kwargs: object) -> set[str]:
-    result = audit_wheel(path, environ={}, **kwargs)
+def _categories(path: Path, *, deny_prefixes: Iterable[str] = ()) -> set[str]:
+    result = audit_wheel(path, environ={}, deny_prefixes=deny_prefixes)
     return {finding.category for finding in result.findings}
 
 

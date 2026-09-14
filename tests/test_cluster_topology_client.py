@@ -16,31 +16,47 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import ClusterTopologyClient
+from epistemic_graph.client import (
+    ClusterTopologyClient,
+    EpistemicGraphClient,
+    RequestContextClaims,
+)
 
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     def __init__(self, answer: dict[str, Any]) -> None:
         self._answer = answer
         self._auth_secret = "-".join(("topology", "test", "secret"))
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         assert method == "ClusterMembers"
         assert params is None
         return self._answer
 
-    def _effective_verified_context(self) -> dict[str, str]:
+    def _effective_verified_context(self) -> RequestContextClaims:
         return {
-            "tenant": "tenant-a",
             "principal": "principal-a",
+            "tenant": "tenant-a",
+            "audience": "topology-fixture",
             "agent_id": "agent-a",
+            "roles": ["topology-reader"],
+            "scopes": ["cluster:topology-read"],
+            "policy_version": "policy-fixture",
+            "delegation": ["principal-a", "agent-a"],
         }
 
 
 def _snapshot(fake: _FakeClient) -> dict[str, Any]:
-    topology = ClusterTopologyClient(fake)  # type: ignore[arg-type]
+    topology = ClusterTopologyClient(fake)
     cluster_id = "sha256:" + "a" * 64
     node_id = 7
     identity = topology._member_identity(cluster_id, node_id)
@@ -81,6 +97,14 @@ def _snapshot(fake: _FakeClient) -> dict[str, Any]:
         ]
     ]
     context = fake._effective_verified_context()
+    # `context` is now a real `RequestContextClaims` TypedDict (not a plain
+    # dict), so it only supports literal-key subscripting -- the digest loop
+    # below needs a dynamic key, so give it its own plain, literal-keyed view.
+    context_by_name: dict[str, str] = {
+        "tenant": context["tenant"],
+        "principal": context["principal"],
+        "agent_id": context["agent_id"],
+    }
     payload = json.dumps(
         [
             "cluster-discovery-v1",
@@ -112,7 +136,8 @@ def _snapshot(fake: _FakeClient) -> dict[str, Any]:
         "leaders": [{"group_id": 0, "node_id": node_id}],
         "groups": [{"group_id": 0, "leader_id": node_id, "members": members}],
         "auth_binding": {
-            key: "sha256:" + hashlib.sha256(context[source].encode()).hexdigest()
+            key: "sha256:"
+            + hashlib.sha256(context_by_name[source].encode()).hexdigest()
             for key, source in (
                 ("tenant_digest", "tenant"),
                 ("principal_digest", "principal"),
@@ -127,7 +152,7 @@ def _snapshot(fake: _FakeClient) -> dict[str, Any]:
 async def test_members_accepts_one_signed_context_bound_snapshot() -> None:
     fake = _FakeClient({})
     fake._answer = _snapshot(fake)
-    client = ClusterTopologyClient(fake)  # type: ignore[arg-type]
+    client = ClusterTopologyClient(fake)
 
     answer = await client.members(
         expected_cluster_id=fake._answer["cluster_id"],
@@ -163,7 +188,7 @@ async def test_members_rejects_unsigned_stale_cross_bound_or_forged_snapshot(
     answer = _snapshot(fake)
     fake._answer = answer
     mutation(answer)
-    client = ClusterTopologyClient(fake)  # type: ignore[arg-type]
+    client = ClusterTopologyClient(fake)
 
     with pytest.raises(ValueError):
         await client.members()

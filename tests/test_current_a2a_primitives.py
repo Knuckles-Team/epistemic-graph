@@ -7,7 +7,7 @@ from typing import Any
 import msgpack
 import pytest
 
-from epistemic_graph.client import BrokerClient, NodeClient
+from epistemic_graph.client import BrokerClient, EpistemicGraphClient, NodeClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
@@ -15,11 +15,18 @@ from epistemic_graph.client import BrokerClient, NodeClient
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         self.sent.append((method, params))
         return {
             "CreateNodeIfAbsent": True,
@@ -32,7 +39,7 @@ class _FakeClient:
 @pytest.mark.asyncio
 async def test_create_if_absent_uses_one_native_atomic_operation() -> None:
     fake = _FakeClient()
-    nodes = NodeClient(fake)  # type: ignore[arg-type]
+    nodes = NodeClient(fake)
 
     assert await nodes.create_if_absent("work:1", {"status": "pending"}) is True
     method, params = fake.sent.pop()
@@ -47,7 +54,7 @@ async def test_create_if_absent_uses_one_native_atomic_operation() -> None:
 @pytest.mark.asyncio
 async def test_tag_operations_always_carry_owner_and_explicit_clock() -> None:
     fake = _FakeClient()
-    broker = BrokerClient(fake)  # type: ignore[arg-type]
+    broker = BrokerClient(fake)
 
     assert await broker.ack_tag(7, consumer="worker-a") is False
     assert (

@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 import pytest
+from _untyped import untyped
 from measurement_lite import (
     TOO_LOADED_TO_MEASURE,
     TooLoadedToMeasureError,
@@ -86,7 +87,7 @@ def test_incident_1_run_captures_real_exit_code_not_a_pipeline_stage():
 
 def test_run_rejects_shell_string():
     with pytest.raises(TypeError):
-        run("cargo test | tail -25")  # type: ignore[arg-type]
+        run(untyped("cargo test | tail -25"))
 
 
 # --- E: merged-tree helper (incident 2) -------------------------------------

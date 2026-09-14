@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import QueryClient
+from epistemic_graph.client import EpistemicGraphClient, QueryClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
@@ -14,11 +14,18 @@ from epistemic_graph.client import QueryClient
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     def __init__(self) -> None:
-        self.sent: list[tuple[str, dict[str, Any]]] = []
+        self.sent: list[tuple[str, dict[str, Any] | None]] = []
 
-    async def _send(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         self.sent.append((method, params))
         return {"ok": True}
 
@@ -26,7 +33,7 @@ class _FakeClient:
 @pytest.mark.asyncio
 async def test_recompute_carries_the_source_graph_fence() -> None:
     fake = _FakeClient()
-    query = QueryClient(fake)  # type: ignore[arg-type]
+    query = QueryClient(fake)
 
     assert await query.recompute_materialization("derived", 41) == {"ok": True}
     assert fake.sent == [
@@ -40,7 +47,7 @@ async def test_recompute_carries_the_source_graph_fence() -> None:
 @pytest.mark.asyncio
 async def test_reasoning_status_reads_use_the_durable_projection_methods() -> None:
     fake = _FakeClient()
-    query = QueryClient(fake)  # type: ignore[arg-type]
+    query = QueryClient(fake)
 
     await query.materialization_status("derived")
     await query.stale_materializations()

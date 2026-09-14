@@ -26,11 +26,21 @@ import zipfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-try:
+if TYPE_CHECKING:
+    # mypy resolves this file itself by its bare name (scripts/ has no
+    # __init__.py, so a direct `mypy scripts` run names every sibling module
+    # bare) -- pin the type-checked import to the SAME bare name so this
+    # module is never simultaneously "configure_rust_path_remap" and
+    # "scripts.configure_rust_path_remap" in one mypy run (the runtime
+    # fallback below is unaffected; TYPE_CHECKING is always False at runtime).
     from configure_rust_path_remap import path_remaps
-except ModuleNotFoundError:  # imported as a package in tests
-    from scripts.configure_rust_path_remap import path_remaps
+else:
+    try:
+        from configure_rust_path_remap import path_remaps
+    except ModuleNotFoundError:  # imported as a package in tests
+        from scripts.configure_rust_path_remap import path_remaps
 
 _BYTE_BOUNDARY = rb"(?=$|[\\/\x00\r\n\t \"'`,;:=)\]}])"
 _WIDE_BOUNDARY = rb"(?=$|(?:[\\/\x00\r\n\t \"'`,;:=)\]}]\x00))"

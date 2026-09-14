@@ -16,12 +16,29 @@ import json
 import re
 import sys
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 _PACKAGE = _ROOT / "epistemic_graph"
 _PYPROJECT = _ROOT / "pyproject.toml"
 _ROOT_RECEIPT = _ROOT / "contract" / "receipt.json"
+
+
+def _contract_exports(
+    namespace: dict[str, object],
+) -> tuple[str, Callable[[str], object], type[BaseException]]:
+    """Narrow the three executable contract exports used by the smoke test."""
+
+    digest = namespace["RECEIPT_DIGEST"]
+    verify = namespace["verify_receipt"]
+    mismatch = namespace["ContractDigestMismatch"]
+    assert isinstance(digest, str)
+    assert callable(verify)
+    assert isinstance(mismatch, type) and issubclass(mismatch, BaseException)
+    return digest, verify, mismatch
+
+
 _SHIPPED_RECEIPT = _PACKAGE / "contract" / "receipt.json"
 
 # Distribution name -> the top-level module it installs, where the two differ. Every
@@ -111,11 +128,9 @@ class WheelContractSurface(unittest.TestCase):
             "__file__": str(_SHIPPED_RECEIPT.parent / "__init__.py")
         }
         exec(compile(source, "epistemic_graph/contract/__init__.py", "exec"), namespace)
-        digest = namespace["RECEIPT_DIGEST"]
-        verify = namespace["verify_receipt"]
-        mismatch = namespace["ContractDigestMismatch"]
+        digest, verify, mismatch = _contract_exports(namespace)
         verify(digest)  # the matching digest must not raise
-        with self.assertRaises(mismatch):  # type: ignore[misc]
+        with self.assertRaises(mismatch):
             verify("0" * 64)
 
 

@@ -33,7 +33,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "epistemic-graph.push-gate-evidence/v1"
@@ -414,11 +414,22 @@ class Selection:
         return _digest(self.payload())
 
 
+class SubsetProof(TypedDict):
+    """One declared non-exact reuse relation: ``requested_argv`` is admissible
+    as reuse of a prior ``provider_argv`` run, with ``rationale`` recorded for
+    audit."""
+
+    version: str
+    provider_argv: list[str]
+    requested_argv: list[str]
+    rationale: str
+
+
 # The only intentionally non-exact reuse relation.  The provider command is
 # the exact advisory workflow command; the requested command is the shipped
 # full-only hook.  Workspace/all-features/all-targets is a declared superset
 # of the root full/all-targets invocation, with identical warning flags.
-SUBSET_PROOFS: dict[str, dict[str, object]] = {
+SUBSET_PROOFS: dict[str, SubsetProof] = {
     "cargo-clippy-full": {
         "version": "eg-push-gate-subset/v1",
         "provider_argv": [
@@ -572,7 +583,7 @@ def _invocation_owner_identity() -> str:
     return f"parent:{_parent_identity(os.getppid())}"
 
 
-def _age_is_valid(started: object) -> bool:
+def _age_is_valid(started: Any) -> bool:
     try:
         age = time.time() - float(started)
     except (TypeError, ValueError):

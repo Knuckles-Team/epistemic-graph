@@ -61,8 +61,26 @@ def _rss_kb(pid: int) -> int:
     return 0
 
 
-def _spawn_shards(binary: Path, n: int, tmp: str) -> list[subprocess.Popen]:
-    procs = []
+class ShardProc:
+    """One spawned shard server: its process handle plus the socket path it
+    was told to listen on. ``subprocess.Popen`` has no such attribute of its
+    own, so this pairs the two instead of stashing an ad hoc one onto it.
+
+    This is deliberately a plain slotted class rather than a dataclass: the
+    benchmark's smoke test loads this script through ``module_from_spec`` and
+    ``exec_module`` without registering it in ``sys.modules``, while dataclass
+    decoration consults that registry on Python 3.14.
+    """
+
+    __slots__ = ("proc", "sock")
+
+    def __init__(self, proc: subprocess.Popen, sock: str) -> None:
+        self.proc = proc
+        self.sock = sock
+
+
+def _spawn_shards(binary: Path, n: int, tmp: str) -> list[ShardProc]:
+    shards = []
     for i in range(n):
         sock = os.path.join(tmp, f"shard{i}.sock")
         p = subprocess.Popen(
@@ -77,21 +95,40 @@ def _spawn_shards(binary: Path, n: int, tmp: str) -> list[subprocess.Popen]:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        p._sock = sock  # type: ignore[attr-defined]
-        procs.append(p)
-    for p in procs:
+        shards.append(ShardProc(proc=p, sock=sock))
+    for shard in shards:
         for _ in range(200):
-            if os.path.exists(p._sock):  # type: ignore[attr-defined]
+            if os.path.exists(shard.sock):
                 break
             time.sleep(0.05)
-    return procs
+    return shards
+
+
+def _bench_context(agent: str) -> dict[str, object]:
+    """Minimal, self-delegated identity for this unauthenticated benchmark
+    connection -- `verified_context` has no default (a real deployment always
+    supplies one), so a bench harness needs its own, just like
+    `certify_exact_protocol_authorization.py`'s `_peer_context`."""
+    return {
+        "principal": agent,
+        "tenant": "bench",
+        "audience": "epistemic-graph-bench",
+        "agent_id": agent,
+        "roles": ["bench-agent"],
+        "scopes": ["*"],
+        "policy_version": "bench",
+        "delegation": [],
+    }
 
 
 async def _run_agent(sock: str, agent: str, nodes: int) -> int:
     from epistemic_graph.client import EpistemicGraphClient
 
     client = await EpistemicGraphClient.connect(
-        socket_path=sock, graph_name=agent, auth_secret=""
+        socket_path=sock,
+        graph_name=agent,
+        auth_secret="",
+        verified_context=_bench_context(agent),
     )
     ops = 0
     try:
@@ -130,17 +167,17 @@ def _driver_proc(sock, lo, hi, nodes, concurrency, out_q):
 def _bench(binary, shards, per_shard, nodes, concurrency) -> dict:
     agents = per_shard * shards
     with tempfile.TemporaryDirectory() as tmp:
-        procs = _spawn_shards(binary, shards, tmp)
+        spawned = _spawn_shards(binary, shards, tmp)
         try:
             time.sleep(0.3)
-            baseline_rss = sum(_rss_kb(p.pid) for p in procs)
+            baseline_rss = sum(_rss_kb(sp.proc.pid) for sp in spawned)
             out_q: mp.Queue = mp.Queue()
             drivers = []
             for s in range(shards):
                 lo, hi = s * per_shard, (s + 1) * per_shard
                 d = mp.Process(
                     target=_driver_proc,
-                    args=(procs[s]._sock, lo, hi, nodes, concurrency, out_q),  # type: ignore[attr-defined]
+                    args=(spawned[s].sock, lo, hi, nodes, concurrency, out_q),
                 )
                 d.start()
                 drivers.append(d)
@@ -149,7 +186,7 @@ def _bench(binary, shards, per_shard, nodes, concurrency) -> dict:
                 d.join()
             total_ops = sum(o for o, _ in results)
             max_wall = max(w for _, w in results)
-            rss_after = sum(_rss_kb(p.pid) for p in procs)
+            rss_after = sum(_rss_kb(sp.proc.pid) for sp in spawned)
             data_rss = max(0, rss_after - baseline_rss)
             return {
                 "shards": shards,
@@ -162,13 +199,13 @@ def _bench(binary, shards, per_shard, nodes, concurrency) -> dict:
                 "per_agent_rss_kb": round(data_rss / agents, 1) if agents else 0.0,
             }
         finally:
-            for p in procs:
-                p.terminate()
-            for p in procs:
+            for sp in spawned:
+                sp.proc.terminate()
+            for sp in spawned:
                 try:
-                    p.wait(timeout=5)
+                    sp.proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    p.kill()
+                    sp.proc.kill()
 
 
 def _extrapolate(per_agent_rss_kb: float, ram_budget_gb: float, target: int) -> dict:

@@ -8,6 +8,7 @@ and all mandatory workflow coverage remain owned by the parent gate.
 from __future__ import annotations
 
 import sys
+from typing import Any
 
 import pytest
 
@@ -25,7 +26,7 @@ from scripts.push_gate_evidence import (
 pytestmark = pytest.mark.no_engine
 
 
-def _success(selection: Selection) -> dict[str, object]:
+def _success(selection: Selection) -> dict[str, Any]:
     return {
         "status": "success",
         "exitCode": 0,
@@ -40,7 +41,7 @@ def _success(selection: Selection) -> dict[str, object]:
     }
 
 
-def _document(selection: Selection, *, status: str = "complete") -> dict[str, object]:
+def _document(selection: Selection, *, status: str = "complete") -> dict[str, Any]:
     key = selection.selection_digest
     return {
         "status": status,
@@ -64,11 +65,11 @@ def test_exact_reuse_requires_complete_success_and_identical_selection() -> None
     )
 
     failed = _document(selection)
-    failed["results"][selection.selection_digest]["status"] = "failed"  # type: ignore[index]
+    failed["results"][selection.selection_digest]["status"] = "failed"
     assert not EvidenceStore._admissible(failed, selection)
 
     tampered = _document(selection)
-    tampered["results"][selection.selection_digest]["resultDigest"] = "sha256:tampered"  # type: ignore[index]
+    tampered["results"][selection.selection_digest]["resultDigest"] = "sha256:tampered"
     assert not EvidenceStore._admissible(tampered, selection)
 
     different_environment = Selection.from_argv(
@@ -120,7 +121,7 @@ def test_subset_proof_does_not_make_an_unplanned_exact_result_admissible() -> No
         environment=environment,
     )
     document = _document(requested)
-    del document["plan"][requested.selection_digest]  # type: ignore[index]
+    del document["plan"][requested.selection_digest]
 
     assert requested.selection_digest not in document["plan"]
     assert not EvidenceStore._admissible(document, requested)

@@ -13,7 +13,10 @@ from __future__ import annotations
 import re
 
 
-def require(condition: bool, message: str) -> None:
+def require(condition: object, message: str) -> None:
+    """Fail closed unless ``condition`` is truthy -- like a bare ``assert``,
+    this deliberately accepts any object (a non-empty collection reads as
+    "require this is non-empty"), not just an actual ``bool``."""
     if not condition:
         raise SystemExit(f"Rust source scanner failed: {message}")
 
@@ -26,13 +29,13 @@ def _delimiter_depths(mask: str) -> list[tuple[int, int, int]]:
     closing = {"}": 0, ")": 1, "]": 2}
     opening = {"{": 0, "(": 1, "[": 2}
     for position, char in enumerate(mask):
-        depths[position] = tuple(current)
+        depths[position] = (current[0], current[1], current[2])
         if char in opening:
             current[opening[char]] += 1
         elif char in closing:
             current[closing[char]] -= 1
         require(min(current) >= 0, "unbalanced Rust module delimiters")
-    depths[-1] = tuple(current)
+    depths[-1] = (current[0], current[1], current[2])
     require(depths[-1] == (0, 0, 0), "unbalanced Rust module delimiters")
     return depths
 
@@ -409,6 +412,7 @@ def _cfg_tokens(expression: str) -> list[str]:
             break
         match = _CFG_TOKEN.match(expression, position)
         require(match is not None, f"unsupported Rust cfg expression: {expression}")
+        assert match is not None  # narrowed: require() above already enforces this
         tokens.append(
             match.group("ident") or match.group("string") or match.group("punct")
         )
@@ -531,6 +535,7 @@ def _item_block_end(mask: str, start: int, position: int) -> tuple[int, bool]:
         end = closer + 2 if mask[closer + 1 :].startswith(";") else closer + 1
         return end, False
     require(item_kind is not None, "unsupported cfg-disabled Rust item")
+    assert item_kind is not None  # narrowed: require() above already enforces this
     semicolon_bound = item_kind.group(1) in {"const", "static", "type", "use"}
     if item_kind.group(1) == "const":
         after_const = header[item_kind.end() :]

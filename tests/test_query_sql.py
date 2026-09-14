@@ -8,7 +8,7 @@ from typing import Any
 import msgpack
 import pytest
 
-from epistemic_graph.client import QueryClient
+from epistemic_graph.client import EpistemicGraphClient, QueryClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
@@ -16,7 +16,7 @@ from epistemic_graph.client import QueryClient
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     """Mimics the engine's decoded `Raw(QueryResult)` reply: `_send` returns the
     already-double-unpacked dict `{"columns": [...], "rows": [<row-blob>, ...]}`
     where each row blob is a MessagePack list of cells (what the server emits)."""
@@ -26,7 +26,14 @@ class _FakeClient:
         self._columns = columns
         self._rows = rows
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         self.sent.append((method, params))
         return {
             "columns": self._columns,
@@ -40,7 +47,7 @@ async def test_sql_sends_rpc_and_zips_rows() -> None:
         columns=["id", "rank"],
         rows=[["n2", 2], ["n3", 3]],
     )
-    qc = QueryClient(fake)  # type: ignore[arg-type]
+    qc = QueryClient(fake)
     out = await qc.sql("SELECT id, rank FROM nodes WHERE rank >= 2")
 
     # RPC name + params are exactly what the engine expects.
@@ -57,7 +64,7 @@ async def test_sql_sends_rpc_and_zips_rows() -> None:
 @pytest.mark.asyncio
 async def test_sql_empty_result() -> None:
     fake = _FakeClient(columns=["id"], rows=[])
-    qc = QueryClient(fake)  # type: ignore[arg-type]
+    qc = QueryClient(fake)
     out = await qc.sql("SELECT id FROM nodes WHERE 1 = 0")
     assert out == []
     assert fake.sent == [("Sql", {"query": "SELECT id FROM nodes WHERE 1 = 0"})]

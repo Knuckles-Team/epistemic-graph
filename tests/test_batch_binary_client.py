@@ -18,6 +18,7 @@ import pytest
 from epistemic_graph import client as client_module
 from epistemic_graph.client import (
     EdgeClient,
+    EpistemicGraphClient,
     LifecycleClient,
     NodeClient,
     StatechartClient,
@@ -42,7 +43,7 @@ def test_result_decoder_preserves_only_declared_opaque_binary_methods() -> None:
     assert _decode_send_result("Sql", structured) == {"rows": [1, 2]}
 
 
-class _CaptureClient:
+class _CaptureClient(EpistemicGraphClient):
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
 
@@ -95,13 +96,13 @@ def _assert_binary_blob(
 async def test_batch_and_lifecycle_surfaces_use_binary_msgpack_blobs() -> None:
     fake = _CaptureClient()
 
-    nodes = NodeClient(fake)  # type: ignore[arg-type]
+    nodes = NodeClient(fake)
     await nodes.add("node:1", {"kind": "Document"})
     await nodes.create_if_absent("node:2", {"state": "pending"})
     await nodes.compare_and_set("node:2", {"state": "pending"}, {"state": "leased"})
     await nodes.claim_next("Document", {"owner": "worker:1"})
 
-    edges = EdgeClient(fake)  # type: ignore[arg-type]
+    edges = EdgeClient(fake)
     await edges.add("node:1", "node:2", {"relationship": "mentions"})
     await edges.supersede(
         "node:1",
@@ -114,21 +115,21 @@ async def test_batch_and_lifecycle_surfaces_use_binary_msgpack_blobs() -> None:
         {"relationship": "references"},
     )
 
-    txns = TxnClient(fake)  # type: ignore[arg-type]
+    txns = TxnClient(fake)
     await txns.add_node("txn:1", "node:4", {"kind": "Note"})
     await txns.add_edge("txn:1", "node:1", "node:4", {"weight": 1})
     await txns.cas("txn:1", "node:4", {"state": None}, {"state": "ready"})
 
-    lifecycle = LifecycleClient(fake)  # type: ignore[arg-type]
+    lifecycle = LifecycleClient(fake)
     operations = [{"op": "add_node", "id": "node:5", "properties": {"x": 1}}]
     await lifecycle.batch_update(operations)
     await lifecycle.multi_graph_batch_update({"graph:a": operations})
 
-    statechart = StatechartClient(fake)  # type: ignore[arg-type]
+    statechart = StatechartClient(fake)
     definition = {"name": "fixture", "states": ["ready"], "initial": "ready"}
     assert await statechart.define(definition) == "def:fixture"
 
-    work_items = WorkItemClient(fake)  # type: ignore[arg-type]
+    work_items = WorkItemClient(fake)
     await work_items.cas_metadata(
         tenant="tenant:fixture",
         work_item_id="work:fixture",
@@ -139,54 +140,62 @@ async def test_batch_and_lifecycle_surfaces_use_binary_msgpack_blobs() -> None:
     )
 
     by_method = {method: params for method, params in fake.sent}
-    assert by_method["AddNode"] is not None
+
+    def _sent(method: str) -> dict[str, Any]:
+        """Narrow one captured call's params from ``dict[str, Any] | None`` --
+        every method this fixture drives always sends params, so a ``None``
+        here is a genuine fixture bug, not an expected shape."""
+        params = by_method[method]
+        assert params is not None, method
+        return params
+
     _assert_binary_blob(
-        "AddNode", by_method["AddNode"], "properties_msgpack", {"kind": "Document"}
+        "AddNode", _sent("AddNode"), "properties_msgpack", {"kind": "Document"}
     )
     _assert_binary_blob(
         "CreateNodeIfAbsent",
-        by_method["CreateNodeIfAbsent"],
+        _sent("CreateNodeIfAbsent"),
         "properties_msgpack",
         {"state": "pending"},
     )
     _assert_binary_blob(
         "CompareAndSetNodeFields",
-        by_method["CompareAndSetNodeFields"],
+        _sent("CompareAndSetNodeFields"),
         "conditions_msgpack",
         {"state": "pending"},
     )
     _assert_binary_blob(
         "CompareAndSetNodeFields",
-        by_method["CompareAndSetNodeFields"],
+        _sent("CompareAndSetNodeFields"),
         "updates_msgpack",
         {"state": "leased"},
     )
     _assert_binary_blob(
         "AddEdge",
-        by_method["AddEdge"],
+        _sent("AddEdge"),
         "properties_msgpack",
         {"relationship": "mentions"},
     )
     _assert_binary_blob(
         "SupersedeEdge",
-        by_method["SupersedeEdge"],
+        _sent("SupersedeEdge"),
         "properties_msgpack",
         {"relationship": "references"},
     )
     _assert_binary_blob(
-        "TxnAddNode", by_method["TxnAddNode"], "properties_msgpack", {"kind": "Note"}
+        "TxnAddNode", _sent("TxnAddNode"), "properties_msgpack", {"kind": "Note"}
     )
     _assert_binary_blob(
-        "TxnAddEdge", by_method["TxnAddEdge"], "properties_msgpack", {"weight": 1}
+        "TxnAddEdge", _sent("TxnAddEdge"), "properties_msgpack", {"weight": 1}
     )
     _assert_binary_blob(
-        "TxnCas", by_method["TxnCas"], "conditions_msgpack", {"state": None}
+        "TxnCas", _sent("TxnCas"), "conditions_msgpack", {"state": None}
     )
     _assert_binary_blob(
-        "TxnCas", by_method["TxnCas"], "updates_msgpack", {"state": "ready"}
+        "TxnCas", _sent("TxnCas"), "updates_msgpack", {"state": "ready"}
     )
     _assert_binary_blob(
-        "BatchUpdate", by_method["BatchUpdate"], "operations_msgpack", operations
+        "BatchUpdate", _sent("BatchUpdate"), "operations_msgpack", operations
     )
 
     multi_graph = by_method["MultiGraphBatchUpdate"]
@@ -207,7 +216,7 @@ async def test_batch_and_lifecycle_surfaces_use_binary_msgpack_blobs() -> None:
         definition,
     )
 
-    work_item_request = by_method["CasWorkItemMetadata"]["request"]
+    work_item_request = _sent("CasWorkItemMetadata")["request"]
     _assert_binary_blob(
         "CasWorkItemMetadata",
         work_item_request,
@@ -234,7 +243,7 @@ async def test_batch_and_lifecycle_surfaces_use_binary_msgpack_blobs() -> None:
 @pytest.mark.asyncio
 async def test_large_and_empty_batches_never_expand_to_integer_arrays() -> None:
     fake = _CaptureClient()
-    lifecycle = LifecycleClient(fake)  # type: ignore[arg-type]
+    lifecycle = LifecycleClient(fake)
 
     # This is deliberately larger than a fixstr/fixmap so the old integer-array
     # representation would be visible as a materially different wire shape.
@@ -280,7 +289,7 @@ async def test_large_and_empty_batches_never_expand_to_integer_arrays() -> None:
 @pytest.mark.asyncio
 async def test_unsupported_batch_values_fail_closed_before_transport() -> None:
     fake = _CaptureClient()
-    lifecycle = LifecycleClient(fake)  # type: ignore[arg-type]
+    lifecycle = LifecycleClient(fake)
 
     with pytest.raises((TypeError, ValueError)):
         await lifecycle.batch_update(
