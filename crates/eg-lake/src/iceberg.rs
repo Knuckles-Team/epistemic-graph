@@ -38,6 +38,229 @@ pub struct IcebergTable {
     pub metadata_location: String,
 }
 
+/// One Iceberg metadata generation retained by [`crate::LakeTable`]. Keeping this
+/// separate from file-addition LSNs matters: a snapshot is valid only after its
+/// metadata and manifest list have actually been emitted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct IcebergCommit {
+    pub lsn: Lsn,
+    pub timestamp_ms: i64,
+    pub schema_id: i32,
+}
+
+pub(crate) struct IcebergBuildContext<'a> {
+    pub schema_versions: &'a [(i32, LakeSchema)],
+    pub current_schema_id: i32,
+    pub snapshot: &'a SnapshotLog,
+    pub lsn: Lsn,
+    pub table_uuid: &'a str,
+    pub location: &'a str,
+    pub timestamp_ms: i64,
+    pub history: &'a [IcebergCommit],
+}
+
+fn projected_commit(
+    snapshot: &SnapshotLog,
+    lsn: Lsn,
+    schema_id: i32,
+    timestamp_ms: i64,
+) -> Option<IcebergCommit> {
+    snapshot
+        .all_files()
+        .iter()
+        .any(|file| file.added_at <= lsn)
+        .then_some(IcebergCommit {
+            lsn,
+            timestamp_ms,
+            schema_id,
+        })
+}
+
+fn current_schema<'a>(ctx: &IcebergBuildContext<'a>) -> Option<&'a LakeSchema> {
+    ctx.schema_versions
+        .iter()
+        .find(|(id, _)| *id == ctx.current_schema_id)
+        .map(|(_, schema)| schema)
+        .or_else(|| ctx.schema_versions.last().map(|(_, schema)| schema))
+}
+
+fn manifest_preview(ctx: &IcebergBuildContext<'_>, commit: Option<IcebergCommit>) -> String {
+    let Some(commit) = commit else {
+        return json!({
+            "_note": "JSON preview; no Iceberg snapshot had been emitted as of this LSN",
+            "manifest_list": Value::Null,
+            "manifest_file": Value::Null,
+            "schema-id": ctx.current_schema_id,
+            "snapshot-id": Value::Null,
+            "entries": [],
+        })
+        .to_string();
+    };
+    let snapshot_id = commit.lsn.value() as i64;
+    let data_files: Vec<Value> = ctx
+        .snapshot
+        .files_as_of(commit.lsn)
+        .iter()
+        .map(|file| {
+            json!({
+                "status": 1,
+                "data_file": {
+                    "content": 0,
+                    "file_path": format!("{}/{}", ctx.location, file.path),
+                    "file_format": "PARQUET",
+                    "record_count": file.num_rows,
+                    "file_size_in_bytes": file.size_bytes,
+                    "partition": {},
+                    "schema-id": file.schema_id,
+                }
+            })
+        })
+        .collect();
+    json!({
+        "_note": "JSON preview; the real Avro manifest is written by iceberg_avro (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest)",
+        "manifest_list": manifest_list_path(ctx.location, snapshot_id),
+        "manifest_file": manifest_file_path(ctx.location, snapshot_id),
+        "schema-id": commit.schema_id,
+        "snapshot-id": snapshot_id,
+        "entries": data_files,
+    })
+    .to_string()
+}
+
+fn commits_as_of(ctx: &IcebergBuildContext<'_>) -> Vec<IcebergCommit> {
+    ctx.history
+        .iter()
+        .filter(|commit| commit.lsn <= ctx.lsn)
+        .copied()
+        .collect()
+}
+
+fn snapshot_value(
+    ctx: &IcebergBuildContext<'_>,
+    commit: IcebergCommit,
+    parent: Option<Lsn>,
+) -> Value {
+    let live = ctx.snapshot.files_as_of(commit.lsn);
+    let mut value = json!({
+        "snapshot-id": commit.lsn.value() as i64,
+        "sequence-number": commit.lsn.value() as i64,
+        "timestamp-ms": commit.timestamp_ms,
+        "summary": {
+            "operation": "append",
+            "total-records": live.iter().map(|file| file.num_rows).sum::<u64>().to_string(),
+            "total-files-size": live.iter().map(|file| file.size_bytes).sum::<u64>().to_string(),
+            "total-data-files": live.len().to_string(),
+            "epistemic-graph-lsn": commit.lsn.value().to_string(),
+        },
+        "manifest-list": manifest_list_path(ctx.location, commit.lsn.value() as i64),
+        "schema-id": commit.schema_id,
+    });
+    if let Some(parent_lsn) = parent {
+        value["parent-snapshot-id"] = json!(parent_lsn.value() as i64);
+    }
+    value
+}
+
+fn snapshots(ctx: &IcebergBuildContext<'_>, commits: &[IcebergCommit]) -> Vec<Value> {
+    commits
+        .iter()
+        .enumerate()
+        .map(|(index, commit)| {
+            snapshot_value(ctx, *commit, index.checked_sub(1).map(|i| commits[i].lsn))
+        })
+        .collect()
+}
+
+fn snapshot_log(commits: &[IcebergCommit]) -> Vec<Value> {
+    commits
+        .iter()
+        .map(|commit| {
+            json!({
+                "snapshot-id": commit.lsn.value() as i64,
+                "timestamp-ms": commit.timestamp_ms,
+            })
+        })
+        .collect()
+}
+
+fn metadata_log(location: &str, commits: &[IcebergCommit]) -> Vec<Value> {
+    commits
+        .iter()
+        .take(commits.len().saturating_sub(1))
+        .map(|commit| {
+            json!({
+                "metadata-file": format!(
+                    "{location}/metadata/v{}.metadata.json",
+                    commit.lsn.value()
+                ),
+                "timestamp-ms": commit.timestamp_ms,
+            })
+        })
+        .collect()
+}
+
+fn name_mapping(schema: Option<&LakeSchema>) -> String {
+    let mapping: Vec<Value> = schema
+        .map(|schema| {
+            schema
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(index, field)| json!({ "field-id": index + 1, "names": [field.name] }))
+                .collect()
+        })
+        .unwrap_or_default();
+    serde_json::to_string(&mapping).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn metadata_document(
+    ctx: &IcebergBuildContext<'_>,
+    schema: Option<&LakeSchema>,
+    commits: &[IcebergCommit],
+) -> Value {
+    let current = commits.last().copied();
+    let snapshot_id = current
+        .map(|commit| commit.lsn.value() as i64)
+        .unwrap_or(-1);
+    let last_sequence_number = current.map(|commit| commit.lsn.value() as i64).unwrap_or(0);
+    let current_schema_id = current
+        .map(|commit| commit.schema_id)
+        .unwrap_or(ctx.current_schema_id);
+    let last_updated_ms = current
+        .map(|commit| commit.timestamp_ms)
+        .unwrap_or(ctx.timestamp_ms);
+    let schemas: Vec<Value> = ctx
+        .schema_versions
+        .iter()
+        .filter(|(id, _)| *id <= current_schema_id)
+        .map(|(id, schema)| iceberg_schema(schema, *id))
+        .collect();
+    json!({
+        "format-version": 2,
+        "table-uuid": ctx.table_uuid,
+        "location": ctx.location,
+        "last-sequence-number": last_sequence_number,
+        "last-updated-ms": last_updated_ms,
+        "last-column-id": schema.map(|schema| schema.len() as i64).unwrap_or(0),
+        "current-schema-id": current_schema_id,
+        "schemas": schemas,
+        "default-spec-id": 0,
+        "partition-specs": [ { "spec-id": 0, "fields": [] } ],
+        "last-partition-id": 999,
+        "default-sort-order-id": 0,
+        "sort-orders": [ { "order-id": 0, "fields": [] } ],
+        "properties": {
+            "engine": "epistemic-graph/eg-lake",
+            "concept": "EG-KG.storage.lsn-as-snapshot-returns",
+            "schema.name-mapping.default": name_mapping(schema),
+        },
+        "current-snapshot-id": snapshot_id,
+        "snapshots": snapshots(ctx, commits),
+        "snapshot-log": snapshot_log(commits),
+        "metadata-log": metadata_log(ctx.location, commits),
+    })
+}
+
 /// Object-store path of the Iceberg **manifest list** Avro file for a snapshot
 /// (CONCEPT:EG-KG.storage.iceberg-manifest-list). Shared by [`build_iceberg`] (which references it from the
 /// snapshot's `manifest-list`) and [`crate::iceberg_avro`] (which writes it), so the
@@ -97,15 +320,19 @@ pub fn build_iceberg(
     location: &str,
     timestamp_ms: i64,
 ) -> IcebergTable {
-    build_iceberg_as_of(
+    let lsn = snapshot.current_lsn();
+    let commit = projected_commit(snapshot, lsn, current_schema_id, timestamp_ms);
+    let history = commit.as_ref().map(std::slice::from_ref).unwrap_or(&[]);
+    build_iceberg_as_of_with_history(IcebergBuildContext {
         schema_versions,
         current_schema_id,
         snapshot,
-        snapshot.current_lsn(),
+        lsn,
         table_uuid,
         location,
         timestamp_ms,
-    )
+        history,
+    })
 }
 
 /// Build the Iceberg `metadata.json` (+ manifest JSON stub) for the file set live as
@@ -127,129 +354,41 @@ pub fn build_iceberg_as_of(
     location: &str,
     timestamp_ms: i64,
 ) -> IcebergTable {
-    let snapshot_id: i64 = lsn.value() as i64;
-    let current_schema = schema_versions
+    let commit = projected_commit(snapshot, lsn, current_schema_id, timestamp_ms);
+    let history = commit.as_ref().map(std::slice::from_ref).unwrap_or(&[]);
+    build_iceberg_as_of_with_history(IcebergBuildContext {
+        schema_versions,
+        current_schema_id,
+        snapshot,
+        lsn,
+        table_uuid,
+        location,
+        timestamp_ms,
+        history,
+    })
+}
+
+/// Render metadata with the Iceberg generations this table instance has actually
+/// emitted. File-addition LSNs alone are insufficient: advertising an LSN whose
+/// manifest list was never written would create a dangling, invalid snapshot.
+pub(crate) fn build_iceberg_as_of_with_history(ctx: IcebergBuildContext<'_>) -> IcebergTable {
+    let commits = commits_as_of(&ctx);
+    let current = commits.last().copied();
+    let snapshot_id = current.map(|commit| commit.lsn.value() as i64).unwrap_or(0);
+    let current_schema_id = current
+        .map(|commit| commit.schema_id)
+        .unwrap_or(ctx.current_schema_id);
+    let schema = ctx
+        .schema_versions
         .iter()
         .find(|(id, _)| *id == current_schema_id)
-        .map(|(_, s)| s)
-        .or_else(|| schema_versions.last().map(|(_, s)| s));
-    let last_column_id = current_schema.map(|s| s.len() as i64).unwrap_or(0);
-
-    let manifest_list = manifest_list_path(location, snapshot_id);
-    let metadata_location = format!("{location}/metadata/v{snapshot_id}.metadata.json");
-
-    // Data-file entries live as of the REQUESTED lsn (not necessarily current) — the
-    // manifest content (stubbed to JSON; real Iceberg is Avro).
-    let live = snapshot.files_as_of(lsn);
-    let total_rows: u64 = live.iter().map(|f| f.num_rows).sum();
-    let total_size: u64 = live.iter().map(|f| f.size_bytes).sum();
-
-    let data_files: Vec<Value> = live
-        .iter()
-        .map(|f| {
-            json!({
-                "status": 1, // ADDED
-                "data_file": {
-                    "content": 0, // DATA
-                    "file_path": format!("{location}/{}", f.path),
-                    "file_format": "PARQUET",
-                    "record_count": f.num_rows,
-                    "file_size_in_bytes": f.size_bytes,
-                    "partition": {},
-                    // The schema-id THIS file was actually written under (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id)
-                    // -- may be OLDER than `current_schema_id` for a live file that
-                    // predates a later evolve_add_column and hasn't been rewritten yet.
-                    "schema-id": f.schema_id,
-                }
-            })
-        })
-        .collect();
-
-    let manifest_json = json!({
-        "_note": "JSON preview; the real Avro manifest is written by iceberg_avro (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest)",
-        "manifest_list": manifest_list,
-        "manifest_file": manifest_file_path(location, snapshot_id),
-        "schema-id": current_schema_id,
-        "snapshot-id": snapshot_id,
-        "entries": data_files,
-    })
-    .to_string();
-
-    let snapshot_obj = json!({
-        "snapshot-id": snapshot_id,
-        "timestamp-ms": timestamp_ms,
-        "summary": {
-            "operation": "append",
-            "total-records": total_rows.to_string(),
-            "total-files-size": total_size.to_string(),
-            "total-data-files": live.len().to_string(),
-            "epistemic-graph-lsn": lsn.value().to_string(),
-        },
-        "manifest-list": manifest_list,
-        // The schema-id in effect for THIS commit (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id) -- new commits
-        // always write under the CURRENT schema; older, not-yet-rewritten live files
-        // keep their own (possibly older) schema-id on their manifest entry above.
-        "schema-id": current_schema_id,
-    });
-
-    // Full schema-evolution history (CONCEPT:EG-KG.storage.iceberg-per-file-schema-id) -- every version this table has
-    // ever used, each correctly tagged with ITS OWN schema-id (not always 0).
-    let schemas: Vec<Value> = schema_versions
-        .iter()
-        .map(|(id, s)| iceberg_schema(s, *id))
-        .collect();
-
-    // `schema.name-mapping.default` (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns): eg-lake's Parquet writer
-    // (Polars, `parquet_io.rs`) does not embed Iceberg field-ids on Parquet columns the
-    // way a native Iceberg writer does, so a spec-compliant reader (pyiceberg's
-    // `pyarrow_to_schema`, and any other reader that enforces
-    // https://iceberg.apache.org/spec/#column-projection) refuses to open the file
-    // without EITHER embedded field-ids OR this table-property fallback: a JSON array
-    // (itself embedded as a STRING value, per the spec's Name Mapping Serialization)
-    // mapping each column NAME to its Iceberg field-id, so the reader resolves by name.
-    // Built from the CURRENT schema (evolution is additive-only, CONCEPT:EG-KG.storage.iceberg-per-file-schema-id) —
-    // matches the SAME 1-based, declaration-order ids `iceberg_schema` assigns.
-    let name_mapping: Vec<Value> = current_schema
-        .map(|s| {
-            s.fields
-                .iter()
-                .enumerate()
-                .map(|(i, f)| json!({ "field-id": i + 1, "names": [f.name] }))
-                .collect()
-        })
-        .unwrap_or_default();
-    let name_mapping_json =
-        serde_json::to_string(&name_mapping).unwrap_or_else(|_| "[]".to_string());
-
-    let metadata = json!({
-        "format-version": 2,
-        "table-uuid": table_uuid,
-        "location": location,
-        "last-sequence-number": snapshot_id,
-        "last-updated-ms": timestamp_ms,
-        "last-column-id": last_column_id,
-        "current-schema-id": current_schema_id,
-        "schemas": schemas,
-        "default-spec-id": 0,
-        "partition-specs": [ { "spec-id": 0, "fields": [] } ],
-        "last-partition-id": 999,
-        "default-sort-order-id": 0,
-        "sort-orders": [ { "order-id": 0, "fields": [] } ],
-        "properties": {
-            "engine": "epistemic-graph/eg-lake",
-            "concept": "EG-KG.storage.lsn-as-snapshot-returns",
-            "schema.name-mapping.default": name_mapping_json,
-        },
-        "current-snapshot-id": snapshot_id,
-        "snapshots": [snapshot_obj],
-        "snapshot-log": [ { "snapshot-id": snapshot_id, "timestamp-ms": timestamp_ms } ],
-        "metadata-log": [],
-    });
-
+        .map(|(_, schema)| schema)
+        .or_else(|| current_schema(&ctx));
+    let metadata = metadata_document(&ctx, schema, &commits);
     IcebergTable {
         metadata_json: serde_json::to_string_pretty(&metadata).unwrap_or_else(|_| "{}".into()),
-        manifest_json,
-        metadata_location,
+        manifest_json: manifest_preview(&ctx, current),
+        metadata_location: format!("{}/metadata/v{snapshot_id}.metadata.json", ctx.location),
     }
 }
 

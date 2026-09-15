@@ -448,7 +448,9 @@ pub(super) async fn commit_prepared_replayed(
     };
     match decode_validated_txn_result(bytes) {
         Ok(stored) => {
-            let (snapshot, version) = match authority.read_authoritative_graph_snapshot(fname).await
+            let (snapshot, version) = match authority
+                .read_authoritative_graph_snapshot(&fname)
+                .await
             {
                 Ok(Some(value)) => value,
                 Ok(None) => {

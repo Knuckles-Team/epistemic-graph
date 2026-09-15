@@ -1,5 +1,7 @@
 macro_rules! persistence_mutations {
-    () => {
+    ($next:ident { $($methods:tt)* }) => {
+    $next! {
+    $($methods)*
         async fn record_durable(&self, graph_fname: &str, method: &Method) -> Result<(), String> {
             let (done_tx, done_rx) = oneshot::channel();
             let cmd = Cmd::Mutation {
@@ -140,6 +142,7 @@ macro_rules! persistence_mutations {
             })
             .await
         }
+    }
     };
 }
 

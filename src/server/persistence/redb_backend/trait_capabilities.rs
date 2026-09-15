@@ -1,5 +1,7 @@
 macro_rules! persistence_capabilities {
-    () => {
+    ($next:ident { $($methods:tt)* }) => {
+    $next! {
+    $($methods)*
     fn supports_native_resource_reservations(&self) -> bool {
         true
     }
@@ -56,6 +58,7 @@ macro_rules! persistence_capabilities {
     /// DIST-P2-3) — reuses [`Self::read_graph_dump_blocking`], the SAME per-graph
     /// rehydrate path `shard_migrate`/`backup` already use, so a lazily-opened
     /// graph replays byte-identically to an eagerly-loaded one.
+    }
     };
 }
 

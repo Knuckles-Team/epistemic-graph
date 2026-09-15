@@ -1,5 +1,7 @@
 macro_rules! persistence_graph_reads {
-    () => {
+    ($next:ident { $($methods:tt)* }) => {
+    $next! {
+    $($methods)*
     fn read_graph_material_blocking(
         &self,
         graph_fname: &str,
@@ -143,6 +145,7 @@ macro_rules! persistence_graph_reads {
     /// never parked on disk/lock pressure. Completion is signalled by the writer
     /// AFTER its group-commit `WriteTransaction` commits, so concurrent callers still
     /// coalesce into ONE fsync.
+    }
     };
 }
 

@@ -15,6 +15,7 @@ mod dispatch_helpers;
 mod gateway;
 mod graph_access;
 mod graph_dispatch;
+#[cfg(all(feature = "raft", feature = "modality-serving"))]
 mod modality;
 mod native_routes;
 mod pipeline;
@@ -22,7 +23,9 @@ mod work_governance;
 use dispatch_helpers::*;
 use gateway::*;
 use graph_access::*;
-use graph_dispatch::*;
+use graph_dispatch::dispatch_graph_op_inner;
+pub(super) use graph_dispatch::GraphOpRouting;
+#[cfg(all(feature = "raft", feature = "modality-serving"))]
 use modality::*;
 use native_routes::*;
 use pipeline::*;

@@ -57,7 +57,7 @@ pub(super) async fn dispatch_transaction_methods_arm_0(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -95,7 +95,7 @@ pub(super) async fn dispatch_transaction_methods_arm_1(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -133,7 +133,7 @@ pub(super) async fn dispatch_transaction_methods_arm_2(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -171,7 +171,7 @@ pub(super) async fn dispatch_transaction_methods_arm_3(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -209,7 +209,7 @@ pub(super) async fn dispatch_transaction_methods_arm_4(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -247,7 +247,7 @@ pub(super) async fn dispatch_transaction_methods_arm_5(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -315,7 +315,7 @@ pub(super) async fn dispatch_change_envelope_methods_arm_0(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -349,7 +349,7 @@ pub(super) async fn dispatch_change_envelope_methods_arm_1(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -397,7 +397,7 @@ pub(super) async fn dispatch_change_envelope_methods_arm_2(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -439,7 +439,7 @@ pub(super) async fn dispatch_change_envelope_methods_arm_3(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -489,6 +489,6 @@ pub(super) async fn dispatch_change_envelope_methods_arm_4(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }

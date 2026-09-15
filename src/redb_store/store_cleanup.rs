@@ -543,17 +543,17 @@ pub(crate) fn clear_resource_rows(
 }
 
 #[cfg(test)]
-pub(crate) fn clear_resource_rows(
+pub(crate) fn clear_resource_rows<'txn>(
     graph: &str,
-    reservations: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
-    tenant_index: &mut ScopedOwnerTableMut<'_, (&str, &str, &str), &str>,
-    attempts: &mut ScopedOwnerTableMut<'_, (&str, &str, u64), &str>,
-    hosts: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
-    exclusivity: &mut ScopedOwnerTableMut<'_, (&str, &str), &str>,
-    fairness: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
-    concurrency: &mut ScopedOwnerTableMut<'_, (&str, &str), u64>,
-    anti_affinity: &mut ScopedOwnerTableMut<'_, (&str, &str, &str), u64>,
-    disk_policies: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
+    reservations: &mut ScopedOwnerTableMut<'txn, (&str, &str), &[u8]>,
+    tenant_index: &mut ScopedOwnerTableMut<'txn, (&str, &str, &str), &str>,
+    attempts: &mut ScopedOwnerTableMut<'txn, (&str, &str, u64), &str>,
+    hosts: &mut ScopedOwnerTableMut<'txn, (&str, &str), &[u8]>,
+    exclusivity: &mut ScopedOwnerTableMut<'txn, (&str, &str), &str>,
+    fairness: &mut ScopedOwnerTableMut<'txn, (&str, &str), &[u8]>,
+    concurrency: &mut ScopedOwnerTableMut<'txn, (&str, &str), u64>,
+    anti_affinity: &mut ScopedOwnerTableMut<'txn, (&str, &str, &str), u64>,
+    disk_policies: &mut ScopedOwnerTableMut<'txn, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     let mut tables = ResourceRowTablesRef {

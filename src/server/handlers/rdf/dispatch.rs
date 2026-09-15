@@ -2,15 +2,15 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
-use super::super::access::GraphReadAuthority;
-use super::super::state::ServerState;
-use super::super::TryHandleContext;
 use crate::graph::GraphCore;
 use crate::protocol::{Method, Response};
+use crate::server::access::GraphReadAuthority;
+use crate::server::handlers::TryHandleContext;
+use crate::server::state::ServerState;
 
 /// Route the native RDF family while keeping each protocol surface in its own
 /// cohesive handler. An unmatched method is returned for the next dispatcher.
-pub(super) async fn try_handle(
+pub(in crate::server) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     ctx: TryHandleContext<'_>,
     core: Arc<GraphCore>,
@@ -300,9 +300,9 @@ async fn try_handle_validation(
             )
         }
         #[cfg(feature = "shacl")]
-        Method::IcvConfigure { .. } => Some(unreachable!(
+        Method::IcvConfigure { .. } => unreachable!(
             "IcvConfigure is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it through try_handle_gateway before it ever reaches this fallback handler"
-        )),
+        ),
         #[cfg(feature = "shex")]
         Method::ShexValidate {
             schema,

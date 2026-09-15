@@ -96,7 +96,7 @@ fn sql_read_snapshot(
 #[cfg(feature = "query")]
 async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
     let SqlReadScope {
-        state,
+        state: _,
         req_id,
         core,
         caller,

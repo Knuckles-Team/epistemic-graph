@@ -247,7 +247,11 @@ fn change_envelope_conflict(
 }
 
 mod multi_graph;
-pub(super) use multi_graph::{decode_multi_graph_batches, multi_graph_batch_update};
+#[cfg(feature = "redb")]
+use multi_graph::declared_json_response;
+#[cfg(test)]
+pub(in crate::server::dispatch) use multi_graph::decode_multi_graph_batches;
+pub(in crate::server::dispatch) use multi_graph::multi_graph_batch_update;
 
 fn change_envelope_result(
     committed: &eg_types::ChangeEnvelopeCommit,
@@ -516,7 +520,7 @@ pub(super) async fn route_change_envelope_ops(
 ) -> Result<Response, Method> {
     match method {
         Method::ApplyChangeEnvelope { envelope } => {
-            Ok(apply_one_change_envelope(ctx, envelope).await)
+            Ok(apply_one_change_envelope(ctx, *envelope).await)
         }
         Method::ApplyChangeEnvelopes { envelopes } => {
             Ok(apply_change_envelope_batch(ctx, envelopes).await)

@@ -41,6 +41,7 @@ mod commit_modal;
 mod commit_multi_graph;
 #[path = "txn/commit_prepared.rs"]
 mod commit_prepared;
+#[cfg(feature = "raft")]
 #[path = "txn/consensus.rs"]
 mod consensus;
 #[path = "txn/dispatch.rs"]
@@ -54,15 +55,16 @@ mod rollback;
 #[path = "txn/staging.rs"]
 mod staging;
 
-pub(crate) use commit_core::*;
+use commit_core::*;
 pub(crate) use commit_modal::*;
 pub(crate) use commit_multi_graph::*;
-pub(crate) use commit_prepared::*;
+use commit_prepared::*;
+#[cfg(feature = "raft")]
 pub(crate) use consensus::*;
 pub(crate) use dispatch::*;
 pub(crate) use receipts::*;
-pub(crate) use reconcile::*;
-pub(crate) use rollback::*;
+use reconcile::*;
+use rollback::*;
 pub(crate) use staging::*;
 
 fn consensus_apply_is_authorized() -> bool {

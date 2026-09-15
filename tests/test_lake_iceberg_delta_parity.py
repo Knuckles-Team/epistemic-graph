@@ -18,10 +18,16 @@ strict mode, where missing readers, OAuth fixture dependencies, or pre-built eng
 artifacts fail collection instead of silently producing a green run with no parity
 proof.
 
-Run standalone (bypass the slow shared-engine conftest fixture, matching
-`test_kvcache_connector.py`'s documented pattern)::
+Run standalone with already-built artifacts (bypass the slow shared-engine
+conftest fixture, matching `test_kvcache_connector.py`'s documented pattern)::
 
-    python3 -m pytest tests/test_lake_iceberg_delta_parity.py --noconftest -q
+    EPISTEMIC_GRAPH_TEST_BINARY=target-isolated/debug/epistemic-graph-server \
+    EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY=target-isolated/debug/lake-fixture-export \
+      python3 -m pytest tests/test_lake_iceberg_delta_parity.py --noconftest -q
+
+Without those artifacts an ordinary developer run skips the corresponding
+live-binary cases. The strict ``tests/run_lake_parity.py`` gate fails closed.
+This ``no_engine`` module never starts a Cargo build of its own.
 
 A18/BUG-222 (see `reports/issue-register.md`): the shared
 `server::unauthenticated_carrier_denied`
@@ -68,10 +74,14 @@ from conftest import _prebuilt_test_binary
 pytestmark = pytest.mark.no_engine
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CARGO_BUILD_TIMEOUT_S = 900
+FIXTURE_PROCESS_TIMEOUT_S = 120
+# GOC-70: redb recovery can legitimately make a cold CI start exceed 30 seconds.
+SERVER_STARTUP_TIMEOUT_S = 60
 STRICT_PARITY = os.environ.get("EPISTEMIC_GRAPH_LAKE_PARITY_STRICT") == "1"
 
 try:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
     from pyiceberg.table import StaticTable
 
     PYICEBERG_AVAILABLE = True
@@ -121,6 +131,20 @@ def _configured_executable(variable: str) -> str | None:
     return str(path)
 
 
+def _required_executable(executable: str | None, variable: str, purpose: str) -> str:
+    """Return the configured binary or stop this parity test explicitly."""
+
+    if executable is not None:
+        return executable
+    if STRICT_PARITY:
+        pytest.fail(f"strict lake parity requires an executable {variable}")
+    pytest.skip(
+        f"{purpose} requires a prebuilt {variable}; "
+        "this no_engine module does not launch Cargo"
+    )
+    raise AssertionError("pytest.skip returned unexpectedly")
+
+
 def _require_strict_parity_prerequisites() -> None:
     """Fail closed before collection when the dedicated gate is incomplete."""
 
@@ -163,38 +187,23 @@ EXPECTED_ROW_COUNT = 5
 def _run_lake_fixture_export(out_dir: Path) -> dict:
     """Run the real fixture exporter; return its parsed JSON summary.
 
-    The normal developer invocation retains the historical Cargo fallback. The
-    dedicated strict harness requires the caller to provide an already-built
-    binary so parity validation never hides a second compiler workload or
-    accidentally exercises a different artifact than the one being certified.
+    Both ordinary and strict invocations use an already-built binary. This
+    module is marked ``no_engine`` and must never hide an independent Cargo
+    workload inside pytest; the strict harness additionally turns a missing
+    artifact into a collection-time failure.
     """
 
-    prebuilt = _configured_executable("EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY")
-    if prebuilt is not None:
-        command = [prebuilt, str(out_dir)]
-    else:
-        if STRICT_PARITY:
-            pytest.fail(
-                "strict lake parity requires an executable "
-                "EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY"
-            )
-        command = [
-            "cargo",
-            "run",
-            "--quiet",
-            "--features",
-            "full",
-            "--bin",
-            "lake-fixture-export",
-            "--",
-            str(out_dir),
-        ]
+    prebuilt = _required_executable(
+        _configured_executable("EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY"),
+        "EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY",
+        "lake read parity",
+    )
     proc = subprocess.run(
-        command,
+        [prebuilt, str(out_dir)],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
-        timeout=CARGO_BUILD_TIMEOUT_S,
+        timeout=FIXTURE_PROCESS_TIMEOUT_S,
     )
     assert proc.returncode == 0, (
         f"lake-fixture-export failed (exit {proc.returncode}):\n"
@@ -261,6 +270,28 @@ def _assert_row_matches(row: dict, expected: dict) -> None:
     assert _ts_micros(row["ts"]) == expected["ts_micros"], f"id={expected['id']}: ts"
 
 
+def _assert_two_commit_snapshot_history(table) -> None:
+    """Validate the fixture's complete linked Iceberg snapshot projection."""
+
+    snapshots = list(table.metadata.snapshots)
+    current_snapshot = next(
+        snapshot
+        for snapshot in snapshots
+        if snapshot.snapshot_id == table.metadata.current_snapshot_id
+    )
+    actual_history = (
+        [snapshot.snapshot_id for snapshot in snapshots],
+        [snapshot.parent_snapshot_id for snapshot in snapshots],
+        [entry.snapshot_id for entry in table.metadata.snapshot_log],
+        len(table.metadata.metadata_log),
+        table.metadata.current_snapshot_id,
+        current_snapshot.snapshot_id,
+    )
+    assert actual_history == ([1, 4], [None, 1], [1, 4], 1, 4, 4), (
+        "CREATE and APPEND must form one linked, current snapshot history"
+    )
+
+
 # --------------------------------------------------------------------------------- #
 # Iceberg read parity (pyiceberg)
 # --------------------------------------------------------------------------------- #
@@ -285,6 +316,22 @@ class TestIcebergReadParity:
             assert by_name[nullable_col].required is False
 
     @_SKIP_PYICEBERG
+    def test_parquet_footer_uses_offset_utf8_for_external_readers(self, lake_fixture):
+        """Every production data file advertises Arrow ``string``, not
+        ``string_view``, so PyIceberg/PyArrow filter and take kernels remain usable."""
+        data_files = sorted(Path(lake_fixture["location"]).glob("data/*.parquet"))
+        assert len(data_files) == 2, "the two fixture commits must produce two files"
+        for data_file in data_files:
+            schema = pq.read_schema(data_file)
+            symbol_type = schema.field("symbol").type
+            assert pa.types.is_string(symbol_type) or pa.types.is_large_string(
+                symbol_type
+            ), (
+                f"{data_file.name}: symbol must use offset-based Arrow UTF-8, "
+                f"found {symbol_type}"
+            )
+
+    @_SKIP_PYICEBERG
     def test_pyiceberg_reads_all_rows_across_both_commits(self, lake_fixture):
         table = StaticTable.from_metadata(lake_fixture["metadata_location"])
         arrow_table = table.scan().to_arrow()
@@ -298,11 +345,37 @@ class TestIcebergReadParity:
     @_SKIP_PYICEBERG
     def test_pyiceberg_sees_both_commits_as_snapshot_history(self, lake_fixture):
         table = StaticTable.from_metadata(lake_fixture["metadata_location"])
-        snapshots = list(table.metadata.snapshots)
-        assert len(snapshots) == 2, (
-            "the CREATE and the APPEND must both be real Iceberg snapshots"
-        )
-        assert table.metadata.current_snapshot_id == snapshots[-1].snapshot_id
+        _assert_two_commit_snapshot_history(table)
+
+    @_SKIP_PYICEBERG
+    def test_pyiceberg_reads_the_actual_historical_snapshot(self, lake_fixture):
+        table = StaticTable.from_metadata(lake_fixture["historical_metadata_location"])
+        assert table.metadata.current_snapshot_id == 1
+        assert [snapshot.snapshot_id for snapshot in table.metadata.snapshots] == [1]
+        rows = table.scan().to_arrow()
+        assert rows.num_rows == 3
+        assert sorted(rows.column("id").to_pylist()) == [1, 2, 3]
+
+    @_SKIP_PYICEBERG
+    @pytest.mark.parametrize(
+        "location_key",
+        ["tombstone_as_of_metadata_location", "unrelated_as_of_metadata_location"],
+    )
+    def test_pyiceberg_reads_latest_emitted_snapshot_across_lsn_gaps(
+        self, lake_fixture, location_key
+    ):
+        table = StaticTable.from_metadata(lake_fixture[location_key])
+        assert table.metadata.current_snapshot_id == 1
+        assert [snapshot.snapshot_id for snapshot in table.metadata.snapshots] == [1]
+        rows = table.scan().to_arrow()
+        assert rows.num_rows == 3
+        assert sorted(rows.column("id").to_pylist()) == [1, 2, 3]
+
+    def test_precreation_history_has_no_metadata_location(self, lake_fixture):
+        assert lake_fixture["precreation_metadata_location"] is None
+        assert not (
+            Path(lake_fixture["location"]) / "metadata/v0.metadata.json"
+        ).exists()
 
     @_SKIP_PYICEBERG
     def test_pyiceberg_row_filter_pushdown_matches_expected_subset(self, lake_fixture):
@@ -314,6 +387,8 @@ class TestIcebergReadParity:
         table = StaticTable.from_metadata(lake_fixture["metadata_location"])
         df = table.scan(row_filter=GreaterThan("id", 3)).to_arrow().to_pandas()
         assert sorted(df["id"].tolist()) == [4, 5]
+        filtered = df.sort_values("id").reset_index(drop=True)
+        assert filtered["symbol"].tolist() == ["GOOG", "AMZN"]
 
 
 # --------------------------------------------------------------------------------- #
@@ -484,6 +559,49 @@ def _sign_iceberg_bearer(
     )
 
 
+def _terminate_server(proc: subprocess.Popen[str]) -> None:
+    """Stop a fixture server, escalating only when graceful shutdown stalls."""
+
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
+def _wait_for_iceberg_server(proc: subprocess.Popen[str], port: int) -> None:
+    """Wait for the private Iceberg listener or report its captured failure."""
+
+    deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT_S
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            out, err = proc.communicate()
+            pytest.fail(
+                f"epistemic-graph-server exited early (code {proc.returncode}):\n"
+                f"stdout={out}\nstderr={err}"
+            )
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.settimeout(0.5)
+            if probe.connect_ex(("127.0.0.1", port)) == 0:
+                return
+        time.sleep(0.5)
+
+    proc.terminate()
+    try:
+        out, err = proc.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        out, err = proc.communicate()
+    pytest.fail(
+        f"--iceberg-addr 127.0.0.1:{port} never accepted a connection "
+        f"within {SERVER_STARTUP_TIMEOUT_S}s; process exit={proc.returncode}:\n"
+        f"stdout={out}\nstderr={err}"
+    )
+
+
 @pytest.fixture(scope="module")
 def iceberg_server(tmp_path_factory, iceberg_oauth_fixture):
     persist_dir = tmp_path_factory.mktemp("lake-iceberg-persist")
@@ -503,6 +621,9 @@ def iceberg_server(tmp_path_factory, iceberg_oauth_fixture):
             {"service:test-suite": "test-key"}
         ),
         "GRAPH_SERVICE_PERSIST_DIR": str(persist_dir),
+        # This fixture validates Iceberg authentication and routing, not sharding.
+        # One shard keeps its cold-start cost bounded without changing that surface.
+        "EPISTEMIC_GRAPH_REDB_SHARDS": "1",
         "EPISTEMIC_GRAPH_ICEBERG_ADDR": f"127.0.0.1:{iceberg_port}",
         # BUG-222: the Iceberg-REST surface's OWN, independently-configured
         # OAuth2 bearer verifier — points at the local JWKS server above
@@ -518,28 +639,13 @@ def iceberg_server(tmp_path_factory, iceberg_oauth_fixture):
     # already has a matching one -- this is the same `epistemic-graph-server`
     # binary the shared session fixture uses, just launched on a private
     # socket/port so `--iceberg-addr` can be exercised in isolation.
-    prebuilt = _prebuilt_test_binary()
-    if STRICT_PARITY and prebuilt is None:
-        pytest.fail(
-            "strict lake parity requires an executable EPISTEMIC_GRAPH_TEST_BINARY"
-        )
-    if prebuilt is not None:
-        command = [prebuilt, "--socket-path", socket_path]
-    else:
-        command = [
-            "cargo",
-            "run",
-            "--quiet",
-            "--features",
-            "full",
-            "--bin",
-            "epistemic-graph-server",
-            "--",
-            "--socket-path",
-            socket_path,
-        ]
+    prebuilt = _required_executable(
+        _prebuilt_test_binary(),
+        "EPISTEMIC_GRAPH_TEST_BINARY",
+        "Iceberg REST parity",
+    )
     proc = subprocess.Popen(
-        command,
+        [prebuilt, "--socket-path", socket_path],
         cwd=str(REPO_ROOT),
         env=env,
         stdout=subprocess.PIPE,
@@ -547,31 +653,10 @@ def iceberg_server(tmp_path_factory, iceberg_oauth_fixture):
         text=True,
     )
     try:
-        deadline = time.monotonic() + CARGO_BUILD_TIMEOUT_S
-        while time.monotonic() < deadline:
-            if proc.poll() is not None:
-                out, err = proc.communicate()
-                pytest.fail(
-                    f"epistemic-graph-server exited early (code {proc.returncode}):\n"
-                    f"stdout={out}\nstderr={err}"
-                )
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-                probe.settimeout(0.5)
-                if probe.connect_ex(("127.0.0.1", iceberg_port)) == 0:
-                    break
-            time.sleep(0.5)
-        else:
-            pytest.fail(
-                f"--iceberg-addr 127.0.0.1:{iceberg_port} never accepted a connection"
-            )
+        _wait_for_iceberg_server(proc, iceberg_port)
         yield f"127.0.0.1:{iceberg_port}"
     finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+        _terminate_server(proc)
 
 
 def _http_request(

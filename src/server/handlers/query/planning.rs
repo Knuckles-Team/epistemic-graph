@@ -278,6 +278,8 @@ pub(crate) fn run_unified(
     let served_text = served.text;
     #[cfg(feature = "geo")]
     let served_spatial = served.spatial;
+    #[cfg(not(any(feature = "text", feature = "geo", feature = "federation")))]
+    let ServedIndexes { .. } = served;
     use eg_plan::PlanCtx;
 
     // CONCEPT:EG-KG.query.served-plan-optimize-routing — the served path hands the plan

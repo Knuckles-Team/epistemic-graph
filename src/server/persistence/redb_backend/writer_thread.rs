@@ -272,7 +272,14 @@ fn handle_cmd(
         }
         commit_and_notify(shard, pending, crypto);
     };
-    writer_command_arms!(cmd)
+    writer_command_arms!(
+        cmd,
+        pending = pending,
+        flush_threshold = flush_threshold,
+        flush = flush,
+        shard = shard,
+        crypto = crypto,
+    )
 }
 
 /// Commit all buffered mutations as ONE admitted scope group — the control member
@@ -333,7 +340,7 @@ fn commit_and_notify(
 // nothing.
 
 /// Run `rows` in ONE control-only maintenance group: the 12 file-wide tables.
-fn in_control_write<T>(
+pub(super) fn in_control_write<T>(
     shard: &Shard,
     label: &str,
     rows: impl FnOnce(&ShardWrite<'_>) -> Result<T, String>,

@@ -1,8 +1,9 @@
 use super::*;
+use crate::server::handlers::TryHandleContext;
 
-pub(crate) fn try_handle<'a>(
+pub(in crate::server) fn try_handle<'a>(
     state: &'a Arc<RwLock<ServerState>>,
-    ctx: super::TryHandleContext<'a>,
+    ctx: TryHandleContext<'a>,
     core: Arc<GraphCore>,
     method: Method,
     #[cfg(feature = "security")] rls: &'a Arc<crate::isolation::IsolationLayer>,
@@ -17,14 +18,14 @@ pub(crate) fn try_handle<'a>(
     ))
 }
 
-pub(crate) async fn try_handle_inner(
+async fn try_handle_inner(
     state: &Arc<RwLock<ServerState>>,
-    ctx: super::TryHandleContext<'_>,
+    ctx: TryHandleContext<'_>,
     core: Arc<GraphCore>,
     method: Method,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<Response, Method> {
-    let super::TryHandleContext {
+    let TryHandleContext {
         req_id,
         graph_name,
         read_authority,
@@ -61,11 +62,14 @@ pub(crate) async fn try_handle_inner(
     if is_explain_method(&method) {
         return dispatch_explain_method(&hctx, method).await;
     }
-    #[cfg(feature = "query")]
+    #[cfg(all(feature = "query", feature = "epistemic-tms"))]
     if is_epistemic_tms_method(&method) {
         return dispatch_epistemic_tms_method(&hctx, method).await;
     }
-    #[cfg(feature = "query")]
+    #[cfg(all(
+        feature = "query",
+        any(feature = "evidence-graph", feature = "epistemic-causal")
+    ))]
     if is_evidence_causal_method(&method) {
         return dispatch_evidence_causal_method(&hctx, method).await;
     }
@@ -73,7 +77,10 @@ pub(crate) async fn try_handle_inner(
     if is_txn_query_method(&method) {
         return dispatch_txn_query_method(&hctx, method).await;
     }
-    dispatch_external_query_method(&hctx, method).await
+    #[cfg(any(feature = "nl-query", feature = "graphql", feature = "cypher"))]
+    return dispatch_external_query_method(&hctx, method).await;
+    #[cfg(not(any(feature = "nl-query", feature = "graphql", feature = "cypher")))]
+    Err(method)
 }
 
 #[cfg(feature = "query")]
@@ -136,10 +143,9 @@ async fn dispatch_explain_method(
     }
 }
 
-#[cfg(feature = "query")]
+#[cfg(all(feature = "query", feature = "epistemic-tms"))]
 fn is_epistemic_tms_method(method: &Method) -> bool {
-    #[cfg(feature = "epistemic-tms")]
-    return matches!(
+    matches!(
         method,
         Method::EpistemicStatus { .. }
             | Method::WhatChanged { .. }
@@ -147,15 +153,10 @@ fn is_epistemic_tms_method(method: &Method) -> bool {
             | Method::MaterializationStatus { .. }
             | Method::StaleMaterializations
             | Method::ResolveConflict { .. }
-    );
-    #[cfg(not(feature = "epistemic-tms"))]
-    {
-        let _ = method;
-        false
-    }
+    )
 }
 
-#[cfg(feature = "query")]
+#[cfg(all(feature = "query", feature = "epistemic-tms"))]
 async fn dispatch_epistemic_tms_method(
     ctx: &QueryHandlerCtx<'_>,
     method: Method,
@@ -183,7 +184,10 @@ async fn dispatch_epistemic_tms_method(
     }
 }
 
-#[cfg(feature = "query")]
+#[cfg(all(
+    feature = "query",
+    any(feature = "evidence-graph", feature = "epistemic-causal")
+))]
 fn is_evidence_causal_method(method: &Method) -> bool {
     #[cfg(feature = "evidence-graph")]
     if matches!(method, Method::ExplainEvidence { .. }) {
@@ -201,7 +205,10 @@ fn is_evidence_causal_method(method: &Method) -> bool {
     false
 }
 
-#[cfg(feature = "query")]
+#[cfg(all(
+    feature = "query",
+    any(feature = "evidence-graph", feature = "epistemic-causal")
+))]
 async fn dispatch_evidence_causal_method(
     ctx: &QueryHandlerCtx<'_>,
     method: Method,
@@ -266,6 +273,7 @@ async fn dispatch_txn_query_method(
     }
 }
 
+#[cfg(any(feature = "nl-query", feature = "graphql", feature = "cypher"))]
 async fn dispatch_external_query_method(
     ctx: &QueryHandlerCtx<'_>,
     method: Method,
@@ -294,7 +302,7 @@ async fn dispatch_external_query_method(
 // future `Method` variant silently inherit stream authorization without a
 // compile-time decision to add lease-based filtering for it.
 #[cfg(feature = "query")]
-pub(crate) enum PolicyAwareQuery {
+pub(in crate::server) enum PolicyAwareQuery {
     Sql {
         query: String,
         params_msgpack: Vec<u8>,
@@ -305,9 +313,9 @@ pub(crate) enum PolicyAwareQuery {
 }
 
 #[cfg(all(feature = "query", feature = "security"))]
-pub(crate) fn try_handle_with_policy<'a>(
+pub(in crate::server) fn try_handle_with_policy<'a>(
     state: &'a Arc<RwLock<ServerState>>,
-    ctx: super::TryHandleContext<'a>,
+    ctx: TryHandleContext<'a>,
     core: Arc<GraphCore>,
     query: PolicyAwareQuery,
     policy_lease: &'a Arc<crate::isolation::PolicyDecisionLease>,
@@ -331,9 +339,9 @@ pub(crate) fn try_handle_with_policy<'a>(
 /// only its trailing `policy_lease`/`rls` ARGUMENTS are `#[cfg]`-gated —
 /// compiles in that configuration too; it is never reachable in practice.
 #[cfg(all(feature = "query", not(feature = "security")))]
-pub(crate) fn try_handle_with_policy<'a>(
+pub(in crate::server) fn try_handle_with_policy<'a>(
     state: &'a Arc<RwLock<ServerState>>,
-    ctx: super::TryHandleContext<'a>,
+    ctx: TryHandleContext<'a>,
     core: Arc<GraphCore>,
     query: PolicyAwareQuery,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response, String>> + Send + 'a>> {
@@ -344,15 +352,15 @@ pub(crate) fn try_handle_with_policy<'a>(
 }
 
 #[cfg(all(feature = "query", feature = "security"))]
-pub(crate) async fn try_handle_with_policy_inner(
+async fn try_handle_with_policy_inner(
     state: &Arc<RwLock<ServerState>>,
-    ctx: super::TryHandleContext<'_>,
+    ctx: TryHandleContext<'_>,
     core: Arc<GraphCore>,
     query: PolicyAwareQuery,
     policy_lease: &Arc<crate::isolation::PolicyDecisionLease>,
     rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Result<Response, String> {
-    let super::TryHandleContext {
+    let TryHandleContext {
         req_id,
         graph_name,
         read_authority,
@@ -393,7 +401,7 @@ pub(crate) async fn try_handle_with_policy_inner(
 /// `FamilyExecutionCtx` bundling idiom this file and `families.rs` already
 /// use for the same reason.
 #[cfg(all(feature = "query", feature = "security"))]
-pub(crate) struct LeaseQueryCtx<'a> {
+struct LeaseQueryCtx<'a> {
     state: &'a Arc<RwLock<ServerState>>,
     req_id: u64,
     graph_name: &'a str,
@@ -417,7 +425,7 @@ pub(crate) struct LeaseQueryCtx<'a> {
 /// having to widen every probe/put call site `versioned_rls_snapshot`/
 /// `rls_snapshot`/`ResultCache` use elsewhere in this file.
 #[cfg(all(feature = "query", feature = "security"))]
-pub(crate) fn lease_filtered_snapshot(
+fn lease_filtered_snapshot(
     core: &Arc<GraphCore>,
     lease: &Arc<crate::isolation::PolicyDecisionLease>,
     store: &dyn eg_core::rbac_persist::RbacPolicyStore,
@@ -438,7 +446,7 @@ pub(crate) fn lease_filtered_snapshot(
 }
 
 #[cfg(all(feature = "query", feature = "security"))]
-pub(crate) async fn handle_sql_with_lease(
+async fn handle_sql_with_lease(
     ctx: &LeaseQueryCtx<'_>,
     query: String,
     params_msgpack: Vec<u8>,
@@ -513,13 +521,15 @@ pub(crate) async fn handle_sql_with_lease(
 }
 
 #[cfg(all(feature = "query", feature = "security"))]
-pub(crate) async fn handle_unified_query_text_with_lease(
+async fn handle_unified_query_text_with_lease(
     ctx: &LeaseQueryCtx<'_>,
     text: String,
 ) -> Result<Response, String> {
     let state = ctx.state;
     let req_id = ctx.req_id;
+    #[cfg(feature = "tsdb")]
     let graph_name = ctx.graph_name;
+    #[cfg(feature = "tsdb")]
     let read_authority = ctx.read_authority;
     let core = ctx.core;
     let policy_lease = ctx.policy_lease;
@@ -530,8 +540,6 @@ pub(crate) async fn handle_unified_query_text_with_lease(
     };
     #[cfg(feature = "tsdb")]
     let tsdb_scope = served_tsdb_scope(&plan, graph_name, read_authority)?;
-    #[cfg(not(feature = "tsdb"))]
-    let _ = read_authority;
     let (snap, _version) = lease_filtered_snapshot(core, policy_lease, store)?;
     let resp = match run_unified_off_lock(
         state,

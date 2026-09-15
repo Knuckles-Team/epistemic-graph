@@ -69,7 +69,10 @@ pub(crate) use store_mutation::*;
 pub(crate) use store_native::*;
 pub(crate) use store_read::*;
 pub(crate) use store_retry::*;
-pub(crate) use store_rows::*;
+// The exact performance harness is a separate binary crate and must reach the
+// sole public item in `store_rows`; all remaining helpers in that module stay
+// private or crate-private.
+pub use store_rows::*;
 pub(crate) use store_state::*;
 pub(crate) use store_state_tables::*;
 pub(crate) use store_types::*;
@@ -104,7 +107,9 @@ pub(crate) use audit::{
     append_audit_entry, prove_inclusion, provenance_anchor_commit, provenance_leaf_hashes,
     verify_audit, AuditTailCache, ProvenanceAnchorCache,
 };
+#[cfg(any(test, feature = "embedded"))]
 pub(crate) use checkpoint::apply_checkpoint;
+#[cfg(any(test, feature = "server"))]
 pub(crate) use control::{
     clear_xshard_decision, clear_xshard_prepare, get_xshard_decision, get_xshard_decision_retain,
     get_xshard_prepare, put_xshard_decision, put_xshard_prepare, put_xshard_recoverable_pending,
@@ -118,20 +123,27 @@ pub(crate) use control::{
 #[cfg(feature = "compute-dist")]
 pub(crate) use control::{put_matview, scan_matviews};
 pub(crate) use crossmodal::apply_crossmodal_projection_rows;
+#[cfg(any(test, feature = "server"))]
 pub(crate) use crossmodal::{commit_crossmodal, CrossModalStaged};
 pub(crate) use crossmodal::{BlobRefRow, VectorUpsert};
+#[cfg(any(test, feature = "embedded", feature = "server"))]
+pub(crate) use dump::read_all_dumps;
+#[cfg(any(test, feature = "server"))]
 pub(crate) use dump::{
-    decode_graph_meta_identity, decode_meta_record, encode_meta_record,
-    encode_meta_with_incarnation, graph_meta_schema_version, new_incarnation_id, read_all_dumps,
-    read_all_graph_meta, read_graph_dump, read_graph_dump_page, upgrade_legacy_graph_meta,
-    GraphDumpPage, PageCursorRef,
+    decode_graph_meta_identity, graph_meta_schema_version, read_all_graph_meta, read_graph_dump,
+    read_graph_dump_page, upgrade_legacy_graph_meta, GraphDumpPage, PageCursorRef,
 };
+pub(crate) use dump::{
+    decode_meta_record, encode_meta_record, encode_meta_with_incarnation, new_incarnation_id,
+};
+#[cfg(any(test, feature = "server"))]
+pub(crate) use resource::{read_resource_reservation, read_resource_reservation_status};
 pub(crate) use resource::{
-    read_resource_reservation, read_resource_reservation_status, resource_decode, resource_encode,
-    resource_host_update_snapshot_kind, resource_load_host, resource_metadata_maps,
-    resource_record_target_kind, resource_record_work_item_live, resource_request_from_record,
-    resource_reservation_snapshot_kind, resource_target_selection_matches, resource_text,
-    resource_validate_work_item, MAX_RESOURCE_CLEAR_SCAN, MAX_RESOURCE_HOST_DISK_POLICIES,
+    resource_decode, resource_encode, resource_host_update_snapshot_kind, resource_load_host,
+    resource_metadata_maps, resource_record_target_kind, resource_record_work_item_live,
+    resource_request_from_record, resource_reservation_snapshot_kind,
+    resource_target_selection_matches, resource_text, resource_validate_work_item,
+    MAX_RESOURCE_CLEAR_SCAN, MAX_RESOURCE_HOST_DISK_POLICIES,
 };
 pub(crate) use shard::{Shard, ShardWrite};
 pub(crate) use work_item::{

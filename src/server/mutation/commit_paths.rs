@@ -238,7 +238,7 @@ where
     // (opt-in, `EPISTEMIC_GRAPH_ICV_NATIVE_WRITES`) to this gateway's staged/
     // diffable native-write path (`CompareAndSetNodeFields`, `ApplyMutation`, and
     // any other write NOT on the `prepublish_success` row-local fast path — see
-    // `commit_conditional_mutation_async_inner` for the sibling `CypherQuery`
+    // `conditional::commit_conditional_mutation_async_inner` for the sibling `CypherQuery`
     // path). A rejection here discards the staged image before it is ever
     // diffed, snapshotted, or durably committed.
     #[cfg(feature = "shacl")]
@@ -264,7 +264,8 @@ where
 /// Resolve the base authoritative image to stage a mutation against: the
 /// persistence backend's own staged snapshot when it has one, else the live
 /// projection's snapshot at its authoritative version. Shared by
-/// [`commit_mutation_body_stage_and_diff`] and [`commit_conditional_stage_and_diff`].
+/// [`commit_mutation_body_stage_and_diff`] and
+/// [`super::conditional::commit_conditional_stage_and_diff`].
 pub(super) async fn resolve_authoritative_base_snapshot(
     ctx: &MutationCtx<'_>,
     persistence: &Arc<dyn PersistenceBackend>,

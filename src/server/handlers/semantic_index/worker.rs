@@ -273,19 +273,23 @@ async fn replay(
     lease: eg_types::mutation_batch::MutationOutboxLease,
     expected_intent: eg_types::semantic_index::SemanticStageIntent,
 ) -> Response {
-    if let Err(error) = own_lease(&lease, ctx.authority) {
-        return Response::err(ctx.req_id, error);
-    }
-    let adapter = SemanticIndexServerAdapter::new(Arc::clone(&ctx.service));
-    match adapter
-        .replay_sql_source_stage(
-            ctx.req_id,
-            ctx.authority.clone(),
-            lease,
-            expected_intent,
-            ctx.now_ms,
-        )
-        .await
+    authorize_and_replay(ctx, lease, expected_intent).await
+}
+
+async fn authorize_and_replay(
+    ctx: &SemanticIndexContext<'_>,
+    lease: eg_types::mutation_batch::MutationOutboxLease,
+    expected_intent: eg_types::semantic_index::SemanticStageIntent,
+) -> Response {
+    let service = match authorize_replay(ctx, &lease).await {
+        Ok(service) => service,
+        Err(response) => return response,
+    };
+    let now_ms = ctx.now_ms;
+    match blocking(ctx.req_id, move || {
+        service.replay_completed_sql_source_stage(&lease, &expected_intent, now_ms)
+    })
+    .await
     {
         Ok(receipt) => typed_payload::<
             ingestion_results::SemanticIndexReplayCompletedSqlSourceStage,
@@ -293,6 +297,19 @@ async fn replay(
         >(ctx.req_id, &contracts::replay(receipt)),
         Err(response) => response,
     }
+}
+
+async fn authorize_replay(
+    ctx: &SemanticIndexContext<'_>,
+    lease: &eg_types::mutation_batch::MutationOutboxLease,
+) -> Result<Arc<eg_core::compute::semantic_index_service::SemanticIndexService>, Response> {
+    own_lease(lease, ctx.authority).map_err(|error| Response::err(ctx.req_id, error))?;
+    let binding = current_binding(ctx.req_id, &ctx.service).await?;
+    let adapter = SemanticIndexServerAdapter::new(Arc::clone(&ctx.service));
+    adapter
+        .authorize_binding_worker(&binding, ctx.authority)
+        .map_err(|error| Response::err(ctx.req_id, error))?;
+    Ok(Arc::clone(&ctx.service))
 }
 
 async fn release(

@@ -48,14 +48,13 @@ use crate::redb_store::GraphDump;
 #[cfg(test)]
 use crate::redb_layout::shard_filename;
 #[cfg(test)]
-use crate::redb_store::*;
-#[cfg(test)]
 use crate::server::ServerState;
 #[cfg(test)]
-use crate::{change_envelope::*, mutation_batch::*, protocol::*};
+use crate::{mutation_batch::*, protocol::*};
 #[cfg(test)]
 use tokio::sync::oneshot;
 
+#[cfg(test)]
 use super::PersistenceBackend;
 
 // The graph table layout + the PURE durable-row machinery (Method→rows apply,
@@ -76,9 +75,12 @@ mod backend_open;
 mod backend_routing;
 mod backend_shard_routes;
 mod commands;
+#[cfg(any(feature = "compute-dist", feature = "matview"))]
 mod matview_api;
+#[cfg(feature = "raft")]
 mod raft_api;
 mod shard_writer;
+#[cfg(feature = "tsdb")]
 mod timeseries;
 mod trait_capabilities;
 mod trait_envelopes;
@@ -90,6 +92,7 @@ mod trait_native;
 mod trait_outbox;
 mod writer_commands;
 mod writer_thread;
+#[cfg(feature = "raft")]
 mod xshard_api;
 
 pub(crate) use commands::{
@@ -101,6 +104,8 @@ use shard_writer::{join_blocking_in_order, resolve_flush_threshold, resolve_shar
 use shard_writer::{PreparedShard, ShardWriter};
 #[cfg(feature = "tsdb")]
 pub use timeseries::TsReconcileReport;
+#[cfg(feature = "security")]
+use writer_thread::in_control_write;
 use writer_thread::run;
 /// `(first, last)` present Raft log index for a group, or an error (CONCEPT:EG-KG.storage.one-fsync-covers-raft).
 type LogBoundsResult = Result<(Option<u64>, Option<u64>), String>;
@@ -638,25 +643,33 @@ pub(crate) fn cluster_admin_scope_identity() -> Result<eg_types::MutationScopeId
 #[cfg(feature = "security")]
 struct TxnRecoveryPrivateIntegrity(crate::crypto::ValueCipher);
 
-/// Authenticate one sealed private payload against the digest carried by its
-/// parent receipt. Both the production coordinator authority and the focused
-/// SPARQL recovery fixture use this same boundary so they cannot drift in how
-/// they unseal or compare private recovery bytes.
+/// Authenticate one sealed private payload against the binding carried by its
+/// parent receipt. SPARQL recovery binds the exact plaintext digest. Transaction
+/// recovery binds the stable semantic intent so a retry may carry fresh OCC
+/// observations without becoming a different operation.
 #[cfg(feature = "security")]
 pub(crate) fn authenticate_private_payload(
     cipher: &crate::crypto::ValueCipher,
     sealed: &[u8],
-    expected_plaintext_digest: &str,
+    expected_binding: &str,
 ) -> Result<(), String> {
     use sha2::Digest;
     let plaintext = cipher.unseal(sealed)?;
-    let actual = hex::encode(sha2::Sha256::digest(&plaintext));
-    if actual != expected_plaintext_digest {
-        return Err(
-            "private recovery payload digest does not match its parent receipt".to_string(),
-        );
-    }
-    Ok(())
+    let exact_binding = hex::encode(sha2::Sha256::digest(&plaintext));
+    let semantic_binding = crate::server::txn::GraphTxnState::decode_recovery_plan(
+        &plaintext,
+        "private-recovery-integrity".to_string(),
+    )
+    .and_then(|txn| txn.replay_intent_digest())
+    .ok();
+    [Some(exact_binding), semantic_binding]
+        .into_iter()
+        .flatten()
+        .any(|binding| binding == expected_binding)
+        .then_some(())
+        .ok_or_else(|| {
+            "private recovery payload digest does not match its parent receipt".to_string()
+        })
 }
 
 #[cfg(feature = "security")]

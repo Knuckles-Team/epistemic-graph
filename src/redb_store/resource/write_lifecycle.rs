@@ -1,3 +1,5 @@
+use super::*;
+
 /// Tenant / record / terminal-state prechecks of a release-or-reclaim commit.
 /// A reserve that finds a live row is itself idempotent.  `Ok(Some(..))` decides
 /// the request.
@@ -111,7 +113,7 @@ pub(crate) fn resource_build_released_record(
 ) -> DurableResourceReservation {
     let mut next = stored.clone();
     next.record.state = if is_reclaim {
-        if work_item_fence.superseded {
+        if work_item_fence.is_superseded() {
             ResourceReservationRecordState::Superseded
         } else {
             ResourceReservationRecordState::Reclaimed

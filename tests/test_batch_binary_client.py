@@ -58,8 +58,12 @@ class _CaptureClient(EpistemicGraphClient):
         del graph, idempotency_key
         self.sent.append((method, params))
         fixture_results: dict[str, Any] = {
+            # AddNode's authoritative Rust result marker is Text<String> and the
+            # mutation handler acknowledges a committed write with "ok".
+            "AddNode": "ok",
             "ClaimNext": None,
             "AddEdge": "edge:fixture",
+            "SupersedeEdge": "ok",
             "Statechart": {"def_id": "def:fixture"},
             "CasWorkItemMetadata": {
                 "schema_version": "1",

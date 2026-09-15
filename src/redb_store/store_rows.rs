@@ -293,7 +293,7 @@ thread_local! {
     /// The hierarchy keeps
     /// hot pair lookup expected O(1) while making whole-graph and whole-source
     /// invalidation O(1), rather than retaining over every cached pair.
-    static EDGE_ORD_CACHE: RefCell<EdgeOrdCache> = RefCell::new(HashMap::new());
+    pub(super) static EDGE_ORD_CACHE: RefCell<EdgeOrdCache> = RefCell::new(HashMap::new());
 }
 
 /// Next free edge ordinal for a (src,tgt) pair in this graph.

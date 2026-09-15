@@ -1,4 +1,3 @@
-use eg_core::graph::GraphCore;
 use oxrdf::{Literal, NamedOrBlankNode, Term};
 use spargebra::algebra::GraphTarget;
 use spargebra::term::{
@@ -133,14 +132,14 @@ fn graph_opt(g: &GraphName) -> Option<String> {
 
 /// A pattern position once spargebra's ground (DELETE) and non-ground (INSERT) term
 /// families are collapsed: a formatted resource id, a literal, or a solution variable.
-enum PatternTerm<'a> {
+pub(super) enum PatternTerm<'a> {
     Resource(String),
     Literal(&'a Literal),
     Variable(&'a str),
 }
 
 /// The projection both spargebra quad-pattern families share.
-trait QuadPatternTerm {
+pub(super) trait QuadPatternTerm {
     fn position(&self) -> Option<PatternTerm<'_>>;
 }
 

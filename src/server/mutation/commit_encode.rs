@@ -12,7 +12,8 @@ use super::{
 
 /// Diff `staged_snapshot` against `base_snapshot_for_delta` into a row delta,
 /// serialize it, and enforce the configured size limit. Shared by
-/// [`commit_mutation_body_stage_and_diff`] and [`commit_conditional_stage_and_diff`].
+/// [`super::commit_paths::commit_mutation_body_stage_and_diff`] and
+/// [`super::conditional::commit_conditional_stage_and_diff`].
 pub(super) fn diff_and_serialize_staged_mutation(
     ctx: &MutationCtx<'_>,
     base_snapshot_for_delta: &crate::graph::GraphSnapshot,
@@ -54,7 +55,7 @@ pub(super) fn diff_and_serialize_staged_mutation(
 }
 
 /// The prepared-but-not-yet-committed output of
-/// [`commit_mutation_body_stage_and_diff`], handed to
+/// [`super::commit_paths::commit_mutation_body_stage_and_diff`], handed to
 /// [`commit_mutation_body_commit_staged`].
 pub(super) struct StagedMutation {
     pub(super) payload: ResultPayload,
@@ -174,7 +175,7 @@ pub(super) async fn commit_mutation_body_commit_staged(
 /// Build the [`crate::mutation_batch::MutationStateDescriptor`] for a staged
 /// row-delta commit: the target version (source + 1, checked) and the delta's
 /// content digest. Shared by [`commit_mutation_body_commit_staged`] and
-/// [`commit_conditional_commit_staged`].
+/// [`super::conditional::commit_conditional_commit_staged`].
 pub(super) fn staged_mutation_descriptor(
     ctx: &MutationCtx<'_>,
     source_version: u64,

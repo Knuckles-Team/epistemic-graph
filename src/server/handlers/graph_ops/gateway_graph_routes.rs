@@ -12,9 +12,17 @@ enum Route {
     Edges,
     Lifecycle,
     Import,
+    #[cfg(any(feature = "shacl", feature = "reasoning"))]
     Policy,
     Analytics,
     Other,
+}
+
+#[derive(Clone, Copy)]
+enum RouteHandler {
+    Core,
+    Admin,
+    None,
 }
 
 fn is_node_state(method: &Method) -> bool {
@@ -86,13 +94,14 @@ fn is_import(method: &Method) -> bool {
     )
 }
 
-fn is_policy(_method: &Method) -> bool {
+#[cfg(any(feature = "shacl", feature = "reasoning"))]
+fn is_policy(method: &Method) -> bool {
     #[cfg(feature = "shacl")]
-    if matches!(_method, Method::IcvConfigure { .. }) {
+    if matches!(method, Method::IcvConfigure { .. }) {
         return true;
     }
     #[cfg(feature = "reasoning")]
-    if matches!(_method, Method::RunDatalogReasoning { .. }) {
+    if matches!(method, Method::RunDatalogReasoning { .. }) {
         return true;
     }
     false
@@ -121,6 +130,7 @@ const ROUTE_MATCHERS: &[(fn(&Method) -> bool, Route)] = &[
     (is_edges, Route::Edges),
     (is_lifecycle, Route::Lifecycle),
     (is_import, Route::Import),
+    #[cfg(any(feature = "shacl", feature = "reasoning"))]
     (is_policy, Route::Policy),
     (is_analytics, Route::Analytics),
 ];
@@ -132,22 +142,30 @@ fn route_for(method: &Method) -> Route {
         .unwrap_or(Route::Other)
 }
 
+fn route_handler(route: Route) -> RouteHandler {
+    match route {
+        Route::Coalescable
+        | Route::NodeState
+        | Route::Memory
+        | Route::Scene
+        | Route::Trajectory => RouteHandler::Core,
+        Route::Edges | Route::Lifecycle | Route::Import | Route::Analytics => RouteHandler::Admin,
+        #[cfg(any(feature = "shacl", feature = "reasoning"))]
+        Route::Policy => RouteHandler::Admin,
+        Route::Other => RouteHandler::None,
+    }
+}
+
 pub(super) async fn try_handle(
     ctx: &MutationCtx<'_>,
     plan: &MutationPlan,
     method: &Method,
 ) -> Option<Response> {
     let route = route_for(method);
-    match route {
-        Route::Coalescable
-        | Route::NodeState
-        | Route::Memory
-        | Route::Scene
-        | Route::Trajectory => try_handle_core(ctx, plan, method, route).await,
-        Route::Edges | Route::Lifecycle | Route::Import | Route::Policy | Route::Analytics => {
-            try_handle_admin(ctx, plan, method, route).await
-        }
-        Route::Other => None,
+    match route_handler(route) {
+        RouteHandler::Core => try_handle_core(ctx, plan, method, route).await,
+        RouteHandler::Admin => try_handle_admin(ctx, plan, method, route).await,
+        RouteHandler::None => None,
     }
 }
 
@@ -177,6 +195,7 @@ async fn try_handle_admin(
         Route::Edges => try_handle_edges(ctx, plan, method).await,
         Route::Lifecycle => try_handle_lifecycle(ctx, plan, method).await,
         Route::Import => try_handle_import(ctx, plan, method).await,
+        #[cfg(any(feature = "shacl", feature = "reasoning"))]
         Route::Policy => try_handle_policy(ctx, plan, method).await,
         Route::Analytics => try_handle_analytics(ctx, plan, method).await,
         _ => None,
@@ -590,6 +609,7 @@ async fn try_handle_import(
     Some(response)
 }
 
+#[cfg(any(feature = "shacl", feature = "reasoning"))]
 async fn try_handle_policy(
     ctx: &MutationCtx<'_>,
     plan: &MutationPlan,

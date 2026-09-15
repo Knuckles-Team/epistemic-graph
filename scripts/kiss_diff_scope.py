@@ -44,7 +44,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from rust_lexer import _balanced_span_from, _rust_code_mask  # noqa: E402
+from rust_lexer import _balanced_span_from, _rust_code_mask
 
 VIOLATION_RE = re.compile(
     r"^VIOLATION:(?P<rule>[^:]+):(?P<path>[^:]*):(?P<line>\d+):(?P<name>[^:]*):"

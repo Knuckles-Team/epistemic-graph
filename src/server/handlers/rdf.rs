@@ -29,9 +29,9 @@ mod triples;
 #[cfg(any(feature = "shacl", feature = "shex"))]
 mod validation;
 
-pub(crate) use dispatch::try_handle;
+pub(in crate::server) use dispatch::try_handle;
 #[cfg(feature = "owl")]
-pub(crate) use reasoning::try_handle_distributed;
+pub(in crate::server) use reasoning::try_handle_distributed;
 
 // ── RunRules dispatch wiring (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog / EG-023) ────────────────────────────
 #[cfg(all(test, feature = "rdf"))]

@@ -9,12 +9,19 @@ mod work_item;
 mod program;
 
 pub(crate) use envelope::publish_change_envelope_projection;
+#[cfg(any(
+    test,
+    feature = "jobs",
+    all(feature = "raft", feature = "epistemic-tms")
+))]
+pub(crate) use internal::commit_internal_graph_methods;
 pub(crate) use internal::{
-    commit_internal_graph_methods, commit_internal_graph_methods_with_nonce, lock_graph,
-    InternalGraphCommitRequest,
+    commit_internal_graph_methods_with_nonce, lock_graph, InternalGraphCommitRequest,
 };
 pub(crate) use lifecycle::{commit_lifecycle, lifecycle_was_committed, LifecycleCommitRequest};
-pub(crate) use work_item::{changed_work_item_ids, commit_work_item, WorkItemCommitRequest};
+#[cfg(test)]
+pub(crate) use work_item::changed_work_item_ids;
+pub(crate) use work_item::{commit_work_item, WorkItemCommitRequest};
 
 #[cfg(test)]
 use internal::{apply_projectable_method, install_validated_internal_replay_snapshot};
@@ -39,6 +46,8 @@ use crate::server::mutation_batch::compile::{compile_methods, CompileBatch};
 use crate::server::persistence::PersistenceBackend;
 #[cfg(test)]
 use eg_types::contract::Nonce;
+#[cfg(test)]
+use sha2::{Digest, Sha256};
 
 #[cfg(test)]
 mod internal_replay_tests {

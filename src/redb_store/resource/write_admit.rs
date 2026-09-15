@@ -1,3 +1,5 @@
+use super::*;
+
 /// Host-eligibility gates: the caller's expected host revision, freshness,
 /// required labels, and the two target-identity checks.
 ///

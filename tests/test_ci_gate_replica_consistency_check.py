@@ -159,10 +159,14 @@ def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
         "Test (Whisper real-model transcription and cancellation)",
     )
     assert all(name in names for name in required)
-    assert names.index(required[0]) < names.index(required[1]) < names.index(required[2])
+    assert (
+        names.index(required[0]) < names.index(required[1]) < names.index(required[2])
+    )
     assert names.index(required[3]) < names.index(required[4])
     selected = [step for step in steps if step.get("name") in required]
-    assert all("if" not in step and "continue-on-error" not in step for step in selected)
+    assert all(
+        "if" not in step and "continue-on-error" not in step for step in selected
+    )
 
     plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
     rows = {row["name"]: row for row in plan if row["job"] == "gates"}

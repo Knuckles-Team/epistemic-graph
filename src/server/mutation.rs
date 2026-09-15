@@ -16,12 +16,12 @@
 //! `eg_capabilities::policy` (never re-hardcoded), and [`commit_mutation`] is the
 //! ONE place a routed mutation's authz + durable write + CDC emission happen
 //! together, driven by that plan. The invariant this buys: for a method in
-//! [`GATEWAY_ROUTED`], mutation + durability + audit + CDC happen together, in one
+//! [`plan::GATEWAY_ROUTED`], mutation + durability + audit + CDC happen together, in one
 //! call, declared by policy — never scattered back across the dispatch shell.
 //!
 //! ## Scope (read before assuming more is covered)
 //!
-//! [`GATEWAY_ROUTED`] methods are wired through this gateway. EG-P0-2 started with
+//! [`plan::GATEWAY_ROUTED`] methods are wired through this gateway. EG-P0-2 started with
 //! 7 (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge` + `CreateSummaryNode`/
 //! `Consolidate`/`Reinforce`); the L11 rollout expanded it across the full routed
 //! graph surface, adding:
@@ -58,7 +58,7 @@
 //! Audit-chain emission (the tamper-evident hash chain, `audit.rs` +
 //! `redb_store::append_audit_entry`) is stateful PER GRAPH (each entry chains off
 //! the previous one's hash) and already lives inside the durable-commit path
-//! (`PersistenceBackend::record_durable` → the redb backend). Reimplementing
+//! ([`crate::server::persistence::PersistenceBackend::record_durable`] → the redb backend). Reimplementing
 //! that chaining here would risk a second, diverging chain. Instead,
 //! Compact row commits and staged-state MutationBatch commits both append the audit
 //! entry inside their authoritative redb transaction. `plan.audited`
@@ -78,11 +78,11 @@
 //! acquisition instead of one per op (`stats().batches() < stats().ops()` under
 //! concurrent load). [`commit_mutation_body`] is the single, shared implementation
 //! of that sequence — called once per op by both the ordinary single-call path
-//! ([`commit_mutation_inner`]) and the worker, so there is exactly one copy of the
+//! ([`commit_entry::commit_mutation_inner`]) and the worker, so there is exactly one copy of the
 //! durability/audit/CDC kernel regardless of which lock-hold granularity wraps it.
 //! The non-coalescable routed memory ops (`CreateSummaryNode`/`Consolidate`/
 //! `Reinforce`) and every other routed method keep going through
-//! [`commit_mutation`]/[`commit_mutation_inner`] unchanged, one lock acquisition per
+//! [`commit_mutation`]/[`commit_entry::commit_mutation_inner`] unchanged, one lock acquisition per
 //! op. With Raft active, dispatch reaches the consensus barrier before this local
 //! gateway; each committed ordinary Raft method is then staged and committed through
 //! the same state-backed MutationBatch authority on every replica.
@@ -91,14 +91,19 @@
 //! publish ALONE (an earlier version of this fix) is unsafe, and why the durable
 //! commit must move into the SAME lock-held sequence rather than staying outside it.
 
+#[cfg(test)]
 use std::sync::Arc;
 
+#[cfg(all(test, feature = "redb"))]
 use eg_capabilities::DurabilityDomain;
 
+#[cfg(test)]
 use crate::graph::GraphCore;
-use crate::isolation::{AccessLevel, IsolationLayer};
-use crate::protocol::{GraphType, Method, Response, ResultPayload};
-use crate::server::access::check_graph_access;
+#[cfg(test)]
+use crate::isolation::IsolationLayer;
+#[cfg(test)]
+use crate::protocol::{Method, ResultPayload};
+#[cfg(all(test, feature = "redb"))]
 use crate::server::persistence::PersistenceBackend;
 
 mod coalescer;
@@ -110,50 +115,52 @@ mod conditional;
 mod context;
 mod plan;
 
-pub(super) use plan::consensus_apply_is_authorized;
-#[cfg(feature = "sparql-http")]
-pub(crate) use plan::is_sparql_http_update;
-pub use plan::{
-    cluster_mutation_route, is_gateway_routed, method_variant_name, ClusterMutationRoute,
-    GatewayAuthzCtx, MutationPlan, CONSENSUS_FANOUT_METHODS, COORDINATED_APPLY_MUTATION_EVENTS,
-    GATEWAY_ROUTED, SELF_ROUTED_ADMIN_METHODS,
-};
+use plan::consensus_apply_is_authorized;
+#[cfg(test)]
+pub use plan::GATEWAY_ROUTED;
+#[cfg(any(feature = "raft", test))]
+pub use plan::{cluster_mutation_route, ClusterMutationRoute};
+pub use plan::{is_gateway_routed, method_variant_name, GatewayAuthzCtx, MutationPlan};
+#[cfg(all(test, feature = "raft"))]
+use plan::{CONSENSUS_FANOUT_METHODS, SELF_ROUTED_ADMIN_METHODS};
 
-pub(super) use context::{advance_authoritative_manifest, idempotency_key, idempotency_store};
+pub use context::MutationCtx;
+use context::{advance_authoritative_manifest, idempotency_key, idempotency_store};
 pub(crate) use context::{durable_receipt_method, LifecycleAttempt};
-pub use context::{IdempotencyStore, MutationCtx};
 
 pub use coalescer::commit_coalescable_mutation;
 pub(crate) use coalescer::{apply_coalescable_write, is_coalescable_structural_write};
 
 pub use commit_entry::commit_mutation;
-pub(super) use commit_entry::{
-    commit_finalize, commit_mutation_body, commit_mutation_inner, commit_prepare,
-    CommitFinalizeOptions, CommitPrep,
+use commit_entry::{
+    commit_finalize, commit_mutation_body, commit_prepare, CommitFinalizeOptions, CommitPrep,
 };
 
-pub(super) use commit_encode::{
-    commit_mutation_body_commit_staged, diff_and_serialize_staged_mutation,
-    mutation_snapshot_max_bytes, prepublish_success, preserves_node_derived_indexes,
-    publish_committed_row_delta, staged_mutation_descriptor, StagedMutation,
+pub(super) use commit_encode::publish_committed_row_delta;
+use commit_encode::{
+    commit_mutation_body_commit_staged, diff_and_serialize_staged_mutation, prepublish_success,
+    preserves_node_derived_indexes, staged_mutation_descriptor, StagedMutation,
 };
-pub(super) use commit_paths::{
-    commit_mutation_body_prepublish_fast_path, commit_mutation_body_stage_and_diff,
-    commit_mutation_body_staged_path, resolve_authoritative_base_snapshot,
+use commit_paths::{
+    commit_mutation_body_prepublish_fast_path, commit_mutation_body_staged_path,
+    resolve_authoritative_base_snapshot,
 };
-pub(super) use commit_replay::{
+use commit_replay::{
     commit_mutation_body_replay_response, commit_row_replay_probe, commit_staged_replay_probe,
     compile_batch_and_encode_result, DurableBatchAttempt, DurableBatchTarget,
 };
 
-pub(super) use conditional::{
-    commit_conditional_commit_staged, commit_conditional_mutation_async_inner,
-    commit_conditional_read_only, commit_conditional_replay_check,
-    commit_conditional_stage_and_diff,
-};
+#[cfg(any(
+    feature = "mining",
+    feature = "graphlearn",
+    feature = "ml-pipeline",
+    feature = "modality-serving",
+    test
+))]
+pub use conditional::commit_conditional_mutation;
 pub use conditional::{
-    commit_conditional_mutation, commit_conditional_mutation_async, is_query_gateway_method,
-    is_query_native_coordinator, is_rdf_gateway_method,
+    commit_conditional_mutation_async, is_query_gateway_method, is_query_native_coordinator,
+    is_rdf_gateway_method,
 };
 
 #[cfg(test)]

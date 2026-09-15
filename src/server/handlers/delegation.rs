@@ -44,14 +44,15 @@ mod admission;
 mod validation;
 
 pub(crate) use admission::*;
+#[cfg(all(test, feature = "redb", feature = "raft"))]
+pub(crate) use validation::provenance_refs;
+#[cfg(all(test, feature = "redb"))]
+use validation::unprefixed_digest;
 #[cfg(feature = "redb")]
 pub(crate) use validation::{
-    bind_request, context_has_valid_window, context_scopes_within_authority, decode_submit_result,
-    delegation_metadata, delegation_wire_metadata, lower_work_item, normalize_replay_context,
-    placement_authority, provenance_refs, replay_request_matches, result_from_submit,
-    retained_agent, retained_graph, unprefixed_digest, validate_execution_bindings,
-    validate_request_binding, validate_request_context, validate_retained_target,
-    validate_submit_identity, validate_submit_result, wire_metadata_matches,
+    bind_request, decode_submit_result, lower_work_item, placement_authority,
+    replay_request_matches, result_from_submit, retained_agent, retained_graph,
+    validate_request_binding,
 };
 
 /// Shared identity comparison for request-boundary and delegation validation.

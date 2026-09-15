@@ -5,7 +5,7 @@ use eg_types::semantic_index::{SemanticBindingPage, SemanticIndexOp};
 
 use crate::protocol::Response;
 
-use super::{blocking, contracts, reply, SemanticIndexContext};
+use super::{blocking, reply, SemanticIndexContext};
 
 pub(super) async fn handle(ctx: &SemanticIndexContext<'_>, op: SemanticIndexOp) -> Response {
     match op {

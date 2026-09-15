@@ -57,6 +57,7 @@ pub(crate) use codec::*;
 pub(crate) use extension::*;
 pub(crate) use fingerprint::*;
 pub(crate) use query::*;
+#[cfg(any(test, feature = "server"))]
 pub(crate) use status::*;
 pub(crate) use validation::*;
 pub(crate) use write_admission::*;

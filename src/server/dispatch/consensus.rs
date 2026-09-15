@@ -3,27 +3,32 @@ use super::graph_pipeline::dispatch_graph_op;
 use super::request_boundary::dispatch_with_context;
 use super::*;
 
+#[cfg(all(feature = "raft", feature = "jobs"))]
 mod publication;
 mod registry;
 mod replicated;
+#[cfg(feature = "raft")]
 mod routing;
+#[cfg(feature = "raft")]
 mod sanitization;
+#[cfg(feature = "raft")]
 mod transaction;
 
 #[cfg(all(feature = "raft", feature = "jobs"))]
-pub(super) use publication::{execute_consensus_job_publication, JobPublicationExecution};
+use publication::{execute_consensus_job_publication, JobPublicationExecution};
 pub(super) use registry::handle_register_server;
-pub(super) use replicated::propose_native_mutation;
+#[cfg(feature = "raft")]
+use replicated::capability_authority_unavailable;
 #[cfg(not(feature = "raft"))]
 pub(super) use replicated::replicated_identity_bootstrap_authorized;
 #[cfg(feature = "raft")]
-pub(super) use replicated::{
-    capability_authority_unavailable, replicated_identity_bootstrap_authorized,
-};
+pub(super) use replicated::replicated_identity_bootstrap_authorized;
 #[cfg(feature = "raft")]
-pub(super) use sanitization::sanitize_native_proposal;
+pub(super) use routing::propose_native_mutation;
 #[cfg(feature = "raft")]
-pub(super) use transaction::{execute_consensus_transaction, TransactionExecution};
+use sanitization::sanitize_native_proposal;
+#[cfg(feature = "raft")]
+use transaction::{execute_consensus_transaction, TransactionExecution};
 
 #[cfg(feature = "raft")]
 #[derive(Clone, Copy)]
@@ -67,5 +72,3 @@ pub(crate) use replicated::{
     apply_replicated_transaction_prepare, is_replicated_apply, replicated_placement_authority,
     ReplicatedParticipantRef,
 };
-#[cfg(not(feature = "raft"))]
-pub(crate) use replicated::{is_replicated_apply, replicated_placement_authority};

@@ -19,37 +19,69 @@ use crate::mutation_batch::{
 };
 use crate::protocol::{GraphType, Method};
 use crate::redb_store::{
-    commit_change_envelope, commit_change_envelopes, commit_crossmodal, commit_mutation_batch,
-    commit_mutation_batch_crossmodal, commit_mutation_batch_state,
     durable_node_presence as read_durable_node_presence,
     read_change_cursor as read_change_cursor_record,
     read_change_envelope as read_change_envelope_record,
-    read_content_version as read_content_version_record, read_graph_dump,
+    read_content_version as read_content_version_record,
     read_mutation_batch_for_graph as read_mutation_batch_record,
     read_mutation_graph_version as read_mutation_graph_version_record,
     read_mutation_outbox as read_mutation_outbox_records, read_one_node,
     read_resource_reservation as read_resource_reservation_record,
-    read_resource_reservation_status as read_resource_reservation_status_record, write_graph_meta,
-    GraphDump,
+    read_resource_reservation_status as read_resource_reservation_status_record,
 };
 use crate::server::persistence::writer_reply::await_writer_reply;
 use crate::server::persistence::PersistenceBackend;
 use crate::server::ServerState;
 use eg_transaction::{OutboxClaimBudget, OutboxClaimOutcome};
 
-macro_rules! impl_persistence_backend {
-    () => {
+// `async_trait` must see the concrete methods when it expands. Invoking method
+// macros directly inside its annotated impl leaves those methods untransformed,
+// so their lifetimes no longer match the erased trait signatures. Each split
+// fragment appends its methods to this token accumulator; only the final callback
+// emits the annotated impl.
+macro_rules! with_capabilities {
+    ($($methods:tt)*) => {
+        persistence_graph_reads!(with_graph_reads { $($methods)* });
+    };
+}
+
+macro_rules! with_graph_reads {
+    ($($methods:tt)*) => {
+        persistence_mutations!(with_mutations { $($methods)* });
+    };
+}
+
+macro_rules! with_mutations {
+    ($($methods:tt)*) => {
+        persistence_outbox!(with_outbox { $($methods)* });
+    };
+}
+
+macro_rules! with_outbox {
+    ($($methods:tt)*) => {
+        persistence_envelopes!(with_envelopes { $($methods)* });
+    };
+}
+
+macro_rules! with_envelopes {
+    ($($methods:tt)*) => {
+        persistence_native!(with_native { $($methods)* });
+    };
+}
+
+macro_rules! with_native {
+    ($($methods:tt)*) => {
+        persistence_graph!(finish_persistence_impl { $($methods)* });
+    };
+}
+
+macro_rules! finish_persistence_impl {
+    ($($methods:tt)*) => {
         #[async_trait::async_trait]
         impl PersistenceBackend for RedbBackend {
-            persistence_capabilities!();
-            persistence_graph_reads!();
-            persistence_mutations!();
-            persistence_outbox!();
-            persistence_envelopes!();
-            persistence_native!();
-            persistence_graph!();
+            $($methods)*
         }
     };
 }
 
-impl_persistence_backend!();
+persistence_capabilities!(with_capabilities {});

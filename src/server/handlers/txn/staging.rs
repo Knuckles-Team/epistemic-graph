@@ -242,7 +242,7 @@ pub(super) async fn stage_measurement(
     points_msgpack: Vec<u8>,
     authority: &CarrierAuthority,
 ) -> Response {
-    let points = match super::timeseries::decode_wire_points(&points_msgpack) {
+    let points = match super::super::timeseries::decode_wire_points(&points_msgpack) {
         Ok(p) => p,
         Err(error) => return Response::err(req_id, error),
     };
@@ -520,6 +520,17 @@ pub(super) struct PlanWritebackArgs {
     plan: eg_plan::Plan,
     anchor_id: String,
     relationship: String,
+}
+
+#[cfg(feature = "query")]
+impl PlanWritebackArgs {
+    pub(super) fn new(plan: eg_plan::Plan, anchor_id: String, relationship: String) -> Self {
+        Self {
+            plan,
+            anchor_id,
+            relationship,
+        }
+    }
 }
 
 #[cfg(feature = "query")]

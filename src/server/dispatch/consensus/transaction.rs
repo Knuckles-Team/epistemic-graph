@@ -429,7 +429,7 @@ pub(super) struct TransactionExecution<'a> {
 }
 
 #[cfg(feature = "raft")]
-async fn execute_consensus_transaction(execution: TransactionExecution<'_>) -> Response {
+pub(super) async fn execute_consensus_transaction(execution: TransactionExecution<'_>) -> Response {
     let TransactionExecution {
         state,
         request_id,

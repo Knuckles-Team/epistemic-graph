@@ -514,10 +514,10 @@ pub(crate) fn apply_snapshot_state(
     #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
     audited: bool,
 ) -> Result<(), String> {
-    // Non-`security` builds never read `audited` (it is only consulted inside
-    // the `#[cfg(feature = "security")]` block below); this keeps such a build
-    // warning-free without cfg-gating the parameter itself.
-    let _ = audited;
+    // Non-`security` builds have no audit rows, so the audit-only inputs are
+    // intentionally unused while the shared call shape remains feature-stable.
+    #[cfg(not(feature = "security"))]
+    let _ = (batch, audited);
     let incoming_nodes = snapshot
         .nodes
         .iter()
@@ -675,7 +675,10 @@ pub(crate) fn apply_row_delta_state(
     #[cfg(feature = "security")] staged_audit_tail: &mut AuditTailCache,
     audited: bool,
 ) -> Result<(), String> {
-    let _ = audited;
+    // Non-`security` builds have no audit rows, so the audit-only inputs are
+    // intentionally unused while the shared call shape remains feature-stable.
+    #[cfg(not(feature = "security"))]
+    let _ = (batch, audited);
     let mut tables = GraphRowTables::open(write.graph(graph_fname)?)?;
     for method in delta.operations() {
         apply_method_rows(graph_fname, method, &mut tables, crypto)?;

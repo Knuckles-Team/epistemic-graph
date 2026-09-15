@@ -1,6 +1,9 @@
 use super::*;
+#[cfg(feature = "raft")]
 use crate::redb_store::{XshardDecisionScan, XshardPrepareScan};
+#[cfg(feature = "raft")]
 use crate::server::persistence::writer_reply::await_writer_reply;
+#[cfg(feature = "raft")]
 use tokio::sync::oneshot;
 
 // ── Durable cross-shard transaction records ────────────────────────────────

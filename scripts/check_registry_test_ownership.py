@@ -121,7 +121,10 @@ def unowned_test_files(root: Path, registry_path: Path) -> tuple[list[str], list
     claimed_paths = load_claimed_paths(registry_path)
     files = tracked_test_files(root)
     if not files:
-        die("git ls-files -- tests returned no files; the registry claims the directory exists")
+        die(
+            "git ls-files -- tests returned no files; "
+            "the registry claims the directory exists"
+        )
     unowned = [f for f in files if not is_owned(f, claimed_paths)]
     return files, unowned
 
@@ -161,7 +164,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    print(f"registry-test-ownership: OK: all {len(files)} tracked tests/ file(s) are owned")
+    print(
+        f"registry-test-ownership: OK: all {len(files)} tracked tests/ "
+        "file(s) are owned"
+    )
     return 0
 
 

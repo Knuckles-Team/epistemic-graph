@@ -1,5 +1,21 @@
 macro_rules! writer_command_arms {
-    ($cmd:expr) => {
+    (
+        $cmd:expr,
+        pending = $pending:ident,
+        flush_threshold = $flush_threshold:ident,
+        flush = $flush:ident,
+        shard = $shard:ident,
+        crypto = $crypto:ident $(,)?
+    ) => {{
+        // These aliases intentionally bridge macro hygiene: every value that the
+        // generated match arms use is supplied explicitly by `handle_cmd`, while
+        // the arm body keeps the concise names it had before it was split out of
+        // `writer_thread.rs`.
+        let pending = $pending;
+        let flush_threshold = $flush_threshold;
+        let flush = $flush;
+        let shard = $shard;
+        let crypto = $crypto;
         match $cmd {
         Cmd::Mutation {
             graph,
@@ -625,7 +641,7 @@ macro_rules! writer_command_arms {
             false
         }
         }
-    };
+    }};
 }
 
 pub(crate) use writer_command_arms;

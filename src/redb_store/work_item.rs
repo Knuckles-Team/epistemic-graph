@@ -22,10 +22,10 @@ use super::*;
 /// and the outbox id. Grouped so each applier keeps a readable arity
 /// (clippy::too_many_arguments) without disturbing the borrowed table params,
 /// whose scoped-table lifetimes are load-bearing.
-pub(crate) struct WorkItemCommitScope<'a> {
-    pub(crate) crypto: DurableCrypto<'a>,
+pub(crate) struct WorkItemCommitScope<'crypto, 'outbox> {
+    pub(crate) crypto: DurableCrypto<'crypto>,
     pub(crate) authoritative_now_ms: u64,
-    pub(crate) outbox_id: &'a str,
+    pub(crate) outbox_id: &'outbox str,
 }
 
 /// Refuse a per-graph scan asked about a graph other than the one its table is

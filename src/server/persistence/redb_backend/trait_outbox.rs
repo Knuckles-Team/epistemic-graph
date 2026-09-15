@@ -1,5 +1,7 @@
 macro_rules! persistence_outbox {
-    () => {
+    ($next:ident { $($methods:tt)* }) => {
+    $next! {
+    $($methods)*
         async fn read_mutation_graph_version(
             &self,
             graph_fname: &str,
@@ -106,6 +108,7 @@ macro_rules! persistence_outbox {
             })
             .await
         }
+    }
     };
 }
 

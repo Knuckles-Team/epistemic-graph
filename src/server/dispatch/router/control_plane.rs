@@ -77,12 +77,7 @@ pub(super) async fn dispatch_cluster_admin_methods(
         // exactly like `ApplyMultisigMutation` self-routes before translating
         // into `Method::ApplyMutation` against `req.graph`. See
         // `handle_register_server`'s doc comment.
-                method @ Method::RegisterServer {
-            name,
-            url,
-            resources_json,
-            ttl_secs,
-        } => dispatch_cluster_admin_methods_arm_4(ctx, method).await,
+                method @ Method::RegisterServer { .. } => dispatch_cluster_admin_methods_arm_4(ctx, method).await,
         other => return ControlFlow::Continue(other),
     })
 }
@@ -138,7 +133,7 @@ async fn dispatch_cluster_admin_methods_arm_0(ctx: DispatchCtx<'_>, method: Meth
             )
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -165,7 +160,7 @@ async fn dispatch_cluster_admin_methods_arm_1(ctx: DispatchCtx<'_>, method: Meth
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -192,7 +187,7 @@ async fn dispatch_cluster_admin_methods_arm_2(ctx: DispatchCtx<'_>, method: Meth
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -221,7 +216,7 @@ async fn dispatch_cluster_admin_methods_arm_3(ctx: DispatchCtx<'_>, method: Meth
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -260,7 +255,7 @@ async fn dispatch_cluster_admin_methods_arm_4(ctx: DispatchCtx<'_>, method: Meth
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 pub(super) async fn dispatch_agent_library_methods(
@@ -416,7 +411,7 @@ pub(super) async fn dispatch_compute_and_media_methods(
             // BEFORE the per-graph `dispatch_graph_op` chain, exactly like `TsAppend`/
             // `Kv*`/`CreateChannel` above. See `handlers/jobs.rs` module docs.
             #[cfg(feature = "jobs")]
-            method @ Method::AnalyticsJob { op } => {
+            method @ Method::AnalyticsJob { .. } => {
                 dispatch_compute_and_media_methods_arm_0(ctx, method).await
             }
 
@@ -425,7 +420,7 @@ pub(super) async fn dispatch_compute_and_media_methods(
             // self-routes here, BEFORE the per-graph `dispatch_graph_op` chain, exactly
             // like `AnalyticsJob` above. See `handlers/statechart.rs` module docs.
             #[cfg(feature = "statechart")]
-            method @ Method::Statechart { op } => {
+            method @ Method::Statechart { .. } => {
                 dispatch_compute_and_media_methods_arm_1(ctx, method).await
             }
 
@@ -438,7 +433,7 @@ pub(super) async fn dispatch_compute_and_media_methods(
             // contract this closes (program doc: "no job-plane, no wire protocol Method,
             // and no KG concept mapping" — the wire protocol Method half ends here).
             #[cfg(feature = "quantum-agent-api")]
-            method @ Method::Quantum { op } => {
+            method @ Method::Quantum { .. } => {
                 dispatch_compute_and_media_methods_arm_2(ctx, method).await
             }
             // ── Native ASR provider surface (GOC-33, `OWNER-VOICE-ASR`, feature
@@ -448,7 +443,7 @@ pub(super) async fn dispatch_compute_and_media_methods(
             // per-graph `dispatch_graph_op` chain, exactly like `Quantum`/`Viz` above.
             // See `handlers::asr`'s module doc for the authority boundary.
             #[cfg(feature = "asr-whisper")]
-            method @ Method::Asr { op } => {
+            method @ Method::Asr { .. } => {
                 dispatch_compute_and_media_methods_arm_3(ctx, method).await
             }
             // ── Native visualization render surface (D-VZ-1 lanes V4/V6, feature
@@ -462,7 +457,7 @@ pub(super) async fn dispatch_compute_and_media_methods(
             // documented deviation: the handler needs a real ColumnStore + export
             // backend to do anything, which only exist at that tier.
             #[cfg(feature = "viz-static-export")]
-            method @ Method::Viz { op } => {
+            method @ Method::Viz { .. } => {
                 dispatch_compute_and_media_methods_arm_4(ctx, method).await
             }
             other => return ControlFlow::Continue(other),
@@ -508,7 +503,7 @@ async fn dispatch_compute_and_media_methods_arm_0(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -541,7 +536,7 @@ async fn dispatch_compute_and_media_methods_arm_1(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -560,7 +555,7 @@ async fn dispatch_compute_and_media_methods_arm_2(
     } = ctx;
     match method {
         Method::Quantum { op } => handlers::quantum::handle(req.id, op).await,
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -579,7 +574,7 @@ async fn dispatch_compute_and_media_methods_arm_3(
     } = ctx;
     match method {
         Method::Asr { op } => handlers::asr::handle(req.id, op).await,
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -613,6 +608,6 @@ async fn dispatch_compute_and_media_methods_arm_4(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }

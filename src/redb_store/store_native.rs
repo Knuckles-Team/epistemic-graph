@@ -242,10 +242,10 @@ pub(crate) fn apply_native_clear_or_delete_graph_rows(
 /// inside clippy's parameter cap; each field is the value the caller already
 /// passed positionally.
 #[derive(Clone, Copy)]
-pub(crate) struct NativeSubmitScope<'a> {
-    batch: &'a MutationBatch,
+pub(crate) struct NativeSubmitScope<'batch, 'crypto> {
+    batch: &'batch MutationBatch,
     committed_at_ms: u64,
-    crypto: DurableCrypto<'a>,
+    crypto: DurableCrypto<'crypto>,
 }
 
 /// The shared inputs for the row phases of one admitted graph member.
@@ -335,91 +335,38 @@ pub(crate) struct NativeOperationOptions<'a> {
     pub(crate) crossmodal_present: bool,
 }
 
-/// The tail every native submit-work-item operation shares once its row
-/// applier has returned a result: refuse to overwrite an already-produced
-/// result or co-commit alongside a second operation (a `SubmitWorkItem(s)`
-/// batch is only ever admitted as the sole operation), then encode the result
-/// as the batch's raw response payload. `label` names the request kind in the
-/// refusal message, so `SubmitWorkItem` and `SubmitWorkItems` keep their own
-/// distinct wording even though the mechanics are identical.
-pub(crate) fn finish_native_submit_work_item_operation<
-    M: eg_types::result_contract::MethodResult,
->(
-    result: M::Body,
-    batch: &MutationBatch,
+/// Apply one native submit row operation inside the caller's existing write,
+/// then encode its typed result. The row applier intentionally runs before the
+/// result-slot and operation-count checks, preserving the transaction's
+/// historical error order; an error still aborts the surrounding row phase.
+fn apply_native_submit_operation<'batch, 'crypto, M, ApplyRows>(
+    scope: NativeSubmitScope<'batch, 'crypto>,
     generated_result: &mut Option<Vec<u8>>,
-    label: &str,
-) -> Result<(), String> {
+    apply_rows: ApplyRows,
+) -> Result<(), String>
+where
+    M: eg_types::result_contract::MethodResult,
+    ApplyRows: FnOnce(WorkItemCommitScope<'crypto, 'batch>) -> Result<M::Body, String>,
+{
+    let NativeSubmitScope {
+        batch,
+        committed_at_ms,
+        crypto,
+    } = scope;
+    let result = apply_rows(WorkItemCommitScope {
+        crypto,
+        authoritative_now_ms: committed_at_ms,
+        outbox_id: &batch.batch_id,
+    })?;
     if generated_result.is_some() || batch.operations.len() != 1 {
         return Err(format!(
-            "{label} MutationBatch must contain exactly one result-producing operation"
+            "{} MutationBatch must contain exactly one result-producing operation",
+            M::METHOD
         ));
     }
     let payload = crate::protocol::ResultPayload::of::<M>(result)?;
     *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
     Ok(())
-}
-
-pub(crate) fn apply_native_submit_work_item_operation(
-    graph_fname: &str,
-    request: &eg_types::native_control::SubmitWorkItemRequest,
-    nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
-    edges: &mut ScopedOwnerTableMut<'_, (&str, &str, &str, u32), &[u8]>,
-    command_sequences: &mut ScopedOwnerTableMut<'_, &str, u64>,
-    scope: NativeSubmitScope<'_>,
-    generated_result: &mut Option<Vec<u8>>,
-) -> Result<(), String> {
-    let NativeSubmitScope {
-        batch,
-        committed_at_ms,
-        crypto,
-    } = scope;
-    let result = apply_submit_work_item_rows(
-        graph_fname,
-        request,
-        nodes,
-        edges,
-        command_sequences,
-        WorkItemCommitScope {
-            crypto,
-            authoritative_now_ms: committed_at_ms,
-            outbox_id: &batch.batch_id,
-        },
-    )?;
-    finish_native_submit_work_item_operation::<
-        eg_types::result_contract::coordination::SubmitWorkItem,
-    >(result, batch, generated_result, "SubmitWorkItem")
-}
-
-pub(crate) fn apply_native_submit_work_items_operation(
-    graph_fname: &str,
-    request: &eg_types::native_control::SubmitWorkItemsRequest,
-    nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
-    edges: &mut ScopedOwnerTableMut<'_, (&str, &str, &str, u32), &[u8]>,
-    command_sequences: &mut ScopedOwnerTableMut<'_, &str, u64>,
-    scope: NativeSubmitScope<'_>,
-    generated_result: &mut Option<Vec<u8>>,
-) -> Result<(), String> {
-    let NativeSubmitScope {
-        batch,
-        committed_at_ms,
-        crypto,
-    } = scope;
-    let result = apply_submit_work_items_rows(
-        graph_fname,
-        request,
-        nodes,
-        edges,
-        command_sequences,
-        WorkItemCommitScope {
-            crypto,
-            authoritative_now_ms: committed_at_ms,
-            outbox_id: &batch.batch_id,
-        },
-    )?;
-    finish_native_submit_work_item_operation::<
-        eg_types::result_contract::coordination::SubmitWorkItems,
-    >(result, batch, generated_result, "SubmitWorkItems")
 }
 
 pub(crate) fn apply_native_work_item_family_operation(
@@ -502,8 +449,8 @@ pub(crate) fn apply_native_resource_reservation_operation(
     generated_result: &mut Option<Vec<u8>>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    let result =
-        apply_resource_reservation_rows(super::resource::ResourceReservationApplyRequest {
+    let result = super::resource::apply_resource_reservation_rows(
+        super::resource::ResourceReservationApplyRequest {
             graph: graph_fname,
             method,
             tables: super::resource::ResourceReservationTables {
@@ -519,8 +466,9 @@ pub(crate) fn apply_native_resource_reservation_operation(
                 disk_policies: &mut tables.resources.disk_policies,
                 crypto,
             },
-        })?
-        .ok_or_else(|| "resource reservation mutation produced no durable result".to_string())?;
+        },
+    )?
+    .ok_or_else(|| "resource reservation mutation produced no durable result".to_string())?;
     if generated_result.is_some() || batch.operations.len() != 1 {
         return Err(
             "resource reservation MutationBatch must contain exactly one result-producing operation"
@@ -545,7 +493,7 @@ pub(crate) fn native_operation_is_crossmodal_carrier(
         )
 }
 
-pub(crate) fn apply_one_native_operation_row(
+fn apply_one_native_operation_row(
     context: NativeOperationContext<'_, '_>,
     tables: &mut NativeOperationTables<'_>,
 ) -> Result<(), String> {
@@ -572,31 +520,47 @@ pub(crate) fn apply_one_native_operation_row(
             apply_native_clear_or_delete_graph_rows(write, graph_fname, tables, crypto)
         }
         Method::ClearLedger => clear_ledger_rows(graph_fname, &mut tables.graph.ledger),
-        Method::SubmitWorkItem { request } => apply_native_submit_work_item_operation(
-            graph_fname,
-            request,
-            &mut tables.graph.nodes,
-            &mut tables.graph.edges,
-            &mut tables.graph.command_sequences,
+        Method::SubmitWorkItem { request } => apply_native_submit_operation::<
+            eg_types::result_contract::coordination::SubmitWorkItem,
+            _,
+        >(
             NativeSubmitScope {
                 batch,
                 committed_at_ms,
                 crypto,
             },
             generated_result,
+            |commit_scope| {
+                apply_submit_work_item_rows(
+                    graph_fname,
+                    request,
+                    &mut tables.graph.nodes,
+                    &mut tables.graph.edges,
+                    &mut tables.graph.command_sequences,
+                    commit_scope,
+                )
+            },
         ),
-        Method::SubmitWorkItems { request } => apply_native_submit_work_items_operation(
-            graph_fname,
-            request,
-            &mut tables.graph.nodes,
-            &mut tables.graph.edges,
-            &mut tables.graph.command_sequences,
+        Method::SubmitWorkItems { request } => apply_native_submit_operation::<
+            eg_types::result_contract::coordination::SubmitWorkItems,
+            _,
+        >(
             NativeSubmitScope {
                 batch,
                 committed_at_ms,
                 crypto,
             },
             generated_result,
+            |commit_scope| {
+                apply_submit_work_items_rows(
+                    graph_fname,
+                    request,
+                    &mut tables.graph.nodes,
+                    &mut tables.graph.edges,
+                    &mut tables.graph.command_sequences,
+                    commit_scope,
+                )
+            },
         ),
         method @ (Method::ClaimWorkItem { .. }
         | Method::RenewWorkItemLease { .. }
@@ -644,7 +608,7 @@ pub(crate) fn apply_one_native_operation_row(
     }
 }
 
-pub(crate) fn apply_native_operation_rows_loop(
+fn apply_native_operation_rows_loop(
     input: NativeOperationLoopInput<'_, '_>,
     tables: &mut NativeOperationTables<'_>,
 ) -> Result<(), String> {

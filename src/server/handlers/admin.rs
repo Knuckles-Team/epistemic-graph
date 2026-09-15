@@ -41,12 +41,14 @@ pub(crate) use agent::{
 pub(crate) use backup::backup_bundle_name;
 #[cfg(feature = "redb")]
 pub(crate) use cluster::try_handle;
+#[cfg(any(feature = "compute-dist", feature = "matview"))]
+pub(crate) use saga::begin_admin_saga;
 #[cfg(feature = "redb")]
 pub(crate) use saga::{
-    begin_admin_saga, begin_admin_saga_with_nonce, begin_authenticated_admin_saga,
-    begin_named_admin_saga_with_nonce, begin_named_admin_saga_with_private_payload_and_nonce,
-    current_admin_saga_authority, finish_admin_saga, resume_named_admin_saga,
-    scope_admin_saga_authority, AdminSaga, AdminSagaPayload,
+    begin_authenticated_admin_saga, begin_named_admin_saga_with_nonce,
+    begin_named_admin_saga_with_private_payload_and_nonce, current_admin_saga_authority,
+    finish_admin_saga, resume_named_admin_saga, scope_admin_saga_authority, AdminSaga,
+    AdminSagaPayload,
 };
 
 /// Non-redb build: every admin method returns a clean "not available" error.

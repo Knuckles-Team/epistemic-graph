@@ -9,17 +9,17 @@
 use std::fmt;
 
 use hmac::{Hmac, Mac};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 use sha2::Sha256;
 
 use crate::crypto::ValueCipher;
 use crate::graph::GraphCore;
 use crate::protocol::ResultPayload;
 use eg_modality::{
-    ApplyDisposition, ApplyOutcome, ArtifactBundle, Classification, ConformanceTestable,
-    GovernedModality, ModalityKind, MutationDelta, NativePredicate, OccurrenceId, OpaqueRef,
-    SegmentKind, ServedDelete, ServedIngest, ServedModalityRuntime, ServedNativeQuery,
-    ServedPolicyScope, ServedQuery, ServedRecord, tck_report,
+    tck_report, ApplyDisposition, ApplyOutcome, ArtifactBundle, Classification,
+    ConformanceTestable, GovernedModality, ModalityKind, MutationDelta, NativePredicate,
+    OccurrenceId, OpaqueRef, SegmentKind, ServedDelete, ServedIngest, ServedModalityRuntime,
+    ServedNativeQuery, ServedPolicyScope, ServedQuery, ServedRecord,
 };
 use eg_types::acl::RequestContextClaims;
 use eg_types::{
@@ -734,12 +734,12 @@ pub(crate) fn handle(
 mod tests {
     use super::migration::migrate_partition_to_rows;
     use super::*;
-    use eg_audio::{AudioData, runtime::NativeAudioRuntime};
-    use eg_document::{DocumentData, runtime::NativeDocumentRuntime};
+    use eg_audio::{runtime::NativeAudioRuntime, AudioData};
+    use eg_document::{runtime::NativeDocumentRuntime, DocumentData};
     use eg_document::{DocumentDecoder, NativeTextDecoder};
-    use eg_image::{ImageData, runtime::NativeImageRuntime};
+    use eg_image::{runtime::NativeImageRuntime, ImageData};
     use eg_modality::EvidenceAddress;
-    use eg_video::{VideoData, runtime::NativeVideoRuntime};
+    use eg_video::{runtime::NativeVideoRuntime, VideoData};
 
     fn wav_fixture() -> Vec<u8> {
         let samples: [i16; 8] = [0, 8_000, 16_000, 8_000, 0, -8_000, -16_000, -8_000];
@@ -883,11 +883,9 @@ mod tests {
         assert!(NativeImageRuntime::decode_png(&png).is_some());
 
         let wav = wav_fixture();
-        assert!(
-            NativeAudioRuntime::from_wav(&wav)
-                .and_then(|runtime| runtime.normalized_data())
-                .is_some()
-        );
+        assert!(NativeAudioRuntime::from_wav(&wav)
+            .and_then(|runtime| runtime.normalized_data())
+            .is_some());
 
         let mp4 = mp4_fixture();
         assert!(NativeVideoRuntime::decode_isobmff(&mp4).is_some());
@@ -904,9 +902,9 @@ mod tests {
     // documented design) does not itself meet.
 
     use eg_modality::{
-        ARTIFACT_PROTOCOL_VERSION, Artifact, ArtifactId, Derivation, DerivationId, EvidenceLocus,
-        EvidenceLocusId, Feature, FeatureId, FeatureKind, Occurrence, PolicyEnvelope,
-        PrivacyAttestation, Rendition, RenditionId, ResourceId, Segment, SegmentId,
+        Artifact, ArtifactId, Derivation, DerivationId, EvidenceLocus, EvidenceLocusId, Feature,
+        FeatureId, FeatureKind, Occurrence, PolicyEnvelope, PrivacyAttestation, Rendition,
+        RenditionId, ResourceId, Segment, SegmentId, ARTIFACT_PROTOCOL_VERSION,
     };
 
     fn test_authority() -> ModalityAuthority {

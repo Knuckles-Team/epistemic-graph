@@ -312,13 +312,19 @@ pub const DEVELOPMENT_LANE_CLEANUP_KIND: &str = "lane.cleanup";
 // never trusted as freshness, expiry, or lease authority (RMDD-27 convention).
 // Supporting wire types are split into focused child modules; re-exports preserve
 // every historical `eg_types::protocol::*` path used by clients and handlers.
+#[cfg(any(feature = "mining", feature = "ml-pipeline"))]
 mod support_00;
+#[cfg(feature = "mining")]
 pub use support_00::*;
 mod support_01;
 pub use support_01::*;
+#[cfg(feature = "query")]
 mod support_02;
+#[cfg(feature = "query")]
 pub use support_02::*;
+#[cfg(feature = "epistemic")]
 mod support_03;
+#[cfg(feature = "epistemic")]
 pub use support_03::*;
 mod support_04;
 pub use support_04::*;

@@ -1,5 +1,7 @@
 macro_rules! persistence_graph {
-    () => {
+    ($next:ident { $($methods:tt)* }) => {
+    $next! {
+    $($methods)*
         async fn commit_crossmodal(
             &self,
             graph_fname: &str,
@@ -135,6 +137,7 @@ macro_rules! persistence_graph {
         fn as_redb(&self) -> Option<&RedbBackend> {
             Some(self)
         }
+    }
     };
 }
 

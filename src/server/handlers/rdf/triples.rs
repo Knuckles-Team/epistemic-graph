@@ -3,10 +3,10 @@ use std::sync::Arc;
 #[cfg(feature = "shacl")]
 use tokio::sync::RwLock;
 
-#[cfg(feature = "shacl")]
-use super::super::state::ServerState;
 use crate::graph::GraphCore;
 use crate::protocol::{Response, ResultPayload};
+#[cfg(feature = "shacl")]
+use crate::server::state::ServerState;
 
 /// Parse Turtle/N-Triples and store into the target graph; route multi-valued
 /// literal extras to the lossless quad store when configured.

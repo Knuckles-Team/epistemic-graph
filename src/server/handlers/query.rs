@@ -74,22 +74,38 @@ where
 mod base;
 pub(crate) use base::*;
 mod dispatch;
-pub(crate) use dispatch::*;
+pub(in crate::server) use dispatch::try_handle;
+#[cfg(feature = "knowledge-batch")]
+pub(in crate::server) use dispatch::{try_handle_with_policy, PolicyAwareQuery};
 mod sql_read;
 pub(crate) use sql_read::*;
 mod explain_handlers;
 pub(crate) use explain_handlers::*;
 mod nl;
 pub(crate) use nl::*;
+#[cfg(feature = "graphql")]
 mod graphql;
+#[cfg(feature = "graphql")]
 pub(crate) use graphql::*;
+#[cfg(feature = "cypher")]
 mod cypher;
+#[cfg(feature = "cypher")]
 pub(crate) use cypher::*;
 mod planning;
 pub(crate) use planning::*;
 mod explain_wire_a;
 pub(crate) use explain_wire_a::*;
+#[cfg(any(
+    feature = "epistemic-tms",
+    feature = "evidence-graph",
+    feature = "epistemic-causal"
+))]
 mod explain_wire_b;
+#[cfg(any(
+    feature = "epistemic-tms",
+    feature = "evidence-graph",
+    feature = "epistemic-causal"
+))]
 pub(crate) use explain_wire_b::*;
 mod overlay;
 pub(crate) use overlay::*;

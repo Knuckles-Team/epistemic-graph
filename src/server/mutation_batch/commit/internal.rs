@@ -243,7 +243,6 @@ fn validate_internal_replay_tenant(
 }
 
 fn stage_internal_graph(
-    core: &GraphCore,
     base_snapshot: crate::graph::GraphSnapshot,
     source_version: u64,
     methods: Vec<Method>,
@@ -330,13 +329,8 @@ async fn commit_fresh_internal_graph(
             authoritative_graph_version(persistence, &graph_fname, core).await?,
         ),
     };
-    let (row_delta, descriptor, methods, state_msgpack) = stage_internal_graph(
-        core,
-        base_snapshot,
-        source_version,
-        methods,
-        strict_promotion,
-    )?;
+    let (row_delta, descriptor, methods, state_msgpack) =
+        stage_internal_graph(base_snapshot, source_version, methods, strict_promotion)?;
     commit_prepared_internal_graph(PreparedInternalGraphCommit {
         persistence,
         core,
@@ -467,7 +461,7 @@ fn canonical_graph_image_digest(snapshot: &crate::graph::GraphSnapshot) -> Resul
     Ok(hex::encode(Sha256::digest(bytes)))
 }
 
-fn install_validated_internal_replay_snapshot(
+pub(super) fn install_validated_internal_replay_snapshot(
     core: &GraphCore,
     snapshot: crate::graph::GraphSnapshot,
     version: u64,
@@ -526,7 +520,7 @@ fn verify_newer_replay(
     }
     Ok(())
 }
-fn apply_projectable_method(core: &GraphCore, method: &Method) -> Result<(), String> {
+pub(super) fn apply_projectable_method(core: &GraphCore, method: &Method) -> Result<(), String> {
     match method {
         Method::AddNode {
             node_id,

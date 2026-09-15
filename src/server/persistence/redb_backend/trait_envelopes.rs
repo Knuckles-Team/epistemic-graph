@@ -1,5 +1,7 @@
 macro_rules! persistence_envelopes {
-    () => {
+    ($next:ident { $($methods:tt)* }) => {
+    $next! {
+    $($methods)*
         async fn commit_change_envelope(
             &self,
             graph_fname: &str,
@@ -106,6 +108,7 @@ macro_rules! persistence_envelopes {
             })
             .await
         }
+    }
     };
 }
 

@@ -8,6 +8,7 @@ use super::sparql_update::coordinated_sparql_http_update;
 use super::*;
 
 mod authorization;
+#[cfg(feature = "raft")]
 mod consensus;
 mod preflight;
 mod saga;
@@ -31,10 +32,10 @@ pub(super) use consensus::{
     check_cluster_placement_before_consensus, route_consensus_before_gateway,
 };
 pub(super) use preflight::preflight_request_msgpack;
+#[cfg(all(test, feature = "ast"))]
+pub(super) use preflight::AstInputLimits;
 #[cfg(feature = "ast")]
-pub(super) use preflight::{
-    ast_input_limits, decode_ast_files, validate_ast_logical_path, AstInputLimits,
-};
+pub(super) use preflight::{ast_input_limits, decode_ast_files, validate_ast_logical_path};
 #[cfg(feature = "redb")]
 use saga::replayed_response;
 pub(super) use saga::{begin_session_control_saga, finalize_dispatch_response};

@@ -340,7 +340,8 @@ async fn commit_row_replay_found(
 /// compile+encode pair every commit path performs before its own
 /// `commit_mutation_batch`/`commit_mutation_batch_state` call. Shared by
 /// [`commit_mutation_body_prepublish_fast_path`],
-/// [`commit_mutation_body_commit_staged`], and [`commit_conditional_commit_staged`].
+/// [`super::commit_encode::commit_mutation_body_commit_staged`], and
+/// [`super::conditional::commit_conditional_commit_staged`].
 pub(super) fn compile_batch_and_encode_result(
     ctx: &MutationCtx<'_>,
     compile: crate::server::mutation_batch::CompileBatch<'_>,

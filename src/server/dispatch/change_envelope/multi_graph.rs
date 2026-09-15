@@ -15,7 +15,7 @@ use eg_types::result_contract::transactions as txn_results;
 /// The reply is `{"results": {graph: <batch_result>}, "errors": {graph: msg}}`;
 /// one graph's failure never aborts the others (partial-success contract).
 #[cfg(feature = "redb")]
-pub(super) async fn multi_graph_batch_update(
+pub(in crate::server::dispatch) async fn multi_graph_batch_update(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     caller: Option<&str>,
@@ -71,7 +71,7 @@ fn finish_multi_graph_report(
 /// The declared JSON body of a successful in-process response; its error, or the
 /// named refusal when it answered an invalid or no body.
 #[cfg(feature = "redb")]
-fn declared_json_response<T: serde::de::DeserializeOwned>(
+pub(super) fn declared_json_response<T: serde::de::DeserializeOwned>(
     response: Response,
     invalid: &str,
     absent: &str,
@@ -238,7 +238,7 @@ async fn run_multi_graph_batches(
 }
 
 #[cfg(not(feature = "redb"))]
-pub(super) async fn multi_graph_batch_update(
+pub(in crate::server::dispatch) async fn multi_graph_batch_update(
     _state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     _caller: Option<&str>,
@@ -257,7 +257,7 @@ const MAX_MULTI_GRAPH_OPERATIONS_BYTES: usize = 32 * 1024 * 1024;
 const MAX_MULTI_GRAPH_TOTAL_OPERATIONS_BYTES: usize = 64 * 1024 * 1024;
 const MAX_MULTI_GRAPH_OPERATION_ITEMS: usize = 500_000;
 
-pub(super) fn decode_multi_graph_batches(
+pub(in crate::server::dispatch) fn decode_multi_graph_batches(
     batches_msgpack: &[u8],
 ) -> Result<Vec<(String, serde_bytes::ByteBuf)>, String> {
     // The outer request preflight protects this decoder on the served path. Keep

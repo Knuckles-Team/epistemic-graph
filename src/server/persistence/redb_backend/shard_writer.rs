@@ -1,6 +1,6 @@
 use super::commands::SHARD_WRITER_JOIN_TIMEOUT;
 use super::*;
-use std::sync::mpsc::sync_channel;
+use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Weak};
 use std::thread::JoinHandle;
 

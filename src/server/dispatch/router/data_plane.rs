@@ -2,13 +2,20 @@
 
 use super::*;
 
+#[cfg(feature = "tsdb")]
+use super::data_plane_arms::dispatch_transaction_methods_arm_1;
+#[cfg(feature = "owl")]
+use super::data_plane_arms::dispatch_transaction_methods_arm_2;
+#[cfg(feature = "sparql")]
+use super::data_plane_arms::dispatch_transaction_methods_arm_3;
+#[cfg(feature = "query")]
+use super::data_plane_arms::dispatch_transaction_methods_arm_4;
+#[cfg(feature = "epistemic")]
+use super::data_plane_arms::dispatch_transaction_methods_arm_5;
 use super::data_plane_arms::{
     dispatch_change_envelope_methods_arm_0, dispatch_change_envelope_methods_arm_1,
     dispatch_change_envelope_methods_arm_2, dispatch_change_envelope_methods_arm_3,
     dispatch_change_envelope_methods_arm_4, dispatch_transaction_methods_arm_0,
-    dispatch_transaction_methods_arm_1, dispatch_transaction_methods_arm_2,
-    dispatch_transaction_methods_arm_3, dispatch_transaction_methods_arm_4,
-    dispatch_transaction_methods_arm_5,
 };
 
 /// Multi-op OCC transactions and their typed sub-operations.
@@ -201,7 +208,7 @@ async fn dispatch_store_methods_arm_0(ctx: DispatchCtx<'_>, method: Method) -> R
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -237,7 +244,7 @@ async fn dispatch_store_methods_arm_1(ctx: DispatchCtx<'_>, method: Method) -> R
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -277,7 +284,7 @@ async fn dispatch_store_methods_arm_2(ctx: DispatchCtx<'_>, method: Method) -> R
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 pub(super) async fn dispatch_streaming_methods(
@@ -397,7 +404,7 @@ async fn dispatch_streaming_methods_arm_0(ctx: DispatchCtx<'_>, method: Method) 
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -431,7 +438,7 @@ async fn dispatch_streaming_methods_arm_1(ctx: DispatchCtx<'_>, method: Method) 
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 pub(super) async fn dispatch_governed_stream_write_methods(
@@ -500,7 +507,7 @@ async fn dispatch_served_modality_method(ctx: DispatchCtx<'_>, method: Method) -
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -607,7 +614,7 @@ async fn dispatch_knowledge_stream_method(ctx: DispatchCtx<'_>, method: Method) 
 })
                 .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -630,24 +637,21 @@ pub(super) async fn dispatch_change_envelope_methods(
     } = ctx;
     ControlFlow::Break(match method {
         // ── Graph operations (dispatch to target graph) ──────────────
-        method @ Method::ApplyChangeEnvelope { envelope } => {
+        method @ Method::ApplyChangeEnvelope { .. } => {
             dispatch_change_envelope_methods_arm_0(ctx, method).await
         }
-        method @ Method::ApplyChangeEnvelopes { envelopes } => {
+        method @ Method::ApplyChangeEnvelopes { .. } => {
             dispatch_change_envelope_methods_arm_1(ctx, method).await
         }
-        method @ Method::GetChangeEnvelope {
-            envelope_id,
-            tenant,
-        } => dispatch_change_envelope_methods_arm_2(ctx, method).await,
-        method @ Method::GetContentVersion { object_id, tenant } => {
+        method @ Method::GetChangeEnvelope { .. } => {
+            dispatch_change_envelope_methods_arm_2(ctx, method).await
+        }
+        method @ Method::GetContentVersion { .. } => {
             dispatch_change_envelope_methods_arm_3(ctx, method).await
         }
-        method @ Method::GetChangeCursor {
-            source,
-            partition,
-            tenant,
-        } => dispatch_change_envelope_methods_arm_4(ctx, method).await,
+        method @ Method::GetChangeCursor { .. } => {
+            dispatch_change_envelope_methods_arm_4(ctx, method).await
+        }
         other => return ControlFlow::Continue(other),
     })
 }

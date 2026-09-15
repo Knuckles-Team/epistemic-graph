@@ -165,6 +165,7 @@ mod work_item;
 
 // These crate-visible entry points retain the flat development_lane path
 // used by redb_store and its sibling modules.
+#[cfg(any(test, feature = "server"))]
 pub(crate) use dispatch::{commit_development_lane, read_development_lane};
 pub(crate) use finish::transition_work_item_terminal_hold;
 pub(crate) use links::{
@@ -174,6 +175,7 @@ pub(crate) use rows::{
     clear_native_graph_rows_in_wtx, clear_native_graph_rows_in_wtx_with_lane_tables,
     retire_graph_rows,
 };
+#[cfg(any(test, feature = "server"))]
 pub(crate) use status::read_development_lane_status;
 
 #[cfg(test)]

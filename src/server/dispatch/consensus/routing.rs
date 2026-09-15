@@ -495,7 +495,7 @@ async fn dispatch_native_raft_write(
 }
 
 #[cfg(feature = "raft")]
-pub(super) async fn propose_native_mutation(
+pub(in crate::server::dispatch) async fn propose_native_mutation(
     state: &Arc<RwLock<ServerState>>,
     request_graph: &str,
     request_id: u64,

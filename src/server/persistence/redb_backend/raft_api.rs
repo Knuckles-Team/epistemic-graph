@@ -1,5 +1,7 @@
 use super::*;
+#[cfg(feature = "raft")]
 use crate::server::persistence::writer_reply::await_writer_reply;
+#[cfg(feature = "raft")]
 use tokio::sync::oneshot;
 
 // ── Durable Raft log API (CONCEPT:EG-KG.storage.one-fsync-covers-raft) — inherent methods ────────────────

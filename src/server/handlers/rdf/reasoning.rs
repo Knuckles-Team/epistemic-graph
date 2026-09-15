@@ -3,19 +3,17 @@ use std::sync::Arc;
 #[cfg(feature = "owl")]
 use tokio::sync::RwLock;
 
-#[cfg(feature = "owl")]
-use super::super::access::check_graph_access;
-#[cfg(feature = "owl")]
-use super::super::access::GraphReadAuthority;
-use super::super::compute::compute_off_lock;
-#[cfg(feature = "owl")]
-use super::super::state::ServerState;
 use crate::graph::GraphCore;
 #[cfg(feature = "owl")]
 use crate::isolation::AccessLevel;
 #[cfg(feature = "owl")]
 use crate::protocol::Method;
 use crate::protocol::{Response, ResultPayload};
+#[cfg(feature = "owl")]
+use crate::server::access::{check_graph_access, GraphReadAuthority};
+use crate::server::compute::compute_off_lock;
+#[cfg(feature = "owl")]
+use crate::server::state::ServerState;
 
 /// Run a parameterised custom-rule reasoning request over the request's graph view
 /// (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog / EG-023). Read-only: it reasons over an off-lock snapshot (its
@@ -106,7 +104,7 @@ pub(super) async fn handle_run_rules(request: RunRulesRequest<'_>) -> Response {
 /// It is NOT graph-scoped (it unions several graphs), so dispatch routes it here directly
 /// with `state` rather than through `dispatch_graph_op`. `Err(method)` ⇒ not mine.
 #[cfg(feature = "owl")]
-pub(super) async fn try_handle_distributed(
+pub(in crate::server) async fn try_handle_distributed(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     read_authority: &GraphReadAuthority,

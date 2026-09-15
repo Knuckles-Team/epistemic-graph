@@ -290,7 +290,7 @@ struct SubmitWorkItemAdmission<'args, 'table, 'crypto> {
     crypto: DurableCrypto<'crypto>,
 }
 
-pub(crate) fn admit_and_identify_submit_work_item(
+fn admit_and_identify_submit_work_item(
     input: SubmitWorkItemAdmission<'_, '_, '_>,
 ) -> Result<(u64, String, u64), String> {
     let SubmitWorkItemAdmission {
@@ -711,7 +711,7 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
         &'static [u8],
     >,
     command_sequences: &mut ScopedOwnerTableMut<'txn, &'static str, u64>,
-    scope: WorkItemCommitScope<'crypto>,
+    scope: WorkItemCommitScope<'crypto, '_>,
 ) -> Result<eg_types::native_control::SubmitWorkItemResult, String> {
     let WorkItemCommitScope {
         crypto,
@@ -780,7 +780,7 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
         &'static [u8],
     >,
     command_sequences: &mut ScopedOwnerTableMut<'txn, &'static str, u64>,
-    scope: WorkItemCommitScope<'crypto>,
+    scope: WorkItemCommitScope<'crypto, '_>,
 ) -> Result<eg_types::native_control::SubmitWorkItemsResult, String> {
     let WorkItemCommitScope {
         crypto,

@@ -79,10 +79,10 @@ cannot be trusted) all fail closed.
 Arm patterns are read from comment- and literal-masked source (`rust_lexer`), so
 a `_ =>` inside a string or a comment cannot invent a catch-all. The whole
 function body is brace-matched — **not** a fixed line window. A first attempt at
-this measurement used a 400-line window and classified
-`src/server/handlers/finance.rs::try_handle` (cyclomatic 69, cognitive 4) as
-exhaustive, because its `other => return Err(other)` sits ~616 lines below its
-signature. `tests/test_rust_exhaustive_match.py` pins that case and its opposite.
+this measurement used a 400-line window and misclassified a large dispatcher
+whose catch-all sat beyond that window. `tests/test_rust_exhaustive_match.py`
+pins the current streaming dispatcher shape and a synthetic case whose catch-all
+appears after 450 lines, preserving coverage of that regression.
 
 ### The rule is strictly tighter than what it replaces
 

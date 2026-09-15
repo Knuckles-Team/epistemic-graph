@@ -1,5 +1,6 @@
 //! Declared results of the `messaging` contract domain.
 
+#[cfg(feature = "streaming")]
 use serde::{Deserialize, Serialize};
 
 use crate::messaging_wire::{

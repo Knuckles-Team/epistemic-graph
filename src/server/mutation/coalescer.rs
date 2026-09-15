@@ -455,7 +455,6 @@ where
     // second clone specifically for the coalescable subset, so the job can
     // run on the worker task after this request's own stack frame is gone.
     let req_id = ctx.req_id;
-    let graph_name = ctx.graph_name.to_owned();
     let owned = OwnedMutationCtx::from_context(ctx);
     let plan = plan.clone();
     let method = method.clone();

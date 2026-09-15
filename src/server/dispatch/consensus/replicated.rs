@@ -13,14 +13,14 @@ pub(crate) fn replicated_placement_authority() -> Option<(u64, Option<u64>)> {
 }
 
 #[cfg(feature = "raft")]
-pub(super) fn replicated_identity_bootstrap_authorized() -> bool {
+pub(in crate::server::dispatch) fn replicated_identity_bootstrap_authorized() -> bool {
     REPLICATED_APPLY
         .try_with(|scope| scope.identity_bootstrap)
         .unwrap_or(false)
 }
 
 #[cfg(not(feature = "raft"))]
-pub(super) fn replicated_identity_bootstrap_authorized() -> bool {
+pub(in crate::server::dispatch) fn replicated_identity_bootstrap_authorized() -> bool {
     false
 }
 
@@ -43,7 +43,7 @@ pub(crate) fn replicated_placement_authority() -> Option<(u64, Option<u64>)> {
 }
 
 #[cfg(not(feature = "raft"))]
-pub(super) async fn propose_native_mutation(
+pub(in crate::server::dispatch) async fn propose_native_mutation(
     _state: &Arc<RwLock<ServerState>>,
     _request_graph: &str,
     request_id: u64,

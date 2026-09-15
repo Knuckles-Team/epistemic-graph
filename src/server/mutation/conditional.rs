@@ -12,10 +12,9 @@ use super::{
     advance_authoritative_manifest, commit_finalize, commit_mutation,
     commit_mutation_body_replay_response, commit_prepare, commit_staged_replay_probe,
     compile_batch_and_encode_result, consensus_apply_is_authorized,
-    diff_and_serialize_staged_mutation, durable_receipt_method, is_rdf_gateway_method,
-    publish_committed_row_delta, resolve_authoritative_base_snapshot, staged_mutation_descriptor,
-    CommitFinalizeOptions, CommitPrep, DurableBatchAttempt, DurableBatchTarget, MutationCtx,
-    MutationPlan, StagedMutation,
+    diff_and_serialize_staged_mutation, method_variant_name, publish_committed_row_delta,
+    resolve_authoritative_base_snapshot, staged_mutation_descriptor, CommitFinalizeOptions,
+    CommitPrep, DurableBatchAttempt, DurableBatchTarget, MutationCtx, MutationPlan, StagedMutation,
 };
 
 /// The gateway entry point for a RUNTIME-CONDITIONAL method (CONCEPT:EG-P0-2, L11
@@ -259,7 +258,8 @@ pub(super) async fn commit_conditional_replay_check(
 }
 
 /// The staged apply + diff half of [`commit_conditional_mutation_async_inner`]'s
-/// durable path — the async-apply twin of [`commit_mutation_body_stage_and_diff`].
+/// durable path — the async-apply twin of
+/// [`super::commit_paths::commit_mutation_body_stage_and_diff`].
 /// Query handlers never receive the live serving core, so an execution or durable
 /// commit failure cannot leak a partial mutation into RAM.
 pub(super) async fn commit_conditional_stage_and_diff<F, Fut>(

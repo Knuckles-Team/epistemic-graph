@@ -3,6 +3,11 @@
 # extras together, while PyIceberg currently requires Rich <15 and the production
 # workspace requires Rich >=15.
 pytest>=7.0.0
+# The standalone module imports the shared prebuilt-binary validator from
+# tests/conftest.py, which imports the public Python client.  Keep its sole
+# wire dependency explicit here so the isolated gate cannot pass only because
+# msgpack happened to be installed in the ambient development environment.
+msgpack>=1.2.1
 pyiceberg[pyarrow]>=0.7.0
 deltalake>=0.18.0
 # The parity assertions intentionally use each reader's Arrow -> pandas adapter

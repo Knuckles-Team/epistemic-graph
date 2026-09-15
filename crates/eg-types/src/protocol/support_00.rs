@@ -1,3 +1,4 @@
+#[cfg(feature = "mining")]
 use super::*;
 
 // ── Supporting Types ────────────────────────────────────────────────────

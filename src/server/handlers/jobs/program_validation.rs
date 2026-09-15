@@ -3,7 +3,6 @@
 use super::prelude_jobs::*;
 use super::prelude_server::*;
 use super::prelude_std::*;
-use super::*;
 
 #[cfg(feature = "program-optimization")]
 /// Whether a reference string is an opaque, governed reference id.

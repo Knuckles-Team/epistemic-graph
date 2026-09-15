@@ -1,5 +1,7 @@
 macro_rules! persistence_native {
-    () => {
+    ($next:ident { $($methods:tt)* }) => {
+    $next! {
+    $($methods)*
     async fn read_resource_reservation(
         &self,
         graph_fname: &str,
@@ -235,6 +237,7 @@ macro_rules! persistence_native {
     /// the transaction is dropped without commit, so NONE of the modalities land — a
     /// true rollback (no partial cross-modal commit). Routed through the owner thread
     /// (exclusive file lock) via a blocking send off the reactor.
+    }
     };
 }
 

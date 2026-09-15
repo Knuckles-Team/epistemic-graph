@@ -1,3 +1,5 @@
+use super::*;
+
 pub(crate) struct ResourceReservationTables<'borrow, 'table, 'crypto> {
     pub(crate) nodes: &'borrow mut eg_storage::ScopedOwnerTableMut<
         'table,
@@ -754,7 +756,7 @@ pub(crate) fn resource_validate_work_item_status_and_extension<'p>(
                 .into(),
             ));
         }
-    } else if (!mode.is_reclaim() || !work_item_fence.superseded)
+    } else if (!mode.is_reclaim() || !work_item_fence.is_superseded())
         && !matches!(
             property_string(props, "status"),
             "leased" | "running" | "succeeded" | "failed" | "cancelled" | "dead_letter"

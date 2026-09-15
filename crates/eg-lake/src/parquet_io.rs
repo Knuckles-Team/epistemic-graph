@@ -11,10 +11,13 @@
 //! `Long → Int64`, `Double → Float64`, `Bool → Boolean`, `String → String`,
 //! `Timestamp → Datetime(Microseconds, UTC)`.
 
-use polars_core::prelude::{AnyValue, Column, DataFrame, DataType, TimeUnit, TimeZone};
+use polars_core::prelude::{
+    AnyValue, Column, CompatLevel, DataFrame, DataType, SchemaExt, TimeUnit, TimeZone,
+};
 use polars_io::prelude::{
     FileMetadata, KeyValueMetadata, ParquetCompression, ParquetReader, ParquetWriter, SerReader,
 };
+use polars_parquet::write::{schema_to_metadata_key, KeyValue};
 
 use crate::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
 use crate::snapshot::ColumnStat;
@@ -115,13 +118,24 @@ fn materialize_batch_meta(batch: &LakeBatch) -> Result<(Vec<u8>, FileMetadata), 
     let mut buf: Vec<u8> = Vec::new();
     let schema_json = serde_json::to_string(&batch.schema)
         .map_err(|e| format!("serialize lake schema metadata: {e}"))?;
+    // Polars 0.54's eager Parquet writer otherwise embeds its newest Arrow schema,
+    // where logical strings are `Utf8View`. The Parquet physical/logical type is
+    // still BYTE_ARRAY/STRING, but PyArrow 25 cannot filter/take StringView arrays
+    // on PyIceberg's scan path. Supply the equivalent oldest-compatible Arrow
+    // footer schema (offset-based Utf8) while leaving the physical pages, Iceberg
+    // schema, and file statistics unchanged.
+    let arrow_schema = frame.schema().to_arrow(CompatLevel::oldest());
+    let arrow_schema_metadata = schema_to_metadata_key(&arrow_schema);
     ParquetWriter::new(&mut buf)
         .with_compression(ParquetCompression::Uncompressed)
         .set_parallel(false)
-        .with_key_value_metadata(Some(KeyValueMetadata::from_static(vec![(
-            LAKE_SCHEMA_METADATA_KEY.to_string(),
-            schema_json,
-        )])))
+        .with_key_value_metadata(Some(KeyValueMetadata::Static(vec![
+            arrow_schema_metadata,
+            KeyValue {
+                key: LAKE_SCHEMA_METADATA_KEY.to_string(),
+                value: Some(schema_json),
+            },
+        ])))
         .finish(&mut frame)
         .map_err(|e| format!("parquet write: {e}"))?;
 

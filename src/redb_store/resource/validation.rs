@@ -1,3 +1,5 @@
+use super::*;
+
 pub(crate) fn resource_text(value: &str, name: &str) -> Result<(), String> {
     if value.is_empty() || value.len() > MAX_RESOURCE_TEXT {
         return Err(format!(
@@ -505,6 +507,20 @@ pub(crate) struct ResourceWorkItemFence {
 }
 
 impl ResourceWorkItemFence {
+    pub(super) fn new(
+        attempt: u64,
+        lease_epoch: u64,
+        fencing_token: u64,
+        superseded: bool,
+    ) -> Self {
+        Self {
+            attempt,
+            lease_epoch,
+            fencing_token,
+            superseded,
+        }
+    }
+
     pub(crate) fn is_superseded(&self) -> bool {
         self.superseded
     }

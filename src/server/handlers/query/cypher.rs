@@ -88,10 +88,10 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
         // recompute (the `put` below still lands under this call's own fresh
         // `version`, so nothing stale or cross-actor is ever served).
         if let Some(bytes) = core.result_cache().get(hash, core.version()) {
-            return Ok(Response::ok(
+            return Response::ok(
                 req_id,
                 ResultPayload::of_encoded::<query_results::CypherQuery>(bytes),
-            ));
+            );
         }
         // perf/cold-query-floor-analysis (UNCOMPILED PROPOSAL — see
         // `crate::rls_view_cache` in eg-core, not yet exercised by any test or

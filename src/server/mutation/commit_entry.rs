@@ -1,18 +1,15 @@
-use std::sync::Arc;
-
 use eg_capabilities::DurabilityDomain;
 
+use super::{
+    advance_authoritative_manifest, commit_mutation_body_prepublish_fast_path,
+    commit_mutation_body_staged_path, consensus_apply_is_authorized, idempotency_key,
+    idempotency_store, prepublish_success, DurableBatchAttempt, DurableBatchTarget, MutationCtx,
+    MutationPlan,
+};
 use crate::graph::GraphCore;
 use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::check_graph_access;
-use crate::server::persistence::PersistenceBackend;
-
-use super::{
-    advance_authoritative_manifest, commit_mutation_body_prepublish_fast_path,
-    commit_mutation_body_staged_path, idempotency_key, idempotency_store, prepublish_success,
-    DurableBatchAttempt, DurableBatchTarget, MutationCtx, MutationPlan,
-};
 
 /// Pre-apply state carried from [`commit_prepare`] to [`commit_finalize`], so the
 /// SAME steps-1-3 / steps-5-8 logic backs BOTH the sync-apply [`commit_mutation`]

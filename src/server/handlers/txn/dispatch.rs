@@ -388,11 +388,7 @@ async fn dispatch_txn_extended(
             *req_id,
             &txn_id,
             graph.as_deref(),
-            PlanWritebackArgs {
-                plan,
-                anchor_id,
-                relationship,
-            },
+            PlanWritebackArgs::new(plan, anchor_id, relationship),
             derived_read_authority.expect("TxnPlanWriteback is a derived read stage"),
         )
         .await),

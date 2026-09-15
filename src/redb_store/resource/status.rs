@@ -1,3 +1,5 @@
+use super::*;
+
 pub(crate) fn open_resource_reservation_status_tables(
     read: &ScopedRead<'_, GraphShardOwner>,
 ) -> Result<
@@ -113,7 +115,7 @@ pub(crate) fn resolve_resource_reservation_status_row(
     })
 }
 
-pub(crate) struct ResourceReservationStatusRowContext<'row, 'table, 'crypto> {
+pub(crate) struct ResourceReservationStatusRowContext<'row, 'crypto> {
     pub(crate) row_graph: &'row str,
     pub(crate) tenant: &'row str,
     pub(crate) reservation_id: &'row str,
@@ -122,12 +124,12 @@ pub(crate) struct ResourceReservationStatusRowContext<'row, 'table, 'crypto> {
     pub(crate) cursor: &'row str,
     pub(crate) request: &'row ResourceReservationStatusRequest,
     pub(crate) reservations:
-        &'row eg_storage::ScopedOwnerTable<'table, (&'static str, &'static str), &'static [u8]>,
+        &'row eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
     pub(crate) crypto: DurableCrypto<'crypto>,
 }
 
 pub(crate) fn resource_reservation_status_row_outcome(
-    context: ResourceReservationStatusRowContext<'_, '_, '_>,
+    context: ResourceReservationStatusRowContext<'_, '_>,
 ) -> Result<ResourceReservationStatusRowOutcome, String> {
     // The scan is `scope_rows()`, which starts at the FIRST row this graph
     // owns rather than at the `(graph, tenant, cursor)` position a raw range

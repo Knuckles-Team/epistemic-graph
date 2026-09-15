@@ -189,10 +189,7 @@ mod modality;
 #[cfg(feature = "modality-serving")]
 pub use modality::SanitizedModalityRaftCommand;
 #[cfg(feature = "modality-serving")]
-pub(crate) use modality::{
-    decode_sanitized_modality_result, SanitizedModalityMutation, SanitizedModalityResult,
-    SanitizedModalityResultKind,
-};
+pub(crate) use modality::{decode_sanitized_modality_result, SanitizedModalityMutation};
 
 mod command;
 pub use command::{

@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(feature = "graphql")]
+use crate::server::handlers::txn;
 
 /// The GraphQL WRITE surface — a `mutation { … }` document, one of three shapes
 /// (`commitTransaction`, another cross-modal staging verb, or an ordinary
@@ -70,7 +72,7 @@ pub(crate) async fn handle_graphql_commit_txn(
     txn_id: &str,
     carrier: &crate::server::access::CarrierAuthority,
 ) -> Result<Response, Method> {
-    let committed = super::txn::commit_graphql_cross_modal(
+    let committed = txn::commit_graphql_cross_modal(
         state,
         req_id,
         graph_name,
@@ -136,17 +138,17 @@ pub(crate) async fn handle_graphql_staging_mutation(
         Ok(result) => result,
         Err(response) => return Ok(response),
     };
-    super::txn::fault_after_txn_lifecycle_effect(req_id);
+    txn::fault_after_txn_lifecycle_effect(req_id);
     Ok(finish_graphql_staging(req_id, receipt, result))
 }
 
 #[cfg(feature = "graphql")]
 fn finish_graphql_staging(
     req_id: u64,
-    receipt: super::txn::TxnLifecycleReceipt,
+    receipt: txn::TxnLifecycleReceipt,
     result: ResultPayload,
 ) -> Response {
-    match super::txn::finish_graphql_lifecycle(receipt, result) {
+    match txn::finish_graphql_lifecycle(receipt, result) {
         Ok(result) => Response::ok(req_id, result),
         Err(error) => Response::err(req_id, error),
     }
@@ -155,7 +157,7 @@ fn finish_graphql_staging(
 #[cfg(feature = "graphql")]
 enum GraphQlStagingAdmission {
     Replayed(ResultPayload),
-    Execute(super::txn::TxnLifecycleReceipt),
+    Execute(txn::TxnLifecycleReceipt),
 }
 
 #[cfg(feature = "graphql")]
@@ -167,11 +169,11 @@ async fn begin_graphql_staging_admission(
     query: &str,
 ) -> Result<GraphQlStagingAdmission, Response> {
     let admission =
-        super::txn::begin_graphql_lifecycle(state, req_id, carrier.agent_id(), carrier, method)
+        txn::begin_graphql_lifecycle(state, req_id, carrier.agent_id(), carrier, method)
             .await
             .map_err(|error| Response::err(req_id, error))?;
     match admission {
-        super::txn::GraphQlLifecycleAdmission::Replayed(result) => {
+        txn::GraphQlLifecycleAdmission::Replayed(result) => {
             if !graphql_lifecycle_replay_is_live(
                 carrier.owner_scope(),
                 query,
@@ -185,7 +187,7 @@ async fn begin_graphql_staging_admission(
             }
             Ok(GraphQlStagingAdmission::Replayed(result))
         }
-        super::txn::GraphQlLifecycleAdmission::Execute(receipt) => {
+        txn::GraphQlLifecycleAdmission::Execute(receipt) => {
             Ok(GraphQlStagingAdmission::Execute(*receipt))
         }
     }
@@ -262,7 +264,7 @@ pub(crate) async fn handle_graphql(
     // `execute_mutation` (which bumps the OCC version / `mark_dirty` once it
     // lands). NOT cached (it is a write) and NOT RLS pre-filtered (writes are
     // graph-ACL-gated in `dispatch_graph_op` — this method classified Write).
-    if super::super::access::graphql_is_mutation(&query) {
+    if crate::server::access::graphql_is_mutation(&query) {
         return handle_graphql_mutation(
             state,
             req_id,

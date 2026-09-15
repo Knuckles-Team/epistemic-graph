@@ -62,6 +62,7 @@ def test_maturin_default_and_python_extra_are_full() -> None:
     lake_requirements = (REPO / "tests" / "lake-parity-requirements.txt").read_text(
         encoding="utf-8"
     )
+    assert "msgpack>=1.2.1" in lake_requirements
     assert "pyiceberg[pyarrow]>=0.7.0" in lake_requirements
     assert "deltalake>=0.18.0" in lake_requirements
 

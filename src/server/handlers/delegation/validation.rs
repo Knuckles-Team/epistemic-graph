@@ -311,7 +311,7 @@ fn validate_graph_target(
     // graph auditable -- is inside `definition_digest` and outside
     // `shape_digest`. (A composing parent still pins the SHAPE; see
     // `AgentGraphEntryRef`'s type doc for why the two differ.)
-    if **graph != eg_types::delegation::AgentGraphEntryRef::from_entry(retained_graph) {
+    if *graph != eg_types::delegation::AgentGraphEntryRef::from_entry(retained_graph) {
         return Err(
             "kg-delegate agent graph is not the retained revision/definition digest".to_string(),
         );

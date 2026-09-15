@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use super::super::compute::compute_off_lock;
 use crate::graph::{GraphCore, GraphView};
 use crate::protocol::{Response, ResultPayload};
+use crate::server::compute::compute_off_lock;
 
 /// Evaluate a SPARQL SELECT against the caller-visible graph snapshot.
 #[cfg(feature = "sparql")]

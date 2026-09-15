@@ -134,7 +134,7 @@ fn lease_renewal_refused(
 }
 
 /// A WorkItem transition that changed no row.
-fn unchanged_transition<Status>(
+pub(super) fn unchanged_transition<Status>(
     status: Status,
     work_item_id: Option<&str>,
 ) -> eg_types::result_contract::coordination::WorkItemTransition<Status> {
@@ -147,7 +147,7 @@ fn unchanged_transition<Status>(
     }
 }
 
-fn commit_transition_result(
+pub(super) fn commit_transition_result(
     transition: eg_types::result_contract::coordination::WorkItemTransition<
         eg_types::result_contract::coordination::WorkItemCommitStatus,
     >,
@@ -157,7 +157,7 @@ fn commit_transition_result(
     >(transition)
 }
 
-fn cancel_transition_result(
+pub(super) fn cancel_transition_result(
     transition: eg_types::result_contract::coordination::WorkItemTransition<
         eg_types::result_contract::coordination::WorkItemCancelStatus,
     >,
@@ -168,7 +168,7 @@ fn cancel_transition_result(
 }
 
 /// The declared status of an applied commit.
-fn declared_commit_status(
+pub(super) fn declared_commit_status(
     status: &str,
 ) -> Result<eg_types::result_contract::coordination::WorkItemCommitStatus, String> {
     match status {

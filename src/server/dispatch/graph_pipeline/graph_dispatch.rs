@@ -238,29 +238,30 @@ pub(super) async fn dispatch_graph_op_inner(
 /// and `verified_actor` are separate borrows of the CALLER's locals — the actor
 /// string borrows from the authority, so the two cannot live in one owned struct.
 #[derive(Clone, Copy)]
-pub(super) struct GraphOpRouting<'a> {
-    pub(super) state: &'a Arc<RwLock<ServerState>>,
-    pub(super) req_id: u64,
-    pub(super) graph_name: &'a str,
+pub(in crate::server::dispatch) struct GraphOpRouting<'a> {
+    pub(in crate::server::dispatch) state: &'a Arc<RwLock<ServerState>>,
+    pub(in crate::server::dispatch) req_id: u64,
+    pub(in crate::server::dispatch) graph_name: &'a str,
     pub(super) caller: Option<&'a str>,
     pub(super) verified_context: &'a VerifiedRequestContext,
     pub(super) state_machine_authorized: bool,
     pub(super) read_authority: &'a Option<GraphReadAuthority>,
     pub(super) verified_actor: &'a str,
-    pub(super) tenant_scope: &'a str,
+    pub(in crate::server::dispatch) tenant_scope: &'a str,
     pub(super) gateway_authz_ctx: &'a Option<crate::server::mutation::GatewayAuthzCtx>,
-    pub(super) core: &'a Arc<crate::graph::GraphCore>,
+    pub(in crate::server::dispatch) core: &'a Arc<crate::graph::GraphCore>,
     pub(super) materialization_manifest:
         &'a Option<Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>>,
-    pub(super) persistence: &'a Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    pub(in crate::server::dispatch) persistence:
+        &'a Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     #[cfg(feature = "streaming")]
     pub(super) cdc: &'a Option<Arc<crate::server::cdc::CdcHub>>,
     #[cfg(feature = "security")]
     pub(super) rls: &'a std::sync::Arc<crate::isolation::IsolationLayer>,
     #[cfg(feature = "raft")]
-    pub(super) routed_raft: &'a Option<crate::raft::multi::RoutedRaftHandle>,
+    pub(in crate::server::dispatch) routed_raft: &'a Option<crate::raft::multi::RoutedRaftHandle>,
     #[cfg(feature = "raft")]
-    pub(super) graph_type: crate::protocol::GraphType,
+    pub(in crate::server::dispatch) graph_type: crate::protocol::GraphType,
     #[cfg(feature = "raft")]
     pub(super) multi_raft: &'a Option<Arc<crate::raft::multi::MultiRaft>>,
     #[cfg(feature = "redb")]

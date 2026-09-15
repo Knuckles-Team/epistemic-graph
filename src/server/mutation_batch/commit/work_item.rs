@@ -62,26 +62,29 @@ fn derive_work_item_identity(
 }
 
 fn work_item_tenant(method: &Method) -> Result<String, String> {
+    let tenant = work_item_tenant_value(method)?;
+    if tenant.trim().is_empty() {
+        return Err("WorkItem mutation requires a non-empty tenant".to_string());
+    }
+    Ok(tenant)
+}
+
+fn work_item_tenant_value(method: &Method) -> Result<String, String> {
     let tenant = match method {
-        Method::SubmitWorkItem { request } | Method::SubmitWorkItems { request } => {
-            request.context.tenant_id.clone()
-        }
-        Method::ClaimWorkItem { request } | Method::CasWorkItemMetadata { request } => {
-            request.tenant_ref.clone()
-        }
+        Method::SubmitWorkItem { request } => request.context.tenant_id.clone(),
+        Method::SubmitWorkItems { request } => request.context.tenant_id.clone(),
+        Method::ClaimWorkItem { request } => request.tenant_ref.clone(),
+        Method::CasWorkItemMetadata { request } => request.tenant_ref.clone(),
         Method::RenewWorkItemLease { tenant, .. }
         | Method::CommitWorkItemResult { tenant, .. }
         | Method::CancelWorkItem { tenant, .. }
         | Method::DeferWorkItem { tenant, .. } => tenant.clone(),
         Method::ReserveWorkItemResources { request }
         | Method::ReleaseWorkItemResources { request }
-        | Method::ReclaimWorkItemResources { request }
-        | Method::UpdateResourceHost { request } => request.tenant_ref.clone(),
+        | Method::ReclaimWorkItemResources { request } => request.tenant_ref.clone(),
+        Method::UpdateResourceHost { request } => request.tenant_ref.clone(),
         _ => return Err("commit_work_item received a non-WorkItem operation".to_string()),
     };
-    if tenant.trim().is_empty() {
-        return Err("WorkItem mutation requires a non-empty tenant".to_string());
-    }
     Ok(tenant)
 }
 

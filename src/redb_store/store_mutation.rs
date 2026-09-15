@@ -4,6 +4,7 @@ use super::*;
 /// Deterministic failure injection points around the authoritative batch commit.
 /// Production always calls with `None`; unit tests use these boundaries to prove
 /// that restart observes either no batch or one complete committed batch.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MutationBatchCrashpoint {
     BeforeRows,
     AfterRowsBeforeMetadata,
@@ -590,7 +591,8 @@ fn finish_change_envelope_rows(
         staged.generated_result,
         input.committed_at_ms,
         input.graph_source,
-    )
+    )?;
+    Ok(())
 }
 
 fn abort_change_envelope_session<'a>(

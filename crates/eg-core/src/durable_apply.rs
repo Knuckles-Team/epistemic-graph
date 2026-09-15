@@ -313,10 +313,17 @@ fn apply_base_embedding(core: &GraphCore, m: &Method) -> bool {
     handled
 }
 
+#[cfg(feature = "broker")]
 fn apply_broker_exchange(core: &GraphCore, m: &Method) -> bool {
     apply_broker_admin(core, m) || apply_broker_queue(core, m)
 }
 
+#[cfg(not(feature = "broker"))]
+fn apply_broker_exchange(_core: &GraphCore, _m: &Method) -> bool {
+    false
+}
+
+#[cfg(feature = "broker")]
 fn apply_broker_admin(core: &GraphCore, m: &Method) -> bool {
     let mut handled = true;
     match m {
@@ -361,6 +368,7 @@ fn apply_broker_admin(core: &GraphCore, m: &Method) -> bool {
     handled
 }
 
+#[cfg(feature = "broker")]
 fn apply_broker_queue(core: &GraphCore, m: &Method) -> bool {
     let mut handled = true;
     match m {
@@ -444,6 +452,7 @@ fn apply_broker_queue(core: &GraphCore, m: &Method) -> bool {
     handled
 }
 
+#[cfg(feature = "broker")]
 fn apply_broker_streams(core: &GraphCore, m: &Method) -> bool {
     let mut handled = true;
     match m {
@@ -563,6 +572,11 @@ fn apply_broker_streams(core: &GraphCore, m: &Method) -> bool {
         _ => handled = false,
     }
     handled
+}
+
+#[cfg(not(feature = "broker"))]
+fn apply_broker_streams(_core: &GraphCore, _m: &Method) -> bool {
+    false
 }
 
 fn apply_memory(core: &GraphCore, m: &Method) -> bool {

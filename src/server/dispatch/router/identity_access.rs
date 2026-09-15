@@ -21,13 +21,9 @@ pub(super) async fn dispatch_identity_and_access_methods(
     } = ctx;
     ControlFlow::Break(match method {
         // ── Zero-Trust Consensus ─────────────────────────────────────────
-        method @ Method::RegisterIdentity {
-            agent_id,
-            role,
-            teams,
-            signature,
-            roles,
-        } => dispatch_identity_and_access_methods_arm_0(ctx, method).await,
+        method @ Method::RegisterIdentity { .. } => {
+            dispatch_identity_and_access_methods_arm_0(ctx, method).await
+        }
         // Identity read-back (CONCEPT:EG-KG.compute.feature): closes the `RegisterIdentity`
         // blind-upsert gap. `RegisterIdentity` REPLACES a principal's whole role set on
         // every call, so a caller that wants to add a role without dropping one already
@@ -35,7 +31,7 @@ pub(super) async fn dispatch_identity_and_access_methods(
         // the SAME `security:admin` scope as `RegisterIdentity` (see `eg_capabilities::policy`),
         // enforced by the admin-scope check above the method match, so no additional
         // authorization is done here.
-        method @ Method::GetIdentity { agent_id } => {
+        method @ Method::GetIdentity { .. } => {
             dispatch_identity_and_access_methods_arm_1(ctx, method).await
         }
 
@@ -43,16 +39,13 @@ pub(super) async fn dispatch_identity_and_access_methods(
         // Gated at the handler; a non-security build has no arm and falls to the
         // dispatch "not available in this build" catch-all (mirrors EG-090).
         #[cfg(feature = "security")]
-        method @ Method::RbacAdmin { op } => {
+        method @ Method::RbacAdmin { .. } => {
             dispatch_identity_and_access_methods_arm_2(ctx, method).await
         }
 
-        method @ Method::ApplyMultisigMutation {
-            signatures,
-            threshold,
-            mutation_type,
-            query,
-        } => dispatch_identity_and_access_methods_arm_3(ctx, method).await,
+        method @ Method::ApplyMultisigMutation { .. } => {
+            dispatch_identity_and_access_methods_arm_3(ctx, method).await
+        }
         other => return ControlFlow::Continue(other),
     })
 }
@@ -129,7 +122,7 @@ async fn dispatch_identity_and_access_methods_arm_0(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -168,7 +161,7 @@ async fn dispatch_identity_and_access_methods_arm_1(
         Method::GetIdentity { agent_id } => {
             dispatch_boxed(dispatch_get_identity(state, req.id, &req.graph, agent_id)).await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -187,7 +180,7 @@ async fn dispatch_identity_and_access_methods_arm_2(
     } = ctx;
     match method {
         Method::RbacAdmin { op } => dispatch_boxed(apply_rbac_admin(state, req.id, op)).await,
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 
@@ -247,7 +240,7 @@ async fn dispatch_identity_and_access_methods_arm_3(
             })
             .await
         }
-        other => Response::err(req.id, "router dispatch helper routing mismatch"),
+        _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
 fn multisig_mutation_response(response: Response) -> Response {

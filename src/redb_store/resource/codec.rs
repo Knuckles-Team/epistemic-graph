@@ -1,3 +1,5 @@
+use super::*;
+
 pub(crate) fn resource_encode<T: serde::Serialize>(
     value: &T,
     crypto: DurableCrypto<'_>,

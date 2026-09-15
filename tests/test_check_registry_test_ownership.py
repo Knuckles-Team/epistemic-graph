@@ -86,7 +86,9 @@ def _add(root: Path, *relative_paths: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_parse_claimed_paths_collects_every_path_field_from_impl_components_only() -> None:
+def test_parse_claimed_paths_collects_every_path_field_from_impl_components_only() -> (
+    None
+):
     document = _registry(
         [
             {"component_id": "eg.seam", "component_kind": "layer_boundary_root_seam"},
@@ -132,9 +134,7 @@ def test_planted_unowned_file_is_detected(repo: Path) -> None:
 
 
 def test_all_files_owned_reports_no_gap(repo: Path) -> None:
-    document = _registry(
-        [_component(test_roots=["tests/known.rs", "tests/subdir"])]
-    )
+    document = _registry([_component(test_roots=["tests/known.rs", "tests/subdir"])])
     registry_path = _write_registry(repo, document)
     _add(repo, "tests/known.rs", "tests/subdir/nested.rs")
 
@@ -150,7 +150,11 @@ def test_owned_source_roots_omission_counts_as_owned(repo: Path) -> None:
     # owned here, or this gate would falsely flag a file this pass already
     # verified is real and owned.
     document = _registry(
-        [_component(owned_source_roots_omissions=[{"path": "tests/model.rs", "reason": "x"}])]
+        [
+            _component(
+                owned_source_roots_omissions=[{"path": "tests/model.rs", "reason": "x"}]
+            )
+        ]
     )
     registry_path = _write_registry(repo, document)
     _add(repo, "tests/model.rs")

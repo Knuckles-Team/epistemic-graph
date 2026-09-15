@@ -1,3 +1,5 @@
+use super::*;
+
 pub(crate) fn validate_resource_extension_authority(
     extension: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
@@ -473,12 +475,12 @@ pub(crate) fn resource_validate_work_item(
         return Err(ResourceReservationResultDecision::Stale);
     }
     resource_validate_work_item_owner_and_extension(props, request, superseded)?;
-    Ok(ResourceWorkItemFence {
-        attempt: current_attempt,
+    Ok(ResourceWorkItemFence::new(
+        current_attempt,
         lease_epoch,
         fencing_token,
         superseded,
-    })
+    ))
 }
 
 pub(crate) fn resource_target_policy_value(

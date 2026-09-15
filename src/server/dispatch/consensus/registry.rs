@@ -56,7 +56,7 @@ fn valid_register_server_name(name: &str) -> bool {
 // over genuinely-required distinct fields, with no natural grouping that
 // wouldn't just be a single-use wrapper struct.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn handle_register_server(
+pub(in crate::server::dispatch) async fn handle_register_server(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     caller: Option<&str>,

@@ -1,7 +1,6 @@
 //! Shared domain imports for private analytics-job modules.
 
 pub(super) use eg_compute::mining::association::{self, Algorithm};
-pub(super) use eg_core::graph::GraphCore;
 pub(super) use eg_jobs::model::{
     AlgoVersion, AnalyticsJob, Checkpoint, InputSnapshotHandle, JobPolicy, JobState,
 };

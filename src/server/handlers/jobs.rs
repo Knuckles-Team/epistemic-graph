@@ -97,8 +97,8 @@ mod worker_validation;
 
 pub(crate) use core::knowledge_stream_result;
 use core::{
-    compile_job_batch, job_record, job_response, job_result_payload, job_store, owned_job,
-    parse_algorithm,
+    compile_job_batch, job_record, job_response, job_store, owned_job, parse_algorithm,
+    reproducibility_manifest,
 };
 use executor_claim::*;
 use executor_loop::*;
@@ -106,12 +106,15 @@ use executor_program::*;
 use helpers::*;
 use native_validation::*;
 use program_validation::*;
+#[cfg(feature = "raft")]
+use publication::prepare_consensus_job_publication;
+use publication::publish_staged_result;
+#[cfg(feature = "raft")]
 pub(crate) use publication::{
     apply_consensus_job_publication_commit, apply_consensus_job_publication_finalize,
     build_job_publication_commands, decode_prepared_job_publication,
     validate_job_publication_commit, PreparedJobPublication,
 };
-use publication::{prepare_consensus_job_publication, publish_staged_result};
 use results_association::*;
 use results_program::*;
 use submit::*;

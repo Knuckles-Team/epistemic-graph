@@ -4,12 +4,11 @@ use super::*;
 struct SqlDispatchCtx<'a> {
     req_id: u64,
     scope: SqlWriteScope<'a>,
-    read_authority: &'a GraphReadAuthority,
     sql_method: Method,
     core: &'a Arc<GraphCore>,
     store: &'a eg_query::TableStore,
     read_core: Arc<GraphCore>,
-    read_store: &'a eg_query::TableStore,
+    authorized_read_store: Option<crate::server::sql_catalog_acl::AuthorizedReadStore>,
 }
 
 #[cfg(feature = "query")]
@@ -26,20 +25,13 @@ fn sql_needs_source_read(kind: &eg_query::StatementKind) -> bool {
 }
 
 #[cfg(feature = "query")]
-async fn authorized_sql_read_store<'a>(
+async fn authorized_sql_read_store(
     req_id: u64,
-    scope: SqlWriteScope<'a>,
+    scope: SqlWriteScope<'_>,
     kind: &eg_query::StatementKind,
-    fallback: &'a eg_query::TableStore,
-) -> Result<
-    (
-        Option<crate::server::sql_catalog_acl::AuthorizedReadStore>,
-        &'a eg_query::TableStore,
-    ),
-    Response,
-> {
+) -> Result<Option<crate::server::sql_catalog_acl::AuthorizedReadStore>, Response> {
     if !sql_needs_source_read(kind) {
-        return Ok((None, fallback));
+        return Ok(None);
     }
     let authority = scope.authority.clone();
     let persist_dir = scope.persist_dir.to_path_buf();
@@ -52,8 +44,7 @@ async fn authorized_sql_read_store<'a>(
         Ok(Err(error)) => return Err(Response::err(req_id, format!("SQL error: {error}"))),
         Err(response) => return Err(response),
     };
-    let read_store = authorized.store();
-    Ok((Some(authorized), read_store))
+    Ok(Some(authorized))
 }
 
 #[cfg(feature = "query")]
@@ -81,20 +72,18 @@ pub(crate) async fn exec_sql_write(
     kind: eg_query::StatementKind,
 ) -> Response {
     let read_core = read_authority.project_core(core);
-    let (authorized, read_store) =
-        match authorized_sql_read_store(req_id, scope, &kind, store).await {
-            Ok(result) => result,
-            Err(response) => return response,
-        };
+    let authorized_read_store = match authorized_sql_read_store(req_id, scope, &kind).await {
+        Ok(result) => result,
+        Err(response) => return response,
+    };
     let dispatch = SqlDispatchCtx {
         req_id,
         scope,
-        read_authority,
         sql_method,
         core,
         store,
         read_core,
-        read_store,
+        authorized_read_store,
     };
     if sql_is_graph_statement(&kind) {
         exec_sql_graph_statement(dispatch, kind).await
@@ -113,9 +102,14 @@ async fn exec_sql_graph_statement(
         req_id,
         core,
         read_core,
-        read_store,
+        authorized_read_store,
+        store,
         ..
     } = ctx;
+    let read_store = authorized_read_store.as_ref().map_or(
+        store,
+        crate::server::sql_catalog_acl::AuthorizedReadStore::store,
+    );
     match kind {
         K::InsertNodes(ins) => exec_sql_write_insert_nodes(req_id, core, &read_core, ins).await,
         K::UpdateNodes(upd) => {
@@ -251,9 +245,13 @@ async fn exec_sql_catalog_insert(
         sql_method,
         store,
         read_core,
-        read_store,
+        authorized_read_store,
         ..
     } = ctx;
+    let read_store = authorized_read_store.as_ref().map_or(
+        store,
+        crate::server::sql_catalog_acl::AuthorizedReadStore::store,
+    );
     match kind {
         K::InsertTable(ins) => {
             commit_catalog_op(
@@ -494,36 +492,86 @@ async fn exec_sql_catalog_create(
 }
 
 #[cfg(feature = "query")]
+enum SqlCatalogTerminalClass {
+    TransactionControl,
+    CopyIn,
+    PropertyGraph,
+    Misclassified,
+}
+
+#[cfg(feature = "query")]
+fn classify_sql_catalog_terminal(kind: &eg_query::StatementKind) -> SqlCatalogTerminalClass {
+    use eg_query::StatementKind as K;
+    match kind {
+        K::Begin | K::Commit | K::Rollback => SqlCatalogTerminalClass::TransactionControl,
+        K::CopyIn(_) => SqlCatalogTerminalClass::CopyIn,
+        K::Read
+        | K::PropertyGraphDdlRequiresCatalogAdmission(_)
+        | K::PropertyGraphPrivilegeRequiresCatalogAdmission(_)
+        | K::GraphTableReadRequiresCatalogAdmission(_) => SqlCatalogTerminalClass::PropertyGraph,
+        K::InsertNodes(_)
+        | K::InsertNodesSelect(_)
+        | K::UpdateNodes(_)
+        | K::UpdateNodesJoin(_)
+        | K::DeleteNodes(_)
+        | K::DeleteNodesJoin(_)
+        | K::CreateTable(_)
+        | K::DropTable(_)
+        | K::AlterTable(_)
+        | K::CreateView(_)
+        | K::DropView(_)
+        | K::InsertTable(_)
+        | K::InsertSelect(_)
+        | K::UpdateTable(_)
+        | K::DeleteTable(_)
+        | K::CreateExtension { .. }
+        | K::DropExtension { .. }
+        | K::CreateAnnIndex(_)
+        | K::CreateHypertable(_)
+        | K::CreateContinuousAggregate(_)
+        | K::CreateFunction(_)
+        | K::DropFunction(_) => SqlCatalogTerminalClass::Misclassified,
+    }
+}
+
+#[cfg(feature = "query")]
 async fn exec_sql_catalog_terminal(
     ctx: SqlDispatchCtx<'_>,
     kind: eg_query::StatementKind,
 ) -> Response {
-    use eg_query::StatementKind as K;
+    exec_classified_sql_catalog_terminal(ctx, kind).await
+}
+
+#[cfg(feature = "query")]
+async fn exec_classified_sql_catalog_terminal(
+    ctx: SqlDispatchCtx<'_>,
+    kind: eg_query::StatementKind,
+) -> Response {
     let SqlDispatchCtx {
         req_id,
         scope,
         sql_method,
         core: _,
-        read_authority: _,
         store,
         read_core,
-        read_store,
+        authorized_read_store,
     } = ctx;
-    match kind {
-        K::Begin | K::Commit | K::Rollback => Response::err(
+    let read_store = authorized_read_store.as_ref().map_or(
+        store,
+        crate::server::sql_catalog_acl::AuthorizedReadStore::store,
+    );
+    match classify_sql_catalog_terminal(&kind) {
+        SqlCatalogTerminalClass::TransactionControl => Response::err(
             req_id,
             "SQL error: transaction control requires a stateful SQL wire connection"
                 .to_string(),
         ),
-        K::CopyIn(_) => Response::err(
+        SqlCatalogTerminalClass::CopyIn => Response::err(
             req_id,
             "SQL error: COPY … FROM STDIN is a streaming pgwire operation, not available over Method::Sql"
                 .to_string(),
         ),
-        graph_kind @ (K::Read
-        | K::PropertyGraphDdlRequiresCatalogAdmission(_)
-        | K::PropertyGraphPrivilegeRequiresCatalogAdmission(_)
-        | K::GraphTableReadRequiresCatalogAdmission(_)) => {
+        SqlCatalogTerminalClass::PropertyGraph => {
             exec_sql_property_graph(
                 req_id,
                 scope,
@@ -531,9 +579,12 @@ async fn exec_sql_catalog_terminal(
                 store,
                 read_store,
                 &read_core,
-                graph_kind,
+                kind,
             )
             .await
+        }
+        SqlCatalogTerminalClass::Misclassified => {
+            unreachable!("SQL statement was classified before terminal dispatch")
         }
     }
 }

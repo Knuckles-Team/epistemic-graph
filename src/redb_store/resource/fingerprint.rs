@@ -1,3 +1,5 @@
+use super::*;
+
 use std::collections::BTreeMap;
 
 struct ResourceFingerprintInputs {

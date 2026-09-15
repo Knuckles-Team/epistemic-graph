@@ -9,13 +9,14 @@ import pytest
 from _untyped import untyped
 
 from epistemic_graph.client import EpistemicGraphClient, ServerRegistryClient
+from epistemic_graph.generated._runtime import ContractViolation
 
 # Pure client-side logic over a `_FakeClient` -- never a real connection.
 pytestmark = pytest.mark.no_engine
 
 
 class _FakeClient(EpistemicGraphClient):
-    def __init__(self, result: Any = True) -> None:
+    def __init__(self, result: Any = "ok") -> None:
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
         self._result = result
 
@@ -126,8 +127,8 @@ async def test_register_rejects_non_mapping_resources() -> None:
 
 
 @pytest.mark.asyncio
-async def test_register_returns_false_on_a_falsy_engine_result() -> None:
+async def test_register_rejects_a_non_string_engine_result() -> None:
     fake = _FakeClient(result=False)
     src = ServerRegistryClient(fake)
-    out = await src.register("some-server", "mcp-ref://deadbeef")
-    assert out is False
+    with pytest.raises(ContractViolation, match="ResultPayload::String"):
+        await src.register("some-server", "mcp-ref://deadbeef")

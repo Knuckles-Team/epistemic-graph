@@ -92,7 +92,8 @@ def test_legacy_metrics_keep_four_tuple_and_effective_fallback():
 # 11 -- over the cyclomatic cap (10), within the cognitive cap (15) -- with
 # four Result matches (8 arms total, none irrefutable), residual 11 - 8 = 3.
 # All four terms of `exhaustive_dispatch_exempt` hold: exempt, over cap.
-HANDLE_SHEX_VALIDATE_BASE = """
+HANDLE_SHEX_VALIDATE_BASE = (
+    """
 async fn handle_shex_validate(
     req_id: u64,
     graph_name: &str,
@@ -103,7 +104,8 @@ async fn handle_shex_validate(
 ) -> Response {
     let schema = match eg_shex::Schema::from_shexj(&schema) {
         Ok(s) => s,
-        Err(e) => return Response::err(req_id, format!("ShexValidate: bad schema: {e}")),
+        Err(e) => return Response::err(req_id, format!("ShexValidate: bad """
+    """schema: {e}")),
     };
     // Data graph: an inline Turtle document, else the live graph's exported RDF.
     let data = if data_graph.trim().is_empty() {
@@ -117,13 +119,15 @@ async fn handle_shex_validate(
                 g
             }
             Err(e) => {
-                return Response::err(req_id, format!("ShexValidate: export live graph: {e}"))
+                return Response::err(req_id, format!("ShexValidate: export """
+    """live graph: {e}"))
             }
         }
     } else {
         match eg_shex::graph_from_turtle(&data_graph) {
             Ok(g) => g,
-            Err(e) => return Response::err(req_id, format!("ShexValidate: bad data graph: {e}")),
+            Err(e) => return Response::err(req_id, format!("ShexValidate: bad """
+    """data graph: {e}")),
         }
     };
     let pairs: Vec<(&str, &str)> = shape_map
@@ -138,6 +142,7 @@ async fn handle_shex_validate(
     }
 }
 """
+)
 
 # The real F3a fix, verbatim from /var/tmp/l9/eg-f3a/rdf.rs.worktree.bak: the
 # final `match serde_json::to_value(&report) {...}` (2 arms) is gone, replaced
@@ -145,7 +150,8 @@ async fn handle_shex_validate(
 # makes infallible at this site. Measured: cyclomatic 9, cognitive 10 -- under
 # both caps, so `exhaustive_dispatch_exempt` never grants it the exemption (it
 # does not need it any more).
-HANDLE_SHEX_VALIDATE_SIMPLIFIED = """
+HANDLE_SHEX_VALIDATE_SIMPLIFIED = (
+    """
 async fn handle_shex_validate(
     req_id: u64,
     graph_name: &str,
@@ -156,7 +162,8 @@ async fn handle_shex_validate(
 ) -> Response {
     let schema = match eg_shex::Schema::from_shexj(&schema) {
         Ok(s) => s,
-        Err(e) => return Response::err(req_id, format!("ShexValidate: bad schema: {e}")),
+        Err(e) => return Response::err(req_id, format!("ShexValidate: bad """
+    """schema: {e}")),
     };
     // Data graph: an inline Turtle document, else the live graph's exported RDF.
     let data = if data_graph.trim().is_empty() {
@@ -170,13 +177,15 @@ async fn handle_shex_validate(
                 g
             }
             Err(e) => {
-                return Response::err(req_id, format!("ShexValidate: export live graph: {e}"))
+                return Response::err(req_id, format!("ShexValidate: export """
+    """live graph: {e}"))
             }
         }
     } else {
         match eg_shex::graph_from_turtle(&data_graph) {
             Ok(g) => g,
-            Err(e) => return Response::err(req_id, format!("ShexValidate: bad data graph: {e}")),
+            Err(e) => return Response::err(req_id, format!("ShexValidate: bad """
+    """data graph: {e}")),
         }
     };
     let pairs: Vec<(&str, &str)> = shape_map
@@ -193,6 +202,7 @@ async fn handle_shex_validate(
     )
 }
 """
+)
 
 # Ordinary branching -- an if/else-if ladder, no `match` at all -- never
 # eligible for the exhaustive-dispatch exemption. Under both caps.

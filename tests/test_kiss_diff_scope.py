@@ -59,11 +59,7 @@ def _violation(
 
 def test_comment_only_change_suppresses_pre_existing_function_violation() -> None:
     head_source = (
-        "fn target_fn() {\n"
-        "    let a = 1;\n"
-        "    let b = 2;\n"
-        "    let _ = a + b;\n"
-        "}\n"
+        "fn target_fn() {\n    let a = 1;\n    let b = 2;\n    let _ = a + b;\n}\n"
     )
     staged_source = "// a harmless top-of-file comment\n" + head_source
     # The function itself did not move relative to the comment addition in
@@ -79,7 +75,9 @@ def test_comment_only_change_suppresses_pre_existing_function_violation() -> Non
     assert result == []
 
 
-def test_multiple_pre_existing_violations_on_the_same_untouched_function_all_pass() -> None:
+def test_multiple_pre_existing_violations_on_the_same_untouched_function_all_pass() -> (
+    None
+):
     head_source = "fn target_fn() {\n    let a = 1;\n    let _ = a;\n}\n"
     staged_source = "// comment\n" + head_source
     staged_report = "\n".join(
@@ -110,10 +108,7 @@ def test_multiple_pre_existing_violations_on_the_same_untouched_function_all_pas
 def test_new_function_violation_is_attributable() -> None:
     head_source = "fn other_fn() {\n    let a = 1;\n    let _ = a;\n}\n"
     staged_source = head_source + (
-        "\nfn target_fn() {\n"
-        "    let a = 1;\n"
-        "    let _ = a;\n"
-        "}\n"
+        "\nfn target_fn() {\n    let a = 1;\n    let _ = a;\n}\n"
     )
     staged_report = _violation(line=5)
     head_report = ""  # no violation existed at HEAD; target_fn did not exist
@@ -142,11 +137,7 @@ def test_brand_new_file_is_fully_attributable() -> None:
 
 def test_modified_violating_function_is_attributable() -> None:
     head_source = (
-        "fn target_fn() {\n"
-        "    let a = 1;\n"
-        "    let b = 2;\n"
-        "    let _ = a + b;\n"
-        "}\n"
+        "fn target_fn() {\n    let a = 1;\n    let b = 2;\n    let _ = a + b;\n}\n"
     )
     staged_source = (
         "fn target_fn() {\n"
@@ -298,7 +289,7 @@ def test_methods_per_class_is_treated_as_aggregate_not_content_matched() -> None
 
 def test_function_spans_ignores_the_name_inside_a_comment_or_string() -> None:
     source = (
-        '// fn target_fn() looks like a definition but is not\n'
+        "// fn target_fn() looks like a definition but is not\n"
         'const NOTE: &str = "fn target_fn() also not a definition";\n'
         "fn target_fn() {\n"
         "    let a = 1;\n"
