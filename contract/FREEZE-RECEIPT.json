@@ -1,10 +1,9 @@
 {
-  "cargo_lock_sha256": "2d09df71aedddead47c01fb9f94721dc152de2e09c3235c7a27c7e2aecb6ed0f",
-  "commit": "202193c1ec5592d5cc255fc138543a3735043c77",
-  "commit_short": "202193c1",
-  "contract_digest": "80661e0027c444b1a99d33709acf517bcad0e59e129a2ee2f603c1861db885ab",
+  "cargo_lock_sha256": "dc69e86a2b041c1eaeffa83c7be5e1129a0a2c274109843adbc5ba2d01192abd",
+  "commit": "1bb67d84bb159d01eba1747d2b4e151834ccf97a",
+  "commit_short": "1bb67d84b",
+  "contract_digest": "4f3de4aa89116184c5038ea8653b1c6c5f67fcea86bf3581dff829e6ae9812af",
   "contract_version": 1,
-  "digest_caveat_demonstrated": "Between commit d0bb0f07 and this one, contract_digest moved three times (d12cb473 -> 54f0f352 -> 80661e00) while contract/methods.json and every contract/schemas/*.json stayed BYTE-IDENTICAL. contract_digest folds source_tree_oid, so any byte under crates/eg-types/src or crates/eg-capabilities/src moves it. Pin wire_surface_digests, not contract_digest.",
   "feature_profile": [
     "contract",
     "canonical-ledger",
@@ -18,51 +17,70 @@
     "viz"
   ],
   "freeze": "epistemic-graph contract freeze",
-  "frozen_at_utc": "2026-09-12T22:56:51+00:00",
+  "frozen_at_utc": "2026-09-15T03:54:21+00:00",
   "method_count": 414,
-  "note_binary_count": "220 test binaries, not 226: six `^test result:` lines are test NAMES containing `tests::`, a grep artifact I reported for most of the session.",
-  "source_tree_oid": "7a8b46a575a346681349549cb4ddf0b2eb4c768fc00dea68f0973d4e5569f225",
+  "result_classification": {
+    "declared_dynamic": 12,
+    "mixed": 1,
+    "schematized": 401,
+    "unclassified": 0
+  },
+  "source_commit_tree": "dc9c69e751b363f1af64fc253eeee53e0c94ba79",
+  "source_tree_oid": "b4776ba7e17c63c43496979f8fb2da13abdf27609f9344b35cb92c052a8bb4b2",
   "verified": {
-    "compile_all_features": "LEG1_rc=0",
-    "compile_shipped_full": "LEG2_rc=0  (--no-default-features --features full)",
-    "contract_check_alone_no_regen": "contract is current: 30 artifacts match (CONTRACT_rc=0)",
-    "evidence_log": "R820:/mnt/data/cargo-targets/eg-freeze.log",
-    "lint_gates": {
-      "clippy_disallowed_methods": "0 (was 136) -- unbounded waits and lock poisoning cleared",
-      "clippy_shipped_leg": "cargo clippy --no-default-features --features full --all-targets -- -D warnings => 0",
-      "clippy_too_many_arguments": "0 (was 28), zero #[allow]",
-      "clippy_type_complexity": "0 (was 16), named type aliases, zero #[allow]",
-      "dead_code": "0 (was 16) -- duplicated binding-authority layer retired",
-      "deferred": "KISS 1,010 + cccc 347 -- operator-deferred to the AU phase, see docs/quality-gate-terms.md",
-      "root_hygiene": "clean (34 root files, 19 root dirs, 19 declared dirs, 20 declared files)",
-      "rustfmt": "clean (326 diffs -> 0)"
+    "contract_check": "PASS: 34 generated artifacts match; both receipt copies are byte-identical",
+    "final_main_pre_push": "NOT RUN: required before publication; recorded in the current program checkpoint after completion",
+    "final_source_binaries": {
+      "epistemic-graph-server": "041c9aee8c14470e9d68376ca5198378ff3a4e6d53ecbb7405ec80e84f56b1f6",
+      "lake-fixture-export": "b7c8d30202c0b63098484cd5f8656f4d7332d40a6f1635e683c77eb8b292f495"
     },
-    "wiring_gates": {
-      "contract_method_reachability": "GREEN 414/414 reach a dispatch arm",
-      "durable_table_registration": "GREEN 144 tables, 3 registries agree",
-      "orphan_modules": "GREEN 1336 files / 200 cargo targets",
-      "pinned_reference_resolution": "GREEN 8/8 edges, 34 pin sites"
+    "final_source_focused_tests": [
+      "PASS: server::tests::txn_commit_applies_staged_writes",
+      "PASS: sparql_recovery_rejects_untyped_results_while_prepared_and_replays_exact_outcomes"
+    ],
+    "full_feature_lib": {
+      "failed": 0,
+      "ignored": 3,
+      "passed": 1576,
+      "scope": "transaction-authentication repair before the semantically equivalent CCCC expression cleanup; final-source focused tests below passed"
     },
-    "workspace_test": "220 binaries, 6341 passed, 0 failed, 18 ignored (TEST_rc=0)"
+    "generated_artifact_counts": {
+      "body_digest_artifacts": 31,
+      "catalog_digest": 1,
+      "self_receipts": 2,
+      "total_outputs": 34
+    },
+    "pre_commit_all_files": "PASS: complete standardized hook set after final validator source; 23m49s, 633.8 MiB peak",
+    "publication_and_runtime": "NOT RUN: this contract freeze is not a deployment or runtime qualification receipt",
+    "source_commit_hooks": "PASS: all required hooks for the 136-path source commit",
+    "strict_external_lake_parity": {
+      "failed": 0,
+      "passed": 19,
+      "runtime_seconds": 13.03,
+      "scope": "real PyIceberg/Delta/pandas readers using the exact final-source binaries"
+    }
   },
   "what_to_pin": {
-    "NOT_for_compatibility": "contract_digest -- it folds source_tree_oid, so it moves on any generator-input change even when no wire byte changes",
-    "for_compatibility": "the wire_surface_digests entries above (per-artifact, exact)",
+    "for_admission_identity": "contract_digest: folds hand-written generator inputs and all body artifact digests; source-only changes can move it without changing wire bytes",
+    "for_compatibility": "wire_surface_digests: exact method registry, request schema and domain result-body schemas",
     "known_limits": [
-      "contract/schemas/ schematises REQUESTS only; result shapes are not covered by any digest",
-      "eg-capabilities builds without `timeseries`, so SensorFuse/TsScan/SensorAlign wire variants are in no schema; identical methods.json means the contract PROFILE did not change, not that the wire did not"
+      "Declared caller-shaped dynamic result bodies remain dynamic by contract; their classification and declaration are digested, not an invented fixed payload schema."
     ]
   },
   "wire_surface_digests": {
-    "contract/methods.json": "1ce5502cbb901002d4df3516205e82a034f8919942087fa4e3ae3758741125b7",
-    "contract/schemas/method.request.json": "05d15674802b75bdf52f217cfc70734caf111fcbb8717f40d858812ccd431c0d",
-    "contract/schemas/result.Bool.json": "f4bcf35f07ea1acd8a6067aa0279864f120fc1eb6e308afb0720e034b2d57744",
-    "contract/schemas/result.Count.json": "c139342b656a7d5b0bf598ad6a64f92992dc1071ab8f6568bcfa55422f1f326a",
-    "contract/schemas/result.EdgeList.json": "837e5e87b9131e55b1136b2fd5588b002ff9c26eeaad14892a3b3f2b83e1cbc2",
-    "contract/schemas/result.Float.json": "9d8d9890a0e39f6dddc45c7cf3533aef05ca6ec9709174618174f793bb6bf7e4",
-    "contract/schemas/result.Ids.json": "cef7480310b4300eebd51a58740a8d606713ab1fd6d043a7eda4b451a33595ae",
-    "contract/schemas/result.NodeList.json": "584c3712101c532f50581a956cf755b9e84b280bbe2d189ece85b9e577365e4b",
-    "contract/schemas/result.String.json": "a3e272c53a4f5de4d4d6d51ff824bf63bfb22b3aa59609d990cd53065148a4ab",
-    "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8"
+    "contract/methods.json": "e7f63200a4dbf0c69add159f136a0961524759b8caa5533f08ab8f52cff89ff6",
+    "contract/schemas/method.request.json": "1b641bce8438c3840f6a2b60029cfaa186807465e082fd3a6311e2b0a6e10f59",
+    "contract/schemas/result.cluster.json": "daa015c68e2a0e7780d0e24bfecc1c9ce7bd3288c6c05fc974098a022e03a8d4",
+    "contract/schemas/result.compute.json": "c1ba1544c6611818120f91b13a64dd6f45c8a4fdb6bad8b9cebc7fb3c61a3351",
+    "contract/schemas/result.coordination.json": "5d3a4c9f90a91c5843a76e9486beab8514bb70967807b1f966561be8e4e78400",
+    "contract/schemas/result.graph.json": "71d2305b12cdc37b83f1e04559e86a553040adec483e8cdc8e8202a1af2f2cbe",
+    "contract/schemas/result.ingestion.json": "7621f1ee96abd6a69da48adffca7fe3df8091f3c147a2d244ea861a3af6216f3",
+    "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
+    "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
+    "contract/schemas/result.query.json": "37946690afb843a740a0aeb3209b7445d078e56502b421965ef073914ab23040",
+    "contract/schemas/result.reasoning.json": "8fd557235e519a9013be36e38d485b856c9a5e83e0a30bd5d5a8335a46a7ac1f",
+    "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
+    "contract/schemas/result.storage.json": "1bb21d5bce442aa94feb5b44d2cedf80ac42a84d7ab3f226b668e63a9183786c",
+    "contract/schemas/result.transactions.json": "838fd317479843c0085bd8367ccbf310e0f2c0c7fcb10bcc3ee78db9fefe3cb5"
   }
 }
